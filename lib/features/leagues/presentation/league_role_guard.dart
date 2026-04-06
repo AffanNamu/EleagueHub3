@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/leagues_repository_local.dart';
@@ -97,7 +98,7 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return FutureBuilder<bool>(
       future: _checkAllowed(),
@@ -112,14 +113,16 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                   child: Glass(
                     borderRadius: 26,
                     padding: const EdgeInsets.all(20),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: Row(
                       children: [
-                        SizedBox(
+                        const SizedBox(
                           width: 22,
                           height: 22,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.4,
-                            color: cs.primary,
+                            color: AppTheme.limeAccentDark,
                           ),
                         ),
                         const SizedBox(width: 14),
@@ -127,7 +130,7 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                           child: Text(
                             'Checking permissions…',
                             style: TextStyle(
-                              color: cs.onSurface.withOpacity(0.72),
+                              color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w900,
                             ),
                           ),
@@ -154,6 +157,8 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                 child: Glass(
                   borderRadius: 26,
                   padding: const EdgeInsets.all(22),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -162,18 +167,16 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                         height: 64,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              cs.error.withOpacity(0.22),
-                              cs.error.withOpacity(0.08),
-                            ],
-                          ),
+                          color: brightness == Brightness.dark
+                              ? Theme.of(context)
+                                  .colorScheme
+                                  .error
+                                  .withOpacity(0.12)
+                              : const Color(0xFFFEE2E2),
                         ),
                         child: Icon(
                           Icons.admin_panel_settings_outlined,
-                          color: cs.error,
+                          color: Theme.of(context).colorScheme.error,
                           size: 30,
                         ),
                       ),
@@ -183,6 +186,7 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                         style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w900,
                           letterSpacing: -0.3,
+                          color: AppTheme.primaryText(brightness),
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -190,7 +194,7 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                       Text(
                         widget.message,
                         style: TextStyle(
-                          color: cs.onSurface.withOpacity(0.68),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w700,
                           height: 1.4,
                         ),
@@ -200,6 +204,10 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.limeAccent,
+                            foregroundColor: AppTheme.darkText,
+                          ),
                           onPressed: () {
                             if (context.canPop()) {
                               context.pop();

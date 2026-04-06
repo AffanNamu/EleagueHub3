@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 
 class MasterLeagueEntryTile extends StatelessWidget {
@@ -26,8 +27,7 @@ class MasterLeagueEntryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     const title = 'Master League';
 
@@ -45,7 +45,7 @@ class MasterLeagueEntryTile extends StatelessWidget {
     }
 
     final badgeColor = !isSignedIn
-        ? onSurface.withOpacity(0.45)
+        ? AppTheme.secondaryText(brightness)
         : (unlocked ? const Color(0xFF22C55E) : const Color(0xFFF59E0B));
 
     final badgeLabel =
@@ -63,18 +63,13 @@ class MasterLeagueEntryTile extends StatelessWidget {
     return Glass(
       borderRadius: 22,
       padding: EdgeInsets.zero,
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(22),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              cs.primary.withOpacity(0.18),
-              cs.onSurface.withOpacity(0.03),
-            ],
-          ),
+          gradient: AppTheme.leagueCardGradient(brightness),
         ),
         child: Row(
           children: [
@@ -83,10 +78,14 @@ class MasterLeagueEntryTile extends StatelessWidget {
               height: 46,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: cs.onSurface.withOpacity(0.06),
-                border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                color: AppTheme.iconCircleBackground(brightness),
+                border: Border.all(color: AppTheme.cardBorder(brightness)),
               ),
-              child: Icon(Icons.hub_rounded, color: cs.primary, size: 22),
+              child: Icon(
+                Icons.hub_rounded,
+                color: AppTheme.limeAccentDark,
+                size: 22,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -102,7 +101,7 @@ class MasterLeagueEntryTile extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w900,
-                            color: cs.onSurface,
+                            color: AppTheme.primaryText(brightness),
                           ),
                         ),
                       ),
@@ -113,9 +112,13 @@ class MasterLeagueEntryTile extends StatelessWidget {
                         ),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(999),
-                          color: badgeColor.withOpacity(0.14),
+                          color: badgeColor.withOpacity(
+                            brightness == Brightness.dark ? 0.14 : 0.10,
+                          ),
                           border: Border.all(
-                            color: badgeColor.withOpacity(0.32),
+                            color: badgeColor.withOpacity(
+                              brightness == Brightness.dark ? 0.28 : 0.22,
+                            ),
                           ),
                         ),
                         child: Text(
@@ -135,7 +138,7 @@ class MasterLeagueEntryTile extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.65),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w700,
                       height: 1.2,
                     ),
@@ -145,6 +148,13 @@ class MasterLeagueEntryTile extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.limeAccent,
+                foregroundColor: AppTheme.darkText,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
               onPressed: loading ? null : action,
               child: loading
                   ? const SizedBox(
@@ -152,7 +162,7 @@ class MasterLeagueEntryTile extends StatelessWidget {
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: AppTheme.darkText,
                       ),
                     )
                   : Text(

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/color_compat.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
 import '../../data/models/reward_model.dart';
@@ -25,7 +26,8 @@ class EditLeagueRewardsScreen extends StatefulWidget {
   final String leagueId;
 
   @override
-  State<EditLeagueRewardsScreen> createState() => _EditLeagueRewardsScreenState();
+  State<EditLeagueRewardsScreen> createState() =>
+      _EditLeagueRewardsScreenState();
 }
 
 class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
@@ -86,18 +88,17 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
   }
 
   Future<void> _deleteReward(RewardModel reward) async {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final dialogBg =
-        theme.brightness == Brightness.light ? Colors.white.withOpacity(0.92) : cs.surface;
+    final brightness = Theme.of(context).brightness;
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: dialogBg,
+          backgroundColor: AppTheme.cardColor(brightness),
+          surfaceTintColor: Colors.transparent,
           title: const Text('Delete reward?'),
-          content: Text('This will permanently remove "${reward.rewardName}".'),
+          content:
+              Text('This will permanently remove "${reward.rewardName}".'),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -113,14 +114,16 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
     );
 
     if (ok != true) return;
-    await _service.deleteReward(leagueId: widget.leagueId, rewardId: reward.id);
+    await _service.deleteReward(
+      leagueId: widget.leagueId,
+      rewardId: reward.id,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isLight = theme.brightness == Brightness.light;
+    final brightness = theme.brightness;
 
     final pageBody = FutureBuilder<bool>(
       future: _isOrganizer(),
@@ -132,7 +135,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
               height: 28,
               child: CircularProgressIndicator(
                 strokeWidth: 2.6,
-                color: cs.primary,
+                color: AppTheme.limeAccentDark,
               ),
             ),
           );
@@ -147,7 +150,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
                 'You do not have permission to manage rewards for this league.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: cs.onSurface.withOpacity(0.80),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w600,
                     ),
               ),
@@ -166,7 +169,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
                     snapshot.error.toString(),
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: cs.error.withOpacity(0.95),
+                          color: Theme.of(context).colorScheme.error,
                           fontWeight: FontWeight.w700,
                         ),
                   ),
@@ -181,7 +184,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
                   height: 28,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.6,
-                    color: cs.primary,
+                    color: AppTheme.limeAccentDark,
                   ),
                 ),
               );
@@ -193,7 +196,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
                 child: Text(
                   'No rewards yet. Tap "Add Reward" to create one.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: cs.onSurface.withOpacity(0.78),
+                        color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w600,
                       ),
                 ),
@@ -215,7 +218,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
                         onPressed: () => _editReward(reward),
                         icon: Icon(
                           Icons.edit_outlined,
-                          color: cs.onSurface.withOpacity(0.85),
+                          color: AppTheme.primaryText(brightness),
                         ),
                       ),
                       IconButton(
@@ -223,7 +226,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
                         onPressed: () => _deleteReward(reward),
                         icon: Icon(
                           Icons.delete_outline,
-                          color: cs.error.withOpacity(0.95),
+                          color: Theme.of(context).colorScheme.error,
                         ),
                       ),
                     ],
@@ -243,6 +246,8 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
         if (!canManage) return const SizedBox.shrink();
 
         return FloatingActionButton.extended(
+          backgroundColor: AppTheme.limeAccent,
+          foregroundColor: AppTheme.darkText,
           onPressed: _createReward,
           icon: const Icon(Icons.add),
           label: const Text('Add Reward'),
@@ -250,44 +255,16 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
       },
     );
 
-    // Light mode: premium glass scaffold background.
-    if (isLight) {
-      return GlassScaffold(
-        appBar: AppBar(
-          title: const Text('Manage Rewards'),
-        ),
-        floatingActionButton: fab,
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.only(top: kToolbarHeight),
-            child: pageBody,
-          ),
-        ),
-      );
-    }
-
-    // Dark mode: keep previous dark styling unchanged.
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0F1A),
+    return GlassScaffold(
       appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.2),
-        elevation: 0,
         title: const Text('Manage Rewards'),
       ),
       floatingActionButton: fab,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: <Color>[
-              Color(0xFF0B0F1A),
-              Color(0xFF0A1222),
-              Color(0xFF071425),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(top: kToolbarHeight),
+          child: pageBody,
         ),
-        child: pageBody,
       ),
     );
   }
@@ -380,13 +357,17 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(e.toString()),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }
 
   Future<PlatformFile> _platformFileFromXFile(XFile x) async {
-    final name = (x.name).trim().isNotEmpty ? x.name.trim() : _fallbackNameFromPath(x.path);
+    final name =
+        (x.name).trim().isNotEmpty ? x.name.trim() : _fallbackNameFromPath(x.path);
 
     final p = x.path.trim();
     if (p.isNotEmpty) {
@@ -481,11 +462,7 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final isLight = theme.brightness == Brightness.light;
-
-    final dropdownBg = isLight ? Colors.white : const Color(0xFF0E1628);
+    final brightness = theme.brightness;
 
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
@@ -500,6 +477,8 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
             child: Glass(
               borderRadius: 24,
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              fill: AppTheme.cardColor(brightness),
+              borderColor: AppTheme.cardBorder(brightness),
               child: SingleChildScrollView(
                 child: Column(
                   children: <Widget>[
@@ -507,7 +486,7 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                       width: 44,
                       height: 5,
                       decoration: BoxDecoration(
-                        color: onSurface.withOpacity(0.18),
+                        color: AppTheme.cardBorder(brightness),
                         borderRadius: BorderRadius.circular(99),
                       ),
                     ),
@@ -518,14 +497,18 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                           child: Text(
                             widget.title,
                             style: theme.textTheme.titleLarge?.copyWith(
-                              color: onSurface,
+                              color: AppTheme.primaryText(brightness),
                               fontWeight: FontWeight.w900,
                             ),
                           ),
                         ),
                         IconButton(
-                          onPressed: _busy ? null : () => Navigator.of(context).pop(),
-                          icon: Icon(Icons.close, color: onSurface.withOpacity(0.85)),
+                          onPressed:
+                              _busy ? null : () => Navigator.of(context).pop(),
+                          icon: Icon(
+                            Icons.close,
+                            color: AppTheme.primaryText(brightness),
+                          ),
                         ),
                       ],
                     ),
@@ -542,7 +525,8 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                                   decoration: const InputDecoration(
                                     labelText: 'Position',
                                   ),
-                                  dropdownColor: dropdownBg,
+                                  dropdownColor:
+                                      Theme.of(context).colorScheme.surface,
                                   items: List<DropdownMenuItem<int>>.generate(
                                     50,
                                     (i) => DropdownMenuItem<int>(
@@ -561,17 +545,35 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: DropdownButtonFormField<String>(
-                                  value: RewardModel.normalizeRewardType(_rewardType),
+                                  value: RewardModel.normalizeRewardType(
+                                    _rewardType,
+                                  ),
                                   decoration: const InputDecoration(
                                     labelText: 'Reward Type',
                                   ),
-                                  dropdownColor: dropdownBg,
+                                  dropdownColor:
+                                      Theme.of(context).colorScheme.surface,
                                   items: const <DropdownMenuItem<String>>[
-                                    DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                                    DropdownMenuItem(value: 'physical', child: Text('Physical')),
-                                    DropdownMenuItem(value: 'digital', child: Text('Digital')),
-                                    DropdownMenuItem(value: 'trophy', child: Text('Trophy')),
-                                    DropdownMenuItem(value: 'other', child: Text('Other')),
+                                    DropdownMenuItem(
+                                      value: 'cash',
+                                      child: Text('Cash'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'physical',
+                                      child: Text('Physical'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'digital',
+                                      child: Text('Digital'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'trophy',
+                                      child: Text('Trophy'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'other',
+                                      child: Text('Other'),
+                                    ),
                                   ],
                                   onChanged: _busy
                                       ? null
@@ -591,7 +593,9 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                               labelText: 'Reward Name',
                             ),
                             validator: (v) {
-                              if (v == null || v.trim().isEmpty) return 'Reward name is required';
+                              if (v == null || v.trim().isEmpty) {
+                                return 'Reward name is required';
+                              }
                               if (v.trim().length < 2) return 'Too short';
                               return null;
                             },
@@ -628,14 +632,18 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppTheme.limeAccent,
+                                foregroundColor: AppTheme.darkText,
+                              ),
                               onPressed: _busy ? null : _submit,
                               child: _busy
-                                  ? SizedBox(
+                                  ? const SizedBox(
                                       height: 18,
                                       width: 18,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        color: cs.onPrimary,
+                                        color: AppTheme.darkText,
                                       ),
                                     )
                                   : const Text('Save'),
@@ -674,7 +682,7 @@ class _ImagePickerRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final Widget preview = _buildPreview(context);
 
@@ -690,9 +698,11 @@ class _ImagePickerRow extends StatelessWidget {
             child: Text(
               pickedXFile != null || pickedPlatformFile != null
                   ? 'Selected image'
-                  : (existingUrl.trim().isNotEmpty ? 'Using existing image' : 'No image selected'),
+                  : (existingUrl.trim().isNotEmpty
+                      ? 'Using existing image'
+                      : 'No image selected'),
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurface.withOpacity(0.82),
+                color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -768,15 +778,15 @@ class _ImagePickerRow extends StatelessWidget {
   }
 
   Widget _fallback(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
     return Container(
       width: 64,
       height: 64,
-      color: cs.onSurface.withOpacity(0.06),
+      color: AppTheme.searchBackground(brightness),
       alignment: Alignment.center,
       child: Icon(
         Icons.image_outlined,
-        color: cs.onSurface.withOpacity(0.55),
+        color: AppTheme.secondaryText(brightness),
       ),
     );
   }

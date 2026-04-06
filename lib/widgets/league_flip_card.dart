@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../core/color_compat.dart';
+import '../core/theme/app_theme.dart';
 import '../core/widgets/glass.dart';
 import '../features/leagues/data/services/reward_firestore_service.dart';
 
@@ -47,7 +48,6 @@ class LeagueFlipCard extends StatefulWidget {
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
   final VoidCallback? onLongPress;
-
   final String? imageUrl;
   final bool isLocked;
   final VoidCallback? onPay;
@@ -318,30 +318,25 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
               animation: _anim,
               builder: (context, _) {
                 final theme = Theme.of(context);
-                final cs = theme.colorScheme;
-                final isLight = theme.brightness == Brightness.light;
+                final brightness = theme.brightness;
 
                 final t = _anim.value;
                 final angle = t * math.pi;
-
                 final diagonalTwist = 0.16 * math.sin(angle);
-
                 final lift = math.sin(t * math.pi);
                 final translateY = -3.0 * lift;
                 final scale = 1.0 + (0.018 * lift);
-
                 final isBackVisible = t >= 0.5;
-                final face =
-                    isBackVisible ? _backFace(context, t) : _frontFace(context, leagueId, t);
 
-                final shadowOpacity = 0.10 + (0.20 * lift);
-                final shadowColor = isLight
-                    ? cs.primary.withValues(alpha: 0.10 + (0.18 * lift))
-                    : Colors.black.withValues(alpha: shadowOpacity);
+                final face = isBackVisible
+                    ? _backFace(context, t)
+                    : _frontFace(context, leagueId, t);
 
-                final effectiveBorderColor = isLight
-                    ? Colors.white.withValues(alpha: 0.22)
-                    : Colors.white.withValues(alpha: 0.10);
+                final shadowColor = brightness == Brightness.light
+                    ? AppTheme.limeAccentDark.withOpacity(0.14 + (0.10 * lift))
+                    : Colors.black.withOpacity(0.18 + (0.16 * lift));
+
+                final effectiveBorderColor = AppTheme.cardBorder(brightness);
 
                 return Transform.translate(
                   offset: Offset(0, translateY),
@@ -353,7 +348,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                         boxShadow: [
                           BoxShadow(
                             color: shadowColor,
-                            blurRadius: isLight ? 38 : 34,
+                            blurRadius: brightness == Brightness.light ? 32 : 34,
                             offset: const Offset(0, 18),
                           ),
                         ],
@@ -372,8 +367,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                           child: Glass(
                             borderRadius: _outerRadius,
                             padding: EdgeInsets.zero,
-                            blur: 18,
-                            opacity: 0.055,
+                            blur: 14,
+                            opacity: 1,
+                            fill: AppTheme.cardColor(brightness),
                             borderColor: effectiveBorderColor,
                             child: SizedBox(height: height, child: face),
                           ),
@@ -392,7 +388,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
   Widget _frontFace(BuildContext context, String leagueId, double t) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
+    final primaryText = AppTheme.primaryText(brightness);
+    final secondaryText = AppTheme.secondaryText(brightness);
 
     final title = _title();
     final distribution = _distribution();
@@ -417,28 +415,30 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(_outerRadius - 3),
-              gradient: LinearGradient(
-                colors: [
-                  cs.onSurface.withValues(alpha: 0.045),
-                  cs.onSurface.withValues(alpha: 0.030),
-                  cs.onSurface.withValues(alpha: 0.020),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+              gradient: AppTheme.leagueCardGradient(brightness),
+              border: Border.all(color: AppTheme.cardBorder(brightness)),
             ),
           ),
         ),
         Positioned(
           left: -40,
           top: -40,
-          child: _GlowBlob(color: cs.primary, opacity: 0.18, size: 160),
+          child: _GlowBlob(
+            color: AppTheme.limeAccentDark,
+            opacity: brightness == Brightness.light ? 0.10 : 0.16,
+            size: 160,
+          ),
         ),
         Positioned(
           right: -50,
           bottom: -60,
-          child: _GlowBlob(color: cs.secondary, opacity: 0.14, size: 190),
+          child: _GlowBlob(
+            color: brightness == Brightness.light
+                ? const Color(0xFFD9F99D)
+                : const Color(0xFF334155),
+            opacity: brightness == Brightness.light ? 0.20 : 0.14,
+            size: 190,
+          ),
         ),
         Positioned.fill(
           child: IgnorePointer(
@@ -446,7 +446,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
               borderRadius: BorderRadius.circular(_outerRadius - 3),
               child: CustomPaint(
                 painter: _NanoGridPainter(
-                  color: cs.onSurface.withValues(alpha: 0.10),
+                  color: brightness == Brightness.light
+                      ? const Color(0x140F172A)
+                      : Colors.white.withOpacity(0.08),
                 ),
               ),
             ),
@@ -458,7 +460,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(_outerRadius - 3),
                 child: Opacity(
-                  opacity: 0.10 + 0.22 * sheenStrength,
+                  opacity: brightness == Brightness.light
+                      ? 0.05 + 0.10 * sheenStrength
+                      : 0.10 + 0.18 * sheenStrength,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -486,8 +490,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                 children: [
                   _LeagueHeroTile(
                     imageUrl: widget.imageUrl,
-                    primary: cs.primary,
-                    secondary: cs.secondary,
+                    brightness: brightness,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -496,6 +499,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleLarge?.copyWith(
+                        color: primaryText,
                         fontWeight: FontWeight.w900,
                         letterSpacing: -0.2,
                         height: 1.05,
@@ -507,14 +511,18 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       icon: Icons.hub_rounded,
                       label: 'Master',
                       gradient: LinearGradient(
-                        colors: [
-                          cs.primary.withOpacity(0.92),
-                          cs.secondary.withOpacity(0.82),
-                        ],
+                        colors: brightness == Brightness.light
+                            ? const [Color(0xFF1F2937), Color(0xFF374151)]
+                            : [
+                                AppTheme.limeAccent.withOpacity(0.92),
+                                AppTheme.limeAccentDark.withOpacity(0.82),
+                              ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      textColor: Colors.white.withValues(alpha: 0.94),
+                      textColor: brightness == Brightness.light
+                          ? Colors.white
+                          : AppTheme.darkText,
                     ),
                   if (insideMasterLeague &&
                       widget.showMasterBadge &&
@@ -531,11 +539,11 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                           icon: Icons.card_giftcard_rounded,
                           label: 'Rewards',
                           gradient: const LinearGradient(
-                            colors: [Color(0xFFFFD54F), Color(0xFFFF8A65)],
+                            colors: [Color(0xFFEF4444), Color(0xFFF97316)],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
-                          textColor: Colors.black.withValues(alpha: 0.86),
+                          textColor: Colors.white,
                         );
                       },
                     ),
@@ -548,7 +556,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withValues(alpha: 0.72),
+                    color: secondaryText,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.2,
                     height: 1.2,
@@ -556,7 +564,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                 ),
               if (showHomeAway) ...[
                 const SizedBox(height: 8),
-                _SoftStatusPill(
+                const _SoftStatusPill(
                   icon: Icons.swap_horiz_rounded,
                   label: 'Home & Away matches enabled',
                 ),
@@ -573,7 +581,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                             maxLines: 5,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: cs.onSurface.withValues(alpha: 0.80),
+                              color: secondaryText,
                               fontWeight: FontWeight.w700,
                               height: 1.25,
                             ),
@@ -611,16 +619,13 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                         ),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(999),
-                          gradient: LinearGradient(
-                            colors: [
-                              cs.primary.withValues(alpha: 0.15),
-                              cs.secondary.withValues(alpha: 0.12),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+                          color: brightness == Brightness.light
+                              ? const Color(0xFFECFCCB)
+                              : AppTheme.limeAccentDark.withOpacity(0.14),
                           border: Border.all(
-                            color: cs.primary.withValues(alpha: 0.24),
+                            color: brightness == Brightness.light
+                                ? const Color(0xFFD9F99D)
+                                : AppTheme.limeAccentDark.withOpacity(0.24),
                           ),
                         ),
                         child: Row(
@@ -629,7 +634,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                             Icon(
                               Icons.card_giftcard_outlined,
                               size: 16,
-                              color: cs.primary,
+                              color: AppTheme.limeAccentDark,
                             ),
                             const SizedBox(width: 8),
                             Flexible(
@@ -638,7 +643,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.labelLarge?.copyWith(
-                                  color: cs.primary,
+                                  color: brightness == Brightness.light
+                                      ? AppTheme.darkText
+                                      : AppTheme.limeAccent,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
@@ -658,26 +665,40 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                   final qrChip = _ActionChip(
                     icon: Icons.qr_code_2_rounded,
                     label: narrow ? 'QR & code' : 'Tap for QR & invite code',
-                    fg: cs.primary,
-                    bg: cs.primary.withValues(alpha: 0.14),
-                    border: cs.primary.withValues(alpha: 0.32),
+                    fg: brightness == Brightness.light
+                        ? AppTheme.limeAccentDark
+                        : AppTheme.limeAccent,
+                    bg: brightness == Brightness.light
+                        ? const Color(0xFFECFCCB)
+                        : AppTheme.limeAccentDark.withOpacity(0.14),
+                    border: brightness == Brightness.light
+                        ? const Color(0xFFD9F99D)
+                        : AppTheme.limeAccentDark.withOpacity(0.28),
                   );
 
                   final flipChip = _ActionChip(
                     icon: Icons.touch_app_rounded,
                     label: 'Flip',
-                    fg: cs.onSurface.withValues(alpha: 0.75),
-                    bg: cs.onSurface.withValues(alpha: 0.06),
-                    border: cs.onSurface.withValues(alpha: 0.12),
+                    fg: secondaryText,
+                    bg: brightness == Brightness.light
+                        ? const Color(0xFFF3F4F6)
+                        : Colors.white.withOpacity(0.05),
+                    border: brightness == Brightness.light
+                        ? const Color(0xFFE5E7EB)
+                        : Colors.white.withOpacity(0.10),
                     compact: true,
                   );
 
                   final detailsHintChip = _ActionChip(
                     icon: Icons.open_in_new_rounded,
                     label: narrow ? '2× Details' : 'Double-tap details',
-                    fg: cs.onSurface.withValues(alpha: 0.70),
-                    bg: cs.onSurface.withValues(alpha: 0.05),
-                    border: cs.onSurface.withValues(alpha: 0.10),
+                    fg: secondaryText,
+                    bg: brightness == Brightness.light
+                        ? const Color(0xFFF3F4F6)
+                        : Colors.white.withOpacity(0.05),
+                    border: brightness == Brightness.light
+                        ? const Color(0xFFE5E7EB)
+                        : Colors.white.withOpacity(0.10),
                     compact: true,
                   );
 
@@ -719,7 +740,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 
   Widget _backFace(BuildContext context, double t) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
+    final primaryText = AppTheme.primaryText(brightness);
+    final secondaryText = AppTheme.secondaryText(brightness);
 
     final code = _code().trim();
 
@@ -747,27 +770,30 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(_outerRadius - 3),
-              gradient: LinearGradient(
-                colors: [
-                  cs.onSurface.withValues(alpha: 0.050),
-                  cs.onSurface.withValues(alpha: 0.028),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+              gradient: AppTheme.leagueCardGradient(brightness),
+              border: Border.all(color: AppTheme.cardBorder(brightness)),
             ),
           ),
         ),
         Positioned(
           left: -50,
           bottom: -60,
-          child: _GlowBlob(color: cs.primary, opacity: 0.12, size: 210),
+          child: _GlowBlob(
+            color: AppTheme.limeAccentDark,
+            opacity: brightness == Brightness.light ? 0.08 : 0.12,
+            size: 210,
+          ),
         ),
         Positioned(
           right: -60,
           top: -70,
-          child: _GlowBlob(color: cs.secondary, opacity: 0.10, size: 220),
+          child: _GlowBlob(
+            color: brightness == Brightness.light
+                ? const Color(0xFFD9F99D)
+                : const Color(0xFF334155),
+            opacity: brightness == Brightness.light ? 0.14 : 0.10,
+            size: 220,
+          ),
         ),
         Positioned.fill(
           child: IgnorePointer(
@@ -775,7 +801,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
               borderRadius: BorderRadius.circular(_outerRadius - 3),
               child: CustomPaint(
                 painter: _NanoGridPainter(
-                  color: cs.onSurface.withValues(alpha: 0.09),
+                  color: brightness == Brightness.light
+                      ? const Color(0x120F172A)
+                      : Colors.white.withOpacity(0.08),
                 ),
               ),
             ),
@@ -787,7 +815,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(_outerRadius - 3),
                 child: Opacity(
-                  opacity: 0.08 + 0.18 * sheenStrength,
+                  opacity: brightness == Brightness.light
+                      ? 0.04 + 0.08 * sheenStrength
+                      : 0.08 + 0.18 * sheenStrength,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -817,6 +847,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     Text(
                       'Scan to Join',
                       style: theme.textTheme.titleMedium?.copyWith(
+                        color: primaryText,
                         fontWeight: FontWeight.w900,
                         letterSpacing: -0.2,
                       ),
@@ -832,9 +863,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                               borderRadius: BorderRadius.circular(18),
                               boxShadow: [
                                 BoxShadow(
-                                  color: theme.brightness == Brightness.light
-                                      ? cs.primary.withValues(alpha: 0.18)
-                                      : Colors.black.withValues(alpha: 0.18),
+                                  color: brightness == Brightness.light
+                                      ? AppTheme.limeAccentDark.withOpacity(0.12)
+                                      : Colors.black.withOpacity(0.18),
                                   blurRadius: 22,
                                   offset: const Offset(0, 14),
                                 ),
@@ -855,7 +886,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     Text(
                       'Tap anywhere to flip back',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withValues(alpha: 0.68),
+                        color: secondaryText,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -871,7 +902,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                     Text(
                       'INVITE CODE',
                       style: theme.textTheme.labelMedium?.copyWith(
-                        color: cs.onSurface.withValues(alpha: 0.65),
+                        color: secondaryText,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1.0,
                       ),
@@ -885,9 +916,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                       ),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
-                        color: cs.onSurface.withValues(alpha: 0.06),
+                        color: AppTheme.searchBackground(brightness),
                         border: Border.all(
-                          color: cs.onSurface.withValues(alpha: 0.12),
+                          color: AppTheme.searchOutline(brightness),
                         ),
                       ),
                       child: Text(
@@ -898,8 +929,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                           fontWeight: FontWeight.w900,
                           letterSpacing: 2.0,
                           color: code.isEmpty
-                              ? cs.onSurface.withValues(alpha: 0.35)
-                              : cs.onSurface.withValues(alpha: 0.92),
+                              ? secondaryText.withOpacity(0.6)
+                              : primaryText,
                         ),
                       ),
                     ),
@@ -914,19 +945,9 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                           width: double.infinity,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(16),
-                            gradient: LinearGradient(
-                              colors: code.isEmpty
-                                  ? [
-                                      cs.onSurface.withValues(alpha: 0.08),
-                                      cs.onSurface.withValues(alpha: 0.06),
-                                    ]
-                                  : [
-                                      cs.primary.withValues(alpha: 0.90),
-                                      cs.secondary.withValues(alpha: 0.82),
-                                    ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
+                            color: code.isEmpty
+                                ? AppTheme.tabInactiveBackground(brightness)
+                                : AppTheme.limeAccent,
                           ),
                           child: Center(
                             child: Row(
@@ -936,8 +957,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                   Icons.copy_rounded,
                                   size: 18,
                                   color: code.isEmpty
-                                      ? cs.onSurface.withValues(alpha: 0.45)
-                                      : Colors.white,
+                                      ? secondaryText
+                                      : AppTheme.darkText,
                                 ),
                                 const SizedBox(width: 10),
                                 Text(
@@ -946,8 +967,8 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: 0.8,
                                     color: code.isEmpty
-                                        ? cs.onSurface.withValues(alpha: 0.45)
-                                        : Colors.white,
+                                        ? secondaryText
+                                        : AppTheme.darkText,
                                   ),
                                 ),
                               ],
@@ -962,7 +983,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
                           ? 'No invite code available for this league.'
                           : 'Share this code with friends or let them scan the QR.',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withValues(alpha: 0.68),
+                        color: secondaryText,
                         fontWeight: FontWeight.w700,
                         height: 1.35,
                       ),
@@ -986,8 +1007,7 @@ class _LeagueFlipCardState extends State<LeagueFlipCard>
 class _LeagueHeroTile extends StatelessWidget {
   const _LeagueHeroTile({
     required this.imageUrl,
-    required this.primary,
-    required this.secondary,
+    required this.brightness,
   });
 
   static const double _size = 48;
@@ -995,8 +1015,7 @@ class _LeagueHeroTile extends StatelessWidget {
   static const int _cachePx = 128;
 
   final String? imageUrl;
-  final Color primary;
-  final Color secondary;
+  final Brightness brightness;
 
   Uint8List? _tryDecodeDataUri(String raw) {
     final s = raw.trim();
@@ -1042,10 +1061,12 @@ class _LeagueHeroTile extends StatelessWidget {
   }
 
   Widget _placeholder() {
-    return const Center(
+    return Center(
       child: Icon(
         Icons.emoji_events_outlined,
-        color: Colors.white,
+        color: brightness == Brightness.light
+            ? AppTheme.darkText
+            : Colors.white,
       ),
     );
   }
@@ -1087,17 +1108,12 @@ class _LeagueHeroTile extends StatelessWidget {
       height: _size,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(_radius),
-        gradient: LinearGradient(
-          colors: [
-            primary.withValues(alpha: 0.98),
-            secondary.withValues(alpha: 0.92),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: AppTheme.iconCircleBackground(brightness),
         boxShadow: [
           BoxShadow(
-            color: primary.withValues(alpha: 0.25),
+            color: brightness == Brightness.light
+                ? AppTheme.limeAccentDark.withOpacity(0.12)
+                : AppTheme.limeAccent.withOpacity(0.18),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -1220,18 +1236,28 @@ class _SoftStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: cs.onSurface.withValues(alpha: 0.05),
-        border: Border.all(color: cs.onSurface.withValues(alpha: 0.10)),
+        color: brightness == Brightness.light
+            ? const Color(0xFFF3F4F6)
+            : Colors.white.withOpacity(0.05),
+        border: Border.all(
+          color: brightness == Brightness.light
+              ? const Color(0xFFE5E7EB)
+              : Colors.white.withOpacity(0.10),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: cs.onSurface.withValues(alpha: 0.55)),
+          Icon(
+            icon,
+            size: 16,
+            color: AppTheme.secondaryText(brightness),
+          ),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
@@ -1239,7 +1265,7 @@ class _SoftStatusPill extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelMedium?.copyWith(
-                color: cs.onSurface.withValues(alpha: 0.65),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w900,
               ),
             ),
@@ -1273,7 +1299,7 @@ class _MiniPill extends StatelessWidget {
         gradient: gradient,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
+            color: Colors.black.withOpacity(0.10),
             blurRadius: 14,
             offset: const Offset(0, 8),
           ),
@@ -1330,5 +1356,6 @@ class _NanoGridPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(covariant _NanoGridPainter oldDelegate) =>
+      oldDelegate.color != color;
 }

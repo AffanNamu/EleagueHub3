@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -88,9 +89,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
     setState(() => _submitting = true);
     try {
-      // Optional: verify code first (better errors + shows account email if needed).
       await _auth.verifyPasswordResetCode(code: code);
-
       await _auth.confirmPasswordReset(code: code, newPassword: newPass);
 
       if (!mounted) return;
@@ -106,7 +105,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -119,6 +118,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             padding: const EdgeInsets.all(16),
             child: Glass(
               padding: EdgeInsets.zero,
+              fill: AppTheme.cardColor(brightness),
+              borderColor: AppTheme.cardBorder(brightness),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -127,13 +128,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     Icon(
                       Icons.password,
                       size: 44,
-                      color: cs.primary,
+                      color: AppTheme.limeAccentDark,
                     ),
                     const SizedBox(height: 10),
                     Text(
                       'Enter the code/link from your email',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
+                        color: AppTheme.primaryText(brightness),
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -143,7 +145,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                           ? 'Paste the password reset link (or code) you received from Firebase.'
                           : 'We sent a reset email to ${widget.emailHint}. Paste the reset link (or code) here.',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: cs.onSurface.withOpacity(0.72),
+                        color: AppTheme.secondaryText(brightness),
                         height: 1.35,
                       ),
                       textAlign: TextAlign.center,
@@ -196,8 +198,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                             _obscureConfirm ? 'Show password' : 'Hide password',
                         onPressed: _submitting
                             ? null
-                            : () =>
-                                setState(() => _obscureConfirm = !_obscureConfirm),
+                            : () => setState(
+                                  () => _obscureConfirm = !_obscureConfirm,
+                                ),
                         icon: Icon(
                           _obscureConfirm
                               ? Icons.visibility_outlined
@@ -211,14 +214,18 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
                         onPressed: _submitting ? null : _reset,
                         child: _submitting
-                            ? SizedBox(
+                            ? const SizedBox(
                                 width: 18,
                                 height: 18,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color: cs.onPrimary,
+                                  color: AppTheme.darkText,
                                 ),
                               )
                             : const Text('Update password'),

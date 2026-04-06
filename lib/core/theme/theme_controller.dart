@@ -26,7 +26,6 @@ class ThemeController extends Notifier<ThemeState> {
     final prefs = ref.watch(prefsServiceProvider);
     final saved = prefs.getThemeMode();
 
-    // Map stored string to ThemeMode (Sky ↔ Navy)
     final ThemeMode initialMode = switch (saved) {
       _storageKeyDark => ThemeMode.dark,
       _storageKeyLight => ThemeMode.light,
@@ -43,13 +42,13 @@ class ThemeController extends Notifier<ThemeState> {
     await ref.read(prefsServiceProvider).setThemeMode(value);
   }
 
-  /// Toggle between Sky (light) and Navy (dark)
+  /// Toggle between light and dark mode
   Future<void> toggleTheme() async {
-    final next = state.mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+    final next =
+        state.mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
     await setThemeMode(next);
   }
 
-  /// Convenience getters for UI usage
   bool get isDark => state.mode == ThemeMode.dark;
   bool get isLight => state.mode == ThemeMode.light;
 }

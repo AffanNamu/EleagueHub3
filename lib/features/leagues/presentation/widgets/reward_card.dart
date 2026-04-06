@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../data/models/reward_model.dart';
 
@@ -61,27 +62,34 @@ class RewardCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isLight = theme.brightness == Brightness.light;
+    final brightness = theme.brightness;
+    final isLight = brightness == Brightness.light;
 
     final cardChild = Stack(
       children: <Widget>[
-        // Background layer
         Positioned.fill(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(18),
             child: reward.imageUrl.trim().isEmpty
                 ? Container(
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: <Color>[
-                          cs.primary.withOpacity(isLight ? 0.10 : 0.12),
-                          cs.secondary.withOpacity(isLight ? 0.06 : 0.08),
-                          cs.onSurface.withOpacity(isLight ? 0.03 : 0.04),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
+                      gradient: isLight
+                          ? const LinearGradient(
+                              colors: <Color>[
+                                Color(0xFFFFFFFF),
+                                Color(0xFFF9FAFB),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : LinearGradient(
+                              colors: <Color>[
+                                AppTheme.darkCard,
+                                AppTheme.darkCardAlt,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                     ),
                     child: const SizedBox.expand(),
                   )
@@ -94,32 +102,34 @@ class RewardCard extends StatelessWidget {
                         errorBuilder: (context, error, stack) {
                           return Container(
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: <Color>[
-                                  cs.primary.withOpacity(isLight ? 0.10 : 0.12),
-                                  cs.secondary
-                                      .withOpacity(isLight ? 0.06 : 0.08),
-                                  cs.onSurface
-                                      .withOpacity(isLight ? 0.03 : 0.04),
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
+                              gradient: isLight
+                                  ? const LinearGradient(
+                                      colors: <Color>[
+                                        Color(0xFFFFFFFF),
+                                        Color(0xFFF9FAFB),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    )
+                                  : LinearGradient(
+                                      colors: <Color>[
+                                        AppTheme.darkCard,
+                                        AppTheme.darkCardAlt,
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
                             ),
                           );
                         },
                       ),
-
-                      // Readability overlay
-                      // - Light theme: frosted white veil (supports dark text)
-                      // - Dark theme: dark veil (supports light/bright accents)
                       Container(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: isLight
                                 ? <Color>[
-                                    Colors.white.withOpacity(0.18),
-                                    Colors.white.withOpacity(0.62),
+                                    Colors.white.withOpacity(0.25),
+                                    Colors.white.withOpacity(0.74),
                                   ]
                                 : <Color>[
                                     Colors.black.withOpacity(0.15),
@@ -130,14 +140,12 @@ class RewardCard extends StatelessWidget {
                           ),
                         ),
                       ),
-
-                      // Subtle blue tint glow (light theme only)
                       if (isLight)
                         Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: <Color>[
-                                cs.primary.withOpacity(0.08),
+                                AppTheme.limeAccent.withOpacity(0.06),
                                 Colors.transparent,
                               ],
                               begin: Alignment.topLeft,
@@ -149,8 +157,6 @@ class RewardCard extends StatelessWidget {
                   ),
           ),
         ),
-
-        // Glass overlay
         Positioned.fill(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(18),
@@ -160,20 +166,18 @@ class RewardCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: isLight
-                        ? Colors.white.withOpacity(0.55)
-                        : cs.onSurface.withOpacity(0.12),
+                    color: AppTheme.cardBorder(brightness),
                     width: 1,
                   ),
                   gradient: LinearGradient(
                     colors: isLight
                         ? <Color>[
-                            Colors.white.withOpacity(0.22),
-                            Colors.white.withOpacity(0.06),
+                            Colors.white.withOpacity(0.20),
+                            Colors.white.withOpacity(0.04),
                           ]
                         : <Color>[
-                            cs.onSurface.withOpacity(0.08),
-                            cs.onSurface.withOpacity(0.03),
+                            Colors.white.withOpacity(0.08),
+                            Colors.white.withOpacity(0.03),
                           ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -183,8 +187,6 @@ class RewardCard extends StatelessWidget {
             ),
           ),
         ),
-
-        // Content
         Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
@@ -200,8 +202,6 @@ class RewardCard extends StatelessWidget {
             ],
           ),
         ),
-
-        // Position badge
         Positioned(
           left: 12,
           top: 12,
@@ -210,8 +210,6 @@ class RewardCard extends StatelessWidget {
             color: _badgeColor(),
           ),
         ),
-
-        // Type chip
         Positioned(
           right: 12,
           top: 12,
@@ -240,6 +238,8 @@ class RewardCard extends StatelessWidget {
         child: GestureDetector(
           onTap: onTap,
           child: GlassCard(
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(18),
               child: SizedBox(
@@ -261,7 +261,7 @@ class _TitleAndDescription extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -273,7 +273,7 @@ class _TitleAndDescription extends StatelessWidget {
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w900,
             letterSpacing: 0.2,
-            color: cs.onSurface,
+            color: AppTheme.primaryText(brightness),
             height: 1.1,
           ),
         ),
@@ -283,7 +283,7 @@ class _TitleAndDescription extends StatelessWidget {
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyMedium?.copyWith(
-            color: cs.onSurface.withOpacity(0.72),
+            color: AppTheme.secondaryText(brightness),
             fontWeight: FontWeight.w600,
             height: 1.25,
           ),
@@ -305,8 +305,8 @@ class _PositionBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isLight = theme.brightness == Brightness.light;
+    final brightness = theme.brightness;
+    final isLight = brightness == Brightness.light;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -316,9 +316,8 @@ class _PositionBadge extends StatelessWidget {
         border: Border.all(color: color.withOpacity(0.22)),
         boxShadow: <BoxShadow>[
           BoxShadow(
-            // Premium light shadow: airy blue glow instead of dark drop shadow.
             color: isLight
-                ? cs.primary.withOpacity(0.18)
+                ? AppTheme.limeAccentDark.withOpacity(0.14)
                 : Colors.black.withOpacity(0.15),
             blurRadius: isLight ? 18 : 10,
             offset: isLight ? const Offset(0, 8) : const Offset(0, 4),

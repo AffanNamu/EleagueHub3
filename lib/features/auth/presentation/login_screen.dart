@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -42,6 +43,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final res = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
+        surfaceTintColor: Colors.transparent,
         title: const Text('Exit app?'),
         content: const Text('Are you sure you want to close the app?'),
         actions: [
@@ -50,6 +53,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Exit'),
           ),
@@ -68,13 +75,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final user = _authService.currentUser;
     if (user == null) return;
 
-    // Backward compatible: keep writing uid to prefs if other parts of app expect it.
     final prefs = ref.read(prefsServiceProvider);
     await prefs.setCurrentUserId(user.uid);
 
     if (!mounted) return;
-
-    // Router redirect will enforce onboarding + email verification gating.
     context.go('/');
   }
 
@@ -144,7 +148,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _submitting = true);
     try {
       await _authService.registerWithEmailPassword(email: email, password: pass);
-      // After registration, router will force /verify-email for password accounts until verified.
       await _afterAuth();
     } catch (e) {
       _showError(e);
@@ -157,10 +160,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
-    final dividerColor = cs.onSurface.withOpacity(0.14);
-    final orTextColor = cs.onSurface.withOpacity(0.60);
+    final dividerColor = AppTheme.cardBorder(brightness);
+    final orTextColor = AppTheme.secondaryText(brightness);
 
     return WillPopScope(
       onWillPop: _confirmExitApp,
@@ -172,6 +175,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               padding: const EdgeInsets.all(20),
               child: Glass(
                 padding: EdgeInsets.zero,
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -180,13 +185,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       Icon(
                         Icons.sports_esports,
                         size: 56,
-                        color: cs.primary,
+                        color: AppTheme.limeAccentDark,
                       ),
                       const SizedBox(height: 12),
                       Text(
                         l10n.authLoginBrand,
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.w800,
+                          color: AppTheme.primaryText(brightness),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -195,7 +201,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ? l10n.authLoginSubtitleRegister
                             : l10n.authLoginSubtitleSignIn,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: cs.onSurface.withOpacity(0.72),
+                          color: AppTheme.secondaryText(brightness),
                           height: 1.35,
                         ),
                         textAlign: TextAlign.center,
@@ -204,6 +210,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.limeAccent,
+                            foregroundColor: AppTheme.darkText,
+                          ),
                           onPressed: _submitting ? null : _signInGoogle,
                           icon: const Icon(Icons.login),
                           label: Text(l10n.authLoginContinueWithGoogle),
@@ -297,7 +307,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 : () => context.go('/forgot-password'),
                             child: Text(
                               'Forgot password?',
-                              style: TextStyle(color: cs.primary),
+                              style: TextStyle(color: AppTheme.limeAccentDark),
                             ),
                           ),
                         ),
@@ -305,16 +315,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.limeAccent,
+                            foregroundColor: AppTheme.darkText,
+                          ),
                           onPressed: _submitting
                               ? null
                               : (_isRegister ? _registerEmail : _signInEmail),
                           child: _submitting
-                              ? SizedBox(
+                              ? const SizedBox(
                                   width: 18,
                                   height: 18,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: cs.onPrimary,
+                                    color: AppTheme.darkText,
                                   ),
                                 )
                               : Text(
@@ -335,7 +349,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           _isRegister
                               ? l10n.authLoginToggleToSignIn
                               : l10n.authLoginToggleToRegister,
-                          style: TextStyle(color: cs.primary),
+                          style: TextStyle(color: AppTheme.limeAccentDark),
                         ),
                       ),
                     ],

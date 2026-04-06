@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/theme/app_theme.dart';
+
 class StandingRow extends StatelessWidget {
   final int rank;
   final String teamName;
@@ -19,28 +21,34 @@ class StandingRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
-    final bg = isQualified ? cs.primary.withOpacity(0.06) : Colors.transparent;
+    final bg = isQualified
+        ? (brightness == Brightness.dark
+            ? AppTheme.limeAccentDark.withOpacity(0.12)
+            : const Color(0xFFECFCCB))
+        : Colors.transparent;
 
     final rankStyle = theme.textTheme.bodyMedium?.copyWith(
-      color: isQualified ? cs.primary : cs.onSurface.withOpacity(0.65),
+      color: isQualified
+          ? AppTheme.limeAccentDark
+          : AppTheme.secondaryText(brightness),
       fontWeight: isQualified ? FontWeight.w900 : FontWeight.w700,
     );
 
     final nameStyle = theme.textTheme.bodyMedium?.copyWith(
-      color: cs.onSurface,
+      color: AppTheme.primaryText(brightness),
       fontSize: 15,
       fontWeight: FontWeight.w800,
     );
 
     final gdStyle = theme.textTheme.bodySmall?.copyWith(
-      color: cs.onSurface.withOpacity(0.70),
+      color: AppTheme.secondaryText(brightness),
       fontWeight: FontWeight.w700,
     );
 
     final ptsStyle = theme.textTheme.bodyMedium?.copyWith(
-      color: cs.onSurface,
+      color: AppTheme.primaryText(brightness),
       fontWeight: FontWeight.w900,
     );
 
@@ -48,6 +56,7 @@ class StandingRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
       decoration: BoxDecoration(
         color: bg,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [

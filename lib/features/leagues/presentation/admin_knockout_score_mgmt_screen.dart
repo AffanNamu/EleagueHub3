@@ -10,6 +10,7 @@ import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
@@ -137,7 +138,6 @@ class _AdminKnockoutScoreMgmtScreenState
   }
 
   Color _baseToastBg(ThemeData theme) {
-    // Premium: light mode should NOT use a dark toast background.
     if (theme.brightness == Brightness.dark) return const Color(0xFF101522);
     return const Color(0xFFF8FBFF);
   }
@@ -146,13 +146,11 @@ class _AdminKnockoutScoreMgmtScreenState
     if (!mounted) return;
 
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
     final resolvedBg = bg ?? _baseToastBg(theme);
     final resolvedFg = fg ??
         (theme.brightness == Brightness.dark
             ? Colors.white
-            : cs.onSurface.withOpacity(0.92));
+            : AppTheme.primaryText(theme.brightness));
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -171,9 +169,8 @@ class _AdminKnockoutScoreMgmtScreenState
 
   void _toastOk(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
-    final accent = cs.primary;
+    final accent = AppTheme.limeAccentDark;
     _toast(msg,
         bg: Color.alphaBlend(accent.withOpacity(0.16), baseBg), fg: accent);
   }
@@ -187,10 +184,9 @@ class _AdminKnockoutScoreMgmtScreenState
 
   void _toastErr(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
-    _toast(msg,
-        bg: Color.alphaBlend(cs.error.withOpacity(0.14), baseBg), fg: cs.error);
+    final err = Theme.of(context).colorScheme.error;
+    _toast(msg, bg: Color.alphaBlend(err.withOpacity(0.14), baseBg), fg: err);
   }
 
   void _toastFromError(Object error) {
@@ -256,6 +252,7 @@ class _AdminKnockoutScoreMgmtScreenState
     required String contextLabel,
   }) async {
     final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
 
     final homeName = _teamNames[homeId] ?? homeId;
     final awayName = _teamNames[awayId] ?? awayId;
@@ -265,14 +262,15 @@ class _AdminKnockoutScoreMgmtScreenState
       barrierDismissible: false,
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        final cs = theme.colorScheme;
-        final onSurface = cs.onSurface;
 
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
           child: Glass(
             borderRadius: 22,
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 520),
               child: Padding(
@@ -284,6 +282,7 @@ class _AdminKnockoutScoreMgmtScreenState
                       l10n.tr('admin_knockout_penalties_title'),
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
+                        color: AppTheme.primaryText(brightness),
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -291,7 +290,7 @@ class _AdminKnockoutScoreMgmtScreenState
                     Text(
                       '$contextLabel\n${l10n.tr('admin_knockout_select_winner_to_advance')}',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: onSurface.withOpacity(0.72),
+                        color: AppTheme.secondaryText(brightness),
                         height: 1.35,
                       ),
                       textAlign: TextAlign.center,
@@ -302,8 +301,10 @@ class _AdminKnockoutScoreMgmtScreenState
                         Expanded(
                           child: OutlinedButton(
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: cs.primary,
-                              side: BorderSide(color: onSurface.withOpacity(0.18)),
+                              foregroundColor: AppTheme.limeAccentDark,
+                              side: BorderSide(
+                                color: AppTheme.cardBorder(brightness),
+                              ),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
                             onPressed: () => Navigator.pop(ctx, homeId),
@@ -313,6 +314,10 @@ class _AdminKnockoutScoreMgmtScreenState
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.limeAccent,
+                              foregroundColor: AppTheme.darkText,
+                            ),
                             onPressed: () => Navigator.pop(ctx, awayId),
                             child: Text(awayName.toUpperCase()),
                           ),
@@ -348,8 +353,9 @@ class _AdminKnockoutScoreMgmtScreenState
 
       final teams =
           await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
-      final matches =
-          await _repo.getKnockoutMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+      final matches = await _repo
+          .getKnockoutMatches(widget.leagueId)
+          .timeout(const Duration(seconds: 25));
 
       matches.sort((a, b) {
         final ai = _roundOrder.indexOf(a.roundName);
@@ -397,7 +403,9 @@ class _AdminKnockoutScoreMgmtScreenState
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _loadError = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+        _loadError = UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown'),
+        );
       });
       _toastErr(_loadError!);
     }
@@ -442,11 +450,6 @@ class _AdminKnockoutScoreMgmtScreenState
         all.add(updatedMatch);
       }
 
-      // NOTE (Admin Point Adjustment System):
-      // Knockout matches are stored under leagues/{leagueId}/knockout and do NOT affect
-      // classic/group/swiss league table aggregates (which are derived from leagues/{leagueId}/matches).
-      // Therefore, we do not update basePoints/finalPoints here.
-
       if (updatedMatch.roundName != 'Play-off') {
         final hId = updatedMatch.homeTeamId;
         final aId = updatedMatch.awayTeamId;
@@ -489,8 +492,10 @@ class _AdminKnockoutScoreMgmtScreenState
             final totals = <String, int>{aId: 0, bId: 0};
 
             void add(KnockoutMatch m) {
-              totals[m.homeTeamId!] = (totals[m.homeTeamId!] ?? 0) + m.homeScore!;
-              totals[m.awayTeamId!] = (totals[m.awayTeamId!] ?? 0) + m.awayScore!;
+              totals[m.homeTeamId!] =
+                  (totals[m.homeTeamId!] ?? 0) + m.homeScore!;
+              totals[m.awayTeamId!] =
+                  (totals[m.awayTeamId!] ?? 0) + m.awayScore!;
             }
 
             add(updatedMatch);
@@ -503,7 +508,8 @@ class _AdminKnockoutScoreMgmtScreenState
               final winner = await _promptPenaltyWinner(
                 homeId: aId,
                 awayId: bId,
-                contextLabel: l10n.tr('admin_knockout_aggregate_tied_after_leg2'),
+                contextLabel:
+                    l10n.tr('admin_knockout_aggregate_tied_after_leg2'),
               );
               if (winner == null) {
                 _toastErr(l10n.tr('admin_knockout_aggregate_winner_required'));
@@ -548,7 +554,7 @@ class _AdminKnockoutScoreMgmtScreenState
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
@@ -568,7 +574,11 @@ class _AdminKnockoutScoreMgmtScreenState
       ),
       body: SafeArea(
         child: _isLoading
-            ? Center(child: CircularProgressIndicator(color: cs.primary))
+            ? Center(
+                child: CircularProgressIndicator(
+                  color: AppTheme.limeAccentDark,
+                ),
+              )
             : (_loadError != null
                 ? _buildLoadErrorState(_loadError!)
                 : Center(
@@ -578,11 +588,9 @@ class _AdminKnockoutScoreMgmtScreenState
                       ),
                       child: Column(
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: SectionHeader(
-                              l10n.tr('admin_knockout_section_title'),
-                            ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: SectionHeader('Knockout Score Management'),
                           ),
                           const SizedBox(height: 4),
                           Padding(
@@ -590,7 +598,7 @@ class _AdminKnockoutScoreMgmtScreenState
                             child: Text(
                               l10n.tr('admin_knockout_section_description'),
                               style: TextStyle(
-                                color: cs.onBackground.withOpacity(0.60),
+                                color: AppTheme.secondaryText(brightness),
                                 fontSize: 12,
                               ),
                               textAlign: TextAlign.center,
@@ -603,7 +611,7 @@ class _AdminKnockoutScoreMgmtScreenState
                                     child: Text(
                                       l10n.tr('admin_knockout_empty_state'),
                                       style: TextStyle(
-                                        color: cs.onBackground.withOpacity(0.72),
+                                        color: AppTheme.secondaryText(brightness),
                                         fontSize: 13,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -622,7 +630,7 @@ class _AdminKnockoutScoreMgmtScreenState
 
   Widget _buildLoadErrorState(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Center(
       child: Padding(
@@ -631,18 +639,24 @@ class _AdminKnockoutScoreMgmtScreenState
           constraints: const BoxConstraints(maxWidth: 520),
           child: Glass(
             borderRadius: 24,
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.cloud_off_rounded, color: cs.primary, size: 44),
+                  Icon(
+                    Icons.cloud_off_rounded,
+                    color: AppTheme.limeAccentDark,
+                    size: 44,
+                  ),
                   const SizedBox(height: 10),
                   Text(
                     'Couldn’t load matches',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
-                      color: cs.onSurface,
+                      color: AppTheme.primaryText(brightness),
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -650,7 +664,7 @@ class _AdminKnockoutScoreMgmtScreenState
                   Text(
                     msg,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: cs.onSurface.withOpacity(0.70),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w600,
                       height: 1.35,
                     ),
@@ -668,6 +682,10 @@ class _AdminKnockoutScoreMgmtScreenState
                       const SizedBox(width: 10),
                       Expanded(
                         child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.limeAccent,
+                            foregroundColor: AppTheme.darkText,
+                          ),
                           onPressed: _loadData,
                           child: const Text('Retry'),
                         ),
@@ -685,7 +703,7 @@ class _AdminKnockoutScoreMgmtScreenState
 
   Widget _buildGroupedList() {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final byRound = <String, List<KnockoutMatch>>{};
     for (final m in _matches) {
@@ -703,7 +721,6 @@ class _AdminKnockoutScoreMgmtScreenState
       });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // ignore: discarded_futures
       _ensureUserImagesForTeamIds(<String?>[
         for (final m in _matches) m.homeTeamId,
         for (final m in _matches) m.awayTeamId,
@@ -724,7 +741,7 @@ class _AdminKnockoutScoreMgmtScreenState
               Text(
                 _roundDisplayName(roundName),
                 style: theme.textTheme.titleSmall?.copyWith(
-                  color: cs.primary,
+                  color: AppTheme.limeAccentDark,
                   fontWeight: FontWeight.w900,
                   fontSize: 14,
                 ),
@@ -838,9 +855,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final primary = cs.primary;
+    final brightness = theme.brightness;
 
     final isPlayoff = widget.match.roundName == 'Play-off';
     final legLabel = isPlayoff
@@ -851,6 +866,9 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
 
     return Glass(
       padding: const EdgeInsets.all(16),
+      borderRadius: 22,
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -860,7 +878,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               child: Text(
                 legLabel,
                 style: TextStyle(
-                  color: onSurface.withOpacity(0.55),
+                  color: AppTheme.secondaryText(brightness),
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                 ),
@@ -878,6 +896,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                         widget.homeName,
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w900,
+                          color: AppTheme.primaryText(brightness),
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -890,7 +909,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 child: Text(
                   l10n.tr('league_details_vs'),
                   style: TextStyle(
-                    color: onSurface.withOpacity(0.30),
+                    color: AppTheme.secondaryText(brightness),
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
                   ),
@@ -906,6 +925,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                         textAlign: TextAlign.end,
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w900,
+                          color: AppTheme.primaryText(brightness),
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -917,11 +937,14 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: _isCompleted
-                      ? primary.withOpacity(0.14)
-                      : onSurface.withOpacity(0.06),
+                      ? (brightness == Brightness.dark
+                          ? AppTheme.limeAccentDark.withOpacity(0.14)
+                          : const Color(0xFFECFCCB))
+                      : AppTheme.searchBackground(brightness),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
@@ -929,7 +952,9 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                       ? l10n.tr('admin_knockout_status_completed')
                       : l10n.tr('admin_knockout_status_pending'),
                   style: TextStyle(
-                    color: _isCompleted ? primary : onSurface.withOpacity(0.55),
+                    color: _isCompleted
+                        ? AppTheme.limeAccentDark
+                        : AppTheme.secondaryText(brightness),
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
@@ -951,7 +976,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 child: Text(
                   ":",
                   style: TextStyle(
-                    color: onSurface.withOpacity(0.35),
+                    color: AppTheme.secondaryText(brightness),
                     fontSize: 24,
                     fontWeight: FontWeight.w900,
                   ),
@@ -971,18 +996,20 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                         await widget.onSave(_homeScore, _awayScore);
                       },
                 style: IconButton.styleFrom(
-                  backgroundColor: primary.withOpacity(0.18),
-                  foregroundColor: primary,
-                  disabledBackgroundColor: onSurface.withOpacity(0.06),
-                  disabledForegroundColor: onSurface.withOpacity(0.30),
+                  backgroundColor: brightness == Brightness.dark
+                      ? AppTheme.limeAccentDark.withOpacity(0.18)
+                      : const Color(0xFFECFCCB),
+                  foregroundColor: AppTheme.limeAccentDark,
+                  disabledBackgroundColor: AppTheme.searchBackground(brightness),
+                  disabledForegroundColor: AppTheme.secondaryText(brightness),
                 ),
                 icon: widget.isSaving
-                    ? SizedBox(
+                    ? const SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: primary,
+                          color: AppTheme.limeAccentDark,
                         ),
                       )
                     : const Icon(Icons.done_all, size: 24),
@@ -1000,14 +1027,13 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     required VoidCallback onDec,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     return Container(
       decoration: BoxDecoration(
-        color: onSurface.withOpacity(0.06),
+        color: AppTheme.searchBackground(brightness),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: onSurface.withOpacity(0.12)),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
@@ -1027,6 +1053,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               style: theme.textTheme.titleLarge?.copyWith(
                 fontSize: 22,
                 fontWeight: FontWeight.w900,
+                color: AppTheme.primaryText(brightness),
               ),
             ),
           ),
@@ -1046,10 +1073,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     required VoidCallback? onPressed,
     required bool enabled,
   }) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final primary = cs.primary;
+    final brightness = Theme.of(context).brightness;
 
     return InkWell(
       onTap: onPressed,
@@ -1058,13 +1082,19 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
         width: 28,
         height: 28,
         decoration: BoxDecoration(
-          color: enabled ? primary.withOpacity(0.10) : onSurface.withOpacity(0.04),
+          color: enabled
+              ? (brightness == Brightness.dark
+                  ? AppTheme.limeAccentDark.withOpacity(0.12)
+                  : const Color(0xFFECFCCB))
+              : AppTheme.searchBackground(brightness),
           shape: BoxShape.circle,
         ),
         child: Icon(
           icon,
           size: 18,
-          color: enabled ? primary : onSurface.withOpacity(0.30),
+          color: enabled
+              ? AppTheme.limeAccentDark
+              : AppTheme.secondaryText(brightness),
         ),
       ),
     );
@@ -1085,7 +1115,8 @@ class _TeamThumb extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+  String _cloudinaryOptimizedUrl(String url,
+      {int width = 64, int height = 64}) {
     final u = url.trim();
     if (u.isEmpty) return u;
 
@@ -1120,7 +1151,7 @@ class _TeamThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     final raw = url.trim();
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
@@ -1132,9 +1163,9 @@ class _TeamThumb extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.06),
+        color: AppTheme.searchBackground(brightness),
         shape: BoxShape.circle,
-        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: ClipOval(
         child: has
@@ -1148,21 +1179,21 @@ class _TeamThumb extends StatelessWidget {
                 errorBuilder: (_, __, ___) => Icon(
                   Icons.emoji_events_outlined,
                   size: size * 0.68,
-                  color: cs.onSurface.withOpacity(0.55),
+                  color: AppTheme.secondaryText(brightness),
                 ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
                   return Icon(
                     Icons.emoji_events_outlined,
                     size: size * 0.68,
-                    color: cs.onSurface.withOpacity(0.55),
+                    color: AppTheme.secondaryText(brightness),
                   );
                 },
               )
             : Icon(
                 Icons.emoji_events_outlined,
                 size: size * 0.68,
-                color: cs.onSurface.withOpacity(0.55),
+                color: AppTheme.secondaryText(brightness),
               ),
       ),
     );

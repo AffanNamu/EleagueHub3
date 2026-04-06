@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/remote_pricing_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../master_leagues/domain/master_league_plan.dart';
@@ -50,34 +51,15 @@ class _LeagueCreationPaymentScreenState
   }
 
   Color _panelFill(ThemeData theme) {
-    if (theme.brightness == Brightness.light) {
-      return Colors.white.withOpacity(0.42);
-    }
-    return theme.colorScheme.onSurface.withOpacity(0.04);
+    return AppTheme.cardColor(theme.brightness);
   }
 
   Color _panelBorder(ThemeData theme, {Color? accent}) {
-    final cs = theme.colorScheme;
-    if (theme.brightness == Brightness.light) {
-      final a = accent ?? cs.primary;
-      return Color.alphaBlend(
-        a.withOpacity(0.12),
-        Colors.white.withOpacity(0.78),
-      );
-    }
-    return cs.onSurface.withOpacity(0.10);
+    return AppTheme.cardBorder(theme.brightness);
   }
 
   List<BoxShadow>? _panelShadow(ThemeData theme, {Color? tint}) {
-    if (theme.brightness != Brightness.light) return null;
-    final c = tint ?? const Color(0xFFB4D2FF);
-    return <BoxShadow>[
-      BoxShadow(
-        color: c.withOpacity(0.22),
-        blurRadius: 30,
-        offset: const Offset(0, 18),
-      ),
-    ];
+    return AppTheme.softCardShadow(theme.brightness);
   }
 
   bool _addonsOnlyFromRouteExtra() {
@@ -242,21 +224,20 @@ class _LeagueCreationPaymentScreenState
     required BuildContext context,
     required MasterLeaguePlan plan,
     required ThemeData theme,
-    required ColorScheme cs,
     required bool selected,
     required VoidCallback onTap,
   }) {
+    final brightness = theme.brightness;
+
     final fill = selected
-        ? cs.primary.withOpacity(0.14)
-        : (theme.brightness == Brightness.light
-            ? Colors.white.withOpacity(0.34)
-            : cs.onSurface.withOpacity(0.05));
+        ? (brightness == Brightness.dark
+            ? AppTheme.limeAccentDark.withOpacity(0.10)
+            : const Color(0xFFECFCCB))
+        : _panelFill(theme);
 
     final border = selected
-        ? cs.primary.withOpacity(0.45)
-        : (theme.brightness == Brightness.light
-            ? Colors.white.withOpacity(0.70)
-            : cs.onSurface.withOpacity(0.12));
+        ? AppTheme.limeAccentDark
+        : _panelBorder(theme);
 
     return InkWell(
       onTap: _processing ? null : onTap,
@@ -268,12 +249,15 @@ class _LeagueCreationPaymentScreenState
           color: fill,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: border),
+          boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
         ),
         child: Row(
           children: [
             Icon(
               selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? cs.primary : cs.onSurface.withOpacity(0.55),
+              color: selected
+                  ? AppTheme.limeAccentDark
+                  : AppTheme.secondaryText(brightness),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -287,7 +271,7 @@ class _LeagueCreationPaymentScreenState
                           plan.displayName,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.w900,
-                            color: cs.onSurface,
+                            color: AppTheme.primaryText(brightness),
                           ),
                         ),
                       ),
@@ -297,7 +281,8 @@ class _LeagueCreationPaymentScreenState
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF22C55E).withOpacity(0.12),
+                            color:
+                                const Color(0xFF22C55E).withOpacity(0.12),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color:
@@ -320,7 +305,7 @@ class _LeagueCreationPaymentScreenState
                   Text(
                     plan.description,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.68),
+                      color: AppTheme.secondaryText(brightness),
                       height: 1.3,
                       fontWeight: FontWeight.w700,
                     ),
@@ -338,21 +323,20 @@ class _LeagueCreationPaymentScreenState
     required BuildContext context,
     required PlanDuration duration,
     required ThemeData theme,
-    required ColorScheme cs,
     required bool selected,
     required VoidCallback onTap,
   }) {
+    final brightness = theme.brightness;
+
     final fill = selected
-        ? cs.primary.withOpacity(0.14)
-        : (theme.brightness == Brightness.light
-            ? Colors.white.withOpacity(0.34)
-            : cs.onSurface.withOpacity(0.05));
+        ? (brightness == Brightness.dark
+            ? AppTheme.limeAccentDark.withOpacity(0.10)
+            : const Color(0xFFECFCCB))
+        : _panelFill(theme);
 
     final border = selected
-        ? cs.primary.withOpacity(0.45)
-        : (theme.brightness == Brightness.light
-            ? Colors.white.withOpacity(0.70)
-            : cs.onSurface.withOpacity(0.12));
+        ? AppTheme.limeAccentDark
+        : _panelBorder(theme);
 
     return InkWell(
       onTap: _processing ? null : onTap,
@@ -364,12 +348,15 @@ class _LeagueCreationPaymentScreenState
           color: fill,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: border),
+          boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
         ),
         child: Row(
           children: [
             Icon(
               selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? cs.primary : cs.onSurface.withOpacity(0.55),
+              color: selected
+                  ? AppTheme.limeAccentDark
+                  : AppTheme.secondaryText(brightness),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -377,7 +364,7 @@ class _LeagueCreationPaymentScreenState
                 duration.displayName,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w900,
-                  color: cs.onSurface,
+                  color: AppTheme.primaryText(brightness),
                 ),
               ),
             ),
@@ -401,7 +388,7 @@ class _LeagueCreationPaymentScreenState
 
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final provider = ref.watch(leagueCreationPaymentServiceProvider);
 
     final addonsOnly = _addonsOnlyFromRouteExtra();
@@ -424,20 +411,27 @@ class _LeagueCreationPaymentScreenState
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
                   padding: const EdgeInsets.all(16),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.login, color: cs.primary, size: 44),
+                      Icon(
+                        Icons.login,
+                        color: AppTheme.limeAccentDark,
+                        size: 44,
+                      ),
                       const SizedBox(height: 10),
                       Text(
                         'Sign in required',
                         style: theme.textTheme.titleMedium?.copyWith(
-                          color: cs.onSurface,
+                          color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -446,15 +440,19 @@ class _LeagueCreationPaymentScreenState
                         'Please sign in to continue. Payments must be tied to your Firebase account.',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: cs.onSurface.withOpacity(0.70),
+                          color: AppTheme.secondaryText(brightness),
                           height: 1.35,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 12),
                       FilledButton(
-                        onPressed: () =>
-                            context.pop<LeagueCreationPaymentResult?>(null),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
+                        onPressed:
+                            () => context.pop<LeagueCreationPaymentResult?>(null),
                         child: const Text('Close'),
                       ),
                     ],
@@ -490,7 +488,7 @@ class _LeagueCreationPaymentScreenState
                 child: Text(
                   'Failed to load pricing. Please try again.',
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.error,
+                    color: Theme.of(context).colorScheme.error,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -498,7 +496,11 @@ class _LeagueCreationPaymentScreenState
             }
 
             if (!snap.hasData) {
-              return Center(child: CircularProgressIndicator(color: cs.primary));
+              return Center(
+                child: CircularProgressIndicator(
+                  color: AppTheme.limeAccentDark,
+                ),
+              );
             }
 
             final plan = snap.data!;
@@ -530,10 +532,11 @@ class _LeagueCreationPaymentScreenState
                         .clamp(0, 100000);
                 final int disc = _discountPercent.clamp(0, 100);
 
-                final int discForPurchase = (qty > 0 && disc <= 0) ? 50 : disc;
+                final int discForPurchase =
+                    (qty > 0 && disc <= 0) ? 50 : disc;
 
-                final pricing =
-                    RemotePricingService.instance.computeOrganizerCouponPricing(
+                final pricing = RemotePricingService.instance
+                    .computeOrganizerCouponPricing(
                   plan: plan,
                   couponCount: qty,
                   discountPercent: discForPurchase,
@@ -549,13 +552,13 @@ class _LeagueCreationPaymentScreenState
                     plan.accessFee * ((100 - discForPurchase) / 100.0);
 
                 final titleStyle = theme.textTheme.titleMedium?.copyWith(
-                  color: cs.onSurface,
+                  color: AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w900,
                   fontSize: 18,
                 );
 
                 final bodyStyle = theme.textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurface.withOpacity(0.72),
+                  color: AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w600,
                   height: 1.35,
                 );
@@ -578,12 +581,8 @@ class _LeagueCreationPaymentScreenState
                 final bool customInvalid =
                     _couponCodeCustomMode && _customNameInvalid(_couponCodeBase.text);
 
-                final chipBg = theme.brightness == Brightness.light
-                    ? Colors.white.withOpacity(0.34)
-                    : cs.onSurface.withOpacity(0.06);
-                final chipBorder = theme.brightness == Brightness.light
-                    ? Colors.white.withOpacity(0.72)
-                    : cs.onSurface.withOpacity(0.12);
+                final chipBg = AppTheme.searchBackground(brightness);
+                final chipBorder = AppTheme.searchOutline(brightness);
 
                 final headerTitle = premiumUpgrade
                     ? 'Choose Organizer Plan'
@@ -609,6 +608,8 @@ class _LeagueCreationPaymentScreenState
                       constraints: const BoxConstraints(maxWidth: 520),
                       child: Glass(
                         padding: const EdgeInsets.all(16),
+                        fill: AppTheme.cardColor(brightness),
+                        borderColor: AppTheme.cardBorder(brightness),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -618,7 +619,7 @@ class _LeagueCreationPaymentScreenState
                                   : Icons.payments_outlined,
                               color: premiumUpgrade
                                   ? const Color(0xFFF59E0B)
-                                  : cs.primary.withOpacity(0.95),
+                                  : AppTheme.limeAccentDark,
                               size: 46,
                             ),
                             const SizedBox(height: 12),
@@ -639,12 +640,10 @@ class _LeagueCreationPaymentScreenState
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF59E0B).withOpacity(0.08),
+                                  color: _panelFill(theme),
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color:
-                                        const Color(0xFFF59E0B).withOpacity(0.24),
-                                  ),
+                                  border: Border.all(color: _panelBorder(theme)),
+                                  boxShadow: _panelShadow(theme),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -652,7 +651,7 @@ class _LeagueCreationPaymentScreenState
                                     Text(
                                       'Choose plan',
                                       style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: cs.onSurface,
+                                        color: AppTheme.primaryText(brightness),
                                         fontWeight: FontWeight.w900,
                                       ),
                                     ),
@@ -661,7 +660,6 @@ class _LeagueCreationPaymentScreenState
                                       context: context,
                                       plan: MasterLeaguePlan.pro,
                                       theme: theme,
-                                      cs: cs,
                                       selected:
                                           _selectedUpgradePlan == MasterLeaguePlan.pro,
                                       onTap: () => setState(
@@ -674,7 +672,6 @@ class _LeagueCreationPaymentScreenState
                                       context: context,
                                       plan: MasterLeaguePlan.elite,
                                       theme: theme,
-                                      cs: cs,
                                       selected:
                                           _selectedUpgradePlan == MasterLeaguePlan.elite,
                                       onTap: () => setState(
@@ -690,12 +687,10 @@ class _LeagueCreationPaymentScreenState
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF59E0B).withOpacity(0.08),
+                                  color: _panelFill(theme),
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color:
-                                        const Color(0xFFF59E0B).withOpacity(0.24),
-                                  ),
+                                  border: Border.all(color: _panelBorder(theme)),
+                                  boxShadow: _panelShadow(theme),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -703,7 +698,7 @@ class _LeagueCreationPaymentScreenState
                                     Text(
                                       'Choose duration',
                                       style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: cs.onSurface,
+                                        color: AppTheme.primaryText(brightness),
                                         fontWeight: FontWeight.w900,
                                       ),
                                     ),
@@ -712,7 +707,6 @@ class _LeagueCreationPaymentScreenState
                                       context: context,
                                       duration: PlanDuration.threeMonths,
                                       theme: theme,
-                                      cs: cs,
                                       selected: _selectedUpgradeDuration ==
                                           PlanDuration.threeMonths,
                                       onTap: () => setState(
@@ -725,7 +719,6 @@ class _LeagueCreationPaymentScreenState
                                       context: context,
                                       duration: PlanDuration.sixMonths,
                                       theme: theme,
-                                      cs: cs,
                                       selected: _selectedUpgradeDuration ==
                                           PlanDuration.sixMonths,
                                       onTap: () => setState(
@@ -738,7 +731,6 @@ class _LeagueCreationPaymentScreenState
                                       context: context,
                                       duration: PlanDuration.yearly,
                                       theme: theme,
-                                      cs: cs,
                                       selected: _selectedUpgradeDuration ==
                                           PlanDuration.yearly,
                                       onTap: () => setState(
@@ -754,12 +746,10 @@ class _LeagueCreationPaymentScreenState
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF59E0B).withOpacity(0.08),
+                                  color: _panelFill(theme),
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color:
-                                        const Color(0xFFF59E0B).withOpacity(0.24),
-                                  ),
+                                  border: Border.all(color: _panelBorder(theme)),
+                                  boxShadow: _panelShadow(theme),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -767,7 +757,7 @@ class _LeagueCreationPaymentScreenState
                                     Text(
                                       'Plan benefits',
                                       style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: cs.onSurface,
+                                        color: AppTheme.primaryText(brightness),
                                         fontWeight: FontWeight.w900,
                                       ),
                                     ),
@@ -783,7 +773,7 @@ class _LeagueCreationPaymentScreenState
                                               '• Unlimited master leagues\n'
                                               '• Unlimited competitions',
                                       style: theme.textTheme.bodySmall?.copyWith(
-                                        color: cs.onSurface.withOpacity(0.72),
+                                        color: AppTheme.secondaryText(brightness),
                                         fontWeight: FontWeight.w700,
                                         height: 1.45,
                                       ),
@@ -800,8 +790,7 @@ class _LeagueCreationPaymentScreenState
                                   color: _panelFill(theme),
                                   borderRadius: BorderRadius.circular(16),
                                   border: Border.all(color: _panelBorder(theme)),
-                                  boxShadow:
-                                      _panelShadow(theme, tint: cs.primary),
+                                  boxShadow: _panelShadow(theme),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -813,12 +802,14 @@ class _LeagueCreationPaymentScreenState
                                             'Coupons (optional)',
                                             style: theme.textTheme.bodyMedium
                                                 ?.copyWith(
-                                              color: cs.onSurface,
+                                              color:
+                                                  AppTheme.primaryText(brightness),
                                               fontWeight: FontWeight.w900,
                                             ),
                                           ),
                                         ),
                                         Switch.adaptive(
+                                          activeColor: AppTheme.limeAccentDark,
                                           value: _buyCoupons,
                                           onChanged: _processing
                                               ? null
@@ -849,7 +840,7 @@ class _LeagueCreationPaymentScreenState
                                         'Already purchased: $_existingCouponCount',
                                         style: theme.textTheme.bodySmall
                                             ?.copyWith(
-                                          color: cs.onSurface.withOpacity(0.70),
+                                          color: AppTheme.secondaryText(brightness),
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
@@ -859,7 +850,7 @@ class _LeagueCreationPaymentScreenState
                                       'Full coupon unit (access fee): ${_money(plan.couponUnit)} $currency.\n'
                                       'You pay only the discount portion now: unit × (discount%).',
                                       style: theme.textTheme.bodySmall?.copyWith(
-                                        color: cs.onSurface.withOpacity(0.65),
+                                        color: AppTheme.secondaryText(brightness),
                                         fontWeight: FontWeight.w600,
                                         height: 1.25,
                                       ),
@@ -870,7 +861,7 @@ class _LeagueCreationPaymentScreenState
                                           ? 'Bulk discount: ${_money(plan.couponDiscountPercent)}% when coupon subtotal ≥ ${_money(plan.couponThreshold!)} $currency.'
                                           : 'Bulk discount not configured.',
                                       style: theme.textTheme.bodySmall?.copyWith(
-                                        color: cs.onSurface.withOpacity(0.60),
+                                        color: AppTheme.secondaryText(brightness),
                                         fontWeight: FontWeight.w600,
                                         height: 1.25,
                                       ),
@@ -881,7 +872,8 @@ class _LeagueCreationPaymentScreenState
                                         'How many coupons do you want to buy?',
                                         style: theme.textTheme.bodyMedium
                                             ?.copyWith(
-                                          color: cs.onSurface,
+                                          color:
+                                              AppTheme.primaryText(brightness),
                                           fontWeight: FontWeight.w900,
                                         ),
                                       ),
@@ -891,7 +883,7 @@ class _LeagueCreationPaymentScreenState
                                           Icon(
                                             Icons.confirmation_number_outlined,
                                             color:
-                                                cs.onSurface.withOpacity(0.70),
+                                                AppTheme.secondaryText(brightness),
                                             size: 18,
                                           ),
                                           const SizedBox(width: 8),
@@ -901,8 +893,8 @@ class _LeagueCreationPaymentScreenState
                                               '${bulkDiscountApplied ? ' • Bulk discount applied' : ''}',
                                               style: theme.textTheme.bodySmall
                                                   ?.copyWith(
-                                                color: cs.onSurface
-                                                    .withOpacity(0.72),
+                                                color:
+                                                    AppTheme.secondaryText(brightness),
                                                 fontWeight: FontWeight.w700,
                                               ),
                                             ),
@@ -915,15 +907,16 @@ class _LeagueCreationPaymentScreenState
                                                     setState(() {
                                                       final next =
                                                           (_couponCount - 10);
-                                                      _couponCount = next
-                                                          .clamp(1, 100000);
+                                                      _couponCount =
+                                                          next.clamp(1, 100000);
                                                       if (_discountPercent <= 0) {
                                                         _discountPercent = 50;
                                                       }
                                                     });
                                                   },
                                             icon: const Icon(
-                                                Icons.remove_circle_outline),
+                                              Icons.remove_circle_outline,
+                                            ),
                                           ),
                                           IconButton(
                                             tooltip: 'Increase',
@@ -933,19 +926,21 @@ class _LeagueCreationPaymentScreenState
                                                     setState(() {
                                                       final next =
                                                           (_couponCount + 10);
-                                                      _couponCount = next
-                                                          .clamp(1, 100000);
+                                                      _couponCount =
+                                                          next.clamp(1, 100000);
                                                       if (_discountPercent <= 0) {
                                                         _discountPercent = 50;
                                                       }
                                                     });
                                                   },
                                             icon: const Icon(
-                                                Icons.add_circle_outline),
+                                              Icons.add_circle_outline,
+                                            ),
                                           ),
                                         ],
                                       ),
                                       Slider(
+                                        activeColor: AppTheme.limeAccentDark,
                                         value: couponSliderValue,
                                         min: minCoupon,
                                         max: 100000.0,
@@ -956,8 +951,8 @@ class _LeagueCreationPaymentScreenState
                                             : (v) {
                                                 final rounded = v.round();
                                                 setState(() {
-                                                  _couponCount = rounded.clamp(
-                                                      1, 100000);
+                                                  _couponCount =
+                                                      rounded.clamp(1, 100000);
                                                   if (_discountPercent <= 0) {
                                                     _discountPercent = 50;
                                                   }
@@ -969,7 +964,8 @@ class _LeagueCreationPaymentScreenState
                                         'Discount percent (for users)',
                                         style: theme.textTheme.bodyMedium
                                             ?.copyWith(
-                                          color: cs.onSurface,
+                                          color:
+                                              AppTheme.primaryText(brightness),
                                           fontWeight: FontWeight.w900,
                                         ),
                                       ),
@@ -978,7 +974,7 @@ class _LeagueCreationPaymentScreenState
                                         children: [
                                           Icon(Icons.percent,
                                               color:
-                                                  cs.onSurface.withOpacity(0.70),
+                                                  AppTheme.secondaryText(brightness),
                                               size: 18),
                                           const SizedBox(width: 8),
                                           Expanded(
@@ -986,8 +982,8 @@ class _LeagueCreationPaymentScreenState
                                               'Discount: $discForPurchase% • Users pay at redemption: ${_money(_round2(userPaysAtRedemption))} $currency',
                                               style: theme.textTheme.bodySmall
                                                   ?.copyWith(
-                                                color: cs.onSurface
-                                                    .withOpacity(0.72),
+                                                color:
+                                                    AppTheme.secondaryText(brightness),
                                                 fontWeight: FontWeight.w700,
                                               ),
                                             ),
@@ -995,6 +991,7 @@ class _LeagueCreationPaymentScreenState
                                         ],
                                       ),
                                       Slider(
+                                        activeColor: AppTheme.limeAccentDark,
                                         value: _discountPercent.toDouble(),
                                         min: 5,
                                         max: 100,
@@ -1005,9 +1002,8 @@ class _LeagueCreationPaymentScreenState
                                             : (v) {
                                                 final rounded =
                                                     (v / 5).round() * 5;
-                                                setState(() =>
-                                                    _discountPercent = rounded
-                                                        .clamp(5, 100));
+                                                setState(() => _discountPercent =
+                                                    rounded.clamp(5, 100));
                                               },
                                       ),
                                       const SizedBox(height: 12),
@@ -1015,7 +1011,8 @@ class _LeagueCreationPaymentScreenState
                                         'Coupon code type (optional)',
                                         style: theme.textTheme.bodyMedium
                                             ?.copyWith(
-                                          color: cs.onSurface,
+                                          color:
+                                              AppTheme.primaryText(brightness),
                                           fontWeight: FontWeight.w900,
                                         ),
                                       ),
@@ -1028,14 +1025,19 @@ class _LeagueCreationPaymentScreenState
                                                     fontWeight:
                                                         FontWeight.w800)),
                                             selected: !_couponCodeCustomMode,
-                                            selectedColor:
-                                                cs.primary.withOpacity(0.18),
+                                            selectedColor: AppTheme.limeAccent,
                                             backgroundColor: chipBg,
                                             side: BorderSide(
                                                 color: !_couponCodeCustomMode
-                                                    ? cs.primary
-                                                        .withOpacity(0.35)
+                                                    ? AppTheme.limeAccentDark
                                                     : chipBorder),
+                                            labelStyle: TextStyle(
+                                              color: !_couponCodeCustomMode
+                                                  ? AppTheme.darkText
+                                                  : AppTheme.tabInactiveText(
+                                                      brightness,
+                                                    ),
+                                            ),
                                             onSelected: _processing
                                                 ? null
                                                 : (_) => setState(() =>
@@ -1049,14 +1051,19 @@ class _LeagueCreationPaymentScreenState
                                                     fontWeight:
                                                         FontWeight.w800)),
                                             selected: _couponCodeCustomMode,
-                                            selectedColor:
-                                                cs.primary.withOpacity(0.18),
+                                            selectedColor: AppTheme.limeAccent,
                                             backgroundColor: chipBg,
                                             side: BorderSide(
                                                 color: _couponCodeCustomMode
-                                                    ? cs.primary
-                                                        .withOpacity(0.35)
+                                                    ? AppTheme.limeAccentDark
                                                     : chipBorder),
+                                            labelStyle: TextStyle(
+                                              color: _couponCodeCustomMode
+                                                  ? AppTheme.darkText
+                                                  : AppTheme.tabInactiveText(
+                                                      brightness,
+                                                    ),
+                                            ),
                                             onSelected: _processing
                                                 ? null
                                                 : (_) => setState(() =>
@@ -1077,8 +1084,7 @@ class _LeagueCreationPaymentScreenState
                                           decoration: InputDecoration(
                                             labelText:
                                                 'Custom name (example: BARCA)',
-                                            prefixIcon:
-                                                const Icon(Icons.edit),
+                                            prefixIcon: const Icon(Icons.edit),
                                             errorText: customInvalid
                                                 ? 'Invalid name (no "/" and max 24 chars).'
                                                 : null,
@@ -1091,7 +1097,7 @@ class _LeagueCreationPaymentScreenState
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
                                             color:
-                                                cs.onSurface.withOpacity(0.65),
+                                                AppTheme.secondaryText(brightness),
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
@@ -1100,7 +1106,8 @@ class _LeagueCreationPaymentScreenState
                                         'Preview: $preview',
                                         style:
                                             theme.textTheme.bodySmall?.copyWith(
-                                          color: cs.onSurface.withOpacity(0.65),
+                                          color:
+                                              AppTheme.secondaryText(brightness),
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
@@ -1125,7 +1132,7 @@ class _LeagueCreationPaymentScreenState
                                   Text(
                                     'Summary',
                                     style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: cs.onSurface,
+                                      color: AppTheme.primaryText(brightness),
                                       fontWeight: FontWeight.w900,
                                     ),
                                   ),
@@ -1180,13 +1187,10 @@ class _LeagueCreationPaymentScreenState
                                             ),
                                     style: OutlinedButton.styleFrom(
                                       side: BorderSide(
-                                        color: theme.brightness ==
-                                                Brightness.light
-                                            ? Colors.white.withOpacity(0.72)
-                                            : cs.onSurface.withOpacity(0.18),
+                                        color: AppTheme.cardBorder(brightness),
                                       ),
                                       foregroundColor:
-                                          cs.onSurface.withOpacity(0.85),
+                                          AppTheme.primaryText(brightness),
                                     ),
                                     child: Text(l10n.tr('common_cancel')),
                                   ),
@@ -1194,6 +1198,10 @@ class _LeagueCreationPaymentScreenState
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: FilledButton(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.limeAccent,
+                                      foregroundColor: AppTheme.darkText,
+                                    ),
                                     onPressed: (_processing || customInvalid)
                                         ? null
                                         : () async {
@@ -1205,7 +1213,9 @@ class _LeagueCreationPaymentScreenState
                                                   SnackBar(
                                                     content: const Text(
                                                         'Select at least 1 coupon to buy.'),
-                                                    backgroundColor: cs.error,
+                                                    backgroundColor: Theme.of(context)
+                                                        .colorScheme
+                                                        .error,
                                                   ),
                                                 );
                                                 return;
@@ -1219,7 +1229,9 @@ class _LeagueCreationPaymentScreenState
                                                   SnackBar(
                                                     content: const Text(
                                                         'Set a discount above 0% to buy coupons.'),
-                                                    backgroundColor: cs.error,
+                                                    backgroundColor: Theme.of(context)
+                                                        .colorScheme
+                                                        .error,
                                                   ),
                                                 );
                                                 return;
@@ -1240,10 +1252,9 @@ class _LeagueCreationPaymentScreenState
                                                     : widget.leagueName,
                                                 addonsOnly: false,
                                                 premiumUpgrade: premiumUpgrade,
-                                                selectedPlan:
-                                                    premiumUpgrade
-                                                        ? _selectedUpgradePlan
-                                                        : null,
+                                                selectedPlan: premiumUpgrade
+                                                    ? _selectedUpgradePlan
+                                                    : null,
                                                 viewerCapacity: 0,
                                                 buyCouponsForParticipants:
                                                     premiumUpgrade
@@ -1276,7 +1287,9 @@ class _LeagueCreationPaymentScreenState
                                                         l10n.tr(
                                                             'leagues_payment_failed'),
                                                   ),
-                                                  backgroundColor: cs.error,
+                                                  backgroundColor: Theme.of(context)
+                                                      .colorScheme
+                                                      .error,
                                                 ),
                                               );
                                             } catch (e) {
@@ -1287,7 +1300,9 @@ class _LeagueCreationPaymentScreenState
                                                   content: Text(
                                                     '${l10n.tr('league_creation_payment_failed_prefix')} $e',
                                                   ),
-                                                  backgroundColor: cs.error,
+                                                  backgroundColor: Theme.of(context)
+                                                      .colorScheme
+                                                      .error,
                                                 ),
                                               );
                                             } finally {
@@ -1297,12 +1312,12 @@ class _LeagueCreationPaymentScreenState
                                             }
                                           },
                                     child: _processing
-                                        ? SizedBox(
+                                        ? const SizedBox(
                                             width: 20,
                                             height: 20,
                                             child: CircularProgressIndicator(
                                               strokeWidth: 2,
-                                              color: cs.onPrimary,
+                                              color: AppTheme.darkText,
                                             ),
                                           )
                                         : Text(
@@ -1332,7 +1347,7 @@ class _LeagueCreationPaymentScreenState
 
   Widget _kv(BuildContext context, String k, String v) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -1341,7 +1356,7 @@ class _LeagueCreationPaymentScreenState
             child: Text(
               k,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.70),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1349,7 +1364,7 @@ class _LeagueCreationPaymentScreenState
           Text(
             v,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.85),
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -1360,7 +1375,7 @@ class _LeagueCreationPaymentScreenState
 
   Widget _kvStrong(BuildContext context, String k, String v) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
@@ -1369,7 +1384,7 @@ class _LeagueCreationPaymentScreenState
             child: Text(
               k,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurface,
+                color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w900,
               ),
             ),
@@ -1377,7 +1392,7 @@ class _LeagueCreationPaymentScreenState
           Text(
             v,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w900,
             ),
           ),

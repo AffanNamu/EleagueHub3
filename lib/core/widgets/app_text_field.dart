@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
 import 'glass.dart';
 
 class AppTextField extends StatelessWidget {
@@ -35,11 +36,15 @@ class AppTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final brightness = theme.brightness;
+    final textColor = AppTheme.primaryText(brightness);
+    final secondaryText = AppTheme.secondaryText(brightness);
 
     return Glass(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      borderRadius: 16,
+      padding: EdgeInsets.zero,
+      borderRadius: 18,
+      fill: AppTheme.searchBackground(brightness),
+      borderColor: AppTheme.searchOutline(brightness),
       child: TextField(
         controller: controller,
         enabled: enabled,
@@ -50,7 +55,8 @@ class AppTextField extends StatelessWidget {
         autofillHints: autofillHints,
         onSubmitted: onSubmitted,
         style: theme.textTheme.bodyMedium?.copyWith(
-          color: colorScheme.onSurface,
+          color: textColor,
+          fontWeight: FontWeight.w500,
         ),
         decoration: InputDecoration(
           labelText: label,
@@ -58,12 +64,18 @@ class AppTextField extends StatelessWidget {
           prefixIcon: prefixIcon,
           suffixIcon: suffixIcon,
           border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 16,
+          ),
           floatingLabelBehavior: FloatingLabelBehavior.auto,
           labelStyle: theme.textTheme.labelMedium?.copyWith(
-            color: colorScheme.onSurface.withOpacity(0.75),
+            color: secondaryText,
+            fontWeight: FontWeight.w600,
           ),
           hintStyle: theme.textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurface.withOpacity(0.45),
+            color: secondaryText,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ),

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/platform/overlay_platform.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../live/logic/quick_messages_controller.dart';
@@ -62,11 +63,14 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
   Future<void> _toggleOverlay() async {
     final prefs = ref.read(prefsServiceProvider);
     final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
 
     if (_overlayEnabled) {
       final sure = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
+          backgroundColor: AppTheme.cardColor(brightness),
+          surfaceTintColor: Colors.transparent,
           title: Text(
             _trOr(l10n, 'live_overlay_turn_off_title', 'Turn off overlay?'),
           ),
@@ -83,6 +87,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
               child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
             ),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.limeAccent,
+                foregroundColor: AppTheme.darkText,
+              ),
               onPressed: () => Navigator.of(ctx).pop(true),
               child: Text(_trOr(l10n, 'common_turn_off', 'Turn off')),
             ),
@@ -105,6 +113,8 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardColor(brightness),
+        surfaceTintColor: Colors.transparent,
         title: Text(
           _trOr(l10n, 'live_overlay_enable_title', 'Enable floating overlay?'),
         ),
@@ -121,6 +131,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
             child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(_trOr(l10n, 'common_continue', 'Continue')),
           ),
@@ -168,7 +182,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     const success = Color(0xFF22C55E);
     const warning = Color(0xFFF59E0B);
@@ -178,7 +192,8 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
 
     if (_codeCtrl.text != st.callId && st.callId.isNotEmpty) {
       _codeCtrl.text = st.callId;
-      _codeCtrl.selection = TextSelection.collapsed(offset: _codeCtrl.text.length);
+      _codeCtrl.selection =
+          TextSelection.collapsed(offset: _codeCtrl.text.length);
     }
 
     if (st.incomingQuickText != null) {
@@ -204,8 +219,8 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
             : Icons.warning_amber_rounded);
 
     final overlayIconColor = !_overlayEnabled
-        ? cs.primary
-        : (_overlayGranted ? cs.primary : warning);
+        ? AppTheme.limeAccentDark
+        : (_overlayGranted ? AppTheme.limeAccentDark : warning);
 
     return GlassScaffold(
       appBar: AppBar(
@@ -241,8 +256,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
               padding: const EdgeInsets.all(16),
               children: [
                 Glass(
-                  borderRadius: 20,
+                  borderRadius: 24,
                   padding: const EdgeInsets.all(14),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -250,6 +267,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                         'Create or join with 8-character code',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
+                          color: AppTheme.primaryText(brightness),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -258,7 +276,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                             ? 'Create a room to get an 8-character code. Share it with your friend to join. Keep talking using the floating overlay over other apps.'
                             : 'Create a room to get an 8-character code. Share it with your friend to join. Enable the floating overlay from the top-right button for premium quick controls.',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.70),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -272,12 +290,18 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                           decoration: BoxDecoration(
                             color: st.reconnecting
                                 ? warning.withOpacity(0.12)
-                                : cs.error.withOpacity(0.10),
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .error
+                                    .withOpacity(0.10),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: st.reconnecting
                                   ? warning.withOpacity(0.30)
-                                  : cs.error.withOpacity(0.25),
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .error
+                                      .withOpacity(0.25),
                             ),
                           ),
                           child: Row(
@@ -296,7 +320,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                                 Icon(
                                   Icons.info_outline,
                                   size: 16,
-                                  color: cs.error,
+                                  color: Theme.of(context).colorScheme.error,
                                 ),
                                 const SizedBox(width: 10),
                               ],
@@ -304,7 +328,9 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                                 child: Text(
                                   st.error,
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: st.reconnecting ? warning : cs.error,
+                                    color: st.reconnecting
+                                        ? warning
+                                        : Theme.of(context).colorScheme.error,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -318,16 +344,20 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                         children: [
                           Expanded(
                             child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppTheme.limeAccent,
+                                foregroundColor: AppTheme.darkText,
+                              ),
                               onPressed: (st.joining || st.reconnecting)
                                   ? null
                                   : () async => ctrl.createAndJoin(),
                               icon: st.joining
-                                  ? SizedBox(
+                                  ? const SizedBox(
                                       width: 16,
                                       height: 16,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        color: cs.onPrimary,
+                                        color: AppTheme.darkText,
                                       ),
                                     )
                                   : const Icon(Icons.add_call),
@@ -343,7 +373,8 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                                       !st.joining &&
                                       !st.reconnecting)
                                   ? () async {
-                                      final code = _codeCtrl.text.trim().toUpperCase();
+                                      final code =
+                                          _codeCtrl.text.trim().toUpperCase();
                                       await ctrl.joinByCode(code);
                                     }
                                   : null,
@@ -367,11 +398,14 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                           hintText: 'Enter 8-character code',
                         ),
                         onChanged: (v) {
-                          final next = v.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+                          final next = v
+                              .toUpperCase()
+                              .replaceAll(RegExp(r'[^A-Z0-9]'), '');
                           if (next != v) {
                             _codeCtrl.value = TextEditingValue(
                               text: next,
-                              selection: TextSelection.collapsed(offset: next.length),
+                              selection:
+                                  TextSelection.collapsed(offset: next.length),
                             );
                           }
                         },
@@ -381,8 +415,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                 ),
                 const SizedBox(height: 12),
                 Glass(
-                  borderRadius: 20,
+                  borderRadius: 24,
                   padding: const EdgeInsets.all(14),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -390,6 +426,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                         _trOr(l10n, 'call_room_status_title', 'Status'),
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
+                          color: AppTheme.primaryText(brightness),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -404,7 +441,8 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                                   ? success
                                   : st.reconnecting
                                       ? warning
-                                      : cs.onSurface.withOpacity(0.30),
+                                      : AppTheme.secondaryText(brightness)
+                                          .withOpacity(0.40),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -423,7 +461,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                                     ? success
                                     : st.reconnecting
                                         ? warning
-                                        : cs.onSurface.withOpacity(0.75),
+                                        : AppTheme.secondaryText(brightness),
                               ),
                             ),
                           ),
@@ -466,6 +504,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppTheme.limeAccent,
+                                foregroundColor: AppTheme.darkText,
+                              ),
                               onPressed:
                                   (st.connected && st.micPermissionGranted)
                                       ? ctrl.toggleMic
@@ -494,7 +536,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                                 'Mic permission denied (you can still listen)',
                               ),
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.65),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -516,9 +558,15 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                       horizontal: 14,
                       vertical: 10,
                     ),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: Row(
                       children: [
-                        Icon(Icons.bolt, color: cs.primary, size: 18),
+                        Icon(
+                          Icons.bolt,
+                          color: AppTheme.limeAccentDark,
+                          size: 18,
+                        ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -526,7 +574,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                                 ? st.incomingQuickText!
                                 : '${st.incomingQuickFrom}: ${st.incomingQuickText!}',
                             style: TextStyle(
-                              color: cs.onSurface,
+                              color: AppTheme.primaryText(brightness),
                               fontWeight: FontWeight.w900,
                               fontSize: 13,
                             ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:eleaguehub3/core/theme/app_theme.dart';
 import 'package:eleaguehub3/core/widgets/glass.dart';
 import 'package:eleaguehub3/features/leagues/data/spaces_firebase.dart';
 
@@ -12,7 +13,7 @@ class LeagueSpaceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return StreamBuilder<dynamic>(
       stream: _spaceRepo.watchSpace(leagueId),
@@ -21,7 +22,10 @@ class LeagueSpaceCard extends StatelessWidget {
           return SizedBox(
             height: 100,
             child: Center(
-              child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.limeAccentDark,
+              ),
             ),
           );
         }
@@ -35,17 +39,19 @@ class LeagueSpaceCard extends StatelessWidget {
           isLive = false;
         }
 
-        final liveDot = isLive ? cs.error : cs.onSurface.withOpacity(0.14);
+        final liveDot = isLive
+            ? Theme.of(context).colorScheme.error
+            : AppTheme.secondaryText(brightness).withOpacity(0.30);
 
-        // Light theme: soften the live glow; dark theme: keep it slightly stronger.
-        final glowOpacity = theme.brightness == Brightness.light ? 0.26 : 0.45;
+        final glowOpacity = theme.brightness == Brightness.light ? 0.20 : 0.40;
 
         return Glass(
           borderRadius: 20,
           padding: const EdgeInsets.all(16),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Row(
             children: [
-              // Live Indicator
               Container(
                 width: 12,
                 height: 12,
@@ -55,7 +61,10 @@ class LeagueSpaceCard extends StatelessWidget {
                   boxShadow: isLive
                       ? [
                           BoxShadow(
-                            color: cs.error.withOpacity(glowOpacity),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .error
+                                .withOpacity(glowOpacity),
                             blurRadius: 10,
                             spreadRadius: 1.5,
                           )
@@ -71,16 +80,20 @@ class LeagueSpaceCard extends StatelessWidget {
                     Text(
                       isLive ? 'LIVE SPACE' : 'SPACE OFFLINE',
                       style: TextStyle(
-                        color: isLive ? cs.onSurface : cs.onSurface.withOpacity(0.45),
+                        color: isLive
+                            ? AppTheme.primaryText(brightness)
+                            : AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1.2,
                         fontSize: 12,
                       ),
                     ),
                     Text(
-                      isLive ? 'Join the conversation now' : 'No active discussion',
+                      isLive
+                          ? 'Join the conversation now'
+                          : 'No active discussion',
                       style: TextStyle(
-                        color: cs.onSurface.withOpacity(0.65),
+                        color: AppTheme.secondaryText(brightness),
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
@@ -90,12 +103,14 @@ class LeagueSpaceCard extends StatelessWidget {
               ),
               if (isLive)
                 FilledButton(
-                  onPressed: () {},
                   style: FilledButton.styleFrom(
-                    backgroundColor: cs.primary,
-                    foregroundColor: cs.onPrimary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    backgroundColor: AppTheme.limeAccent,
+                    foregroundColor: AppTheme.darkText,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
+                  onPressed: () {},
                   child: const Text('JOIN'),
                 ),
             ],

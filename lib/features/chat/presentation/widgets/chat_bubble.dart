@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../core/theme/app_theme.dart';
 import '../../models/chat_message.dart';
 
 class ChatBubble extends StatelessWidget {
@@ -12,11 +13,7 @@ class ChatBubble extends StatelessWidget {
     this.selected = false,
     this.onTap,
     this.onLongPress,
-
-    // Swipe-to-reply (WhatsApp-style)
     this.onSwipeReply,
-
-    // Voice playback (controlled by parent screen)
     this.onPlayVoice,
     this.isVoicePlaying = false,
     this.voiceProgress = 0.0,
@@ -31,8 +28,6 @@ class ChatBubble extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
 
-  /// Called when user swipes the message (start->end) to reply.
-  /// If null, swipe-to-reply is disabled for this bubble (e.g., selection mode).
   final VoidCallback? onSwipeReply;
 
   final VoidCallback? onPlayVoice;
@@ -46,13 +41,25 @@ class ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
-    final baseBg = isMe ? cs.primary.withOpacity(0.20) : cs.onSurface.withOpacity(0.06);
-    final baseBorder = isMe ? cs.primary.withOpacity(0.30) : cs.onSurface.withOpacity(0.12);
+    final baseBg = isMe
+        ? (brightness == Brightness.dark
+            ? AppTheme.limeAccentDark.withOpacity(0.16)
+            : const Color(0xFFECFCCB))
+        : AppTheme.searchBackground(brightness);
+    final baseBorder = isMe
+        ? AppTheme.limeAccentDark.withOpacity(0.30)
+        : AppTheme.searchOutline(brightness);
 
-    final bg = selected ? cs.primary.withOpacity(0.18) : baseBg;
-    final border = selected ? cs.primary.withOpacity(0.65) : baseBorder;
+    final bg = selected
+        ? (brightness == Brightness.dark
+            ? AppTheme.limeAccent.withOpacity(0.18)
+            : const Color(0xFFD9F99D))
+        : baseBg;
+    final border = selected
+        ? AppTheme.limeAccentDark.withOpacity(0.65)
+        : baseBorder;
 
     final maxWidth = MediaQuery.of(context).size.width * 0.78;
 
@@ -67,7 +74,7 @@ class ChatBubble extends StatelessWidget {
       content = Text(
         'This message was deleted',
         style: TextStyle(
-          color: cs.onSurface.withOpacity(0.70),
+          color: AppTheme.secondaryText(brightness),
           fontWeight: FontWeight.w800,
           fontStyle: FontStyle.italic,
           height: 1.35,
@@ -105,7 +112,9 @@ class ChatBubble extends StatelessWidget {
     }
 
     final bubble = Align(
-      alignment: isMe ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
+      alignment: isMe
+          ? AlignmentDirectional.centerEnd
+          : AlignmentDirectional.centerStart,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
         child: GestureDetector(
@@ -133,7 +142,8 @@ class ChatBubble extends StatelessWidget {
                           padding: const EdgeInsets.only(right: 6),
                           child: CircleAvatar(
                             radius: 10,
-                            backgroundColor: cs.onSurface.withOpacity(0.08),
+                            backgroundColor:
+                                AppTheme.iconCircleBackground(brightness),
                             backgroundImage: NetworkImage(senderPhoto),
                             onBackgroundImageError: (_, __) {},
                           ),
@@ -142,7 +152,7 @@ class ChatBubble extends StatelessWidget {
                         child: Text(
                           senderName,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurface.withOpacity(0.70),
+                            color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w900,
                             fontSize: 11,
                           ),
@@ -153,8 +163,6 @@ class ChatBubble extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                 ],
-
-                // Reply quote preview (if this message is a reply)
                 if (message.isReply)
                   _ReplyQuote(
                     senderName: message.replyToSenderName.trim().isEmpty
@@ -164,7 +172,6 @@ class ChatBubble extends StatelessWidget {
                         ? 'Message'
                         : message.replyToText.trim(),
                   ),
-
                 content,
                 const SizedBox(height: 6),
                 Row(
@@ -173,14 +180,18 @@ class ChatBubble extends StatelessWidget {
                     Text(
                       timeStr,
                       style: TextStyle(
-                        color: cs.onSurface.withOpacity(0.45),
+                        color: AppTheme.secondaryText(brightness),
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     if (isMe) ...[
                       const SizedBox(width: 6),
-                      Icon(Icons.done_all, size: 14, color: cs.primary.withOpacity(0.65)),
+                      Icon(
+                        Icons.done_all,
+                        size: 14,
+                        color: AppTheme.limeAccentDark.withOpacity(0.8),
+                      ),
                     ],
                   ],
                 ),
@@ -191,8 +202,6 @@ class ChatBubble extends StatelessWidget {
       ),
     );
 
-    // Swipe-to-reply (WhatsApp style): swipe start->end triggers reply and does not dismiss.
-    // Disabled when onSwipeReply == null (e.g., selection mode).
     if (onSwipeReply == null) return bubble;
 
     return Dismissible(
@@ -201,17 +210,20 @@ class ChatBubble extends StatelessWidget {
       confirmDismiss: (_) async {
         HapticFeedback.selectionClick();
         onSwipeReply?.call();
-        return false; // never dismiss
+        return false;
       },
       background: Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
         padding: const EdgeInsets.symmetric(horizontal: 14),
         alignment: AlignmentDirectional.centerStart,
         decoration: BoxDecoration(
-          color: cs.primary.withOpacity(0.10),
+          color: AppTheme.limeAccent.withOpacity(0.14),
           borderRadius: BorderRadius.circular(14),
         ),
-        child: Icon(Icons.reply_rounded, color: cs.primary),
+        child: const Icon(
+          Icons.reply_rounded,
+          color: AppTheme.limeAccentDark,
+        ),
       ),
       child: bubble,
     );
@@ -229,15 +241,15 @@ class _ReplyQuote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.06),
+        color: AppTheme.searchBackground(brightness),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: Row(
         children: [
@@ -245,7 +257,7 @@ class _ReplyQuote extends StatelessWidget {
             width: 3,
             height: 34,
             decoration: BoxDecoration(
-              color: cs.primary,
+              color: AppTheme.limeAccentDark,
               borderRadius: BorderRadius.circular(999),
             ),
           ),
@@ -258,8 +270,8 @@ class _ReplyQuote extends StatelessWidget {
                   senderName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: cs.primary,
+                  style: const TextStyle(
+                    color: AppTheme.limeAccentDark,
                     fontWeight: FontWeight.w900,
                     fontSize: 12,
                   ),
@@ -270,7 +282,9 @@ class _ReplyQuote extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: cs.onSurface.withOpacity(0.75),
+                    color: AppTheme.secondaryText(
+                      Theme.of(context).brightness,
+                    ),
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                     height: 1.2,
@@ -292,11 +306,11 @@ class _TextBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
     return Text(
       text,
       style: TextStyle(
-        color: cs.onSurface,
+        color: AppTheme.primaryText(brightness),
         fontWeight: FontWeight.w700,
         height: 1.35,
         fontSize: 13,
@@ -319,14 +333,14 @@ class _VoiceBubble extends StatelessWidget {
   final double maxWidth;
   final VoidCallback? onPlayPause;
   final bool isPlaying;
-  final double progress; // 0..1
+  final double progress;
   final String positionLabel;
   final String durationLabel;
   final String? caption;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     final safeProgress = progress.clamp(0.0, 1.0);
 
@@ -339,7 +353,7 @@ class _VoiceBubble extends StatelessWidget {
               onPressed: onPlayPause,
               icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle),
               iconSize: 34,
-              color: cs.primary,
+              color: AppTheme.limeAccentDark,
             ),
             Expanded(
               child: Column(
@@ -350,8 +364,11 @@ class _VoiceBubble extends StatelessWidget {
                     child: LinearProgressIndicator(
                       value: safeProgress,
                       minHeight: 5,
-                      backgroundColor: cs.onSurface.withOpacity(0.10),
-                      valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+                      backgroundColor:
+                          AppTheme.searchOutline(brightness),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        AppTheme.limeAccentDark,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -362,7 +379,7 @@ class _VoiceBubble extends StatelessWidget {
                         positionLabel,
                         style: TextStyle(
                           fontSize: 11,
-                          color: cs.onSurface.withOpacity(0.65),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -370,7 +387,7 @@ class _VoiceBubble extends StatelessWidget {
                         durationLabel,
                         style: TextStyle(
                           fontSize: 11,
-                          color: cs.onSurface.withOpacity(0.65),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -386,7 +403,7 @@ class _VoiceBubble extends StatelessWidget {
           Text(
             caption!.trim(),
             style: TextStyle(
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w700,
               height: 1.35,
               fontSize: 13,
@@ -405,15 +422,15 @@ class _CodeBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.08),
+        color: AppTheme.searchBackground(brightness),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -423,7 +440,7 @@ class _CodeBubble extends StatelessWidget {
             style: TextStyle(
               fontFamily: 'monospace',
               fontSize: 12,
-              color: cs.onSurface.withOpacity(0.95),
+              color: AppTheme.primaryText(brightness),
               height: 1.35,
               fontWeight: FontWeight.w700,
             ),
@@ -443,10 +460,18 @@ class _CodeBubble extends StatelessWidget {
                   ),
                 );
               },
-              icon: Icon(Icons.copy, size: 16, color: cs.primary),
-              label: Text(
+              icon: const Icon(
+                Icons.copy,
+                size: 16,
+                color: AppTheme.limeAccentDark,
+              ),
+              label: const Text(
                 'Copy',
-                style: TextStyle(color: cs.primary, fontWeight: FontWeight.w900, fontSize: 12),
+                style: TextStyle(
+                  color: AppTheme.limeAccentDark,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
               ),
             ),
           ),
@@ -469,7 +494,7 @@ class _ImageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -495,7 +520,7 @@ class _ImageBubble extends StatelessWidget {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: Container(
-              color: cs.onSurface.withOpacity(0.06),
+              color: AppTheme.searchBackground(brightness),
               child: AspectRatio(
                 aspectRatio: 4 / 3,
                 child: Image.network(
@@ -504,18 +529,18 @@ class _ImageBubble extends StatelessWidget {
                   errorBuilder: (_, __, ___) => Center(
                     child: Icon(
                       Icons.broken_image_outlined,
-                      color: cs.onSurface.withOpacity(0.55),
+                      color: AppTheme.secondaryText(brightness),
                     ),
                   ),
                   loadingBuilder: (context, child, ev) {
                     if (ev == null) return child;
-                    return Center(
+                    return const Center(
                       child: SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: cs.primary,
+                          color: AppTheme.limeAccentDark,
                         ),
                       ),
                     );
@@ -530,7 +555,7 @@ class _ImageBubble extends StatelessWidget {
           Text(
             caption!.trim(),
             style: TextStyle(
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w700,
               height: 1.35,
               fontSize: 13,

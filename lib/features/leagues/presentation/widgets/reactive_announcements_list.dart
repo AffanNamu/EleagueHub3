@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'package:eleaguehub3/core/theme/app_theme.dart';
 import 'package:eleaguehub3/core/widgets/glass.dart';
 import 'package:eleaguehub3/features/leagues/data/announcements_firebase.dart';
 
@@ -11,10 +12,6 @@ class ReactiveAnnouncementsList extends StatelessWidget {
   ReactiveAnnouncementsList({super.key, required this.leagueId});
 
   DateTime _resolveTimestamp(dynamic ann) {
-    // Support multiple model shapes without hard-coding a specific class:
-    // - ann.timestamp (DateTime)
-    // - ann.createdAtMs (int, epoch ms)
-    // - ann.createdAt / ann.updatedAt (int, epoch ms)
     try {
       final v = (ann as dynamic).timestamp;
       if (v is DateTime) return v;
@@ -59,13 +56,15 @@ class ReactiveAnnouncementsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return StreamBuilder<List<dynamic>>(
       stream: _annRepo.watchLeagueAnnouncements(leagueId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator(color: cs.primary));
+          return Center(
+            child: CircularProgressIndicator(color: AppTheme.limeAccentDark),
+          );
         }
 
         final announcements = snapshot.data ?? const <dynamic>[];
@@ -74,7 +73,10 @@ class ReactiveAnnouncementsList extends StatelessWidget {
           return Center(
             child: Text(
               'No announcements yet',
-              style: TextStyle(color: cs.onSurface.withOpacity(0.45), fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: AppTheme.secondaryText(brightness),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           );
         }
@@ -95,6 +97,8 @@ class ReactiveAnnouncementsList extends StatelessWidget {
               child: Glass(
                 borderRadius: 18,
                 padding: const EdgeInsets.all(12),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -105,7 +109,7 @@ class ReactiveAnnouncementsList extends StatelessWidget {
                           child: Text(
                             title.toUpperCase(),
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.primary,
+                              color: AppTheme.limeAccentDark,
                               fontWeight: FontWeight.w900,
                               fontSize: 13,
                               letterSpacing: 0.4,
@@ -117,7 +121,7 @@ class ReactiveAnnouncementsList extends StatelessWidget {
                         Text(
                           time,
                           style: TextStyle(
-                            color: cs.onSurface.withOpacity(0.45),
+                            color: AppTheme.secondaryText(brightness),
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
                           ),
@@ -128,7 +132,7 @@ class ReactiveAnnouncementsList extends StatelessWidget {
                     Text(
                       message,
                       style: TextStyle(
-                        color: cs.onSurface.withOpacity(0.72),
+                        color: AppTheme.secondaryText(brightness),
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                         height: 1.25,

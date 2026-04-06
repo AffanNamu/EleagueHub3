@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../auth/data/user_profile_repository.dart';
 import '../../../auth/models/user_profile.dart';
@@ -40,7 +41,7 @@ class MasterLeagueCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     final isOwner =
         currentUid.isNotEmpty && masterLeague.ownerId.trim() == currentUid;
@@ -59,7 +60,7 @@ class MasterLeagueCard extends StatelessWidget {
 
     final rewardsText = initialCompetition == null
         ? ''
-        : (initialCompetition.rewardsPlan.trim());
+        : initialCompetition.rewardsPlan.trim();
 
     final organizerLogoUrl =
         _safeNetworkImage(masterLeague.organizerProfile.logoUrl);
@@ -79,19 +80,13 @@ class MasterLeagueCard extends StatelessWidget {
           child: Glass(
             borderRadius: 24,
             padding: EdgeInsets.zero,
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(24),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    cs.primary.withOpacity(0.18),
-                    cs.secondary.withOpacity(0.06),
-                    cs.onSurface.withOpacity(0.02),
-                  ],
-                ),
+                gradient: AppTheme.leagueCardGradient(brightness),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -100,12 +95,15 @@ class MasterLeagueCard extends StatelessWidget {
                     children: [
                       CircleAvatar(
                         radius: 28,
-                        backgroundColor: cs.primary.withOpacity(0.12),
+                        backgroundColor: AppTheme.iconCircleBackground(brightness),
                         backgroundImage: effectiveAvatarUrl.isNotEmpty
                             ? NetworkImage(effectiveAvatarUrl)
                             : null,
                         child: effectiveAvatarUrl.isEmpty
-                            ? Icon(Icons.hub_rounded, color: cs.primary)
+                            ? Icon(
+                                Icons.hub_rounded,
+                                color: AppTheme.limeAccentDark,
+                              )
                             : null,
                       ),
                       const SizedBox(width: 14),
@@ -121,12 +119,13 @@ class MasterLeagueCard extends StatelessWidget {
                                 Text(
                                   title,
                                   style: theme.textTheme.titleMedium?.copyWith(
-                                    color: cs.onSurface,
+                                    color: AppTheme.primaryText(brightness),
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
                                 _chip(
                                   theme: theme,
+                                  brightness: brightness,
                                   color: masterLeague.isActive
                                       ? const Color(0xFF22C55E)
                                       : const Color(0xFFF59E0B),
@@ -136,31 +135,36 @@ class MasterLeagueCard extends StatelessWidget {
                                 ),
                                 _chip(
                                   theme: theme,
-                                  color: cs.primary,
+                                  brightness: brightness,
+                                  color: AppTheme.limeAccentDark,
                                   label: masterLeague.plan.displayName.toUpperCase(),
                                 ),
                                 _chip(
                                   theme: theme,
+                                  brightness: brightness,
                                   color: isOwner
-                                      ? const Color(0xFF3B82F6)
+                                      ? const Color(0xFFEF4444)
                                       : const Color(0xFF8B5CF6),
                                   label: isOwner ? 'OWNER' : 'VISITOR',
                                 ),
                                 if (masterLeague.isVerifiedOrganizer)
                                   _chip(
                                     theme: theme,
+                                    brightness: brightness,
                                     color: const Color(0xFF1D9BF0),
                                     label: 'VERIFIED',
                                   ),
                                 if (masterLeague.isVerificationPending)
                                   _chip(
                                     theme: theme,
+                                    brightness: brightness,
                                     color: const Color(0xFFF59E0B),
                                     label: 'PENDING REVIEW',
                                   ),
                                 if (badge.isNotEmpty)
                                   _chip(
                                     theme: theme,
+                                    brightness: brightness,
                                     color: const Color(0xFFF59E0B),
                                     label: badge.toUpperCase(),
                                   ),
@@ -172,7 +176,7 @@ class MasterLeagueCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.62),
+                                color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -187,7 +191,7 @@ class MasterLeagueCard extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: cs.onSurface.withOpacity(0.76),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w600,
                       height: 1.3,
                     ),
@@ -202,8 +206,14 @@ class MasterLeagueCard extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
-                        color: cs.primary.withOpacity(0.06),
-                        border: Border.all(color: cs.primary.withOpacity(0.14)),
+                        color: brightness == Brightness.dark
+                            ? AppTheme.limeAccentDark.withOpacity(0.12)
+                            : const Color(0xFFECFCCB),
+                        border: Border.all(
+                          color: brightness == Brightness.dark
+                              ? AppTheme.limeAccentDark.withOpacity(0.22)
+                              : const Color(0xFFD9F99D),
+                        ),
                       ),
                       child: Text(
                         rewardsText.isEmpty
@@ -212,7 +222,7 @@ class MasterLeagueCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.82),
+                          color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w800,
                           height: 1.25,
                         ),
@@ -240,27 +250,24 @@ class MasterLeagueCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            color: cs.primary.withOpacity(0.10),
-                            border: Border.all(
-                              color: cs.primary.withOpacity(0.18),
-                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            color: AppTheme.limeAccent,
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.dashboard_customize_outlined,
                                 size: 18,
-                                color: cs.primary,
+                                color: AppTheme.darkText,
                               ),
                               const SizedBox(width: 8),
                               Text(
                                 'Open Workspace',
                                 style: theme.textTheme.labelLarge?.copyWith(
-                                  color: cs.primary,
+                                  color: AppTheme.darkText,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
@@ -271,7 +278,7 @@ class MasterLeagueCard extends StatelessWidget {
                       const SizedBox(width: 10),
                       Icon(
                         Icons.chevron_right_rounded,
-                        color: cs.onSurface.withOpacity(0.35),
+                        color: AppTheme.secondaryText(brightness),
                       ),
                     ],
                   ),
@@ -286,6 +293,7 @@ class MasterLeagueCard extends StatelessWidget {
 
   Widget _chip({
     required ThemeData theme,
+    required Brightness brightness,
     required Color color,
     required String label,
   }) {
@@ -293,8 +301,14 @@ class MasterLeagueCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: color.withOpacity(0.14),
-        border: Border.all(color: color.withOpacity(0.32)),
+        color: brightness == Brightness.dark
+            ? color.withOpacity(0.14)
+            : color.withOpacity(0.10),
+        border: Border.all(
+          color: brightness == Brightness.dark
+              ? color.withOpacity(0.28)
+              : color.withOpacity(0.22),
+        ),
       ),
       child: Text(
         label,
@@ -308,18 +322,18 @@ class MasterLeagueCard extends StatelessWidget {
   }
 
   Widget _stat(BuildContext context, String text) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: cs.primary.withOpacity(0.06),
-        border: Border.all(color: cs.primary.withOpacity(0.12)),
+        color: AppTheme.searchBackground(brightness),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: Text(
         text,
         style: TextStyle(
-          color: cs.onSurface,
+          color: AppTheme.primaryText(brightness),
           fontWeight: FontWeight.w800,
           fontSize: 12,
         ),

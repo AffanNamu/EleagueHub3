@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 
 class BootstrapScreen extends StatelessWidget {
@@ -10,19 +11,19 @@ class BootstrapScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return GlassScaffold(
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(color: cs.primary),
+            CircularProgressIndicator(color: AppTheme.limeAccentDark),
             const SizedBox(height: 12),
             Text(
               l10n.authBootstrapLoading,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurface.withOpacity(0.75),
+                color: AppTheme.secondaryText(brightness),
               ),
             ),
           ],

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -111,18 +112,21 @@ class _GlobalChatAdminRequestsScreenState
     return docs.where((d) {
       final data = d.data();
       final userId = (data['userId'] as String? ?? d.id).trim().toLowerCase();
-      final userName = (data['userName'] as String? ?? 'User').trim().toLowerCase();
+      final userName =
+          (data['userName'] as String? ?? 'User').trim().toLowerCase();
       return userId.contains(q) || userName.contains(q);
     }).toList(growable: false);
   }
 
   Widget _topSummaryCard(BuildContext context, int count) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Glass(
       borderRadius: 28,
       padding: const EdgeInsets.all(18),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Row(
         children: [
           Container(
@@ -130,10 +134,13 @@ class _GlobalChatAdminRequestsScreenState
             height: 46,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: cs.primary.withOpacity(0.12),
-              border: Border.all(color: cs.primary.withOpacity(0.24)),
+              color: AppTheme.iconCircleBackground(brightness),
+              border: Border.all(color: AppTheme.cardBorder(brightness)),
             ),
-            child: Icon(Icons.admin_panel_settings_rounded, color: cs.primary),
+            child: Icon(
+              Icons.admin_panel_settings_rounded,
+              color: AppTheme.limeAccentDark,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -144,7 +151,7 @@ class _GlobalChatAdminRequestsScreenState
                   'Pending Global Chat Requests',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -153,7 +160,7 @@ class _GlobalChatAdminRequestsScreenState
                       ? '1 user is waiting for approval to enter Global Chat.'
                       : '$count users are waiting for approval to enter Global Chat.',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.68),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                     height: 1.3,
                   ),
@@ -167,14 +174,16 @@ class _GlobalChatAdminRequestsScreenState
   }
 
   Widget _searchBar(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     return Glass(
       borderRadius: 20,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      fill: AppTheme.searchBackground(brightness),
+      borderColor: AppTheme.searchOutline(brightness),
       child: Row(
         children: [
-          Icon(Icons.search_rounded, color: cs.onSurface.withOpacity(0.65)),
+          Icon(Icons.search_rounded, color: AppTheme.secondaryText(brightness)),
           const SizedBox(width: 10),
           Expanded(
             child: TextField(
@@ -202,7 +211,7 @@ class _GlobalChatAdminRequestsScreenState
     QueryDocumentSnapshot<Map<String, dynamic>> d,
   ) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final data = d.data();
 
     final userId = (data['userId'] as String? ?? d.id).trim();
@@ -219,6 +228,8 @@ class _GlobalChatAdminRequestsScreenState
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(14),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -226,12 +237,13 @@ class _GlobalChatAdminRequestsScreenState
             children: [
               CircleAvatar(
                 radius: 24,
-                backgroundColor: cs.primary.withOpacity(0.12),
-                backgroundImage: userPhoto.isEmpty ? null : NetworkImage(userPhoto),
+                backgroundColor: AppTheme.iconCircleBackground(brightness),
+                backgroundImage:
+                    userPhoto.isEmpty ? null : NetworkImage(userPhoto),
                 child: userPhoto.isEmpty
                     ? Icon(
                         Icons.person_outline_rounded,
-                        color: cs.primary,
+                        color: AppTheme.limeAccentDark,
                       )
                     : null,
               ),
@@ -244,14 +256,14 @@ class _GlobalChatAdminRequestsScreenState
                       userName.isEmpty ? 'User' : userName,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w900,
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       _shortUserId(userId),
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.60),
+                        color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -259,7 +271,8 @@ class _GlobalChatAdminRequestsScreenState
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(999),
                   color: const Color(0xFFF59E0B).withOpacity(0.12),
@@ -310,6 +323,10 @@ class _GlobalChatAdminRequestsScreenState
               const SizedBox(width: 10),
               Expanded(
                 child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.limeAccent,
+                    foregroundColor: AppTheme.darkText,
+                  ),
                   onPressed: processingThis
                       ? null
                       : () => _setStatus(d.id, 'approved'),
@@ -319,7 +336,7 @@ class _GlobalChatAdminRequestsScreenState
                           height: 16,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: AppTheme.darkText,
                           ),
                         )
                       : const Icon(Icons.check_circle_outline_rounded),
@@ -340,8 +357,10 @@ class _GlobalChatAdminRequestsScreenState
                   : () => _setStatus(d.id, 'rejected'),
               icon: const Icon(Icons.close_rounded),
               style: OutlinedButton.styleFrom(
-                foregroundColor: cs.error,
-                side: BorderSide(color: cs.error.withOpacity(0.24)),
+                foregroundColor: Theme.of(context).colorScheme.error,
+                side: BorderSide(
+                  color: Theme.of(context).colorScheme.error.withOpacity(0.24),
+                ),
               ),
               label: const Text(
                 'Reject',
@@ -357,6 +376,7 @@ class _GlobalChatAdminRequestsScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final brightness = theme.brightness;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -401,12 +421,14 @@ class _GlobalChatAdminRequestsScreenState
                 child: Glass(
                   borderRadius: 26,
                   padding: const EdgeInsets.all(18),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
                         Icons.error_outline,
-                        color: theme.colorScheme.error,
+                        color: Theme.of(context).colorScheme.error,
                         size: 36,
                       ),
                       const SizedBox(height: 10),
@@ -414,7 +436,7 @@ class _GlobalChatAdminRequestsScreenState
                         msg,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: theme.colorScheme.onSurface.withOpacity(0.75),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -424,7 +446,7 @@ class _GlobalChatAdminRequestsScreenState
                           err.toString(),
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: theme.colorScheme.onSurface.withOpacity(0.45),
+                            color: AppTheme.secondaryText(brightness),
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
@@ -432,6 +454,10 @@ class _GlobalChatAdminRequestsScreenState
                       ],
                       const SizedBox(height: 10),
                       FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
                         onPressed: () => setState(() {}),
                         icon: const Icon(Icons.refresh_rounded),
                         label: const Text('Retry'),
@@ -468,20 +494,24 @@ class _GlobalChatAdminRequestsScreenState
                 if (docs.isEmpty)
                   const EmptyState(
                     title: 'No pending requests',
-                    message: 'All global chat access requests have been handled.',
+                    message:
+                        'All global chat access requests have been handled.',
                     icon: Icons.inbox_outlined,
                   )
                 else if (filtered.isEmpty)
                   const EmptyState(
                     title: 'No matching requests',
-                    message: 'Try another search term for user name or id.',
+                    message:
+                        'Try another search term for user name or id.',
                     icon: Icons.search_off_rounded,
                   )
                 else
-                  ...filtered.map((d) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _requestCard(context, d),
-                      )),
+                  ...filtered.map(
+                    (d) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _requestCard(context, d),
+                    ),
+                  ),
               ],
             ),
           );
@@ -503,7 +533,7 @@ class _InfoLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -514,7 +544,7 @@ class _InfoLine extends StatelessWidget {
             child: Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.60),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -523,7 +553,7 @@ class _InfoLine extends StatelessWidget {
             child: Text(
               value,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface,
+                color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w800,
               ),
             ),

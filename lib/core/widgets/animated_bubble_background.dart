@@ -3,30 +3,31 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// Animated bubble background with floating, drifting bubbles.
+/// Animated ambient background with soft floating bubbles.
+/// Tuned so light mode stays subtle and dark mode keeps depth.
 class AnimatedBubbleBackground extends StatefulWidget {
   const AnimatedBubbleBackground({super.key});
 
   @override
-  State<AnimatedBubbleBackground> createState() => _AnimatedBubbleBackgroundState();
+  State<AnimatedBubbleBackground> createState() =>
+      _AnimatedBubbleBackgroundState();
 }
 
-class _AnimatedBubbleBackgroundState extends State<AnimatedBubbleBackground> with SingleTickerProviderStateMixin {
+class _AnimatedBubbleBackgroundState extends State<AnimatedBubbleBackground>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final List<_Bubble> _bubbles;
-  final Random _rng = Random(); // dynamic random seed
+  final Random _rng = Random();
 
   @override
   void initState() {
     super.initState();
 
-    // Animation controller for bubble movement
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 18),
     )..repeat();
 
-    // Generate bubbles
     _bubbles = List.generate(18, (_) => _Bubble.random(_rng));
   }
 
@@ -52,6 +53,7 @@ class _AnimatedBubbleBackgroundState extends State<AnimatedBubbleBackground> wit
                 t: _controller.value,
                 bubbles: _bubbles,
                 colors: colors,
+                brightness: brightness,
               ),
             );
           },
@@ -61,7 +63,6 @@ class _AnimatedBubbleBackgroundState extends State<AnimatedBubbleBackground> wit
   }
 }
 
-/// Single bubble data model
 class _Bubble {
   _Bubble({
     required this.seed,
@@ -75,13 +76,13 @@ class _Bubble {
   });
 
   final double seed;
-  final double baseX; // 0..1 horizontal position
-  final double baseY; // 0..1 vertical position
-  final double radius; // relative size factor
-  final double drift; // horizontal/vertical drift factor
-  final double speed; // movement speed multiplier
-  final double phase; // initial phase offset
-  final int colorIndex; // index in color palette
+  final double baseX;
+  final double baseY;
+  final double radius;
+  final double drift;
+  final double speed;
+  final double phase;
+  final int colorIndex;
 
   factory _Bubble.random(Random rng) {
     return _Bubble(
@@ -92,40 +93,44 @@ class _Bubble {
       drift: 0.10 + rng.nextDouble() * 0.35,
       speed: 0.25 + rng.nextDouble() * 1.2,
       phase: rng.nextDouble() * pi * 2,
-      // Palette has 4 colors in both themes; modulo is applied when painting anyway.
       colorIndex: rng.nextInt(4),
     );
   }
 }
 
-/// Custom painter for bubbles
 class _BubblePainter extends CustomPainter {
   _BubblePainter({
     required this.t,
     required this.bubbles,
     required this.colors,
+    required this.brightness,
   });
 
-  final double t; // animation progress 0..1
+  final double t;
   final List<_Bubble> bubbles;
   final List<Color> colors;
+  final Brightness brightness;
 
   @override
   void paint(Canvas canvas, Size size) {
     final dt = t * 2 * pi;
 
     for (final b in bubbles) {
-      // Bobble cycle: slow Lissajous-ish movement around base point
       final wobbleX = sin(dt * (0.6 * b.speed) + b.phase) * b.drift;
       final wobbleY = cos(dt * (0.45 * b.speed) + b.phase) * b.drift;
 
       final x = (b.baseX + wobbleX * 0.12) * size.width;
       final y = (b.baseY + wobbleY * 0.10) * size.height;
 
-      final r = b.radius * min(size.width, size.height) * (0.85 + 0.25 * sin(dt * 0.9 + b.phase));
+      final r = b.radius *
+          min(size.width, size.height) *
+          (0.85 + 0.25 * sin(dt * 0.9 + b.phase));
+
+      final bubbleColor = colors[b.colorIndex % colors.length];
+      final opacity = brightness == Brightness.dark ? 1.0 : 0.58;
 
       final paint = Paint()
-        ..color = colors[b.colorIndex % colors.length]
+        ..color = bubbleColor.withOpacity(bubbleColor.opacity * opacity)
         ..isAntiAlias = true;
 
       canvas.drawCircle(Offset(x, y), r, paint);
@@ -134,6 +139,8 @@ class _BubblePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BubblePainter oldDelegate) {
-    return oldDelegate.t != t || oldDelegate.colors != colors;
+    return oldDelegate.t != t ||
+        oldDelegate.colors != colors ||
+        oldDelegate.brightness != brightness;
   }
 }

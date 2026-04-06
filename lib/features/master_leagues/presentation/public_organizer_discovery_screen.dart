@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -15,7 +16,7 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final featuredAsync = ref.watch(featuredOrganizerWorkspacesProvider);
     final verifiedAsync = ref.watch(verifiedOrganizerWorkspacesProvider);
@@ -37,10 +38,12 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
         error: (_, __) => Glass(
           borderRadius: 22,
           padding: const EdgeInsets.all(16),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Text(
             'Unable to load this section right now.',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: cs.error,
+              color: theme.colorScheme.error,
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -59,14 +62,14 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
                         letterSpacing: -0.2,
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.62),
+                        color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -129,6 +132,8 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
                   Glass(
                     borderRadius: 30,
                     padding: const EdgeInsets.all(18),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -137,14 +142,14 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
                           style: theme.textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w900,
                             letterSpacing: -0.35,
-                            color: cs.onSurface,
+                            color: AppTheme.primaryText(brightness),
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           'Explore trusted organizer workspaces, discover verified brands, and follow active competition hosts.',
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: cs.onSurface.withOpacity(0.72),
+                            color: AppTheme.secondaryText(brightness),
                             height: 1.35,
                             fontWeight: FontWeight.w600,
                           ),
@@ -166,7 +171,8 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
                     subtitle: 'Trusted organizer workspaces with verification badges.',
                     data: verifiedAsync,
                     emptyTitle: 'No verified organizers yet',
-                    emptyMessage: 'Verified organizers will appear here once approved.',
+                    emptyMessage:
+                        'Verified organizers will appear here once approved.',
                   ),
                   const SizedBox(height: 20),
                   section(
@@ -174,7 +180,8 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
                     subtitle: 'Workspaces with recent activity and updates.',
                     data: recentAsync,
                     emptyTitle: 'No active organizers yet',
-                    emptyMessage: 'Recently active organizer workspaces will appear here.',
+                    emptyMessage:
+                        'Recently active organizer workspaces will appear here.',
                   ),
                   const SizedBox(height: 20),
                   section(
@@ -182,7 +189,8 @@ class PublicOrganizerDiscoveryScreen extends ConsumerWidget {
                     subtitle: 'All organizer workspaces on the platform.',
                     data: allAsync,
                     emptyTitle: 'No organizers yet',
-                    emptyMessage: 'Organizer workspaces will appear here as they are created.',
+                    emptyMessage:
+                        'Organizer workspaces will appear here as they are created.',
                   ),
                 ],
               ),

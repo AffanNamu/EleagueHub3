@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 
 class FixtureCard extends StatelessWidget {
@@ -17,23 +19,25 @@ class FixtureCard extends StatelessWidget {
   final String subtitle;
   final Widget trailing;
   final VoidCallback onTap;
-
-  /// Optional: change text color if match is played
   final bool isPlayed;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final t = theme.textTheme;
 
-    final titleColor = isPlayed ? cs.onSurface.withOpacity(0.45) : cs.onSurface;
-    final subtitleColor = isPlayed ? cs.onSurface.withOpacity(0.42) : cs.onSurface.withOpacity(0.70);
+    final titleColor = isPlayed
+        ? AppTheme.secondaryText(brightness)
+        : AppTheme.primaryText(brightness);
+    final subtitleColor = AppTheme.secondaryText(brightness);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Glass(
         borderRadius: 20,
+        fill: AppTheme.cardColor(brightness),
+        borderColor: AppTheme.cardBorder(brightness),
         child: Material(
           color: Colors.transparent,
           child: InkWell(

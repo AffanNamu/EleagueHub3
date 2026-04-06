@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../routing/league_mode_provider.dart';
+import '../theme/app_theme.dart';
 import 'glass.dart';
 
 class LeagueSwitcher extends ConsumerWidget {
@@ -10,12 +11,14 @@ class LeagueSwitcher extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final brightness = theme.brightness;
     final currentMode = ref.watch(leagueModeProvider);
 
     return Glass(
       padding: const EdgeInsets.all(6),
-      borderRadius: 14,
+      borderRadius: 22,
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Row(
         children: LeagueType.values.map((type) {
           final isSelected = currentMode == type;
@@ -29,29 +32,23 @@ class LeagueSwitcher extends ConsumerWidget {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOut,
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? colorScheme.primary.withOpacity(0.18)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                  border: isSelected
-                      ? Border.all(
-                          color: colorScheme.primary.withOpacity(0.6),
-                          width: 1,
-                        )
-                      : null,
+                      ? AppTheme.limeAccent
+                      : AppTheme.tabInactiveBackground(brightness),
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 child: Text(
                   _label(type),
                   textAlign: TextAlign.center,
-                  style: theme.textTheme.labelMedium?.copyWith(
+                  style: theme.textTheme.labelLarge?.copyWith(
                     color: isSelected
-                        ? colorScheme.primary
-                        : colorScheme.onSurface.withOpacity(0.55),
+                        ? AppTheme.darkText
+                        : AppTheme.tabInactiveText(brightness),
                     fontWeight:
-                        isSelected ? FontWeight.w600 : FontWeight.w400,
-                    letterSpacing: 0.6,
+                        isSelected ? FontWeight.w700 : FontWeight.w600,
+                    letterSpacing: 0.2,
                   ),
                 ),
               ),

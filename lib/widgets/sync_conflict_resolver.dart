@@ -1,14 +1,7 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
-/// Legacy conflict UI kept for compatibility.
-///
-/// ONLINE-ONLY NOTE:
-/// In this architecture there is no local source-of-truth and no background sync.
-/// If this dialog is still triggered by older flows, it should be treated as
-/// a simple "choose which version to keep" prompt (manual resolution), without
-/// promising any offline sync behavior.
+import '../core/theme/app_theme.dart';
+
 class SyncConflictResolver extends StatelessWidget {
   final Map<String, dynamic> localData;
   final Map<String, dynamic> cloudData;
@@ -21,48 +14,56 @@ class SyncConflictResolver extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-      child: AlertDialog(
-        backgroundColor: Colors.white.withOpacity(0.10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: Colors.white24),
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+
+    return AlertDialog(
+      backgroundColor: AppTheme.cardColor(brightness),
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(color: AppTheme.cardBorder(brightness)),
+      ),
+      title: Text(
+        'Update conflict',
+        style: TextStyle(
+          color: AppTheme.primaryText(brightness),
+          fontWeight: FontWeight.w800,
         ),
-        title: const Text(
-          'Update conflict',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'We found different versions of this data. Please choose which one to keep.',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'We found different versions of this data. Please choose which one to keep.',
+            style: TextStyle(
+              color: AppTheme.secondaryText(brightness),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 20),
-            _buildOption(
-              context,
-              'This device',
-              (localData['timestamp'] ?? '').toString(),
-              isLocal: true,
-            ),
-            const SizedBox(height: 12),
-            _buildOption(
-              context,
-              'Server',
-              (cloudData['timestamp'] ?? '').toString(),
-              isLocal: false,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          const SizedBox(height: 20),
+          _buildOption(
+            context,
+            'This device',
+            (localData['timestamp'] ?? '').toString(),
+            isLocal: true,
+          ),
+          const SizedBox(height: 12),
+          _buildOption(
+            context,
+            'Server',
+            (cloudData['timestamp'] ?? '').toString(),
+            isLocal: false,
           ),
         ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+      ],
     );
   }
 
@@ -72,14 +73,27 @@ class SyncConflictResolver extends StatelessWidget {
     String time, {
     required bool isLocal,
   }) {
+    final brightness = Theme.of(context).brightness;
+
     return InkWell(
       onTap: () => Navigator.pop(context, isLocal),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isLocal ? Colors.blueAccent.withOpacity(0.30) : Colors.white.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white10),
+          color: isLocal
+              ? (brightness == Brightness.dark
+                  ? AppTheme.limeAccentDark.withOpacity(0.14)
+                  : const Color(0xFFECFCCB))
+              : AppTheme.searchBackground(brightness),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isLocal
+                ? (brightness == Brightness.dark
+                    ? AppTheme.limeAccentDark.withOpacity(0.24)
+                    : const Color(0xFFD9F99D))
+                : AppTheme.searchOutline(brightness),
+          ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -87,14 +101,26 @@ class SyncConflictResolver extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: AppTheme.primaryText(brightness),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 Text(
                   time.trim().isEmpty ? 'Last updated: —' : 'Last updated: $time',
-                  style: const TextStyle(color: Colors.white38, fontSize: 10),
+                  style: TextStyle(
+                    color: AppTheme.secondaryText(brightness),
+                    fontSize: 10,
+                  ),
                 ),
               ],
             ),
-            const Icon(Icons.check_circle_outline, color: Colors.white24),
+            Icon(
+              Icons.check_circle_outline,
+              color: AppTheme.secondaryText(brightness),
+            ),
           ],
         ),
       ),

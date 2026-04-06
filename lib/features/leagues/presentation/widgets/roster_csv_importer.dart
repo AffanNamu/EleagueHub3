@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 
-/// Result of resolving a roster row to an internal Firebase uid + team name.
 class ResolvedRosterProfile {
   final String userId;
   final String teamName;
@@ -16,7 +16,6 @@ class ResolvedRosterProfile {
   });
 }
 
-/// Validation status per CSV row.
 enum RosterRowStatus {
   pending,
   ok,
@@ -25,7 +24,6 @@ enum RosterRowStatus {
   offline,
 }
 
-/// One CSV row for roster import.
 class RosterCsvRow {
   final String input;
   final String? teamNameFromCsv;
@@ -64,7 +62,6 @@ typedef ResolveRosterProfile = Future<ResolvedRosterProfile?> Function(
 
 bool _looksLikeShareId(String input) => input.trim().startsWith('eS');
 
-/// Heuristic: Firebase Auth UIDs are usually long (28 chars), but we keep it loose.
 bool _looksLikeFirebaseUid(String input) {
   final t = input.trim();
   if (t.isEmpty) return false;
@@ -72,7 +69,6 @@ bool _looksLikeFirebaseUid(String input) {
   return t.length > 20;
 }
 
-/// Never show Firebase UIDs in UI (privacy/cleanliness), only show a label.
 String _displayInput(String raw) {
   final t = raw.trim();
   if (_looksLikeFirebaseUid(t)) return 'Firebase UID (hidden)';
@@ -257,29 +253,27 @@ Future<void> _showImportPreviewSheet({
     builder: (ctx) {
       final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
       final theme = Theme.of(ctx);
-      final cs = theme.colorScheme;
-      final onSurface = cs.onSurface;
+      final brightness = theme.brightness;
 
-      // Premium, theme-consistent semantic accents (soft, not neon).
       const success = Color(0xFF22C55E);
-      final info = cs.primary;
+      final info = AppTheme.limeAccentDark;
       const warning = Color(0xFFF59E0B);
 
-      // Theme-aware colors for light mode readability.
-      final subtleText = onSurface.withOpacity(0.65);
-      final faintText = onSurface.withOpacity(0.48);
-      final borderColor = onSurface.withOpacity(0.10);
-      final chipBg = onSurface.withOpacity(0.06);
+      final subtleText = AppTheme.secondaryText(brightness);
+      final borderColor = AppTheme.cardBorder(brightness);
+      final chipBg = AppTheme.searchBackground(brightness);
 
       return SafeArea(
         child: Padding(
-          padding: EdgeInsets.only(bottom: bottomInset)
-              .add(const EdgeInsets.all(12)),
+          padding:
+              EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 760),
               child: Glass(
                 borderRadius: 28,
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: StatefulBuilder(
                   builder: (ctx, setModalState) {
                     final okCount = stateRows
@@ -301,18 +295,15 @@ Future<void> _showImportPreviewSheet({
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // ── Handle ──
                           Container(
                             width: 40,
                             height: 4,
                             margin: const EdgeInsets.only(bottom: 16),
                             decoration: BoxDecoration(
-                              color: onSurface.withOpacity(0.18),
+                              color: borderColor,
                               borderRadius: BorderRadius.circular(2),
                             ),
                           ),
-
-                          // ── Header ──
                           Row(
                             children: [
                               Container(
@@ -320,18 +311,11 @@ Future<void> _showImportPreviewSheet({
                                 height: 44,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      cs.primary.withOpacity(0.30),
-                                      cs.primary.withOpacity(0.08),
-                                    ],
-                                  ),
+                                  color: AppTheme.iconCircleBackground(brightness),
                                 ),
                                 child: Icon(
                                   Icons.upload_file_rounded,
-                                  color: cs.primary,
+                                  color: AppTheme.limeAccentDark,
                                   size: 22,
                                 ),
                               ),
@@ -347,14 +331,14 @@ Future<void> _showImportPreviewSheet({
                                         fontWeight: FontWeight.w900,
                                         fontSize: 18,
                                         letterSpacing: -0.3,
-                                        color: onSurface,
+                                        color: AppTheme.primaryText(brightness),
                                       ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
                                       sourceLabel,
                                       style: TextStyle(
-                                        color: faintText,
+                                        color: subtleText,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -363,7 +347,6 @@ Future<void> _showImportPreviewSheet({
                                   ],
                                 ),
                               ),
-                              // Capacity badge
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 10,
@@ -385,10 +368,7 @@ Future<void> _showImportPreviewSheet({
                               ),
                             ],
                           ),
-
                           const SizedBox(height: 16),
-
-                          // ── Status chips ──
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: Row(
@@ -418,8 +398,11 @@ Future<void> _showImportPreviewSheet({
                                   _StatusChip(
                                     icon: Icons.close_rounded,
                                     label: '$notFoundCount Missing',
-                                    color: cs.error,
-                                    bg: cs.error.withOpacity(0.10),
+                                    color: Theme.of(context).colorScheme.error,
+                                    bg: Theme.of(context)
+                                        .colorScheme
+                                        .error
+                                        .withOpacity(0.10),
                                   ),
                                   const SizedBox(width: 8),
                                 ],
@@ -433,19 +416,17 @@ Future<void> _showImportPreviewSheet({
                               ],
                             ),
                           ),
-
                           const SizedBox(height: 14),
-
-                          // ── Action buttons ──
                           Row(
                             children: [
                               Expanded(
                                 child: _GlassActionButton(
-                                  icon:
-                                      validating ? null : Icons.verified_rounded,
+                                  icon: validating
+                                      ? null
+                                      : Icons.verified_rounded,
                                   isLoading: validating,
                                   label: 'Validate',
-                                  color: cs.primary,
+                                  color: AppTheme.limeAccentDark,
                                   onPressed: validating
                                       ? null
                                       : () => validateNow(setModalState),
@@ -463,13 +444,13 @@ Future<void> _showImportPreviewSheet({
                               ),
                             ],
                           ),
-
-                          // ── Offline warning ──
                           if (offlineCount > 0) ...[
                             const SizedBox(height: 12),
                             Glass(
                               borderRadius: 16,
                               padding: const EdgeInsets.all(12),
+                              fill: AppTheme.searchBackground(brightness),
+                              borderColor: AppTheme.searchOutline(brightness),
                               child: Row(
                                 children: [
                                   Container(
@@ -501,10 +482,7 @@ Future<void> _showImportPreviewSheet({
                               ),
                             ),
                           ],
-
                           const SizedBox(height: 12),
-
-                          // ── Row list ──
                           ConstrainedBox(
                             constraints: const BoxConstraints(maxHeight: 320),
                             child: ListView.separated(
@@ -522,18 +500,24 @@ Future<void> _showImportPreviewSheet({
                               },
                             ),
                           ),
-
-                          // ── Error ──
                           if (error != null) ...[
                             const SizedBox(height: 10),
                             Glass(
                               borderRadius: 14,
                               padding: const EdgeInsets.all(12),
+                              fill: Theme.of(context)
+                                  .colorScheme
+                                  .error
+                                  .withOpacity(0.08),
+                              borderColor: Theme.of(context)
+                                  .colorScheme
+                                  .error
+                                  .withOpacity(0.20),
                               child: Row(
                                 children: [
                                   Icon(
                                     Icons.error_outline_rounded,
-                                    color: cs.error,
+                                    color: Theme.of(context).colorScheme.error,
                                     size: 18,
                                   ),
                                   const SizedBox(width: 10),
@@ -541,7 +525,7 @@ Future<void> _showImportPreviewSheet({
                                     child: Text(
                                       error!,
                                       style: TextStyle(
-                                        color: cs.error,
+                                        color: Theme.of(context).colorScheme.error,
                                         fontWeight: FontWeight.w700,
                                         fontSize: 12,
                                       ),
@@ -551,10 +535,7 @@ Future<void> _showImportPreviewSheet({
                               ),
                             ),
                           ],
-
                           const SizedBox(height: 14),
-
-                          // ── Add valid button ──
                           SizedBox(
                             width: double.infinity,
                             height: 48,
@@ -568,21 +549,15 @@ Future<void> _showImportPreviewSheet({
                                 child: Ink(
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(16),
-                                    gradient: (validating || totalValid == 0)
-                                        ? null
-                                        : LinearGradient(
-                                            colors: [
-                                              cs.primary,
-                                              cs.primary.withOpacity(0.75),
-                                            ],
-                                          ),
                                     color: (validating || totalValid == 0)
-                                        ? onSurface.withOpacity(0.06)
-                                        : null,
+                                        ? AppTheme.tabInactiveBackground(
+                                            brightness,
+                                          )
+                                        : AppTheme.limeAccent,
                                     border: Border.all(
                                       color: (validating || totalValid == 0)
                                           ? borderColor
-                                          : cs.primary.withOpacity(0.40),
+                                          : AppTheme.limeAccentDark,
                                     ),
                                   ),
                                   child: Center(
@@ -593,8 +568,10 @@ Future<void> _showImportPreviewSheet({
                                           Icons.playlist_add_check_rounded,
                                           size: 20,
                                           color: (validating || totalValid == 0)
-                                              ? onSurface.withOpacity(0.35)
-                                              : cs.onPrimary,
+                                              ? AppTheme.secondaryText(
+                                                  brightness,
+                                                )
+                                              : AppTheme.darkText,
                                         ),
                                         const SizedBox(width: 10),
                                         Text(
@@ -602,8 +579,10 @@ Future<void> _showImportPreviewSheet({
                                           style: TextStyle(
                                             color:
                                                 (validating || totalValid == 0)
-                                                    ? onSurface.withOpacity(0.35)
-                                                    : cs.onPrimary,
+                                                    ? AppTheme.secondaryText(
+                                                        brightness,
+                                                      )
+                                                    : AppTheme.darkText,
                                             fontWeight: FontWeight.w800,
                                             fontSize: 14,
                                           ),
@@ -629,9 +608,6 @@ Future<void> _showImportPreviewSheet({
   );
 }
 
-// ─────────────────────────────────────────────
-// Roster Row Card
-// ─────────────────────────────────────────────
 class _RosterRowCard extends StatelessWidget {
   const _RosterRowCard({
     required this.row,
@@ -644,12 +620,10 @@ class _RosterRowCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
-    // Premium, theme-consistent semantic accents (soft, not neon).
     const success = Color(0xFF22C55E);
-    final info = cs.primary;
+    final info = AppTheme.limeAccentDark;
     const warning = Color(0xFFF59E0B);
 
     final isOk = row.status == RosterRowStatus.ok && row.resolved != null;
@@ -673,7 +647,6 @@ class _RosterRowCard extends StatelessWidget {
       iconColor = success;
       bgColor = success.withOpacity(0.12);
 
-      // Team name is primary; never show raw Firebase UID.
       title = row.resolved!.teamName;
       subtitle =
           isHiddenUid ? 'Verified • UID hidden' : 'Verified • $displayInput';
@@ -686,8 +659,8 @@ class _RosterRowCard extends StatelessWidget {
       subtitle = isHiddenUid ? 'CSV OK • UID hidden' : 'CSV OK • $displayInput';
     } else if (isPending) {
       icon = Icons.hourglass_empty_rounded;
-      iconColor = onSurface.withOpacity(0.55);
-      bgColor = onSurface.withOpacity(0.06);
+      iconColor = AppTheme.secondaryText(brightness);
+      bgColor = AppTheme.searchBackground(brightness);
 
       title = displayInput;
       subtitle = 'Pending validation';
@@ -700,8 +673,8 @@ class _RosterRowCard extends StatelessWidget {
       subtitle = 'Offline (cannot verify)';
     } else {
       icon = Icons.close_rounded;
-      iconColor = cs.error;
-      bgColor = cs.error.withOpacity(0.10);
+      iconColor = Theme.of(context).colorScheme.error;
+      bgColor = Theme.of(context).colorScheme.error.withOpacity(0.10);
 
       title = displayInput;
       subtitle = 'No profile found';
@@ -710,6 +683,8 @@ class _RosterRowCard extends StatelessWidget {
     return Glass(
       borderRadius: 16,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Row(
         children: [
           Container(
@@ -729,7 +704,7 @@ class _RosterRowCard extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    color: onSurface,
+                    color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
                   ),
@@ -739,9 +714,7 @@ class _RosterRowCard extends StatelessWidget {
                 Text(
                   subtitle,
                   style: TextStyle(
-                    color: (isOk || isOkCsv)
-                        ? onSurface.withOpacity(0.70)
-                        : onSurface.withOpacity(0.55),
+                    color: AppTheme.secondaryText(brightness),
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   ),
@@ -755,16 +728,16 @@ class _RosterRowCard extends StatelessWidget {
               margin: const EdgeInsets.only(left: 8),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: onSurface.withOpacity(0.06),
+                color: AppTheme.searchBackground(brightness),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: onSurface.withOpacity(0.10),
+                  color: AppTheme.searchOutline(brightness),
                 ),
               ),
               child: Text(
                 (row.group == null || row.group!.isEmpty) ? '—' : row.group!,
                 style: TextStyle(
-                  color: onSurface.withOpacity(0.72),
+                  color: AppTheme.secondaryText(brightness),
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                 ),
@@ -776,9 +749,6 @@ class _RosterRowCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Status Chip
-// ─────────────────────────────────────────────
 class _StatusChip extends StatelessWidget {
   const _StatusChip({
     required this.icon,
@@ -820,9 +790,6 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// Glass Action Button
-// ─────────────────────────────────────────────
 class _GlassActionButton extends StatelessWidget {
   const _GlassActionButton({
     this.icon,
@@ -842,6 +809,8 @@ class _GlassActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -851,9 +820,13 @@ class _GlassActionButton extends StatelessWidget {
           height: 44,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
-            color: outlined ? Colors.transparent : color.withOpacity(0.12),
+            color: outlined
+                ? Colors.transparent
+                : AppTheme.searchBackground(brightness),
             border: Border.all(
-              color: color.withOpacity(outlined ? 0.30 : 0.20),
+              color: outlined
+                  ? color.withOpacity(0.30)
+                  : AppTheme.searchOutline(brightness),
             ),
           ),
           child: Center(
@@ -889,9 +862,6 @@ class _GlassActionButton extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-// CSV Parsing (unchanged logic)
-// ─────────────────────────────────────────────
 List<RosterCsvRow> _parseRosterCsv({
   required String csvText,
   required bool isGroupLeague,

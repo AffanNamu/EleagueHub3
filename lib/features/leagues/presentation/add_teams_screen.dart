@@ -10,6 +10,7 @@ import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
@@ -18,20 +19,13 @@ import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/swiss_pairing.dart';
 import '../logic/fixture_generator.dart';
 import '../logic/team_media_service.dart';
+import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
 import 'widgets/roster_csv_importer.dart';
 
-/// Add teams screen (admin/organizer tool)
-///
-/// ID POLICY (IMPORTANT):
-/// - Internal IDs stored in Team.id / Membership.userId / Membership.teamId
-///   MUST be Firebase Auth UID.
-/// - shareId (short id) is allowed ONLY for display + user input.
-/// - Input shareId is resolved to Firebase UID via
-///   UserProfileRepository.fetchByUserIdOrShareId.
 class AddTeamsScreen extends ConsumerStatefulWidget {
   final String leagueId;
   final LeagueFormat format;
@@ -56,8 +50,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   League? _league;
 
-  /// Temp entries are uid-driven (Firebase uid):
-  /// { userId, teamName, group, teamImageUrl? }
   final List<Map<String, String>> _tempTeams = [];
 
   List<Team> _existingTeams = [];
@@ -121,9 +113,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     return UserProfile.deriveShareIdFromUid(u);
   }
 
-  /// Group UI list:
-  /// - If any existing/new team already uses groups E–H, show all groups.
-  /// - Else: show A–D until totalCount > 16, then show A–H.
   List<String> get _activeGroups {
     if (!_isGroupLeague) return const <String>[];
 
@@ -134,7 +123,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     used.removeWhere((e) => e.isEmpty);
 
     final usesExtended = used.any(
-      (g) => g == 'Group E' || g == 'Group F' || g == 'Group G' || g == 'Group H',
+      (g) =>
+          g == 'Group E' || g == 'Group F' || g == 'Group G' || g == 'Group H',
     );
     if (usesExtended) return _groupsAll;
 
@@ -145,13 +135,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   void initState() {
     super.initState();
     _localRepo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
-    // ignore: discarded_futures
     _loadExistingTeams();
   }
-
-  // ---------------------------------------------------------------------------
-  // Connectivity guard
-  // ---------------------------------------------------------------------------
 
   Future<void> _requireOnline() async {
     await ConnectivityService.instance.requireOnline(
@@ -159,14 +144,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Snack helpers
-  // ---------------------------------------------------------------------------
-
   Color _baseSnackBg(ThemeData theme) {
     return theme.brightness == Brightness.dark
         ? const Color(0xFF101522)
-        : const Color(0xFF0F172A);
+        : const Color(0xFFF8FBFF);
   }
 
   void _snack(String msg, {Color? bg, Color? fg}) {
@@ -174,7 +155,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     final theme = Theme.of(context);
     final resolvedBg = bg ?? _baseSnackBg(theme);
-    final resolvedFg = fg ?? Colors.white;
+    final resolvedFg = fg ??
+        (theme.brightness == Brightness.dark
+            ? Colors.white
+            : AppTheme.primaryText(theme.brightness));
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -193,11 +177,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   void _snackOk(String msg) {
     final theme = Theme.of(context);
-    final accent = theme.colorScheme.primary;
+    final accent = AppTheme.limeAccentDark;
     final baseBg = _baseSnackBg(theme);
     _snack(
       msg,
-      bg: Color.alphaBlend(accent.withOpacity(0.22), baseBg),
+      bg: Color.alphaBlend(accent.withOpacity(0.16), baseBg),
       fg: accent,
     );
   }
@@ -208,25 +192,21 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final baseBg = _baseSnackBg(theme);
     _snack(
       msg,
-      bg: Color.alphaBlend(warn.withOpacity(0.22), baseBg),
+      bg: Color.alphaBlend(warn.withOpacity(0.16), baseBg),
       fg: warn,
     );
   }
 
   void _snackErr(String msg) {
     final theme = Theme.of(context);
-    final err = theme.colorScheme.error;
+    final err = Theme.of(context).colorScheme.error;
     final baseBg = _baseSnackBg(theme);
     _snack(
       msg,
-      bg: Color.alphaBlend(err.withOpacity(0.22), baseBg),
+      bg: Color.alphaBlend(err.withOpacity(0.16), baseBg),
       fg: err,
     );
   }
-
-  // ---------------------------------------------------------------------------
-  // Load
-  // ---------------------------------------------------------------------------
 
   Future<void> _loadExistingTeams() async {
     setState(() {
@@ -237,14 +217,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     try {
       final league = await _localRepo.getLeagueById(widget.leagueId);
       final teams = await _localRepo.getTeams(widget.leagueId);
-
-      // Auto-show joined participants (memberships) in this screen.
       final allMemberships = await _localRepo.listMemberships();
 
-      // Only auto-add regular members (not organizers).
       final memberUserIds = allMemberships
           .where(
-            (m) => m.leagueId == widget.leagueId && m.role == LeagueRole.member, // skip organizer role
+            (m) =>
+                m.leagueId == widget.leagueId &&
+                m.role == LeagueRole.member,
           )
           .map((m) => m.userId.trim())
           .where((id) => id.isNotEmpty)
@@ -273,9 +252,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               name = resolved;
               _teamNameCacheByUserId[uid] = resolved;
             }
-          } catch (_) {
-            // Best-effort only.
-          }
+          } catch (_) {}
         }
 
         if (name.isEmpty) name = _shareId(uid);
@@ -307,15 +284,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _loadErrorMessage = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+        _loadErrorMessage = UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown'),
+        );
       });
       _snackErr(_loadErrorMessage!);
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
 
   String _formatLabel(AppLocalizations l10n) {
     switch (widget.format) {
@@ -363,10 +338,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     return l10n.tr('add_teams_league_pool');
   }
 
-  // ---------------------------------------------------------------------------
-  // Profile resolution
-  // ---------------------------------------------------------------------------
-
   Future<_ResolvedTeam?> _resolveTeamFromUserIdOrShareId(
     String userIdOrShareId,
   ) async {
@@ -389,10 +360,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     return _ResolvedTeam(userId: resolvedUserId, teamName: teamName);
   }
 
-  // ---------------------------------------------------------------------------
-  // Add a single resolved team to the preview list
-  // ---------------------------------------------------------------------------
-
   Future<void> _addResolvedTeam(
     _ResolvedTeam resolved, {
     String? groupOverride,
@@ -409,7 +376,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       return;
     }
 
-    final alreadyInPreview = _tempTeams.any((t) => (t['userId'] ?? '') == resolved.userId);
+    final alreadyInPreview =
+        _tempTeams.any((t) => (t['userId'] ?? '') == resolved.userId);
     if (alreadyInPreview) return;
 
     final alreadySaved = _existingTeams.any((t) => t.id == resolved.userId);
@@ -421,9 +389,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     final String groupToUse;
     if (_isGroupLeague) {
       final active = _activeGroups;
-      final desired =
-          (groupOverride != null && groupOverride.trim().isNotEmpty) ? groupOverride.trim() : _selectedGroup;
-      groupToUse = active.contains(desired) ? desired : (active.isNotEmpty ? active.first : 'Group A');
+      final desired = (groupOverride != null && groupOverride.trim().isNotEmpty)
+          ? groupOverride.trim()
+          : _selectedGroup;
+      groupToUse = active.contains(desired)
+          ? desired
+          : (active.isNotEmpty ? active.first : 'Group A');
     } else {
       groupToUse = _leaguePoolGroup;
     }
@@ -438,7 +409,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         'teamImageUrl': '',
       });
 
-      if (_isGroupLeague && (groupOverride == null || groupOverride.trim().isEmpty)) {
+      if (_isGroupLeague &&
+          (groupOverride == null || groupOverride.trim().isEmpty)) {
         final active = _activeGroups;
         if (active.isNotEmpty) {
           final next = (active.indexOf(_selectedGroup) + 1) % active.length;
@@ -447,10 +419,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       }
     });
   }
-
-  // ---------------------------------------------------------------------------
-  // CSV import
-  // ---------------------------------------------------------------------------
 
   Future<void> _importRosterFromCsv() async {
     await showRosterCsvImportFlow(
@@ -479,12 +447,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Add single dialog (Glass dialog; avoids transparent AlertDialog surfaces)
-  // ---------------------------------------------------------------------------
-
   Future<void> _showAddSingleDialog() async {
     final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
 
     final controller = TextEditingController();
     Timer? debounce;
@@ -545,21 +510,22 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         barrierColor: Colors.black.withOpacity(0.55),
         builder: (ctx) {
           final theme = Theme.of(ctx);
-          final cs = theme.colorScheme;
-          final onSurface = cs.onSurface;
-          final primary = cs.primary;
 
           return Dialog(
             backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
             child: Glass(
               borderRadius: 26,
               padding: const EdgeInsets.all(18),
+              fill: AppTheme.cardColor(brightness),
+              borderColor: AppTheme.cardBorder(brightness),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
                 child: StatefulBuilder(
                   builder: (ctx, setModalState) {
-                    final resolvedShare = (resolved == null) ? '' : _shareId(resolved!.userId);
+                    final resolvedShare =
+                        (resolved == null) ? '' : _shareId(resolved!.userId);
 
                     return Column(
                       mainAxisSize: MainAxisSize.min,
@@ -571,24 +537,32 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               height: 44,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(14),
-                                color: primary.withOpacity(0.12),
-                                border: Border.all(color: primary.withOpacity(0.22)),
+                                color: AppTheme.iconCircleBackground(brightness),
+                                border: Border.all(
+                                  color: AppTheme.cardBorder(brightness),
+                                ),
                               ),
-                              child: Icon(Icons.badge, color: primary),
+                              child: Icon(
+                                Icons.badge,
+                                color: AppTheme.limeAccentDark,
+                              ),
                             ),
                             const SizedBox(width: 14),
                             Expanded(
                               child: Text(
                                 l10n.tr('add_teams_add_player_by_userid_title'),
                                 style: theme.textTheme.titleMedium?.copyWith(
-                                  color: onSurface,
+                                  color: AppTheme.primaryText(brightness),
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
                             ),
                             IconButton(
                               onPressed: () => Navigator.of(ctx).pop(),
-                              icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                              icon: Icon(
+                                Icons.close,
+                                color: AppTheme.secondaryText(brightness),
+                              ),
                             ),
                           ],
                         ),
@@ -605,13 +579,16 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     child: SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: primary),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: AppTheme.limeAccentDark,
+                                      ),
                                     ),
                                   )
                                 : IconButton(
                                     tooltip: l10n.tr('add_teams_lookup_tooltip'),
                                     onPressed: () => resolveNow(setModalState),
-                                    icon: Icon(Icons.search, color: primary),
+                                    icon: const Icon(Icons.search),
                                   ),
                           ),
                           onChanged: (_) {
@@ -620,7 +597,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               const Duration(milliseconds: 350),
                               () {
                                 if (!ctx.mounted) return;
-                                // ignore: discarded_futures
                                 resolveNow(setModalState);
                               },
                             );
@@ -631,9 +607,15 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           Container(
                             width: double.infinity,
                             decoration: BoxDecoration(
-                              color: primary.withOpacity(0.10),
+                              color: brightness == Brightness.dark
+                                  ? AppTheme.limeAccentDark.withOpacity(0.10)
+                                  : const Color(0xFFECFCCB),
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: primary.withOpacity(0.22)),
+                              border: Border.all(
+                                color: brightness == Brightness.dark
+                                    ? AppTheme.limeAccentDark.withOpacity(0.22)
+                                    : const Color(0xFFD9F99D),
+                              ),
                             ),
                             padding: const EdgeInsets.all(12),
                             child: Column(
@@ -642,7 +624,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 Text(
                                   l10n.tr('add_teams_resolved_profile_title'),
                                   style: TextStyle(
-                                    color: primary,
+                                    color: AppTheme.limeAccentDark,
                                     fontWeight: FontWeight.w900,
                                     fontSize: 12,
                                   ),
@@ -651,7 +633,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 Text(
                                   resolved!.teamName,
                                   style: TextStyle(
-                                    color: onSurface,
+                                    color: AppTheme.primaryText(brightness),
                                     fontWeight: FontWeight.w900,
                                     fontSize: 15,
                                   ),
@@ -661,7 +643,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 Text(
                                   '${l10n.tr('add_teams_uid_prefix')}$resolvedShare',
                                   style: TextStyle(
-                                    color: onSurface.withOpacity(0.65),
+                                    color: AppTheme.secondaryText(brightness),
                                     fontSize: 11,
                                   ),
                                   overflow: TextOverflow.ellipsis,
@@ -670,7 +652,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 Text(
                                   'Internal uid: ${resolved!.userId}',
                                   style: TextStyle(
-                                    color: onSurface.withOpacity(0.45),
+                                    color: AppTheme.secondaryText(brightness)
+                                        .withOpacity(0.8),
                                     fontSize: 10,
                                   ),
                                   overflow: TextOverflow.ellipsis,
@@ -679,12 +662,20 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   const SizedBox(height: 8),
                                   Row(
                                     children: [
-                                      Icon(Icons.grid_view, size: 16, color: onSurface.withOpacity(0.60)),
+                                      Icon(
+                                        Icons.grid_view,
+                                        size: 16,
+                                        color: AppTheme.secondaryText(
+                                          brightness,
+                                        ),
+                                      ),
                                       const SizedBox(width: 8),
                                       Text(
                                         '${l10n.tr('add_teams_will_be_placed_in_prefix')}${_groupDisplayName(l10n, _selectedGroup)}',
                                         style: TextStyle(
-                                          color: onSurface.withOpacity(0.72),
+                                          color: AppTheme.secondaryText(
+                                            brightness,
+                                          ),
                                           fontSize: 12,
                                         ),
                                       ),
@@ -699,7 +690,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           Text(
                             error!,
                             style: TextStyle(
-                              color: cs.error,
+                              color: Theme.of(context).colorScheme.error,
                               fontWeight: FontWeight.w700,
                               fontSize: 12,
                             ),
@@ -718,6 +709,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppTheme.limeAccent,
+                                  foregroundColor: AppTheme.darkText,
+                                ),
                                 onPressed: () async {
                                   if (resolved == null) return;
                                   await _addResolvedTeam(resolved!);
@@ -744,12 +739,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Paste list sheet
-  // ---------------------------------------------------------------------------
-
   Future<void> _showPasteListSheet() async {
     final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
 
     final controller = TextEditingController();
 
@@ -830,7 +822,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         if (!mounted) return;
         setModalState(() {
           validating = false;
-          error = '${l10n.tr('add_teams_validation_failed_prefix')} ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}';
+          error =
+              '${l10n.tr('add_teams_validation_failed_prefix')} ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}';
         });
       }
     }
@@ -848,39 +841,36 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       if (ctx.mounted) Navigator.of(ctx).pop();
     }
 
-    // controller is disposed in whenComplete — do NOT dispose after await.
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        final cs = theme.colorScheme;
-        final onSurface = cs.onSurface;
-        final primary = cs.primary;
 
         final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
 
-        // PREMIUM FIX: avoid hard-coded black/white fills so this looks good on light theme too.
-        final inputBg = theme.brightness == Brightness.dark
-            ? onSurface.withOpacity(0.14)
-            : onSurface.withOpacity(0.04);
-        final inputStroke = theme.brightness == Brightness.dark
-            ? onSurface.withOpacity(0.18)
-            : onSurface.withOpacity(0.14);
+        final inputBg = AppTheme.searchBackground(brightness);
+        final inputStroke = AppTheme.searchOutline(brightness);
 
         return SafeArea(
           child: Padding(
-            padding: EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+            padding:
+                EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 720),
                 child: Glass(
                   borderRadius: 28,
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: StatefulBuilder(
                     builder: (ctx, setModalState) {
-                      final okCount = rows.where((r) => r.status == _BulkStatus.ok).length;
-                      final notFoundCount = rows.where((r) => r.status == _BulkStatus.notFound).length;
+                      final okCount =
+                          rows.where((r) => r.status == _BulkStatus.ok).length;
+                      final notFoundCount = rows
+                          .where((r) => r.status == _BulkStatus.notFound)
+                          .length;
 
                       return Padding(
                         padding: const EdgeInsets.all(14),
@@ -892,14 +882,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w900,
-                                color: onSurface,
+                                color: AppTheme.primaryText(brightness),
                               ),
                             ),
                             const SizedBox(height: 6),
                             Text(
                               l10n.tr('add_teams_paste_userids_subtitle'),
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: onSurface.withOpacity(0.70),
+                                color: AppTheme.secondaryText(brightness),
                                 fontSize: 11,
                               ),
                               textAlign: TextAlign.center,
@@ -922,17 +912,20 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     controller: controller,
                                     maxLines: 6,
                                     style: TextStyle(
-                                      color: onSurface,
+                                      color: AppTheme.primaryText(brightness),
                                       fontWeight: FontWeight.w600,
                                     ),
                                     decoration: InputDecoration(
                                       hintText: l10n.tr('add_teams_paste_hint'),
                                       hintStyle: TextStyle(
-                                        color: onSurface.withOpacity(0.45),
+                                        color: AppTheme.secondaryText(
+                                          brightness,
+                                        ),
                                         fontSize: 12,
                                       ),
                                       border: InputBorder.none,
-                                      contentPadding: const EdgeInsets.symmetric(
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
                                         horizontal: 14,
                                         vertical: 12,
                                       ),
@@ -962,25 +955,25 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     label: Text(
                                       l10n.tr('add_teams_clear'),
                                     ),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: onSurface.withOpacity(0.80),
-                                      side: BorderSide(
-                                        color: onSurface.withOpacity(0.18),
-                                      ),
-                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: FilledButton.icon(
-                                    onPressed: validating ? null : () => validateNow(setModalState),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.limeAccent,
+                                      foregroundColor: AppTheme.darkText,
+                                    ),
+                                    onPressed: validating
+                                        ? null
+                                        : () => validateNow(setModalState),
                                     icon: validating
                                         ? const SizedBox(
                                             width: 16,
                                             height: 16,
                                             child: CircularProgressIndicator(
                                               strokeWidth: 2,
-                                              color: Colors.white,
+                                              color: AppTheme.darkText,
                                             ),
                                           )
                                         : const Icon(Icons.verified),
@@ -996,19 +989,24 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               Row(
                                 children: [
                                   _MiniChip(
-                                    label: '${l10n.tr('add_teams_bulk_ok_prefix')}$okCount',
-                                    color: primary.withOpacity(0.18),
+                                    label:
+                                        '${l10n.tr('add_teams_bulk_ok_prefix')}$okCount',
+                                    color: AppTheme.limeAccent.withOpacity(0.25),
                                   ),
                                   const SizedBox(width: 8),
                                   _MiniChip(
-                                    label: '${l10n.tr('add_teams_bulk_not_found_prefix')}$notFoundCount',
-                                    color: cs.error.withOpacity(0.14),
+                                    label:
+                                        '${l10n.tr('add_teams_bulk_not_found_prefix')}$notFoundCount',
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .error
+                                        .withOpacity(0.14),
                                   ),
                                   const Spacer(),
                                   Text(
                                     '${_existingTeams.length + _tempTeams.length} / $_maxTeamsForFormat',
                                     style: TextStyle(
-                                      color: onSurface.withOpacity(0.70),
+                                      color: AppTheme.secondaryText(brightness),
                                       fontSize: 11,
                                     ),
                                   ),
@@ -1022,14 +1020,20 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 child: ListView.separated(
                                   shrinkWrap: true,
                                   itemCount: rows.length,
-                                  separatorBuilder: (_, __) => const SizedBox(height: 6),
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 6),
                                   itemBuilder: (context, index) {
                                     final r = rows[index];
-                                    final isOk = r.status == _BulkStatus.ok && r.resolved != null;
-                                    final resolvedShort = isOk ? _shareId(r.resolved!.userId) : '';
+                                    final isOk = r.status == _BulkStatus.ok &&
+                                        r.resolved != null;
+                                    final resolvedShort = isOk
+                                        ? _shareId(r.resolved!.userId)
+                                        : '';
 
                                     return Glass(
                                       borderRadius: 16,
+                                      fill: AppTheme.cardColor(brightness),
+                                      borderColor: AppTheme.cardBorder(brightness),
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 12,
@@ -1039,25 +1043,42 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                           children: [
                                             CircleAvatar(
                                               radius: 14,
-                                              backgroundColor: isOk ? primary.withOpacity(0.18) : onSurface.withOpacity(0.08),
+                                              backgroundColor: isOk
+                                                  ? AppTheme.limeAccent
+                                                      .withOpacity(0.25)
+                                                  : AppTheme.searchBackground(
+                                                      brightness,
+                                                    ),
                                               child: Icon(
-                                                isOk ? Icons.check : Icons.close,
+                                                isOk
+                                                    ? Icons.check
+                                                    : Icons.close,
                                                 size: 16,
-                                                color: isOk ? primary : onSurface.withOpacity(0.55),
+                                                color: isOk
+                                                    ? AppTheme.limeAccentDark
+                                                    : AppTheme.secondaryText(
+                                                        brightness,
+                                                      ),
                                               ),
                                             ),
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
                                                     r.input,
                                                     style: TextStyle(
-                                                      color: onSurface,
-                                                      fontWeight: FontWeight.w700,
+                                                      color:
+                                                          AppTheme.primaryText(
+                                                        brightness,
+                                                      ),
+                                                      fontWeight:
+                                                          FontWeight.w700,
                                                     ),
-                                                    overflow: TextOverflow.ellipsis,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                   ),
                                                   const SizedBox(height: 2),
                                                   Text(
@@ -1065,12 +1086,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                                         ? '${r.resolved!.teamName} • $resolvedShort'
                                                         : l10n.tr('add_teams_no_profile_found_short'),
                                                     style: TextStyle(
-                                                      color: onSurface.withOpacity(
-                                                        isOk ? 0.72 : 0.45,
+                                                      color:
+                                                          AppTheme.secondaryText(
+                                                        brightness,
                                                       ),
                                                       fontSize: 11,
                                                     ),
-                                                    overflow: TextOverflow.ellipsis,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                   ),
                                                 ],
                                               ),
@@ -1088,7 +1111,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               Text(
                                 error!,
                                 style: TextStyle(
-                                  color: cs.error,
+                                  color: Theme.of(context).colorScheme.error,
                                   fontWeight: FontWeight.w700,
                                 ),
                                 textAlign: TextAlign.center,
@@ -1108,12 +1131,20 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: FilledButton.icon(
-                                    onPressed: validating ? null : () => addValidAndClose(ctx),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.limeAccent,
+                                      foregroundColor: AppTheme.darkText,
+                                    ),
+                                    onPressed: validating
+                                        ? null
+                                        : () => addValidAndClose(ctx),
                                     icon: const Icon(
                                       Icons.playlist_add_check,
                                     ),
                                     label: Text(
-                                      rows.isEmpty ? l10n.tr('add_teams_add_valid') : '${l10n.tr('add_teams_add_valid')} ($okCount)',
+                                      rows.isEmpty
+                                          ? l10n.tr('add_teams_add_valid')
+                                          : '${l10n.tr('add_teams_add_valid')} ($okCount)',
                                     ),
                                   ),
                                 ),
@@ -1130,18 +1161,15 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           ),
         );
       },
-    ).whenComplete(controller.dispose); // single dispose point
+    ).whenComplete(controller.dispose);
   }
-
-  // ---------------------------------------------------------------------------
-  // Group structure validation
-  // ---------------------------------------------------------------------------
 
   bool _groupStructureValidFor(int totalTeams, List<Team> teams) {
     if (totalTeams != 16 && totalTeams != 32) return false;
 
     final expectedGroups = totalTeams ~/ 4;
-    final allowedGroups = (expectedGroups == 4) ? _groupsAll.take(4).toSet() : _groupsAll.take(8).toSet();
+    final allowedGroups =
+        (expectedGroups == 4) ? _groupsAll.take(4).toSet() : _groupsAll.toSet();
 
     final counts = <String, int>{};
     for (final t in teams) {
@@ -1158,20 +1186,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     return true;
   }
 
-  // ---------------------------------------------------------------------------
-  // SAVE — persists teams to Firestore, never generates fixtures.
-  //
-  // FIX: removed the redundant assignTeamToUserInLeague loop that was
-  // called after saveTeams. saveTeams already handles membership assignment
-  // internally (best-effort) for every UID-keyed team. The duplicate calls
-  // caused extra organizer-check round-trips and occasional permission races.
-  // ---------------------------------------------------------------------------
-
   Future<void> _saveTeamsOnly({bool silent = false}) async {
     final l10n = context.l10n;
     if (_busy) return;
 
-    // Guard: nothing to save
     if (_existingTeams.isEmpty && _tempTeams.isEmpty) {
       if (!silent) _snackWarn('No teams to save.');
       return;
@@ -1208,8 +1226,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
       final allTeams = <Team>[..._existingTeams, ...newTeams];
 
-      // saveTeams internally handles membership assignment for UID-keyed
-      // teams (best-effort). No need to call assignTeamToUserInLeague again.
       await _localRepo.saveTeams(widget.leagueId, allTeams);
 
       if (!mounted) return;
@@ -1237,10 +1253,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // GENERATE — saves first, then generates fixtures.
-  // ---------------------------------------------------------------------------
-
   Future<void> _generateFixturesOnly() async {
     final l10n = context.l10n;
 
@@ -1250,11 +1262,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     try {
       await _requireOnline();
 
-      // Save pending teams first; rethrows on failure (silent: true).
       await _saveTeamsOnly(silent: true);
 
-      // Use the post-save count from _existingTeams (already updated by
-      // _saveTeamsOnly via setState).
       final total = _existingTeams.length;
 
       if (!_requiredCountReached) {
@@ -1288,15 +1297,17 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               barrierColor: Colors.black.withOpacity(0.55),
               builder: (ctx) {
                 final theme = Theme.of(ctx);
-                final cs = theme.colorScheme;
-                final onSurface = cs.onSurface;
+                final brightness = theme.brightness;
 
                 return Dialog(
                   backgroundColor: Colors.transparent,
-                  insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  insetPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
                   child: Glass(
                     borderRadius: 26,
                     padding: const EdgeInsets.all(18),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 520),
                       child: Column(
@@ -1310,23 +1321,32 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(14),
                                   color: const Color(0xFFF59E0B).withOpacity(0.16),
-                                  border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.35)),
+                                  border: Border.all(
+                                    color:
+                                        const Color(0xFFF59E0B).withOpacity(0.35),
+                                  ),
                                 ),
-                                child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B)),
+                                child: const Icon(
+                                  Icons.warning_amber_rounded,
+                                  color: Color(0xFFF59E0B),
+                                ),
                               ),
                               const SizedBox(width: 14),
                               Expanded(
                                 child: Text(
                                   l10n.tr('add_teams_regenerate_fixtures_title'),
                                   style: theme.textTheme.titleMedium?.copyWith(
-                                    color: onSurface,
+                                    color: AppTheme.primaryText(brightness),
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
                               ),
                               IconButton(
                                 onPressed: () => Navigator.of(ctx).pop(false),
-                                icon: Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                                icon: Icon(
+                                  Icons.close,
+                                  color: AppTheme.secondaryText(brightness),
+                                ),
                               ),
                             ],
                           ),
@@ -1334,7 +1354,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           Text(
                             l10n.tr('add_teams_regenerate_fixtures_message'),
                             style: TextStyle(
-                              color: onSurface.withOpacity(0.72),
+                              color: AppTheme.secondaryText(brightness),
                               height: 1.35,
                               fontWeight: FontWeight.w600,
                             ),
@@ -1351,6 +1371,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppTheme.limeAccent,
+                                    foregroundColor: AppTheme.darkText,
+                                  ),
                                   onPressed: () => Navigator.pop(ctx, true),
                                   child: Text(l10n.tr('add_teams_regenerate')),
                                 ),
@@ -1369,11 +1393,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         if (!ok) return;
       }
 
-      // Prefer new league.root `homeAwayEnabled` (authoritative).
-      // Backward compatibility: League.fromRemoteMap infers it from settings.doubleRoundRobin
-      // when the root field is missing.
-      final supportsHomeAway = widget.format == LeagueFormat.classic || widget.format == LeagueFormat.uclGroup;
-      final doubleRR = supportsHomeAway ? (_league?.homeAwayEnabled ?? (_league?.settings.doubleRoundRobin ?? true)) : false;
+      final supportsHomeAway = widget.format == LeagueFormat.classic ||
+          widget.format == LeagueFormat.uclGroup;
+      final doubleRR = supportsHomeAway
+          ? (_league?.homeAwayEnabled ??
+              (_league?.settings.doubleRoundRobin ?? true))
+          : false;
 
       final swissRounds = _league?.settings.swissRounds ?? 8;
 
@@ -1434,17 +1459,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Build
-  // ---------------------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final primary = cs.primary;
+    final brightness = theme.brightness;
 
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
@@ -1460,18 +1479,24 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               constraints: const BoxConstraints(maxWidth: 520),
               child: Glass(
                 borderRadius: 24,
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: Padding(
                   padding: const EdgeInsets.all(18),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.login, color: primary, size: 44),
+                      Icon(
+                        Icons.login,
+                        color: AppTheme.limeAccentDark,
+                        size: 44,
+                      ),
                       const SizedBox(height: 10),
                       Text(
                         'Sign in required',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: cs.onSurface,
+                          color: AppTheme.primaryText(brightness),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -1479,13 +1504,17 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         'Please sign in to manage teams.',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: cs.onSurface.withOpacity(0.70),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w600,
                           height: 1.35,
                         ),
                       ),
                       const SizedBox(height: 14),
                       FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
                         onPressed: () => context.pop(),
                         child: const Text('Back'),
                       ),
@@ -1504,8 +1533,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
     final headerGradient = LinearGradient(
       colors: [
-        primary.withOpacity(0.95),
-        cs.primaryContainer.withOpacity(0.95),
+        AppTheme.limeAccent,
+        AppTheme.limeAccentDark.withOpacity(0.90),
       ],
     );
 
@@ -1523,7 +1552,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: showTwoPane ? 980 : 620),
             child: _isLoading
-                ? Center(child: CircularProgressIndicator(color: primary))
+                ? Center(
+                    child: CircularProgressIndicator(
+                      color: AppTheme.limeAccentDark,
+                    ),
+                  )
                 : (_loadErrorMessage != null
                     ? _buildLoadErrorState(_loadErrorMessage!)
                     : Padding(
@@ -1533,6 +1566,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             Glass(
                               borderRadius: 24,
                               padding: const EdgeInsets.all(14),
+                              fill: AppTheme.cardColor(brightness),
+                              borderColor: AppTheme.cardBorder(brightness),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -1545,27 +1580,34 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     ),
                                     child: Icon(
                                       Icons.sports_soccer,
-                                      color: cs.onPrimary,
+                                      color: AppTheme.darkText,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           l10n.tr('add_teams_header_title'),
-                                          style: theme.textTheme.titleMedium?.copyWith(
+                                          style: theme.textTheme.titleMedium
+                                              ?.copyWith(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w800,
-                                            color: onSurface,
+                                            color: AppTheme.primaryText(
+                                              brightness,
+                                            ),
                                           ),
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
                                           _unlockHint(l10n),
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            color: onSurface.withOpacity(0.70),
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: AppTheme.secondaryText(
+                                              brightness,
+                                            ),
                                             fontSize: 11,
                                           ),
                                         ),
@@ -1614,13 +1656,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Load error state
-  // ---------------------------------------------------------------------------
-
   Widget _buildLoadErrorState(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Center(
       child: Padding(
@@ -1629,6 +1667,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           constraints: const BoxConstraints(maxWidth: 520),
           child: Glass(
             borderRadius: 24,
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: Column(
@@ -1636,15 +1676,15 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 children: [
                   Icon(
                     Icons.cloud_off_rounded,
-                    color: cs.primary,
+                    color: AppTheme.limeAccentDark,
                     size: 44,
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Couldn\u2019t load teams',
+                    'Couldn’t load teams',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
-                      color: cs.onSurface,
+                      color: AppTheme.primaryText(brightness),
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -1652,7 +1692,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                   Text(
                     msg,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: cs.onSurface.withOpacity(0.70),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w600,
                       height: 1.35,
                     ),
@@ -1670,6 +1710,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.limeAccent,
+                            foregroundColor: AppTheme.darkText,
+                          ),
                           onPressed: _loadExistingTeams,
                           child: const Text('Retry'),
                         ),
@@ -1685,16 +1729,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Add panel
-  // ---------------------------------------------------------------------------
-
   Widget _buildAddPanel() {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final primary = cs.primary;
+    final brightness = theme.brightness;
 
     final existingCount = _existingTeams.length;
     final newCount = _tempTeams.length;
@@ -1703,6 +1741,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(12),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1710,14 +1750,18 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
             child: Row(
               children: [
-                Icon(Icons.person_add_alt_1, size: 18, color: primary),
+                Icon(
+                  Icons.person_add_alt_1,
+                  size: 18,
+                  color: AppTheme.limeAccentDark,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   l10n.tr('add_teams_add_players_title'),
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: onSurface,
+                    color: AppTheme.primaryText(brightness),
                   ),
                 ),
               ],
@@ -1730,18 +1774,18 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               children: [
                 _MiniChip(
                   label: '${l10n.tr('add_teams_saved_prefix')}$existingCount',
-                  color: onSurface.withOpacity(0.08),
+                  color: AppTheme.searchBackground(brightness),
                 ),
                 const SizedBox(width: 8),
                 _MiniChip(
                   label: '${l10n.tr('add_teams_new_prefix')}$newCount',
-                  color: primary.withOpacity(0.18),
+                  color: AppTheme.limeAccent.withOpacity(0.25),
                 ),
                 const Spacer(),
                 Text(
                   '$totalCount / $_maxTeamsForFormat',
                   style: TextStyle(
-                    color: onSurface.withOpacity(0.70),
+                    color: AppTheme.secondaryText(brightness),
                     fontSize: 11,
                   ),
                 ),
@@ -1755,7 +1799,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               child: Text(
                 _bulkError!,
                 style: TextStyle(
-                  color: cs.error,
+                  color: Theme.of(context).colorScheme.error,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
@@ -1767,12 +1811,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.limeAccent,
+                foregroundColor: AppTheme.darkText,
+                minimumSize: const Size.fromHeight(46),
+              ),
               onPressed: _busy ? null : _showAddSingleDialog,
               icon: const Icon(Icons.person_add),
               label: Text(l10n.tr('add_teams_add_one_player')),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(46),
-              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -1783,8 +1829,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               icon: const Icon(Icons.playlist_add),
               label: Text(l10n.tr('add_teams_paste_list')),
               style: OutlinedButton.styleFrom(
-                foregroundColor: onSurface.withOpacity(0.80),
-                side: BorderSide(color: onSurface.withOpacity(0.18)),
+                foregroundColor: AppTheme.primaryText(brightness),
+                side: BorderSide(color: AppTheme.cardBorder(brightness)),
                 minimumSize: const Size.fromHeight(46),
               ),
             ),
@@ -1797,8 +1843,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               icon: const Icon(Icons.upload_file),
               label: Text(l10n.tr('add_teams_import_csv')),
               style: OutlinedButton.styleFrom(
-                foregroundColor: onSurface.withOpacity(0.80),
-                side: BorderSide(color: onSurface.withOpacity(0.18)),
+                foregroundColor: AppTheme.primaryText(brightness),
+                side: BorderSide(color: AppTheme.cardBorder(brightness)),
                 minimumSize: const Size.fromHeight(46),
               ),
             ),
@@ -1808,15 +1854,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Group selector
-  // ---------------------------------------------------------------------------
-
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
-    final primary = cs.primary;
+    final brightness = Theme.of(context).brightness;
 
     final groups = _activeGroups;
     if (groups.isEmpty) return const SizedBox.shrink();
@@ -1828,14 +1868,20 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     return Glass(
       borderRadius: 20,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Row(
         children: [
-          Icon(Icons.grid_view, size: 18, color: primary),
+          Icon(
+            Icons.grid_view,
+            size: 18,
+            color: AppTheme.limeAccentDark,
+          ),
           const SizedBox(width: 8),
           Text(
             l10n.tr('add_teams_current_group'),
             style: TextStyle(
-              color: onSurface.withOpacity(0.72),
+              color: AppTheme.secondaryText(brightness),
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -1857,11 +1903,20 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         style: const TextStyle(fontSize: 11),
                       ),
                       selected: selected,
-                      selectedColor: primary.withOpacity(0.18),
-                      backgroundColor: onSurface.withOpacity(0.06),
+                      selectedColor: AppTheme.limeAccent,
+                      backgroundColor:
+                          AppTheme.tabInactiveBackground(brightness),
                       labelStyle: TextStyle(
-                        color: selected ? primary : onSurface.withOpacity(0.72),
-                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                        color: selected
+                            ? AppTheme.darkText
+                            : AppTheme.tabInactiveText(brightness),
+                        fontWeight:
+                            selected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                      side: BorderSide(
+                        color: selected
+                            ? AppTheme.limeAccentDark
+                            : AppTheme.cardBorder(brightness),
                       ),
                       onSelected: _busy
                           ? null
@@ -1880,16 +1935,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Preview panel
-  // ---------------------------------------------------------------------------
-
   Widget _buildPreviewPanel() {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final primary = cs.primary;
+    final brightness = theme.brightness;
 
     final existingCount = _existingTeams.length;
     final newCount = _tempTeams.length;
@@ -1898,20 +1947,23 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(12),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
             child: Row(
               children: [
-                Icon(Icons.groups, size: 18, color: primary),
+                Icon(Icons.groups,
+                    size: 18, color: AppTheme.limeAccentDark),
                 const SizedBox(width: 8),
                 Text(
                   l10n.tr('add_teams_review_teams'),
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: onSurface,
+                    color: AppTheme.primaryText(brightness),
                   ),
                 ),
               ],
@@ -1924,18 +1976,18 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               children: [
                 _MiniChip(
                   label: '${l10n.tr('add_teams_saved_prefix')}$existingCount',
-                  color: onSurface.withOpacity(0.08),
+                  color: AppTheme.searchBackground(brightness),
                 ),
                 const SizedBox(width: 8),
                 _MiniChip(
                   label: '${l10n.tr('add_teams_new_prefix')}$newCount',
-                  color: primary.withOpacity(0.18),
+                  color: AppTheme.limeAccent.withOpacity(0.25),
                 ),
                 const Spacer(),
                 Text(
                   '$totalCount / $_maxTeamsForFormat',
                   style: TextStyle(
-                    color: onSurface.withOpacity(0.70),
+                    color: AppTheme.secondaryText(brightness),
                     fontSize: 11,
                   ),
                 ),
@@ -1949,7 +2001,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     child: Text(
                       l10n.tr('add_teams_empty_state'),
                       style: TextStyle(
-                        color: onSurface.withOpacity(0.55),
+                        color: AppTheme.secondaryText(brightness),
                         height: 1.4,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1957,7 +2009,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                     ),
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     itemCount: existingCount + newCount,
                     itemBuilder: (context, i) {
                       if (i < existingCount) {
@@ -2012,15 +2067,18 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _busy ? null : _saveTeamsOnly,
                     style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.limeAccent,
+                      foregroundColor: AppTheme.darkText,
                       minimumSize: const Size.fromHeight(48),
                     ),
+                    onPressed: _busy ? null : _saveTeamsOnly,
                     icon: _saving
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkText),
                           )
                         : const Icon(Icons.save),
                     label: Text(l10n.tr('add_teams_save_teams')),
@@ -2029,17 +2087,19 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: (_busy || !_requiredCountReached) ? null : _generateFixturesOnly,
+                    onPressed:
+                        (_busy || !_requiredCountReached) ? null : _generateFixturesOnly,
                     style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: primary),
-                      foregroundColor: primary,
+                      side: const BorderSide(color: AppTheme.limeAccentDark),
+                      foregroundColor: AppTheme.limeAccentDark,
                       minimumSize: const Size.fromHeight(48),
                     ),
                     icon: _generating
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.auto_awesome),
                     label: Text(l10n.tr('add_teams_generate_fixtures')),
@@ -2054,7 +2114,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               child: Text(
                 _unlockHint(l10n),
                 style: TextStyle(
-                  color: onSurface.withOpacity(0.55),
+                  color: AppTheme.secondaryText(brightness),
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
@@ -2065,12 +2125,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Edit temp team sheet
-  // ---------------------------------------------------------------------------
-
   Future<void> _editTempTeam(int idx) async {
     final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
 
     final temp = _tempTeams[idx];
     final uid = (temp['userId'] ?? '').trim();
@@ -2082,7 +2139,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     String imageUrl = (temp['teamImageUrl'] ?? '').trim();
     bool uploading = false;
 
-    // Only show activeGroups so the team can only be placed in a valid group.
     final activeGroups = _activeGroups;
 
     await showModalBottomSheet<void>(
@@ -2091,9 +2147,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       isScrollControlled: true,
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        final cs = theme.colorScheme;
-        final onSurface = cs.onSurface;
-        final primary = cs.primary;
 
         return SafeArea(
           child: Padding(
@@ -2105,6 +2158,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
                   borderRadius: 28,
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       vertical: 12,
@@ -2116,7 +2171,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           if (uploading) return;
                           setModalState(() => uploading = true);
                           try {
-                            final url = await _teamMedia.pickAndUploadOnly(
+                            final url = await _teamMedia.pickUploadAndSaveTeamImage(
                               leagueId: widget.leagueId,
                               teamId: uid.isEmpty ? 'temp_$idx' : uid,
                             );
@@ -2141,7 +2196,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           setModalState(() => imageUrl = '');
                         }
 
-                        // Ensure selected group is valid within activeGroups.
                         final effectiveGroup = activeGroups.contains(selectedGroup)
                             ? selectedGroup
                             : (activeGroups.isNotEmpty ? activeGroups.first : 'Group A');
@@ -2154,7 +2208,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: onSurface,
+                                color: AppTheme.primaryText(brightness),
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -2169,7 +2223,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       Text(
                                         (temp['teamName'] ?? '').trim(),
                                         style: TextStyle(
-                                          color: onSurface,
+                                          color: AppTheme.primaryText(brightness),
                                           fontWeight: FontWeight.w900,
                                         ),
                                         overflow: TextOverflow.ellipsis,
@@ -2177,8 +2231,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       const SizedBox(height: 4),
                                       Text(
                                         'UserId (short): $short',
-                                        style: TextStyle(
-                                          color: primary,
+                                        style: const TextStyle(
+                                          color: AppTheme.limeAccentDark,
                                           fontWeight: FontWeight.w900,
                                           fontSize: 12,
                                         ),
@@ -2196,7 +2250,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 child: Text(
                                   l10n.tr('add_teams_group_label'),
                                   style: TextStyle(
-                                    color: onSurface.withOpacity(0.72),
+                                    color: AppTheme.secondaryText(brightness),
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -2205,13 +2259,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               DropdownButtonHideUnderline(
                                 child: DropdownButton<String>(
                                   value: effectiveGroup,
-                                  dropdownColor: cs.surface,
-                                  style: TextStyle(
-                                    color: primary,
+                                  dropdownColor:
+                                      Theme.of(context).colorScheme.surface,
+                                  style: const TextStyle(
+                                    color: AppTheme.limeAccentDark,
                                     fontWeight: FontWeight.w800,
                                   ),
                                   isExpanded: true,
-                                  // FIX: only show activeGroups, not all groups.
                                   items: activeGroups
                                       .map(
                                         (g) => DropdownMenuItem(
@@ -2236,21 +2290,16 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   child: OutlinedButton.icon(
                                     onPressed: uploading ? null : doUpload,
                                     icon: uploading
-                                        ? SizedBox(
+                                        ? const SizedBox(
                                             width: 16,
                                             height: 16,
                                             child: CircularProgressIndicator(
                                               strokeWidth: 2,
-                                              color: primary,
                                             ),
                                           )
                                         : const Icon(Icons.image),
                                     label: Text(
                                       l10n.tr('common_upload'),
-                                    ),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: primary,
-                                      side: BorderSide(color: primary),
                                     ),
                                   ),
                                 ),
@@ -2260,12 +2309,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     onPressed: uploading ? null : doClear,
                                     icon: const Icon(Icons.clear),
                                     label: Text(l10n.tr('common_clear')),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: onSurface.withOpacity(0.80),
-                                      side: BorderSide(
-                                        color: onSurface.withOpacity(0.18),
-                                      ),
-                                    ),
                                   ),
                                 ),
                               ],
@@ -2284,6 +2327,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: FilledButton(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.limeAccent,
+                                      foregroundColor: AppTheme.darkText,
+                                    ),
                                     onPressed: () {
                                       setState(() {
                                         _tempTeams[idx] = {
@@ -2315,18 +2362,17 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Edit existing team sheet
-  // ---------------------------------------------------------------------------
-
   void _editExistingTeam(int index) {
     final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
 
     final team = _existingTeams[index];
     String selectedGroup = team.groupId ?? _selectedGroup;
 
     final activeGroups = _activeGroups;
-    if (_isGroupLeague && activeGroups.isNotEmpty && !activeGroups.contains(selectedGroup)) {
+    if (_isGroupLeague &&
+        activeGroups.isNotEmpty &&
+        !activeGroups.contains(selectedGroup)) {
       selectedGroup = activeGroups.first;
     }
 
@@ -2340,9 +2386,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       isScrollControlled: true,
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        final cs = theme.colorScheme;
-        final onSurface = cs.onSurface;
-        final primary = cs.primary;
 
         return SafeArea(
           child: Padding(
@@ -2354,6 +2397,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
                   borderRadius: 28,
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       vertical: 12,
@@ -2369,7 +2414,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             final url = await _teamMedia.pickUploadAndSaveTeamImage(
                               leagueId: widget.leagueId,
                               teamId: team.id,
-                              teamName: team.name,
                             );
 
                             if (url == null || url.trim().isEmpty) {
@@ -2377,7 +2421,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             }
 
                             setState(() {
-                              _existingTeams[index] = _existingTeams[index].copyWith(
+                              _existingTeams[index] =
+                                  _existingTeams[index].copyWith(
                                 teamImageUrl: url.trim(),
                                 updatedAtMs: DateTime.now().millisecondsSinceEpoch,
                               );
@@ -2409,7 +2454,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             );
 
                             setState(() {
-                              _existingTeams[index] = _existingTeams[index].copyWith(
+                              _existingTeams[index] =
+                                  _existingTeams[index].copyWith(
                                 teamImageUrl: '',
                                 updatedAtMs: DateTime.now().millisecondsSinceEpoch,
                               );
@@ -2438,7 +2484,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: onSurface,
+                                color: AppTheme.primaryText(brightness),
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -2448,12 +2494,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         team.name,
                                         style: TextStyle(
-                                          color: onSurface,
+                                          color: AppTheme.primaryText(brightness),
                                           fontWeight: FontWeight.w900,
                                         ),
                                         overflow: TextOverflow.ellipsis,
@@ -2461,8 +2508,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       const SizedBox(height: 4),
                                       Text(
                                         'UserId (short): $short',
-                                        style: TextStyle(
-                                          color: primary,
+                                        style: const TextStyle(
+                                          color: AppTheme.limeAccentDark,
                                           fontWeight: FontWeight.w900,
                                           fontSize: 12,
                                         ),
@@ -2479,7 +2526,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               child: Text(
                                 '${l10n.tr('add_teams_uid_internal_label')} ${team.id}',
                                 style: TextStyle(
-                                  color: onSurface.withOpacity(0.55),
+                                  color: AppTheme.secondaryText(brightness),
                                   fontSize: 11,
                                 ),
                               ),
@@ -2491,7 +2538,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 child: Text(
                                   l10n.tr('add_teams_group_label'),
                                   style: TextStyle(
-                                    color: onSurface.withOpacity(0.72),
+                                    color: AppTheme.secondaryText(brightness),
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -2501,14 +2548,16 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 child: DropdownButton<String>(
                                   value: activeGroups.contains(selectedGroup)
                                       ? selectedGroup
-                                      : (activeGroups.isNotEmpty ? activeGroups.first : 'Group A'),
-                                  dropdownColor: cs.surface,
-                                  style: TextStyle(
-                                    color: primary,
+                                      : (activeGroups.isNotEmpty
+                                          ? activeGroups.first
+                                          : 'Group A'),
+                                  dropdownColor:
+                                      Theme.of(context).colorScheme.surface,
+                                  style: const TextStyle(
+                                    color: AppTheme.limeAccentDark,
                                     fontWeight: FontWeight.w800,
                                   ),
                                   isExpanded: true,
-                                  // FIX: only show activeGroups.
                                   items: activeGroups
                                       .map(
                                         (g) => DropdownMenuItem(
@@ -2533,21 +2582,16 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   child: OutlinedButton.icon(
                                     onPressed: uploading ? null : doUpload,
                                     icon: uploading
-                                        ? SizedBox(
+                                        ? const SizedBox(
                                             width: 16,
                                             height: 16,
                                             child: CircularProgressIndicator(
                                               strokeWidth: 2,
-                                              color: primary,
                                             ),
                                           )
                                         : const Icon(Icons.image),
                                     label: Text(
                                       l10n.tr('common_upload'),
-                                    ),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: primary,
-                                      side: BorderSide(color: primary),
                                     ),
                                   ),
                                 ),
@@ -2557,12 +2601,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     onPressed: uploading ? null : doClear,
                                     icon: const Icon(Icons.clear),
                                     label: Text(l10n.tr('common_clear')),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: onSurface.withOpacity(0.80),
-                                      side: BorderSide(
-                                        color: onSurface.withOpacity(0.18),
-                                      ),
-                                    ),
                                   ),
                                 ),
                               ],
@@ -2581,11 +2619,17 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: FilledButton(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.limeAccent,
+                                      foregroundColor: AppTheme.darkText,
+                                    ),
                                     onPressed: () {
                                       setState(() {
                                         _existingTeams[index] = team.copyWith(
-                                          groupId: _isGroupLeague ? selectedGroup : null,
-                                          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+                                          groupId:
+                                              _isGroupLeague ? selectedGroup : null,
+                                          updatedAtMs: DateTime.now()
+                                              .millisecondsSinceEpoch,
                                         );
                                       });
                                       Navigator.of(ctx).pop();
@@ -2602,7 +2646,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               alignment: AlignmentDirectional.centerEnd,
                               child: TextButton.icon(
                                 onPressed: () async {
-                                  // Persist removal to Firestore so the team does not reappear on reload.
                                   Navigator.of(ctx).pop();
                                   setState(() {
                                     _existingTeams.removeAt(index);
@@ -2610,18 +2653,19 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                   try {
                                     await _saveTeamsOnly(silent: true);
                                   } catch (_) {
-                                    // Reload to sync state with server.
                                     await _loadExistingTeams();
                                   }
                                 },
                                 icon: Icon(
                                   Icons.delete,
-                                  color: cs.error,
+                                  color: Theme.of(context).colorScheme.error,
                                   size: 16,
                                 ),
                                 label: Text(
                                   l10n.tr('add_teams_remove_team'),
-                                  style: TextStyle(color: cs.error),
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
                                 ),
                               ),
                             ),
@@ -2639,10 +2683,6 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Team tile
-  // ---------------------------------------------------------------------------
-
   Widget _buildTeamTile({
     required int index,
     required String name,
@@ -2653,17 +2693,19 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     required VoidCallback? onRemove,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final primary = cs.primary;
+    final brightness = theme.brightness;
 
-    final numberColor = isNew ? primary : onSurface.withOpacity(0.70);
+    final numberColor = isNew
+        ? AppTheme.limeAccentDark
+        : AppTheme.secondaryText(brightness);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Glass(
         borderRadius: 18,
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        fill: AppTheme.cardColor(brightness),
+        borderColor: AppTheme.cardBorder(brightness),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: onTap,
@@ -2673,7 +2715,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               children: [
                 CircleAvatar(
                   radius: 14,
-                  backgroundColor: isNew ? primary.withOpacity(0.18) : onSurface.withOpacity(0.08),
+                  backgroundColor: isNew
+                      ? AppTheme.limeAccent.withOpacity(0.25)
+                      : AppTheme.searchBackground(brightness),
                   child: Text(
                     '${index + 1}',
                     style: TextStyle(
@@ -2695,7 +2739,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         style: theme.textTheme.bodyMedium?.copyWith(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
-                          color: onSurface,
+                          color: AppTheme.primaryText(brightness),
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -2703,7 +2747,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       Text(
                         label,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: onSurface.withOpacity(0.55),
+                          color: AppTheme.secondaryText(brightness),
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                         ),
@@ -2714,7 +2758,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 if (!isNew && onTap != null)
                   Icon(
                     Icons.edit,
-                    color: onSurface.withOpacity(0.55),
+                    color: AppTheme.secondaryText(brightness),
                     size: 16,
                   ),
                 if (isNew && onRemove != null)
@@ -2725,7 +2769,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       padding: const EdgeInsets.all(6),
                       child: Icon(
                         Icons.close,
-                        color: onSurface.withOpacity(0.55),
+                        color: AppTheme.secondaryText(brightness),
                         size: 16,
                       ),
                     ),
@@ -2739,12 +2783,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Supporting types
-// ---------------------------------------------------------------------------
-
 class _ResolvedTeam {
-  final String userId; // Firebase UID
+  final String userId;
   final String teamName;
 
   const _ResolvedTeam({
@@ -2778,8 +2818,7 @@ class _MiniChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final onSurface = theme.colorScheme.onSurface;
+    final brightness = Theme.of(context).brightness;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -2790,7 +2829,7 @@ class _MiniChip extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          color: onSurface,
+          color: AppTheme.primaryText(brightness),
           fontSize: 10,
           fontWeight: FontWeight.w800,
         ),
@@ -2821,7 +2860,8 @@ class _TeamThumb extends StatelessWidget {
     final u = url.trim();
     if (u.isEmpty) return u;
 
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -2837,7 +2877,8 @@ class _TeamThumb extends StatelessWidget {
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly =
+        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
       if (first.contains('f_auto') || first.contains('q_auto')) {
@@ -2852,7 +2893,7 @@ class _TeamThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     final raw = url.trim();
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
@@ -2862,9 +2903,9 @@ class _TeamThumb extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.06),
+        color: AppTheme.searchBackground(brightness),
         shape: BoxShape.circle,
-        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: ClipOval(
         child: has
@@ -2878,21 +2919,21 @@ class _TeamThumb extends StatelessWidget {
                 errorBuilder: (_, __, ___) => Icon(
                   Icons.emoji_events_outlined,
                   size: size * 0.70,
-                  color: cs.onSurface.withOpacity(0.55),
+                  color: AppTheme.secondaryText(brightness),
                 ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
                   return Icon(
                     Icons.emoji_events_outlined,
                     size: size * 0.70,
-                    color: cs.onSurface.withOpacity(0.55),
+                    color: AppTheme.secondaryText(brightness),
                   );
                 },
               )
             : Icon(
                 Icons.emoji_events_outlined,
                 size: size * 0.70,
-                color: cs.onSurface.withOpacity(0.55),
+                color: AppTheme.secondaryText(brightness),
               ),
       ),
     );

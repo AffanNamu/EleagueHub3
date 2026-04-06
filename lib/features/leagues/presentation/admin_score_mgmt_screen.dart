@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
@@ -22,11 +23,14 @@ import '../models/team.dart';
 class AdminScoreMgmtScreen extends ConsumerStatefulWidget {
   final String leagueId;
   const AdminScoreMgmtScreen({super.key, required this.leagueId});
+
   @override
-  ConsumerState<AdminScoreMgmtScreen> createState() => _AdminScoreMgmtScreenState();
+  ConsumerState<AdminScoreMgmtScreen> createState() =>
+      _AdminScoreMgmtScreenState();
 }
 
-class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
+class _AdminScoreMgmtScreenState
+    extends ConsumerState<AdminScoreMgmtScreen> {
   late LocalLeaguesRepository _repo;
 
   League? _league;
@@ -39,21 +43,18 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   LeagueFormat _format = LeagueFormat.classic;
   List<String> _groups = [];
 
-  /// null = "All groups" when format == uclGroup
   String? _selectedGroup;
   int _selectedRound = 1;
 
   bool _isGenerating = false;
   final Set<String> _savingMatchIds = <String>{};
 
-  // teamId -> imageUrl (PRIMARY: users/{uid} profile image for UID-based teams)
   Map<String, String> _teamImageUrls = {};
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Set<String> _requestedUserImageIds = <String>{};
 
   Color _baseToastBg(ThemeData theme) {
-    // Premium: light mode should NOT use a dark toast background.
     if (theme.brightness == Brightness.dark) return const Color(0xFF101522);
     return const Color(0xFFF8FBFF);
   }
@@ -62,13 +63,12 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     if (!mounted) return;
 
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
     final resolvedBg = bg ?? _baseToastBg(theme);
     final resolvedFg = fg ??
         (theme.brightness == Brightness.dark
             ? Colors.white
-            : cs.onSurface.withOpacity(0.92));
+            : AppTheme.primaryText(theme.brightness));
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -87,9 +87,8 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   void _toastOk(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
-    final accent = cs.primary;
+    final accent = AppTheme.limeAccentDark;
 
     _toast(
       msg,
@@ -107,9 +106,9 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   void _toastErr(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final err = Theme.of(context).colorScheme.error;
     final baseBg = _baseToastBg(theme);
-    _toast(msg, bg: Color.alphaBlend(cs.error.withOpacity(0.14), baseBg), fg: cs.error);
+    _toast(msg, bg: Color.alphaBlend(err.withOpacity(0.14), baseBg), fg: err);
   }
 
   @override
@@ -135,14 +134,20 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   }
 
   Future<Map<String, String>> _fetchUserImagesByIds(List<String> ids) async {
-    final clean = ids.map((e) => e.trim()).where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e)).toList(growable: false);
+    final clean = ids
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty && _looksLikeFirebaseUid(e))
+        .toList(growable: false);
     if (clean.isEmpty) return const <String, String>{};
 
     final out = <String, String>{};
 
     const chunkSize = 10;
     for (var i = 0; i < clean.length; i += chunkSize) {
-      final chunk = clean.sublist(i, (i + chunkSize > clean.length) ? clean.length : i + chunkSize);
+      final chunk = clean.sublist(
+        i,
+        (i + chunkSize > clean.length) ? clean.length : i + chunkSize,
+      );
 
       final snap = await _firestore
           .collection('users')
@@ -179,15 +184,15 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       if (userImages.isEmpty) return;
 
       setState(() {
-        // Requirement: user profile image is authoritative; overwrite is OK.
         _teamImageUrls = {..._teamImageUrls, ...userImages};
       });
-    } catch (_) {
-      // best-effort
-    }
+    } catch (_) {}
   }
 
-  Map<String, String> _mergePreferExisting(Map<String, String> base, Map<String, String> incoming) {
+  Map<String, String> _mergePreferExisting(
+    Map<String, String> base,
+    Map<String, String> incoming,
+  ) {
     if (incoming.isEmpty) return base;
     final out = <String, String>{...base};
     incoming.forEach((k, v) {
@@ -195,7 +200,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       final val = v.trim();
       if (key.isEmpty || val.isEmpty) return;
 
-      if ((out[key] ?? '').trim().isNotEmpty) return; // keep existing
+      if ((out[key] ?? '').trim().isNotEmpty) return;
       out[key] = val;
     });
     return out;
@@ -219,7 +224,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   Future<void> _refreshTeamImagesBestEffort({
     required List<Team> teams,
   }) async {
-    // PRIMARY: from Team objects (already hydrated by LocalLeaguesRepository.getTeams()).
     final local = <String, String>{};
     for (final t in teams) {
       final url = _bestEffortUrlFromTeam(t);
@@ -228,12 +232,10 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
     if (local.isNotEmpty && mounted) {
       setState(() {
-        // Primary wins; overwrite is OK (user image authoritative).
         _teamImageUrls = {..._teamImageUrls, ...local};
       });
     }
 
-    // SECONDARY: Firestore teams collection (fill missing only; don't override)
     try {
       final snap = await _firestore
           .collection('leagues')
@@ -245,7 +247,10 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       final remote = <String, String>{};
       for (final d in snap.docs) {
         final data = d.data();
-        final id = (data['id'] is String && (data['id'] as String).trim().isNotEmpty) ? (data['id'] as String).trim() : d.id;
+        final id = (data['id'] is String &&
+                (data['id'] as String).trim().isNotEmpty)
+            ? (data['id'] as String).trim()
+            : d.id;
         final url = _bestEffortUrlFromTeamDocMap(data);
         if (id.trim().isNotEmpty && url.isNotEmpty) remote[id] = url;
       }
@@ -256,11 +261,8 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       setState(() {
         _teamImageUrls = _mergePreferExisting(_teamImageUrls, remote);
       });
-    } catch (_) {
-      // Best-effort only.
-    }
+    } catch (_) {}
 
-    // Ensure user images exist for any UID-based team IDs (authoritative)
     final ids = teams.map((t) => t.id).toList();
     unawaited(_ensureUserImagesForTeamIds(ids));
   }
@@ -277,7 +279,8 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       final matchesFuture = _repo.getMatches(widget.leagueId);
       final teamsFuture = _repo.getTeams(widget.leagueId);
 
-      final results = await Future.wait([leagueFuture, matchesFuture, teamsFuture]).timeout(const Duration(seconds: 30));
+      final results = await Future.wait([leagueFuture, matchesFuture, teamsFuture])
+          .timeout(const Duration(seconds: 30));
 
       final league = results[0] as League?;
       final matches = results[1] as List<FixtureMatch>;
@@ -304,7 +307,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
       final format = league.format;
 
-      // Collect groups (only relevant for UCL Group) from matches.
       List<String> groups = [];
       if (format == LeagueFormat.uclGroup) {
         groups = matches
@@ -317,10 +319,11 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
           ..sort();
       }
 
-      // Sort: pending first, finished last; then round/sortIndex
       matches.sort((a, b) {
-        final aFinished = a.status == MatchStatus.completed || a.status == MatchStatus.played;
-        final bFinished = b.status == MatchStatus.completed || b.status == MatchStatus.played;
+        final aFinished =
+            a.status == MatchStatus.completed || a.status == MatchStatus.played;
+        final bFinished =
+            b.status == MatchStatus.completed || b.status == MatchStatus.played;
 
         if (aFinished != bFinished) return aFinished ? 1 : -1;
 
@@ -333,7 +336,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         return a.id.compareTo(b.id);
       });
 
-      // Preserve selected group if still valid, else reset to All.
       String? selectedGroup = _selectedGroup;
       if (format != LeagueFormat.uclGroup) {
         selectedGroup = null;
@@ -341,7 +343,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         selectedGroup = null;
       }
 
-      // Compute selected round given current data
       Iterable<FixtureMatch> forRounds = matches;
       if (format == LeagueFormat.uclGroup && selectedGroup != null) {
         forRounds = forRounds.where((m) => m.groupId == selectedGroup);
@@ -355,7 +356,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         selectedRound = sorted.first;
       }
 
-      // Build primary image map from hydrated Team objects
       final primaryImages = <String, String>{};
       for (final t in teams) {
         final url = t.teamImageUrl.trim();
@@ -378,18 +378,12 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
       unawaited(_refreshTeamImagesBestEffort(teams: teams));
 
-      // Ensure user images for match ids (in case a team doc is missing)
       final matchIds = <String>[
         for (final m in matches) m.homeTeamId,
         for (final m in matches) m.awayTeamId,
       ];
       unawaited(_ensureUserImagesForTeamIds(matchIds));
 
-      // Production correctness:
-      // Ensure team aggregate fields are backfilled for older leagues so:
-      // - basePoints is correct for admin point adjustments
-      // - finalPoints invariant holds for secured team writes
-      // Best-effort; if it fails, score editing still works but adjustments might be blocked by rules.
       unawaited(_repo.ensureTeamAggregatesBackfilled(widget.leagueId));
     } catch (e) {
       if (!mounted) return;
@@ -411,9 +405,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     setState(() => _savingMatchIds.add(match.id));
 
     try {
-      // Production-ready write:
-      // - Updates match score AND team aggregates (basePoints/GD/GF/finalPoints) in a single transaction.
-      // - This keeps admin point adjustments correct because they rely on basePoints.
       await _repo
           .updateMatchScoreAndUpdateTeamAggregates(
             leagueId: widget.leagueId,
@@ -436,13 +427,13 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   }
 
   bool get _hasAnyMatches => _matches.isNotEmpty;
-  bool get _hasGroupFixtures => _matches.any((m) => (m.groupId ?? '').trim().isNotEmpty);
+  bool get _hasGroupFixtures =>
+      _matches.any((m) => (m.groupId ?? '').trim().isNotEmpty);
   bool get _isSwissValidTeamCount => _teams.length == 18 || _teams.length == 36;
   bool get _isGroupValidTeamCount => _teams.length == 16 || _teams.length == 32;
 
   bool _groupsAssignedAndFull() {
     if (!_isGroupValidTeamCount) return false;
-    // UCL group: groups of 4
     final byGroup = <String, int>{};
     for (final t in _teams) {
       final gid = (t.groupId ?? '').trim();
@@ -484,7 +475,9 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         return;
       }
 
-      await _repo.saveMatches(widget.leagueId, fixtures).timeout(const Duration(seconds: 25));
+      await _repo
+          .saveMatches(widget.leagueId, fixtures)
+          .timeout(const Duration(seconds: 25));
       _toastOk(
         '${l10n.tr('admin_score_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}',
       );
@@ -502,7 +495,8 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     if (_isGenerating) return;
     if (_league == null) return;
     if (!_isGroupValidTeamCount) {
-      _toastErr('${l10n.tr('admin_score_group_team_count_error_prefix')}${_teams.length}.');
+      _toastErr(
+          '${l10n.tr('admin_score_group_team_count_error_prefix')}${_teams.length}.');
       return;
     }
     if (!_groupsAssignedAndFull()) {
@@ -528,7 +522,9 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         return;
       }
 
-      await _repo.saveMatches(widget.leagueId, fixtures).timeout(const Duration(seconds: 25));
+      await _repo
+          .saveMatches(widget.leagueId, fixtures)
+          .timeout(const Duration(seconds: 25));
       _toastOk(
         '${l10n.tr('admin_score_group_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}',
       );
@@ -546,7 +542,8 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     if (_isGenerating) return;
     if (_league == null) return;
     if (!_isSwissValidTeamCount) {
-      _toastErr('${l10n.tr('admin_score_swiss_team_count_error_prefix')}${_teams.length}.');
+      _toastErr(
+          '${l10n.tr('admin_score_swiss_team_count_error_prefix')}${_teams.length}.');
       return;
     }
     if (_teams.length.isOdd) {
@@ -558,15 +555,18 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
     try {
       final maxRounds = _league!.settings.swissRounds;
 
-      final existing = await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+      final existing =
+          await _repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
       int currentMaxRound = 0;
       if (existing.isNotEmpty) {
-        currentMaxRound = existing.map((m) => m.roundNumber).reduce((a, b) => a > b ? a : b);
+        currentMaxRound = existing
+            .map((m) => m.roundNumber)
+            .reduce((a, b) => a > b ? a : b);
       }
 
-      // Require completion of current round before generating next
       if (currentMaxRound > 0) {
-        final currentRoundMatches = existing.where((m) => m.roundNumber == currentMaxRound).toList();
+        final currentRoundMatches =
+            existing.where((m) => m.roundNumber == currentMaxRound).toList();
         final anyUnplayed = currentRoundMatches.any((m) => !m.isPlayed);
         if (anyUnplayed) {
           _toastWarn(
@@ -585,7 +585,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
       final nextRound = currentMaxRound == 0 ? 1 : currentMaxRound + 1;
 
-      // Prevent duplicates
       final alreadyExists = existing.any((m) => m.roundNumber == nextRound);
       if (alreadyExists) {
         _toastWarn(
@@ -612,7 +611,9 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
         return;
       }
 
-      await _repo.saveMatches(widget.leagueId, newFixtures).timeout(const Duration(seconds: 25));
+      await _repo
+          .saveMatches(widget.leagueId, newFixtures)
+          .timeout(const Duration(seconds: 25));
       _toastOk(
         '${l10n.tr('admin_score_swiss_round_generated_prefix')}$nextRound'
         '${l10n.tr('admin_score_swiss_round_generated_mid')}${newFixtures.length}'
@@ -629,7 +630,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     final width = MediaQuery.of(context).size.width;
     final isTablet = width > 700;
@@ -642,7 +643,9 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
           elevation: 0,
         ),
         body: SafeArea(
-          child: Center(child: CircularProgressIndicator(color: cs.primary)),
+          child: Center(
+            child: CircularProgressIndicator(color: AppTheme.limeAccentDark),
+          ),
         ),
       );
     }
@@ -663,18 +666,27 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                 child: Glass(
                   borderRadius: 20,
                   padding: const EdgeInsets.all(16),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         _loadError!,
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: cs.error, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.limeAccent,
+                            foregroundColor: AppTheme.darkText,
+                          ),
                           onPressed: _loadData,
                           icon: const Icon(Icons.refresh),
                           label: Text(l10n.tr('common_retry')),
@@ -695,7 +707,6 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       );
     }
 
-    // Available rounds based on current selection
     List<int> availableRounds = [];
     {
       Iterable<FixtureMatch> forRounds = _matches;
@@ -706,22 +717,21 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
       availableRounds = roundSet.toList()..sort();
     }
 
-    // Apply group + round filters
     List<FixtureMatch> visibleMatches = _matches;
     if (_format == LeagueFormat.uclGroup && _selectedGroup != null) {
-      visibleMatches = visibleMatches.where((m) => m.groupId == _selectedGroup).toList();
+      visibleMatches =
+          visibleMatches.where((m) => m.groupId == _selectedGroup).toList();
     }
     if (availableRounds.isNotEmpty) {
-      visibleMatches = visibleMatches.where((m) => m.roundNumber == _selectedRound).toList();
+      visibleMatches =
+          visibleMatches.where((m) => m.roundNumber == _selectedRound).toList();
     }
 
-    // Ensure user images for visible matches (post-frame).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ids = <String>[
         for (final m in visibleMatches) m.homeTeamId,
         for (final m in visibleMatches) m.awayTeamId,
       ];
-      // ignore: discarded_futures
       _ensureUserImagesForTeamIds(ids);
     });
 
@@ -748,9 +758,9 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
             constraints: BoxConstraints(maxWidth: isTablet ? 1000 : 500),
             child: Column(
               children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: SectionHeader(l10n.tr('admin_score_section_title')),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: SectionHeader('Admin Score Management'),
                 ),
                 const SizedBox(height: 6),
                 if (showGenerateClassic || showGenerateGroup || showGenerateSwiss)
@@ -763,20 +773,28 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                             width: double.infinity,
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: cs.primary,
-                                side: BorderSide(color: cs.primary),
+                                foregroundColor: AppTheme.limeAccentDark,
+                                side: const BorderSide(
+                                  color: AppTheme.limeAccentDark,
+                                ),
                               ),
-                              onPressed: _isGenerating ? null : _generateClassicFixtures,
+                              onPressed: _isGenerating
+                                  ? null
+                                  : _generateClassicFixtures,
                               icon: _isGenerating
-                                  ? SizedBox(
+                                  ? const SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Icon(Icons.auto_awesome),
                               label: Text(
                                 l10n.tr('admin_score_generate_classic'),
-                                style: const TextStyle(fontWeight: FontWeight.w900),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ),
                           ),
@@ -785,20 +803,27 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                             width: double.infinity,
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: cs.primary,
-                                side: BorderSide(color: cs.primary),
+                                foregroundColor: AppTheme.limeAccentDark,
+                                side: const BorderSide(
+                                  color: AppTheme.limeAccentDark,
+                                ),
                               ),
-                              onPressed: _isGenerating ? null : _generateGroupFixtures,
+                              onPressed:
+                                  _isGenerating ? null : _generateGroupFixtures,
                               icon: _isGenerating
-                                  ? SizedBox(
+                                  ? const SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Icon(Icons.groups_2),
                               label: Text(
                                 l10n.tr('admin_score_generate_group'),
-                                style: const TextStyle(fontWeight: FontWeight.w900),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ),
                           ),
@@ -807,20 +832,28 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                             width: double.infinity,
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: cs.primary,
-                                side: BorderSide(color: cs.primary),
+                                foregroundColor: AppTheme.limeAccentDark,
+                                side: const BorderSide(
+                                  color: AppTheme.limeAccentDark,
+                                ),
                               ),
-                              onPressed: _isGenerating ? null : _generateNextSwissRound,
+                              onPressed: _isGenerating
+                                  ? null
+                                  : _generateNextSwissRound,
                               icon: _isGenerating
-                                  ? SizedBox(
+                                  ? const SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Icon(Icons.auto_mode),
                               label: Text(
                                 l10n.tr('admin_score_generate_next_swiss_round'),
-                                style: const TextStyle(fontWeight: FontWeight.w900),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ),
                           ),
@@ -829,41 +862,55 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                     ),
                   ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: Text(
                     l10n.tr('admin_score_help_text'),
-                    style: TextStyle(color: cs.onBackground.withOpacity(0.62), fontSize: 12),
+                    style: TextStyle(
+                      color: AppTheme.secondaryText(brightness),
+                      fontSize: 12,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
                 const SizedBox(height: 8),
-                if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty) _buildGroupSelector(),
-                if (availableRounds.isNotEmpty) _buildRoundSelector(availableRounds),
+                if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty)
+                  _buildGroupSelector(),
+                if (availableRounds.isNotEmpty)
+                  _buildRoundSelector(availableRounds),
                 const SizedBox(height: 4),
                 Expanded(
                   child: visibleMatches.isEmpty
                       ? Center(
                           child: Text(
                             l10n.tr('admin_score_no_matches_to_manage'),
-                            style: TextStyle(color: cs.onBackground.withOpacity(0.70), fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              color: AppTheme.secondaryText(brightness),
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         )
                       : ListView.separated(
                           padding: const EdgeInsets.all(16),
                           itemCount: visibleMatches.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 12),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             final match = visibleMatches[index];
                             final saving = _savingMatchIds.contains(match.id);
 
-                            final homeUrl = (_teamImageUrls[match.homeTeamId] ?? '').trim();
-                            final awayUrl = (_teamImageUrls[match.awayTeamId] ?? '').trim();
+                            final homeUrl =
+                                (_teamImageUrls[match.homeTeamId] ?? '').trim();
+                            final awayUrl =
+                                (_teamImageUrls[match.awayTeamId] ?? '').trim();
 
                             return _ScoreEntryTile(
                               key: ValueKey(match.id),
                               match: match,
-                              homeName: _teamNames[match.homeTeamId] ?? l10n.tr('admin_score_home_fallback'),
-                              awayName: _teamNames[match.awayTeamId] ?? l10n.tr('admin_score_away_fallback'),
+                              homeName: _teamNames[match.homeTeamId] ??
+                                  l10n.tr('admin_score_home_fallback'),
+                              awayName: _teamNames[match.awayTeamId] ??
+                                  l10n.tr('admin_score_away_fallback'),
                               homeImageUrl: homeUrl,
                               awayImageUrl: awayUrl,
                               saving: saving,
@@ -882,11 +929,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   Widget _buildGroupSelector() {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
-
-    final unselectedBg = cs.onBackground.withOpacity(0.06);
-    final unselectedBorder = cs.onBackground.withOpacity(0.14);
-    final unselectedText = cs.onBackground.withOpacity(0.78);
+    final brightness = Theme.of(context).brightness;
 
     final bool allSelected = _selectedGroup == null;
 
@@ -914,19 +957,26 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
             },
             child: Container(
               margin: const EdgeInsetsDirectional.only(end: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
-                color: allSelected ? cs.primary : unselectedBg,
+                color: allSelected
+                    ? AppTheme.limeAccent
+                    : AppTheme.tabInactiveBackground(brightness),
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: allSelected ? cs.primary : unselectedBorder,
+                  color: allSelected
+                      ? AppTheme.limeAccentDark
+                      : AppTheme.cardBorder(brightness),
                 ),
               ),
               alignment: Alignment.center,
               child: Text(
                 l10n.tr('admin_score_all_groups'),
                 style: TextStyle(
-                  color: allSelected ? cs.onPrimary : unselectedText,
+                  color: allSelected
+                      ? AppTheme.darkText
+                      : AppTheme.tabInactiveText(brightness),
                   fontWeight: FontWeight.bold,
                   fontSize: 11,
                 ),
@@ -939,7 +989,10 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                 final isSelected = _selectedGroup == group;
                 return GestureDetector(
                   onTap: () {
-                    final roundSet = _matches.where((m) => m.groupId == group).map((m) => m.roundNumber).toSet();
+                    final roundSet = _matches
+                        .where((m) => m.groupId == group)
+                        .map((m) => m.roundNumber)
+                        .toSet();
                     int newRound = _selectedRound;
                     if (roundSet.isEmpty) {
                       newRound = 1;
@@ -955,19 +1008,26 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
                   },
                   child: Container(
                     margin: const EdgeInsetsDirectional.only(end: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(
-                      color: isSelected ? cs.primary : unselectedBg,
+                      color: isSelected
+                          ? AppTheme.limeAccent
+                          : AppTheme.tabInactiveBackground(brightness),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: isSelected ? cs.primary : unselectedBorder,
+                        color: isSelected
+                            ? AppTheme.limeAccentDark
+                            : AppTheme.cardBorder(brightness),
                       ),
                     ),
                     alignment: Alignment.center,
                     child: Text(
                       group,
                       style: TextStyle(
-                        color: isSelected ? cs.onPrimary : unselectedText,
+                        color: isSelected
+                            ? AppTheme.darkText
+                            : AppTheme.tabInactiveText(brightness),
                         fontWeight: FontWeight.bold,
                         fontSize: 11,
                       ),
@@ -983,11 +1043,7 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
 
   Widget _buildRoundSelector(List<int> rounds) {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
-
-    final unselectedBg = cs.onBackground.withOpacity(0.06);
-    final unselectedBorder = cs.onBackground.withOpacity(0.14);
-    final unselectedText = cs.onBackground.withOpacity(0.78);
+    final brightness = Theme.of(context).brightness;
 
     return Container(
       height: 46,
@@ -1003,19 +1059,26 @@ class _AdminScoreMgmtScreenState extends ConsumerState<AdminScoreMgmtScreen> {
             onTap: () => setState(() => _selectedRound = round),
             child: Container(
               margin: const EdgeInsetsDirectional.only(end: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? cs.primary : unselectedBg,
+                color: isSelected
+                    ? AppTheme.limeAccent
+                    : AppTheme.tabInactiveBackground(brightness),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isSelected ? cs.primary : unselectedBorder,
+                  color: isSelected
+                      ? AppTheme.limeAccentDark
+                      : AppTheme.cardBorder(brightness),
                 ),
               ),
               alignment: Alignment.center,
               child: Text(
                 '${l10n.tr('admin_score_round_prefix')}$round',
                 style: TextStyle(
-                  color: isSelected ? cs.onPrimary : unselectedText,
+                  color: isSelected
+                      ? AppTheme.darkText
+                      : AppTheme.tabInactiveText(brightness),
                   fontWeight: FontWeight.bold,
                   fontSize: 12,
                 ),
@@ -1074,7 +1137,9 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     }
   }
 
-  bool get _isCompleted => widget.match.status == MatchStatus.completed || widget.match.status == MatchStatus.played;
+  bool get _isCompleted =>
+      widget.match.status == MatchStatus.completed ||
+      widget.match.status == MatchStatus.played;
 
   bool get _disabled => widget.saving;
 
@@ -1106,14 +1171,17 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final primary = cs.primary;
+    final brightness = theme.brightness;
 
-    final groupLabel = widget.match.groupId?.trim().isNotEmpty == true ? widget.match.groupId!.trim() : null;
+    final groupLabel =
+        widget.match.groupId?.trim().isNotEmpty == true
+            ? widget.match.groupId!.trim()
+            : null;
 
     return Glass(
       padding: const EdgeInsets.all(18),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Opacity(
         opacity: widget.saving ? 0.72 : 1,
         child: Column(
@@ -1127,7 +1195,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                   child: Text(
                     groupLabel,
                     style: TextStyle(
-                      color: onSurface.withOpacity(0.55),
+                      color: AppTheme.secondaryText(brightness),
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
@@ -1146,6 +1214,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                           widget.homeName,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w900,
+                            color: AppTheme.primaryText(brightness),
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1158,7 +1227,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                   child: Text(
                     l10n.tr('league_details_vs'),
                     style: TextStyle(
-                      color: onSurface.withOpacity(0.30),
+                      color: AppTheme.secondaryText(brightness),
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),
@@ -1174,6 +1243,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                           textAlign: TextAlign.end,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w900,
+                            color: AppTheme.primaryText(brightness),
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1185,15 +1255,24 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _isCompleted ? primary.withOpacity(0.14) : onSurface.withOpacity(0.06),
+                    color: _isCompleted
+                        ? (brightness == Brightness.dark
+                            ? AppTheme.limeAccentDark.withOpacity(0.14)
+                            : const Color(0xFFECFCCB))
+                        : AppTheme.searchBackground(brightness),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    _isCompleted ? l10n.tr('admin_knockout_status_completed') : l10n.tr('admin_knockout_status_pending'),
+                    _isCompleted
+                        ? l10n.tr('admin_knockout_status_completed')
+                        : l10n.tr('admin_knockout_status_pending'),
                     style: TextStyle(
-                      color: _isCompleted ? primary : onSurface.withOpacity(0.55),
+                      color: _isCompleted
+                          ? AppTheme.limeAccentDark
+                          : AppTheme.secondaryText(brightness),
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
@@ -1215,7 +1294,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                   child: Text(
                     ":",
                     style: TextStyle(
-                      color: onSurface.withOpacity(0.35),
+                      color: AppTheme.secondaryText(brightness),
                       fontSize: 24,
                       fontWeight: FontWeight.w900,
                     ),
@@ -1235,16 +1314,18 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
                           await widget.onSave(_homeScore, _awayScore);
                         },
                   style: IconButton.styleFrom(
-                    backgroundColor: primary.withOpacity(0.18),
-                    foregroundColor: primary,
+                    backgroundColor: brightness == Brightness.dark
+                        ? AppTheme.limeAccentDark.withOpacity(0.18)
+                        : const Color(0xFFECFCCB),
+                    foregroundColor: AppTheme.limeAccentDark,
                   ),
                   icon: widget.saving
-                      ? SizedBox(
+                      ? const SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: primary,
+                            color: AppTheme.limeAccentDark,
                           ),
                         )
                       : const Icon(Icons.done_all, size: 24),
@@ -1263,14 +1344,13 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     required VoidCallback onDec,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     return Container(
       decoration: BoxDecoration(
-        color: onSurface.withOpacity(0.06),
+        color: AppTheme.searchBackground(brightness),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: onSurface.withOpacity(0.12)),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
@@ -1290,6 +1370,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
               style: theme.textTheme.titleLarge?.copyWith(
                 fontSize: 22,
                 fontWeight: FontWeight.w900,
+                color: AppTheme.primaryText(brightness),
               ),
             ),
           ),
@@ -1309,9 +1390,7 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     required VoidCallback? onPressed,
     required bool enabled,
   }) {
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
-    final primary = cs.primary;
+    final brightness = Theme.of(context).brightness;
 
     return InkWell(
       onTap: onPressed,
@@ -1320,13 +1399,19 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
         width: 28,
         height: 28,
         decoration: BoxDecoration(
-          color: enabled ? primary.withOpacity(0.10) : onSurface.withOpacity(0.04),
+          color: enabled
+              ? (brightness == Brightness.dark
+                  ? AppTheme.limeAccentDark.withOpacity(0.12)
+                  : const Color(0xFFECFCCB))
+              : AppTheme.searchBackground(brightness),
           shape: BoxShape.circle,
         ),
         child: Icon(
           icon,
           size: 18,
-          color: enabled ? primary : onSurface.withOpacity(0.30),
+          color: enabled
+              ? AppTheme.limeAccentDark
+              : AppTheme.secondaryText(brightness),
         ),
       ),
     );
@@ -1345,11 +1430,13 @@ class _TeamThumb extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
+  String _cloudinaryOptimizedUrl(String url,
+      {int width = 64, int height = 64}) {
     final u = url.trim();
     if (u.isEmpty) return u;
 
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -1365,7 +1452,8 @@ class _TeamThumb extends StatelessWidget {
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly =
+        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
       if (first.contains('f_auto') || first.contains('q_auto')) return u;
@@ -1378,7 +1466,7 @@ class _TeamThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     final raw = url.trim();
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
@@ -1388,9 +1476,9 @@ class _TeamThumb extends StatelessWidget {
       width: 22,
       height: 22,
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.06),
+        color: AppTheme.searchBackground(brightness),
         shape: BoxShape.circle,
-        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: ClipOval(
         child: has
@@ -1404,21 +1492,21 @@ class _TeamThumb extends StatelessWidget {
                 errorBuilder: (_, __, ___) => Icon(
                   Icons.emoji_events_outlined,
                   size: 14,
-                  color: cs.onSurface.withOpacity(0.55),
+                  color: AppTheme.secondaryText(brightness),
                 ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
                   return Icon(
                     Icons.emoji_events_outlined,
                     size: 14,
-                    color: cs.onSurface.withOpacity(0.55),
+                    color: AppTheme.secondaryText(brightness),
                   );
                 },
               )
             : Icon(
                 Icons.emoji_events_outlined,
                 size: 14,
-                color: cs.onSurface.withOpacity(0.55),
+                color: AppTheme.secondaryText(brightness),
               ),
       ),
     );

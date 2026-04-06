@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/chat_repository.dart';
@@ -418,6 +419,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   }
 
   PreferredSizeWidget _buildAppBar() {
+    final brightness = Theme.of(context).brightness;
+
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight),
       child: ValueListenableBuilder<String?>(
@@ -480,6 +483,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   Widget _moderationBanner(BuildContext context) {
     final theme = Theme.of(context);
+    final brightness = theme.brightness;
 
     if (_globalModerationResolved && _chatBlocked) {
       return Padding(
@@ -487,15 +491,20 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         child: Glass(
           borderRadius: 18,
           padding: const EdgeInsets.all(14),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Row(
             children: [
-              Icon(Icons.block_rounded, color: theme.colorScheme.error),
+              Icon(
+                Icons.block_rounded,
+                color: Theme.of(context).colorScheme.error,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   'You are banned from Global Chat. You can no longer send messages here.',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.error,
+                    color: Theme.of(context).colorScheme.error,
                     fontWeight: FontWeight.w800,
                     height: 1.3,
                   ),
@@ -513,9 +522,14 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         child: Glass(
           borderRadius: 18,
           padding: const EdgeInsets.all(14),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Row(
             children: [
-              const Icon(Icons.volume_off_rounded, color: Color(0xFFF59E0B)),
+              const Icon(
+                Icons.volume_off_rounded,
+                color: Color(0xFFF59E0B),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -537,8 +551,6 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   }
 
   Widget _chatBody({required bool canSend}) {
-    final theme = Theme.of(context);
-
     return Column(
       children: [
         _moderationBanner(context),
@@ -568,12 +580,18 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                     padding: const EdgeInsets.all(16),
                     child: Glass(
                       padding: const EdgeInsets.all(16),
+                      fill: AppTheme.cardColor(
+                        Theme.of(context).brightness,
+                      ),
+                      borderColor: AppTheme.cardBorder(
+                        Theme.of(context).brightness,
+                      ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
                             Icons.error_outline,
-                            color: theme.colorScheme.error,
+                            color: Theme.of(context).colorScheme.error,
                             size: 36,
                           ),
                           const SizedBox(height: 10),
@@ -581,13 +599,18 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                             msg,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: theme.colorScheme.onSurface
-                                  .withOpacity(0.75),
+                              color: AppTheme.secondaryText(
+                                Theme.of(context).brightness,
+                              ),
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           const SizedBox(height: 10),
                           FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.limeAccent,
+                              foregroundColor: AppTheme.darkText,
+                            ),
                             onPressed: () => setState(() {}),
                             child: const Text('Retry'),
                           ),
@@ -604,7 +627,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                   child: Text(
                     'No messages yet',
                     style: TextStyle(
-                      color: theme.colorScheme.onSurface.withOpacity(0.55),
+                      color: AppTheme.secondaryText(
+                        Theme.of(context).brightness,
+                      ),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -633,7 +658,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                   return ValueListenableBuilder<String?>(
                     valueListenable: _selectedMessageId,
                     builder: (context, selectedId, _) {
-                      final selecting = (selectedId ?? '').trim().isNotEmpty;
+                      final selecting =
+                          (selectedId ?? '').trim().isNotEmpty;
 
                       return KeyedSubtree(
                         key: key,
@@ -671,14 +697,16 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
           AnimatedBuilder(
             animation: Listenable.merge([_selectedMessageId, _replyTo]),
             builder: (context, _) {
-              final selecting = (_selectedMessageId.value ?? '').trim().isNotEmpty;
+              final selecting =
+                  (_selectedMessageId.value ?? '').trim().isNotEmpty;
               final reply = _replyTo.value;
 
               return ChatInputBar(
                 controller: _textCtrl,
                 isSending: _sending,
                 codeMode: _codeMode,
-                enabled: canSend && !selecting && !_chatReadOnly && !_chatBlocked,
+                enabled:
+                    canSend && !selecting && !_chatReadOnly && !_chatBlocked,
                 onToggleCodeMode: () => setState(() => _codeMode = !_codeMode),
                 onPickImage: () {
                   if (_chatReadOnly || _chatBlocked) return;
@@ -710,8 +738,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final bypassRequest = _isSuperAdmin;
+    final brightness = Theme.of(context).brightness;
 
     return WillPopScope(
       onWillPop: () async {
@@ -734,6 +762,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                         padding: const EdgeInsets.all(16),
                         child: Glass(
                           padding: const EdgeInsets.all(16),
+                          fill: AppTheme.cardColor(brightness),
+                          borderColor: AppTheme.cardBorder(brightness),
                           child: Text(
                             UserFriendlyError.toMessage(
                               snap.error is Object
@@ -742,8 +772,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                             ),
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color:
-                                  theme.colorScheme.onSurface.withOpacity(0.75),
+                              color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -768,16 +797,22 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                           padding: const EdgeInsets.all(16),
                           child: Glass(
                             padding: const EdgeInsets.all(18),
+                            fill: AppTheme.cardColor(brightness),
+                            borderColor: AppTheme.cardBorder(brightness),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   'Access required',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                    color: theme.colorScheme.onSurface,
-                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                        color:
+                                            AppTheme.primaryText(brightness),
+                                      ),
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
@@ -787,8 +822,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                                           ? 'Your request was rejected. You can request again.'
                                           : 'Request access to join the global public chatroom.',
                                   style: TextStyle(
-                                    color: theme.colorScheme.onSurface
-                                        .withOpacity(0.65),
+                                    color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w700,
                                     height: 1.35,
                                   ),
@@ -798,9 +832,14 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                                   children: [
                                     Expanded(
                                       child: FilledButton.icon(
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: AppTheme.limeAccent,
+                                          foregroundColor: AppTheme.darkText,
+                                        ),
                                         onPressed:
                                             _sending ? null : _requestAccess,
-                                        icon: const Icon(Icons.lock_open_rounded),
+                                        icon:
+                                            const Icon(Icons.lock_open_rounded),
                                         label: Text(
                                           pending ? 'Pending…' : 'Request access',
                                           style: const TextStyle(
@@ -815,8 +854,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                                 Text(
                                   'Only approved users can read and send messages.',
                                   style: TextStyle(
-                                    color: theme.colorScheme.onSurface
-                                        .withOpacity(0.45),
+                                    color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w700,
                                     fontSize: 12,
                                   ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/locale/app_localizations.dart';
+import '../core/theme/app_theme.dart';
 import '../core/widgets/glass.dart';
 
 class AdminScoreCard extends StatefulWidget {
@@ -30,39 +31,54 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
     required ValueChanged<int> onChanged,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
+    final primaryText = AppTheme.primaryText(brightness);
+    final secondaryText = AppTheme.secondaryText(brightness);
 
     return Column(
       children: [
         Text(
           label,
           style: theme.textTheme.bodySmall?.copyWith(
-            color: cs.onSurface.withOpacity(0.72),
+            color: secondaryText,
             fontSize: 12,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.3,
           ),
         ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: Icon(Icons.remove_circle_outline, color: cs.primary),
-              onPressed: score > 0 ? () => onChanged(score - 1) : null,
-            ),
-            Text(
-              '$score',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                color: cs.onSurface,
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppTheme.searchBackground(brightness),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.searchOutline(brightness)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: Icon(Icons.remove_circle_outline, color: AppTheme.limeAccentDark),
+                onPressed: score > 0 ? () => onChanged(score - 1) : null,
               ),
-            ),
-            IconButton(
-              icon: Icon(Icons.add_circle_outline, color: cs.primary),
-              onPressed: () => onChanged(score + 1),
-            ),
-          ],
+              SizedBox(
+                width: 42,
+                child: Text(
+                  '$score',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    color: primaryText,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.add_circle_outline, color: AppTheme.limeAccentDark),
+                onPressed: () => onChanged(score + 1),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -72,11 +88,13 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Glass(
-      borderRadius: 20,
+      borderRadius: 24,
       padding: const EdgeInsets.all(20),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         children: [
           Row(
@@ -87,7 +105,7 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
                   widget.homeTeam,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.titleSmall?.copyWith(
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -95,7 +113,7 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
               Text(
                 l10n.tr('match_detail_vs').toUpperCase(),
                 style: theme.textTheme.labelLarge?.copyWith(
-                  color: cs.primary,
+                  color: AppTheme.limeAccentDark,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 0.8,
                 ),
@@ -105,14 +123,14 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
                   widget.awayTeam,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.titleSmall?.copyWith(
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -130,12 +148,23 @@ class _AdminScoreCardState extends State<AdminScoreCard> {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
             child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.limeAccent,
+                foregroundColor: AppTheme.darkText,
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
               onPressed: () => widget.onSave(homeScore, awayScore),
-              child: Text(l10n.tr('admin_score_card_update_score').toUpperCase()),
+              child: Text(
+                l10n.tr('admin_score_card_update_score').toUpperCase(),
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
             ),
           ),
         ],

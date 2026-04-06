@@ -99,14 +99,17 @@ class _HomeShellState extends ConsumerState<HomeShell>
       barrierColor: Colors.black.withOpacity(0.28),
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        final cs = theme.colorScheme;
+        final brightness = theme.brightness;
 
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
           child: Glass(
             borderRadius: 28,
             padding: const EdgeInsets.all(20),
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -115,14 +118,14 @@ class _HomeShellState extends ConsumerState<HomeShell>
                   height: 54,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: cs.primary.withOpacity(0.14),
+                    color: AppTheme.iconCircleBackground(brightness),
                     border: Border.all(
-                      color: cs.primary.withOpacity(0.22),
+                      color: AppTheme.cardBorder(brightness),
                     ),
                   ),
                   child: Icon(
                     Icons.exit_to_app_rounded,
-                    color: cs.primary,
+                    color: AppTheme.limeAccentDark,
                     size: 28,
                   ),
                 ),
@@ -131,7 +134,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
                   'Exit app?',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.titleLarge?.copyWith(
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -140,7 +143,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
                   'Are you sure you want to close the app?',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface.withOpacity(0.76),
+                    color: AppTheme.secondaryText(brightness),
                     height: 1.35,
                     fontWeight: FontWeight.w700,
                   ),
@@ -160,6 +163,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
                         onPressed: () => Navigator.of(ctx).pop(true),
                         child: const Text(
                           'Exit',
@@ -183,9 +190,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     final brightness = theme.brightness;
-    final isLight = brightness == Brightness.light;
 
     final tabTitles = [
       l10n.homeTabHome,
@@ -197,141 +202,113 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
     return WillPopScope(
       onWillPop: _handleSystemBack,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: AppTheme.backgroundGradient(brightness),
-              ),
-            ),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        extendBody: true,
+        appBar: AppBar(
+          title: Text(tabTitles[_index]),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+        ),
+        body: SafeArea(
+          bottom: false,
+          child: Stack(
+            children: List.generate(_tabs.length, (i) {
+              final built = _built[i];
+              return Offstage(
+                offstage: _index != i,
+                child: TickerMode(
+                  enabled: _index == i,
+                  child: built ? _tabs[i] : const SizedBox.shrink(),
+                ),
+              );
+            }),
           ),
-          if (isLight)
-            Positioned(
-              top: -120,
-              right: -80,
-              child: IgnorePointer(
-                child: Container(
-                  width: 300,
-                  height: 300,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        Color(0x337AB6FF),
-                        Colors.transparent,
-                      ],
-                    ),
+        ),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 8),
+            child: Glass(
+              padding: EdgeInsets.zero,
+              borderRadius: 28,
+              fill: brightness == Brightness.dark
+                  ? AppTheme.darkNavBg
+                  : AppTheme.lightNavBg,
+              borderColor: AppTheme.cardBorder(brightness),
+              child: Theme(
+                data: theme.copyWith(
+                  navigationBarTheme: NavigationBarThemeData(
+                    backgroundColor: Colors.transparent,
+                    surfaceTintColor: Colors.transparent,
+                    indicatorColor: AppTheme.limeAccent,
+                    labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                      final selected =
+                          states.contains(WidgetState.selected);
+                      return TextStyle(
+                        color: selected
+                            ? AppTheme.limeAccentDark
+                            : const Color(0xFF9CA3AF),
+                        fontSize: 11,
+                        fontWeight:
+                            selected ? FontWeight.w800 : FontWeight.w600,
+                      );
+                    }),
+                    iconTheme: WidgetStateProperty.resolveWith((states) {
+                      final selected =
+                          states.contains(WidgetState.selected);
+                      return IconThemeData(
+                        color: selected
+                            ? AppTheme.limeAccentDark
+                            : const Color(0xFF9CA3AF),
+                        size: 24,
+                      );
+                    }),
                   ),
                 ),
-              ),
-            ),
-          Scaffold(
-            backgroundColor: Colors.transparent,
-            extendBody: true,
-            appBar: AppBar(
-              title: Text(tabTitles[_index]),
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              scrolledUnderElevation: 0,
-              surfaceTintColor: Colors.transparent,
-            ),
-            body: SafeArea(
-              bottom: false,
-              child: Stack(
-                children: List.generate(_tabs.length, (i) {
-                  final built = _built[i];
-                  return Offstage(
-                    offstage: _index != i,
-                    child: TickerMode(
-                      enabled: _index == i,
-                      child: built ? _tabs[i] : const SizedBox.shrink(),
+                child: NavigationBar(
+                  height: 68,
+                  backgroundColor: Colors.transparent,
+                  surfaceTintColor: Colors.transparent,
+                  indicatorColor: AppTheme.limeAccent,
+                  selectedIndex: _index,
+                  onDestinationSelected: _onDestinationSelected,
+                  labelBehavior:
+                      NavigationDestinationLabelBehavior.alwaysShow,
+                  destinations: [
+                    NavigationDestination(
+                      icon: const Icon(Icons.home_outlined),
+                      selectedIcon: const Icon(Icons.home),
+                      label: l10n.homeTabHome,
                     ),
-                  );
-                }),
-              ),
-            ),
-            bottomNavigationBar: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 8),
-                child: Glass(
-                  padding: EdgeInsets.zero,
-                  borderRadius: 28,
-                  child: Theme(
-                    data: theme.copyWith(
-                      navigationBarTheme: NavigationBarThemeData(
-                        backgroundColor: Colors.transparent,
-                        surfaceTintColor: Colors.transparent,
-                        indicatorColor: colorScheme.primary.withOpacity(0.18),
-                        labelTextStyle:
-                            WidgetStateProperty.resolveWith((states) {
-                          final selected =
-                              states.contains(WidgetState.selected);
-                          return TextStyle(
-                            color: selected
-                                ? colorScheme.primary
-                                : theme.colorScheme.onSurface.withOpacity(0.55),
-                            fontSize: 11,
-                            fontWeight:
-                                selected ? FontWeight.w800 : FontWeight.w600,
-                          );
-                        }),
-                        iconTheme: WidgetStateProperty.resolveWith((states) {
-                          final selected =
-                              states.contains(WidgetState.selected);
-                          return IconThemeData(
-                            color: selected
-                                ? colorScheme.primary
-                                : theme.colorScheme.onSurface.withOpacity(0.55),
-                            size: 24,
-                          );
-                        }),
-                      ),
+                    NavigationDestination(
+                      icon: const Icon(Icons.emoji_events_outlined),
+                      selectedIcon: const Icon(Icons.emoji_events),
+                      label: l10n.homeTabLeagues,
                     ),
-                    child: NavigationBar(
-                      height: 68,
-                      backgroundColor: Colors.transparent,
-                      surfaceTintColor: Colors.transparent,
-                      indicatorColor: colorScheme.primary.withOpacity(0.18),
-                      selectedIndex: _index,
-                      onDestinationSelected: _onDestinationSelected,
-                      labelBehavior:
-                          NavigationDestinationLabelBehavior.alwaysShow,
-                      destinations: [
-                        NavigationDestination(
-                          icon: const Icon(Icons.home_outlined),
-                          selectedIcon: const Icon(Icons.home),
-                          label: l10n.homeTabHome,
-                        ),
-                        NavigationDestination(
-                          icon: const Icon(Icons.emoji_events_outlined),
-                          selectedIcon: const Icon(Icons.emoji_events),
-                          label: l10n.homeTabLeagues,
-                        ),
-                        const NavigationDestination(
-                          icon: Icon(Icons.explore_outlined),
-                          selectedIcon: Icon(Icons.explore),
-                          label: 'Discover',
-                        ),
-                        NavigationDestination(
-                          icon: const Icon(Icons.storefront_outlined),
-                          selectedIcon: const Icon(Icons.storefront),
-                          label: l10n.homeTabMarketplace,
-                        ),
-                        NavigationDestination(
-                          icon: const Icon(Icons.person_outline),
-                          selectedIcon: const Icon(Icons.person),
-                          label: l10n.homeTabProfile,
-                        ),
-                      ],
+                    const NavigationDestination(
+                      icon: Icon(Icons.explore_outlined),
+                      selectedIcon: Icon(Icons.explore),
+                      label: 'Discover',
                     ),
-                  ),
+                    NavigationDestination(
+                      icon: const Icon(Icons.storefront_outlined),
+                      selectedIcon: const Icon(Icons.storefront),
+                      label: l10n.homeTabMarketplace,
+                    ),
+                    NavigationDestination(
+                      icon: const Icon(Icons.person_outline),
+                      selectedIcon: const Icon(Icons.person),
+                      label: l10n.homeTabProfile,
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -350,13 +327,12 @@ class _HomeTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final t = theme.textTheme;
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
-    final secondary = cs.onSurface.withOpacity(0.62);
-    final tertiary = cs.onSurface.withOpacity(0.50);
-    final faint = cs.onSurface.withOpacity(0.30);
+    final secondary = AppTheme.secondaryText(brightness);
+    final tertiary = AppTheme.secondaryText(brightness).withOpacity(0.88);
+    final faint = const Color(0xFF9CA3AF);
 
     return ListView(
       physics: const BouncingScrollPhysics(
@@ -367,6 +343,8 @@ class _HomeTab extends StatelessWidget {
         Glass(
           borderRadius: 28,
           padding: const EdgeInsets.all(22),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Stack(
             children: [
               Positioned(
@@ -377,7 +355,7 @@ class _HomeTab extends StatelessWidget {
                   height: 120,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: cs.primary.withOpacity(0.08),
+                    color: AppTheme.limeAccent.withOpacity(0.10),
                   ),
                 ),
               ),
@@ -389,7 +367,7 @@ class _HomeTab extends StatelessWidget {
                   height: 90,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: cs.secondary.withOpacity(0.05),
+                    color: AppTheme.limeAccentDark.withOpacity(0.06),
                   ),
                 ),
               ),
@@ -400,21 +378,14 @@ class _HomeTab extends StatelessWidget {
                     height: 58,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          cs.primary.withOpacity(0.34),
-                          cs.secondary.withOpacity(0.14),
-                        ],
-                      ),
+                      color: AppTheme.iconCircleBackground(brightness),
                       border: Border.all(
-                        color: cs.primary.withOpacity(0.18),
+                        color: AppTheme.cardBorder(brightness),
                       ),
                     ),
                     child: Icon(
                       Icons.auto_awesome_rounded,
-                      color: cs.primary,
+                      color: AppTheme.limeAccentDark,
                       size: 28,
                     ),
                   ),
@@ -429,7 +400,7 @@ class _HomeTab extends StatelessWidget {
                             fontWeight: FontWeight.w900,
                             fontSize: 23,
                             letterSpacing: -0.5,
-                            color: cs.onSurface,
+                            color: AppTheme.primaryText(brightness),
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -458,7 +429,7 @@ class _HomeTab extends StatelessWidget {
             style: t.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               letterSpacing: -0.3,
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
             ),
           ),
         ),
@@ -469,10 +440,15 @@ class _HomeTab extends StatelessWidget {
                 icon: Icons.add_circle_outline_rounded,
                 title: l10n.homeQuickCreateLeagueTitle,
                 subtitle: l10n.homeQuickCreateLeagueSubtitle,
-                gradient: [
-                  cs.primary.withOpacity(0.18),
-                  cs.primary.withOpacity(0.05),
-                ],
+                gradient: brightness == Brightness.dark
+                    ? [
+                        AppTheme.limeAccentDark.withOpacity(0.12),
+                        AppTheme.darkCard,
+                      ]
+                    : [
+                        const Color(0xFFECFCCB),
+                        const Color(0xFFFFFFFF),
+                      ],
                 onTap: () => _safePush(context, '/leagues/create'),
               ),
             ),
@@ -482,10 +458,15 @@ class _HomeTab extends StatelessWidget {
                 icon: Icons.live_tv_rounded,
                 title: 'Live Match',
                 subtitle: 'Join or host live match sessions',
-                gradient: [
-                  const Color(0xFF38BDF8).withOpacity(0.18),
-                  const Color(0xFF38BDF8).withOpacity(0.05),
-                ],
+                gradient: brightness == Brightness.dark
+                    ? [
+                        const Color(0xFF38BDF8).withOpacity(0.16),
+                        AppTheme.darkCard,
+                      ]
+                    : [
+                        const Color(0xFFE0F2FE),
+                        const Color(0xFFFFFFFF),
+                      ],
                 onTap: () => _safePush(context, '/live/join'),
               ),
             ),
@@ -500,10 +481,15 @@ class _HomeTab extends StatelessWidget {
             'Organizer Workspace',
           ),
           subtitle: 'Create and manage premium competition hubs',
-          gradient: [
-            cs.primary.withOpacity(0.20),
-            cs.secondary.withOpacity(0.07),
-          ],
+          gradient: brightness == Brightness.dark
+              ? [
+                  AppTheme.limeAccentDark.withOpacity(0.10),
+                  AppTheme.darkCard,
+                ]
+              : [
+                  const Color(0xFFECFCCB),
+                  const Color(0xFFF8FAFC),
+                ],
           onTap: () => _safePush(context, '/master-leagues'),
           isWide: true,
         ),
@@ -516,10 +502,15 @@ class _HomeTab extends StatelessWidget {
             'home_quick_voice_room_subtitle',
             'Create/Join with 8-digit code',
           ),
-          gradient: [
-            Colors.purple.withOpacity(0.20),
-            Colors.purple.withOpacity(0.05),
-          ],
+          gradient: brightness == Brightness.dark
+              ? [
+                  Colors.purple.withOpacity(0.16),
+                  AppTheme.darkCard,
+                ]
+              : [
+                  const Color(0xFFF3E8FF),
+                  const Color(0xFFFFFFFF),
+                ],
           onTap: () => _safePush(context, '/call'),
           isWide: true,
         ),
@@ -533,13 +524,15 @@ class _HomeTab extends StatelessWidget {
             style: t.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               letterSpacing: -0.3,
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
             ),
           ),
         ),
         Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(4),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             children: [
               _ExploreRow(
@@ -550,7 +543,7 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
+              Divider(color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.hub_rounded,
                 title: _trOr(
@@ -567,7 +560,7 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
+              Divider(color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.dynamic_feed_rounded,
                 title: 'Organizer Feed',
@@ -576,7 +569,7 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
+              Divider(color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.forum_rounded,
                 title: _trOr(l10n, 'home_explore_global_chat', 'Global Chat'),
@@ -589,7 +582,7 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
+              Divider(color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.storefront_rounded,
                 title: _trOr(
@@ -606,7 +599,7 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: cs.onSurface.withOpacity(0.08), height: 1),
+              Divider(color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.emoji_events_rounded,
                 title: _trOr(l10n, 'home_explore_my_leagues', 'My Leagues'),
@@ -735,13 +728,15 @@ class _FollowedOrganizerFeedPreviewState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final t = theme.textTheme;
 
     if (widget.uid.isEmpty) {
       return Glass(
         borderRadius: 24,
         padding: const EdgeInsets.all(16),
+        fill: AppTheme.cardColor(brightness),
+        borderColor: AppTheme.cardBorder(brightness),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -749,14 +744,14 @@ class _FollowedOrganizerFeedPreviewState
               'Followed Organizer Feed',
               style: t.titleMedium?.copyWith(
                 fontWeight: FontWeight.w900,
-                color: cs.onSurface,
+                color: AppTheme.primaryText(brightness),
               ),
             ),
             const SizedBox(height: 10),
             Text(
               'Sign in to see updates from organizers you follow.',
               style: t.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.65),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -768,6 +763,8 @@ class _FollowedOrganizerFeedPreviewState
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -778,7 +775,7 @@ class _FollowedOrganizerFeedPreviewState
                   'Followed Organizer Feed',
                   style: t.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                   ),
                 ),
               ),
@@ -806,7 +803,7 @@ class _FollowedOrganizerFeedPreviewState
             Text(
               'Unable to load organizer updates right now.',
               style: t.bodySmall?.copyWith(
-                color: cs.error,
+                color: Theme.of(context).colorScheme.error,
                 fontWeight: FontWeight.w800,
               ),
             )
@@ -814,7 +811,7 @@ class _FollowedOrganizerFeedPreviewState
             Text(
               'No followed organizer updates yet. Follow organizer workspaces to see their latest activity here.',
               style: t.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.65),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
                 height: 1.35,
               ),
@@ -842,6 +839,8 @@ class _FollowedOrganizerFeedPreviewState
                     child: Glass(
                       borderRadius: 18,
                       padding: const EdgeInsets.all(12),
+                      fill: AppTheme.cardColor(brightness),
+                      borderColor: AppTheme.cardBorder(brightness),
                       child: Row(
                         children: [
                           Icon(
@@ -857,7 +856,7 @@ class _FollowedOrganizerFeedPreviewState
                                 Text(
                                   item.title,
                                   style: t.bodyMedium?.copyWith(
-                                    color: cs.onSurface,
+                                    color: AppTheme.primaryText(brightness),
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
@@ -867,7 +866,7 @@ class _FollowedOrganizerFeedPreviewState
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: t.bodySmall?.copyWith(
-                                    color: cs.onSurface.withOpacity(0.70),
+                                    color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w700,
                                     height: 1.25,
                                   ),
@@ -877,7 +876,7 @@ class _FollowedOrganizerFeedPreviewState
                           ),
                           Icon(
                             Icons.chevron_right_rounded,
-                            color: cs.onSurface.withOpacity(0.35),
+                            color: AppTheme.secondaryText(brightness),
                           ),
                         ],
                       ),
@@ -940,11 +939,11 @@ class _QuickActionCardState extends State<_QuickActionCard>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
-    final secondary = cs.onSurface.withOpacity(0.54);
-    final tertiary = cs.onSurface.withOpacity(0.46);
-    final faint = cs.onSurface.withOpacity(0.30);
+    final secondary = AppTheme.secondaryText(brightness);
+    final tertiary = AppTheme.secondaryText(brightness).withOpacity(0.88);
+    final faint = const Color(0xFF9CA3AF);
 
     return AnimatedBuilder(
       animation: _scale,
@@ -960,6 +959,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
         child: Glass(
           padding: EdgeInsets.zero,
           borderRadius: 22,
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -978,12 +979,16 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         height: 46,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: cs.onSurface.withOpacity(0.06),
+                          color: AppTheme.iconCircleBackground(brightness),
                           border: Border.all(
-                            color: cs.onSurface.withOpacity(0.10),
+                            color: AppTheme.cardBorder(brightness),
                           ),
                         ),
-                        child: Icon(widget.icon, color: cs.primary, size: 22),
+                        child: Icon(
+                          widget.icon,
+                          color: AppTheme.limeAccentDark,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -995,7 +1000,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 15,
-                                color: cs.onSurface,
+                                color: AppTheme.primaryText(brightness),
                               ),
                             ),
                             const SizedBox(height: 3),
@@ -1025,12 +1030,16 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         height: 42,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: cs.onSurface.withOpacity(0.06),
+                          color: AppTheme.iconCircleBackground(brightness),
                           border: Border.all(
-                            color: cs.onSurface.withOpacity(0.10),
+                            color: AppTheme.cardBorder(brightness),
                           ),
                         ),
-                        child: Icon(widget.icon, color: cs.primary, size: 20),
+                        child: Icon(
+                          widget.icon,
+                          color: AppTheme.limeAccentDark,
+                          size: 20,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       Text(
@@ -1040,7 +1049,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w900,
                           fontSize: 14,
-                          color: cs.onSurface,
+                          color: AppTheme.primaryText(brightness),
                         ),
                       ),
                       const SizedBox(height: 3),
@@ -1078,14 +1087,14 @@ class _ExploreRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-
   final Color secondaryColor;
   final Color chevronColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -1098,12 +1107,16 @@ class _ExploreRow extends StatelessWidget {
               height: 42,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: cs.primary.withOpacity(0.12),
+                color: AppTheme.iconCircleBackground(brightness),
                 border: Border.all(
-                  color: cs.primary.withOpacity(0.12),
+                  color: AppTheme.cardBorder(brightness),
                 ),
               ),
-              child: Icon(icon, color: cs.primary, size: 20),
+              child: Icon(
+                icon,
+                color: AppTheme.limeAccentDark,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -1114,7 +1127,7 @@ class _ExploreRow extends StatelessWidget {
                     title,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w900,
-                      color: cs.onSurface,
+                      color: AppTheme.primaryText(brightness),
                     ),
                   ),
                   const SizedBox(height: 2),

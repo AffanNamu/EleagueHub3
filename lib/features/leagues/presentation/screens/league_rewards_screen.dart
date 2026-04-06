@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
 import '../../data/models/reward_model.dart';
@@ -55,13 +56,12 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final isWide = MediaQuery.of(context).size.width > 600;
 
     final content = SafeArea(
       top: true,
       child: Padding(
-        // GlassScaffold renders behind the AppBar; ensure list content doesn't sit under it.
         padding: EdgeInsets.only(top: widget.showAppBar ? kToolbarHeight : 0),
         child: Center(
           child: ConstrainedBox(
@@ -84,7 +84,7 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
 
                 return RefreshIndicator(
                   onRefresh: () async => setState(() {}),
-                  color: cs.primary,
+                  color: AppTheme.limeAccentDark,
                   child: ListView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                     itemCount: rewards.length,
@@ -101,7 +101,6 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
       ),
     );
 
-    // Embedded usage: do not wrap in a Scaffold/background (parent handles it).
     if (!widget.showAppBar) return content;
 
     return GlassScaffold(
@@ -123,7 +122,7 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
                 onPressed: _openManageRewards,
                 icon: Icon(
                   Icons.edit_outlined,
-                  color: cs.onSurface,
+                  color: AppTheme.primaryText(brightness),
                 ),
               );
             },
@@ -140,14 +139,13 @@ class _LoadingState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Center(
       child: SizedBox(
         width: 28,
         height: 28,
         child: CircularProgressIndicator(
           strokeWidth: 2.6,
-          color: cs.primary,
+          color: AppTheme.limeAccentDark,
         ),
       ),
     );
@@ -160,7 +158,7 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Center(
       child: TweenAnimationBuilder<double>(
@@ -173,27 +171,29 @@ class _EmptyState extends StatelessWidget {
           padding: const EdgeInsets.all(24),
           child: Glass(
             padding: const EdgeInsets.all(20),
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Icon(
                   Icons.card_giftcard_outlined,
                   size: 48,
-                  color: cs.onSurface.withOpacity(0.45),
+                  color: AppTheme.limeAccentDark,
                 ),
                 const SizedBox(height: 16),
                 Text(
                   'No rewards available',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'Check back later for updates.',
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface.withOpacity(0.72),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -213,23 +213,29 @@ class _ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Glass(
           padding: const EdgeInsets.all(20),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline, color: cs.error, size: 48),
+              Icon(
+                Icons.error_outline,
+                color: Theme.of(context).colorScheme.error,
+                size: 48,
+              ),
               const SizedBox(height: 16),
               Text(
                 message,
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: cs.error,
+                  color: Theme.of(context).colorScheme.error,
                   fontWeight: FontWeight.w600,
                 ),
               ),

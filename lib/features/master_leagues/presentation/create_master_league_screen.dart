@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../domain/master_league.dart';
@@ -274,16 +275,19 @@ class _CreateMasterLeagueScreenState
     BuildContext context,
     MasterLeaguePlan plan,
     ThemeData theme,
-    ColorScheme cs,
   ) {
+    final brightness = theme.brightness;
     final isSelected = _selectedPlan == plan;
     final isCurrent = _activePlan == plan;
     final lockedLowerPlan = !_canSelectPlan(plan);
 
     final Color borderColor =
-        isSelected ? cs.primary : cs.onSurface.withOpacity(0.12);
-    final Color bgColor =
-        isSelected ? cs.primary.withOpacity(0.08) : Colors.transparent;
+        isSelected ? AppTheme.limeAccentDark : AppTheme.cardBorder(brightness);
+    final Color bgColor = isSelected
+        ? (brightness == Brightness.dark
+            ? AppTheme.limeAccentDark.withOpacity(0.10)
+            : const Color(0xFFECFCCB))
+        : Colors.transparent;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -314,14 +318,20 @@ class _CreateMasterLeagueScreenState
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: isSelected
-                          ? cs.primary
-                          : cs.onSurface.withOpacity(0.35),
+                          ? AppTheme.limeAccentDark
+                          : AppTheme.secondaryText(brightness),
                       width: 2,
                     ),
-                    color: isSelected ? cs.primary : Colors.transparent,
+                    color: isSelected
+                        ? AppTheme.limeAccent
+                        : Colors.transparent,
                   ),
                   child: isSelected
-                      ? const Icon(Icons.check, size: 16, color: Colors.white)
+                      ? const Icon(
+                          Icons.check,
+                          size: 16,
+                          color: AppTheme.darkText,
+                        )
                       : null,
                 ),
                 const SizedBox(width: 12),
@@ -338,20 +348,20 @@ class _CreateMasterLeagueScreenState
                             plan.displayName,
                             style: theme.textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.w900,
-                              color: cs.onSurface,
+                              color: AppTheme.primaryText(brightness),
                             ),
                           ),
                           if (plan.isPopular)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
-                                color:
-                                    const Color(0xFF22C55E).withOpacity(0.14),
+                                color: const Color(0xFF22C55E).withOpacity(0.12),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: const Color(0xFF22C55E)
-                                      .withOpacity(0.30),
+                                  color: const Color(0xFF22C55E).withOpacity(0.28),
                                 ),
                               ),
                               child: const Text(
@@ -367,12 +377,18 @@ class _CreateMasterLeagueScreenState
                           if (isCurrent)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
-                                color: cs.primary.withOpacity(0.12),
+                                color: brightness == Brightness.dark
+                                    ? AppTheme.limeAccentDark.withOpacity(0.12)
+                                    : const Color(0xFFECFCCB),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: cs.primary.withOpacity(0.28),
+                                  color: brightness == Brightness.dark
+                                      ? AppTheme.limeAccentDark.withOpacity(0.26)
+                                      : const Color(0xFFD9F99D),
                                 ),
                               ),
                               child: Text(
@@ -381,21 +397,23 @@ class _CreateMasterLeagueScreenState
                                   fontSize: 9,
                                   fontWeight: FontWeight.w900,
                                   letterSpacing: 0.5,
-                                  color: cs.primary,
+                                  color: brightness == Brightness.dark
+                                      ? AppTheme.limeAccent
+                                      : AppTheme.darkText,
                                 ),
                               ),
                             ),
                           if (plan.isFree)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
-                                color:
-                                    const Color(0xFF22C55E).withOpacity(0.12),
+                                color: const Color(0xFF22C55E).withOpacity(0.12),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: const Color(0xFF22C55E)
-                                      .withOpacity(0.28),
+                                  color: const Color(0xFF22C55E).withOpacity(0.28),
                                 ),
                               ),
                               child: const Text(
@@ -414,7 +432,7 @@ class _CreateMasterLeagueScreenState
                       Text(
                         plan.description,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.65),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w700,
                           height: 1.2,
                         ),
@@ -430,7 +448,8 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  Widget _buildDurationSelector(ThemeData theme, ColorScheme cs) {
+  Widget _buildDurationSelector(ThemeData theme) {
+    final brightness = theme.brightness;
     if (!_selectedNeedsPayment) return const SizedBox.shrink();
 
     return Column(
@@ -444,7 +463,7 @@ class _CreateMasterLeagueScreenState
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               letterSpacing: -0.2,
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
             ),
           ),
         ),
@@ -453,8 +472,9 @@ class _CreateMasterLeagueScreenState
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: InkWell(
-              onTap:
-                  _processing ? null : () => setState(() => _selectedDuration = dur),
+              onTap: _processing
+                  ? null
+                  : () => setState(() => _selectedDuration = dur),
               borderRadius: BorderRadius.circular(16),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
@@ -462,12 +482,14 @@ class _CreateMasterLeagueScreenState
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
                   color: isSelected
-                      ? cs.primary.withOpacity(0.08)
+                      ? (brightness == Brightness.dark
+                          ? AppTheme.limeAccentDark.withOpacity(0.10)
+                          : const Color(0xFFECFCCB))
                       : Colors.transparent,
                   border: Border.all(
                     color: isSelected
-                        ? cs.primary
-                        : cs.onSurface.withOpacity(0.12),
+                        ? AppTheme.limeAccentDark
+                        : AppTheme.cardBorder(brightness),
                     width: isSelected ? 2 : 1,
                   ),
                 ),
@@ -478,8 +500,8 @@ class _CreateMasterLeagueScreenState
                           ? Icons.radio_button_checked
                           : Icons.radio_button_off,
                       color: isSelected
-                          ? cs.primary
-                          : cs.onSurface.withOpacity(0.5),
+                          ? AppTheme.limeAccentDark
+                          : AppTheme.secondaryText(brightness),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -487,14 +509,16 @@ class _CreateMasterLeagueScreenState
                         dur.displayName,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: cs.onSurface,
+                          color: AppTheme.primaryText(brightness),
                         ),
                       ),
                     ),
                     if (dur.hasDiscount)
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFF22C55E).withOpacity(0.12),
                           borderRadius: BorderRadius.circular(8),
@@ -521,14 +545,12 @@ class _CreateMasterLeagueScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return GlassScaffold(
       appBar: AppBar(
         title: const Text('Create Master League'),
-        backgroundColor: theme.colorScheme.surface.withOpacity(
-          theme.brightness == Brightness.light ? 0.82 : 0.68,
-        ),
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
         scrolledUnderElevation: 0,
@@ -544,6 +566,8 @@ class _CreateMasterLeagueScreenState
                 Glass(
                   borderRadius: 28,
                   padding: const EdgeInsets.all(16),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -553,12 +577,16 @@ class _CreateMasterLeagueScreenState
                           height: 44,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: cs.primary.withOpacity(0.12),
-                            border:
-                                Border.all(color: cs.primary.withOpacity(0.25)),
+                            color: AppTheme.iconCircleBackground(brightness),
+                            border: Border.all(
+                              color: AppTheme.cardBorder(brightness),
+                            ),
                           ),
-                          child: Icon(Icons.hub_rounded,
-                              color: cs.primary, size: 22),
+                          child: Icon(
+                            Icons.hub_rounded,
+                            color: AppTheme.limeAccentDark,
+                            size: 22,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -567,7 +595,7 @@ class _CreateMasterLeagueScreenState
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w900,
                               letterSpacing: -0.2,
-                              color: cs.onSurface,
+                              color: AppTheme.primaryText(brightness),
                             ),
                           ),
                         ),
@@ -576,7 +604,7 @@ class _CreateMasterLeagueScreenState
                       Text(
                         'Enter a workspace name and first competition name.',
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: cs.onSurface.withOpacity(0.70),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w600,
                           height: 1.35,
                         ),
@@ -586,7 +614,7 @@ class _CreateMasterLeagueScreenState
                         Text(
                           'Checking active plan...',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurface.withOpacity(0.70),
+                            color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w800,
                           ),
                         )
@@ -594,7 +622,7 @@ class _CreateMasterLeagueScreenState
                         Text(
                           'Active plan: ${_activePlan!.displayName} • Workspaces: $_ownedWorkspaceCount / ${_activePlan!.unlimitedMasterLeagues ? '∞' : '${_activePlan!.maxMasterLeagues}'}',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.primary,
+                            color: AppTheme.limeAccentDark,
                             fontWeight: FontWeight.w900,
                           ),
                         )
@@ -602,7 +630,7 @@ class _CreateMasterLeagueScreenState
                         Text(
                           'No active plan. Select a plan below.',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurface.withOpacity(0.70),
+                            color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w800,
                           ),
                         ),
@@ -629,17 +657,25 @@ class _CreateMasterLeagueScreenState
                       ),
                       const SizedBox(height: 14),
                       SwitchListTile.adaptive(
+                        activeColor: AppTheme.limeAccentDark,
                         value: _enableRewards,
                         onChanged: _processing
                             ? null
                             : (v) => setState(() => _enableRewards = v),
                         contentPadding: EdgeInsets.zero,
-                        title: const Text(
+                        title: Text(
                           'Enable rewards for first competition',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: AppTheme.primaryText(brightness),
+                          ),
                         ),
-                        subtitle:
-                            const Text('Full reward details will be configured later.'),
+                        subtitle: Text(
+                          'Full reward details will be configured later.',
+                          style: TextStyle(
+                            color: AppTheme.secondaryText(brightness),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -652,15 +688,23 @@ class _CreateMasterLeagueScreenState
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                       letterSpacing: -0.2,
-                      color: cs.onSurface,
+                      color: AppTheme.primaryText(brightness),
                     ),
                   ),
                 ),
                 ...MasterLeaguePlan.values
-                    .map((plan) => _buildPlanTile(context, plan, theme, cs)),
-                _buildDurationSelector(theme, cs),
+                    .map((plan) => _buildPlanTile(context, plan, theme)),
+                _buildDurationSelector(theme),
                 const SizedBox(height: 8),
                 FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.limeAccent,
+                    foregroundColor: AppTheme.darkText,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
                   onPressed: _processing
                       ? null
                       : (_shouldShowPaymentButton ? _openInlineUpgrade : _create),
@@ -668,7 +712,10 @@ class _CreateMasterLeagueScreenState
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppTheme.darkText,
+                          ),
                         )
                       : Icon(_shouldShowPaymentButton
                           ? Icons.payment_rounded
@@ -690,7 +737,7 @@ class _CreateMasterLeagueScreenState
                         ? 'Basic plan is free. Your workspace will be created instantly.'
                         : 'If you hit your limit, choose another plan and pay without leaving this screen.',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.60),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w700,
                       height: 1.3,
                     ),

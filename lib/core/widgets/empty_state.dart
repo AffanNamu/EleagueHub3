@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
 import 'glass.dart';
 
 class EmptyState extends StatelessWidget {
@@ -14,37 +15,55 @@ class EmptyState extends StatelessWidget {
 
   final String title;
   final String message;
-
-  /// Optional icon override (so callers can pass `icon: Icons.hub_rounded`, etc.)
   final IconData icon;
-
   final double iconSize;
   final Widget? action;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     return Glass(
+      borderRadius: 24,
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: iconSize, color: cs.primary),
-          const SizedBox(height: 12),
+          Container(
+            width: 68,
+            height: 68,
+            decoration: BoxDecoration(
+              color: AppTheme.iconCircleBackground(brightness),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              icon,
+              size: iconSize,
+              color: AppTheme.limeAccentDark,
+            ),
+          ),
+          const SizedBox(height: 14),
           Text(
             title,
-            style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            style: t.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppTheme.primaryText(brightness),
+            ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Text(
             message,
-            style: t.bodyMedium,
+            style: t.bodyMedium?.copyWith(
+              color: AppTheme.secondaryText(brightness),
+            ),
             textAlign: TextAlign.center,
           ),
           if (action != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             action!,
           ],
         ],

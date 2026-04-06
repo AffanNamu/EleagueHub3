@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -88,7 +89,8 @@ class _MasterLeaguesListScreenState
     required String subtitle,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
+
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 10),
       child: Column(
@@ -99,14 +101,14 @@ class _MasterLeaguesListScreenState
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               letterSpacing: -0.2,
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
             ),
           ),
           const SizedBox(height: 4),
           Text(
             subtitle,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.62),
+              color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -151,7 +153,7 @@ class _MasterLeaguesListScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final planAsync = ref.watch(organizerProActivePlanProvider);
     final subAsync = ref.watch(userPlanSubscriptionProvider);
     final workspaceCountAsync = ref.watch(ownedWorkspaceCountProvider);
@@ -170,10 +172,18 @@ class _MasterLeaguesListScreenState
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/master-leagues/create'),
-        icon: const Icon(Icons.add),
-        label: const Text('Create'),
+      floatingActionButton: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: AppTheme.fabGlow(brightness),
+        ),
+        child: FloatingActionButton.extended(
+          backgroundColor: AppTheme.limeAccent,
+          foregroundColor: AppTheme.darkText,
+          onPressed: () => context.push('/master-leagues/create'),
+          icon: const Icon(Icons.add),
+          label: const Text('Create'),
+        ),
       ),
       body: SafeArea(
         child: Center(
@@ -190,6 +200,8 @@ class _MasterLeaguesListScreenState
                   Glass(
                     borderRadius: 30,
                     padding: const EdgeInsets.all(18),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -198,14 +210,14 @@ class _MasterLeaguesListScreenState
                           style: theme.textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w900,
                             letterSpacing: -0.35,
-                            color: cs.onSurface,
+                            color: AppTheme.primaryText(brightness),
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           'Create and manage Master Leagues for your organizer brand, competitions, staff, and announcements.',
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: cs.onSurface.withOpacity(0.72),
+                            color: AppTheme.secondaryText(brightness),
                             height: 1.35,
                             fontWeight: FontWeight.w600,
                           ),
@@ -215,14 +227,14 @@ class _MasterLeaguesListScreenState
                           loading: () => Text(
                             'Checking active plan...',
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.onSurface.withOpacity(0.65),
+                              color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w800,
                             ),
                           ),
                           error: (_, __) => Text(
                             'Unable to verify active plan right now.',
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.error,
+                              color: theme.colorScheme.error,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -232,8 +244,8 @@ class _MasterLeaguesListScreenState
                               _planStatusText(plan, sub),
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: plan == null
-                                    ? cs.onSurface.withOpacity(0.68)
-                                    : cs.primary,
+                                    ? AppTheme.secondaryText(brightness)
+                                    : AppTheme.limeAccentDark,
                                 fontWeight: FontWeight.w900,
                               ),
                             );
@@ -252,7 +264,7 @@ class _MasterLeaguesListScreenState
                             return Text(
                               'Workspaces: $count / $maxLabel',
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.72),
+                                color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w800,
                               ),
                             );
@@ -274,7 +286,7 @@ class _MasterLeaguesListScreenState
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
                                     color: const Color(0xFFF59E0B)
-                                        .withOpacity(0.30),
+                                        .withOpacity(0.28),
                                   ),
                                 ),
                                 child: Text(
@@ -296,6 +308,13 @@ class _MasterLeaguesListScreenState
                             return Padding(
                               padding: const EdgeInsets.only(top: 12),
                               child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppTheme.limeAccent,
+                                  foregroundColor: AppTheme.darkText,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
                                 onPressed: _openInlineUpgrade,
                                 icon: const Icon(Icons.workspace_premium_rounded),
                                 label: const Text(
@@ -320,10 +339,12 @@ class _MasterLeaguesListScreenState
                       Glass(
                         borderRadius: 22,
                         padding: const EdgeInsets.all(16),
+                        fill: AppTheme.cardColor(brightness),
+                        borderColor: AppTheme.cardBorder(brightness),
                         child: Text(
                           _error!,
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: cs.error,
+                            color: theme.colorScheme.error,
                             fontWeight: FontWeight.w900,
                           ),
                         ),

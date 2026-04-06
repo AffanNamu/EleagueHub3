@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'dart:ui';
+
+import '../core/theme/app_theme.dart';
 
 class MyFixturesFilter extends StatefulWidget {
   final Function(bool) onToggle;
+
   const MyFixturesFilter({super.key, required this.onToggle});
 
   @override
@@ -14,60 +16,72 @@ class _MyFixturesFilterState extends State<MyFixturesFilter> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(15),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: GestureDetector(
-            onTap: () {
-              setState(() => isMyMatches = !isMyMatches);
-              widget.onToggle(isMyMatches);
-            },
-            child: Container(
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: Colors.white.withOpacity(0.2)),
+      child: GestureDetector(
+        onTap: () {
+          setState(() => isMyMatches = !isMyMatches);
+          widget.onToggle(isMyMatches);
+        },
+        child: Container(
+          height: 54,
+          decoration: BoxDecoration(
+            color: AppTheme.cardColor(brightness),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.cardBorder(brightness)),
+            boxShadow: AppTheme.softCardShadow(brightness),
+          ),
+          child: Stack(
+            children: [
+              AnimatedAlign(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
+                alignment: isMyMatches
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: Container(
+                  width: (MediaQuery.of(context).size.width - 48) / 2,
+                  margin: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.limeAccent,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
               ),
-              child: Stack(
+              Row(
                 children: [
-                  // Sliding Indicator
-                  AnimatedAlign(
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeInOut,
-                    alignment: isMyMatches ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Container(
-                      width: MediaQuery.of(context).size.width * 0.45,
-                      margin: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.cyanAccent.withOpacity(0.4),
-                        borderRadius: BorderRadius.circular(12),
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        'All Matches',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: isMyMatches
+                              ? AppTheme.secondaryText(brightness)
+                              : AppTheme.darkText,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ),
-                  // Labels
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Center(
-                          child: Text("All Matches", 
-                            style: TextStyle(color: isMyMatches ? Colors.white54 : Colors.white, fontWeight: FontWeight.bold)),
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        'My Matches',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: isMyMatches
+                              ? AppTheme.darkText
+                              : AppTheme.secondaryText(brightness),
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                      Expanded(
-                        child: Center(
-                          child: Text("My Matches", 
-                            style: TextStyle(color: isMyMatches ? Colors.white : Colors.white54, fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),
-            ),
+            ],
           ),
         ),
       ),

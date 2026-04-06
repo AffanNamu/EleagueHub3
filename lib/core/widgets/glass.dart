@@ -8,12 +8,13 @@ class Glass extends StatelessWidget {
     required this.child,
     this.borderRadius = 20,
     this.padding = const EdgeInsets.all(16),
-    this.blur = 18.0,
-    this.opacity = 0.08,
+    this.blur = 14.0,
+    this.opacity = 1,
     this.border = true,
     this.fill,
     this.enableBorder,
     this.borderColor,
+    this.boxShadow,
   });
 
   final Widget child;
@@ -25,30 +26,22 @@ class Glass extends StatelessWidget {
   final Color? fill;
   final bool? enableBorder;
   final Color? borderColor;
+  final List<BoxShadow>? boxShadow;
 
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
     final br = BorderRadius.circular(borderRadius);
 
-    final effectiveFill =
-        fill ?? AppTheme.glassFill(brightness);
+    final effectiveFill = (fill ?? AppTheme.cardColor(brightness))
+        .withOpacity(opacity.clamp(0, 1));
 
-    final effectiveBorderEnabled =
-        enableBorder ?? border;
-
+    final effectiveBorderEnabled = enableBorder ?? border;
     final effectiveBorderColor =
-        borderColor ?? AppTheme.glassStroke(brightness);
+        borderColor ?? AppTheme.cardBorder(brightness);
 
-    final lightGlow = brightness == Brightness.light
-        ? [
-            BoxShadow(
-              color: const Color(0x667AB6FF),
-              blurRadius: 30,
-              offset: const Offset(0, 14),
-            ),
-          ]
-        : null;
+    final effectiveShadow =
+        boxShadow ?? AppTheme.softCardShadow(brightness);
 
     return ClipRRect(
       borderRadius: br,
@@ -62,7 +55,7 @@ class Glass extends StatelessWidget {
             border: effectiveBorderEnabled
                 ? Border.all(color: effectiveBorderColor)
                 : null,
-            boxShadow: lightGlow,
+            boxShadow: effectiveShadow,
           ),
           child: child,
         ),
@@ -77,18 +70,24 @@ class GlassCard extends StatelessWidget {
     required this.child,
     this.padding,
     this.borderRadius,
-    this.blur = 16.0,
+    this.blur = 14.0,
+    this.fill,
+    this.borderColor,
+    this.boxShadow,
   });
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
   final BorderRadius? borderRadius;
   final double blur;
+  final Color? fill;
+  final Color? borderColor;
+  final List<BoxShadow>? boxShadow;
 
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final br = borderRadius ?? BorderRadius.circular(22);
+    final br = borderRadius ?? BorderRadius.circular(24);
 
     return ClipRRect(
       borderRadius: br,
@@ -98,19 +97,11 @@ class GlassCard extends StatelessWidget {
           padding: padding,
           decoration: BoxDecoration(
             borderRadius: br,
-            color: AppTheme.glassFill(brightness),
+            color: fill ?? AppTheme.cardColor(brightness),
             border: Border.all(
-              color: AppTheme.glassStroke(brightness),
+              color: borderColor ?? AppTheme.cardBorder(brightness),
             ),
-            boxShadow: brightness == Brightness.light
-                ? [
-                    const BoxShadow(
-                      color: Color(0x557AB6FF),
-                      blurRadius: 28,
-                      offset: Offset(0, 16),
-                    ),
-                  ]
-                : null,
+            boxShadow: boxShadow ?? AppTheme.softCardShadow(brightness),
           ),
           child: child,
         ),

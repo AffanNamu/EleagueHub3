@@ -15,6 +15,7 @@ import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../highlights/data/highlights_feed_repository_firebase.dart';
@@ -125,7 +126,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   Color _baseToastBg(ThemeData theme) {
     return theme.brightness == Brightness.dark
         ? const Color(0xFF101522)
-        : const Color(0xFFF2F7FF);
+        : const Color(0xFFF8FBFF);
   }
 
   void _toast(
@@ -137,11 +138,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     if (!mounted) return;
 
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
     final resolvedBg = bg ?? _baseToastBg(theme);
     final resolvedFg =
-        fg ?? (theme.brightness == Brightness.dark ? Colors.white : cs.onSurface);
+        fg ?? (theme.brightness == Brightness.dark ? Colors.white : AppTheme.primaryText(theme.brightness));
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -170,9 +170,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
   void _toastOk(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
-    final accent = cs.primary;
+    final accent = AppTheme.limeAccentDark;
     _toast(
       msg,
       bg: Color.alphaBlend(accent.withOpacity(0.16), baseBg),
@@ -194,12 +193,12 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
   void _toastErr(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final err = Theme.of(context).colorScheme.error;
     final baseBg = _baseToastBg(theme);
     _toast(
       msg,
-      bg: Color.alphaBlend(cs.error.withOpacity(0.14), baseBg),
-      fg: cs.error,
+      bg: Color.alphaBlend(err.withOpacity(0.14), baseBg),
+      fg: err,
       icon: Icons.error_outline,
     );
   }
@@ -322,7 +321,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       );
       _reloadScreen();
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     } finally {
       if (mounted) {
         setState(() => _joining = false);
@@ -366,9 +367,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         .timeout(const Duration(seconds: 12));
 
     final teamNames = {for (final t in teams) t.id: t.name};
-    final teamImageUrls = {
-      for (final t in teams) t.id: t.teamImageUrl.trim()
-    };
+    final teamImageUrls = {for (final t in teams) t.id: t.teamImageUrl.trim()};
     final teamsById = {for (final t in teams) t.id: t};
 
     final space = await _loadSpaceCurrent(widget.leagueId);
@@ -470,7 +469,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       _reloadScreen();
       _toastOk(context.l10n.tr('league_details_space_started'));
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 
@@ -499,7 +500,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       _reloadScreen();
       _toastOk(context.l10n.tr('league_details_space_ended'));
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 
@@ -512,7 +515,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       if (!mounted) return;
       _reloadScreen();
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 
@@ -523,7 +528,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       if (!mounted) return;
       await context.push('/leagues/${widget.leagueId}/chat');
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 
@@ -548,9 +555,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final isWide = MediaQuery.of(context).size.width > 600;
 
@@ -577,7 +583,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return Center(
-                  child: CircularProgressIndicator(color: cs.primary),
+                  child: CircularProgressIndicator(
+                    color: AppTheme.limeAccentDark,
+                  ),
                 );
               }
 
@@ -594,13 +602,17 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.error_outline, color: cs.error, size: 48),
+                        Icon(
+                          Icons.error_outline,
+                          color: Theme.of(context).colorScheme.error,
+                          size: 48,
+                        ),
                         const SizedBox(height: 16),
                         Text(
                           '${l10n.tr('common_error_prefix')}: $message',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: cs.onSurface.withOpacity(0.72),
+                            color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -610,7 +622,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                             err.runtimeType.toString(),
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: cs.onSurface.withOpacity(0.45),
+                              color: AppTheme.secondaryText(brightness),
                               fontSize: 12,
                             ),
                           ),
@@ -620,8 +632,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                           onPressed: _reloadScreen,
                           child: Text(
                             l10n.tr('common_retry'),
-                            style: TextStyle(
-                              color: cs.primary,
+                            style: const TextStyle(
+                              color: AppTheme.limeAccentDark,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -651,10 +663,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
               final sorted = _sortedSchedule(fixtures);
               final rounds = _allRounds(sorted);
-              final selectedRound = (_lastViewedRound != null &&
-                      rounds.contains(_lastViewedRound))
-                  ? _lastViewedRound!
-                  : (rounds.isEmpty ? 1 : rounds.first);
+              final selectedRound =
+                  (_lastViewedRound != null && rounds.contains(_lastViewedRound))
+                      ? _lastViewedRound!
+                      : (rounds.isEmpty ? 1 : rounds.first);
 
               final upcoming = _computeUpcomingUnplayed(
                 sortedAll: sorted,
@@ -694,7 +706,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 constraints: BoxConstraints(maxWidth: isWide ? 600 : 500),
                 child: RefreshIndicator(
                   onRefresh: () async => _reloadScreen(),
-                  color: cs.primary,
+                  color: AppTheme.limeAccentDark,
                   child: ListView(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -757,23 +769,25 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
   Widget _joinLeagueCard(BuildContext context, League league) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Glass(
       padding: const EdgeInsets.all(20),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.login_rounded, color: cs.primary),
+              Icon(Icons.login_rounded, color: AppTheme.limeAccentDark),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   'Join This League',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                     fontSize: 16,
                   ),
                 ),
@@ -786,7 +800,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 ? 'This competition belongs to a master league workspace. You can join directly from here as participant or viewer.'
                 : 'You have not joined this league yet. Join now as participant or add it to your list as viewer.',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.72),
+              color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
               height: 1.35,
             ),
@@ -795,6 +809,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.limeAccent,
+                foregroundColor: AppTheme.darkText,
+              ),
               onPressed: _joining ? null : () => _joinLeagueFromDetails(league),
               icon: _joining
                   ? const SizedBox(
@@ -802,7 +820,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: AppTheme.darkText,
                       ),
                     )
                   : const Icon(Icons.login_rounded),
@@ -836,7 +854,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   Widget _overviewCard(BuildContext context, League league, bool isOwner) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final settings = league.settings;
 
@@ -845,10 +863,12 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         league.isPrivate
             ? l10n.tr('league_details_private')
             : l10n.tr('league_details_public'),
-        cs.primary,
+        AppTheme.limeAccentDark,
       ),
-      _pill('${league.maxTeams} ${l10n.tr('league_details_teams_max_suffix')}',
-          _premiumAmber),
+      _pill(
+        '${league.maxTeams} ${l10n.tr('league_details_teams_max_suffix')}',
+        _premiumAmber,
+      ),
       _pill(league.region, _premiumViolet),
       if (league.viewerCapacity > 0)
         _pill('${league.viewerCapacity} Viewers', _premiumTeal),
@@ -861,20 +881,28 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     ];
 
     if (league.format == LeagueFormat.uclGroup) {
-      rulePills.add(_pill(
+      rulePills.add(
+        _pill(
           '${l10n.tr('league_details_group_size_prefix')} ${settings.groupSize}',
-          _premiumTeal));
+          _premiumTeal,
+        ),
+      );
     }
     if (league.format == LeagueFormat.uclSwiss) {
-      rulePills.add(_pill(
+      rulePills.add(
+        _pill(
           '${l10n.tr('league_details_swiss_rounds_prefix')} ${settings.swissRounds}',
-          _premiumTeal));
+          _premiumTeal,
+        ),
+      );
     }
 
     final desc = league.description.trim();
 
     return Glass(
       padding: const EdgeInsets.all(20),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -891,7 +919,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontSize: 24,
                     fontWeight: FontWeight.w900,
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                   ),
                 ),
               ),
@@ -901,10 +929,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: cs.primary.withOpacity(0.10),
+                      color: brightness == Brightness.dark
+                          ? AppTheme.limeAccentDark.withOpacity(0.10)
+                          : const Color(0xFFECFCCB),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.verified_user, color: cs.primary, size: 20),
+                    child: const Icon(
+                      Icons.verified_user,
+                      color: AppTheme.limeAccentDark,
+                      size: 20,
+                    ),
                   ),
                 ),
             ],
@@ -913,7 +947,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           Text(
             '${league.format.displayName} • ${league.season}',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: cs.onSurface.withOpacity(0.60),
+              color: AppTheme.secondaryText(brightness),
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
@@ -942,7 +976,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             Text(
               desc,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurface.withOpacity(0.74),
+                color: AppTheme.secondaryText(brightness),
                 fontSize: 13,
                 height: 1.35,
                 fontWeight: FontWeight.w600,
@@ -957,10 +991,13 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   }
 
   Widget _announcementsCard(
-      BuildContext context, List<LeagueAnnouncement> anns, bool hasUnread) {
+    BuildContext context,
+    List<LeagueAnnouncement> anns,
+    bool hasUnread,
+  ) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final sorted = anns.toList()
       ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -968,6 +1005,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     return Glass(
       padding: const EdgeInsets.all(20),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -977,7 +1016,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 l10n.tr('league_details_announcements_title'),
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w900,
-                  color: cs.onSurface,
+                  color: AppTheme.primaryText(brightness),
                   fontSize: 16,
                 ),
               ),
@@ -987,15 +1026,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: cs.error.withOpacity(0.90),
+                    color: Theme.of(context).colorScheme.error.withOpacity(0.90),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
                     l10n.tr('league_details_new_badge'),
                     style: TextStyle(
-                        color: cs.onError,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold),
+                      color: Theme.of(context).colorScheme.onError,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -1014,7 +1054,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 final timeStr =
                     formatter.format(DateTime.fromMillisecondsSinceEpoch(a.createdAtMs));
                 return GlassAnnouncement(
-                    title: a.title, message: a.message, time: timeStr);
+                  title: a.title,
+                  message: a.message,
+                  time: timeStr,
+                );
               },
             ),
           ),
@@ -1025,10 +1068,12 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
   Widget _rewardsPreviewCard(BuildContext context, League league, bool isOwner) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Glass(
       padding: const EdgeInsets.all(20),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1041,19 +1086,20 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   'Rewards',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                     fontSize: 16,
                   ),
                 ),
               ),
               TextButton(
                 onPressed: _openRewardsViewer,
-                child: Text(
+                child: const Text(
                   'View all',
                   style: TextStyle(
-                      color: cs.primary,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12),
+                    color: AppTheme.limeAccentDark,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
                 ),
               ),
               if (isOwner) ...[
@@ -1080,15 +1126,17 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeOutCubic,
                 child: hasSnap.connectionState != ConnectionState.done
-                    ? Center(
-                        key: const ValueKey('loading'),
+                    ? const Center(
+                        key: ValueKey('loading'),
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          padding: EdgeInsets.symmetric(vertical: 18),
                           child: SizedBox(
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2.4, color: cs.primary),
+                              strokeWidth: 2.4,
+                              color: AppTheme.limeAccentDark,
+                            ),
                           ),
                         ),
                       )
@@ -1099,16 +1147,17 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                             padding: const EdgeInsets.symmetric(
                                 vertical: 14, horizontal: 12),
                             decoration: BoxDecoration(
-                              color: cs.onSurface.withOpacity(0.05),
+                              color: AppTheme.searchBackground(brightness),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                  color: cs.onSurface.withOpacity(0.12)),
+                                color: AppTheme.searchOutline(brightness),
+                              ),
                             ),
                             child: Text(
                               'No rewards available',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: cs.onSurface.withOpacity(0.72),
+                                color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w700,
                                 fontSize: 12,
                               ),
@@ -1125,16 +1174,23 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                                   padding: const EdgeInsets.symmetric(
                                       vertical: 12, horizontal: 12),
                                   decoration: BoxDecoration(
-                                    color: cs.error.withOpacity(0.10),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .error
+                                        .withOpacity(0.10),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                        color: cs.error.withOpacity(0.18)),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .error
+                                          .withOpacity(0.18),
+                                    ),
                                   ),
                                   child: Text(
                                     'Failed to load rewards',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      color: cs.error,
+                                      color: Theme.of(context).colorScheme.error,
                                       fontWeight: FontWeight.w800,
                                       fontSize: 12,
                                     ),
@@ -1156,18 +1212,20 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                                   children: [
                                     for (final r in preview)
                                       RewardCard(
-                                          reward: r, onTap: _openRewardsViewer),
+                                        reward: r,
+                                        onTap: _openRewardsViewer,
+                                      ),
                                     if (all.length > preview.length)
                                       Padding(
-                                        padding:
-                                            const EdgeInsets.only(top: 6),
+                                        padding: const EdgeInsets.only(top: 6),
                                         child: Align(
                                           alignment:
                                               AlignmentDirectional.center,
                                           child: Text(
                                             '+${all.length - preview.length} more',
                                             style: TextStyle(
-                                              color: cs.onSurface.withOpacity(0.55),
+                                              color:
+                                                  AppTheme.secondaryText(brightness),
                                               fontWeight: FontWeight.w800,
                                               fontSize: 12,
                                             ),
@@ -1200,7 +1258,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   ) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final isSwiss = league.format == LeagueFormat.uclSwiss;
     final isGroup = league.format == LeagueFormat.uclGroup;
@@ -1211,6 +1269,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     return Glass(
       padding: const EdgeInsets.all(20),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1218,23 +1278,30 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             l10n.tr('league_details_menu_title'),
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontSize: 16,
             ),
           ),
           const SizedBox(height: 8),
-          _buildLeagueSpaceRow(context, league, isOwner, spaceLive, currentUserId),
+          _buildLeagueSpaceRow(
+            context,
+            league,
+            isOwner,
+            spaceLive,
+            currentUserId,
+          ),
           if (canChat) ...[
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
-                  foregroundColor: cs.primary,
+                  side: BorderSide(color: AppTheme.cardBorder(brightness)),
+                  foregroundColor: AppTheme.limeAccentDark,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 onPressed: () => _onOpenLeagueChatroom(league),
                 icon: const Icon(Icons.forum_outlined),
@@ -1264,7 +1331,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 child: _actionButton(
                   icon: Icons.leaderboard,
                   label: l10n.tr('league_details_standings'),
-                  onTap: () => context.push('/leagues/${widget.leagueId}/standings'),
+                  onTap: () =>
+                      context.push('/leagues/${widget.leagueId}/standings'),
                 ),
               ),
             ],
@@ -1276,11 +1344,14 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 width: double.infinity,
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.limeAccent,
+                    foregroundColor: AppTheme.darkText,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
-                  onPressed: () => context.push('/leagues/${widget.leagueId}/knockout'),
+                  onPressed: () =>
+                      context.push('/leagues/${widget.leagueId}/knockout'),
                   icon: const Icon(Icons.emoji_events_rounded),
                   label: Text(
                     l10n.tr('league_details_view_knockout_bracket'),
@@ -1295,14 +1366,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 padding:
                     const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                 decoration: BoxDecoration(
-                  color: cs.onSurface.withOpacity(0.05),
+                  color: AppTheme.searchBackground(brightness),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+                  border: Border.all(
+                    color: AppTheme.searchOutline(brightness),
+                  ),
                 ),
                 child: Text(
                   l10n.tr('league_details_need_knockouts_first'),
                   style: TextStyle(
-                    color: cs.onSurface.withOpacity(0.72),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),
@@ -1315,14 +1388,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               padding:
                   const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
               decoration: BoxDecoration(
-                color: cs.onSurface.withOpacity(0.05),
+                color: AppTheme.searchBackground(brightness),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+                border: Border.all(
+                  color: AppTheme.searchOutline(brightness),
+                ),
               ),
               child: Text(
                 l10n.tr('league_details_view_only_banner'),
                 style: TextStyle(
-                  color: cs.onSurface.withOpacity(0.72),
+                  color: AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w700,
                 ),
                 textAlign: TextAlign.center,
@@ -1335,6 +1410,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               width: double.infinity,
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.limeAccent,
+                  foregroundColor: AppTheme.darkText,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
@@ -1356,8 +1433,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               width: double.infinity,
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: cs.onSurface.withOpacity(0.18)),
-                  foregroundColor: cs.primary,
+                  side: BorderSide(color: AppTheme.cardBorder(brightness)),
+                  foregroundColor: AppTheme.limeAccentDark,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
@@ -1368,7 +1445,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   style: const TextStyle(
                       fontWeight: FontWeight.w900, fontSize: 12),
                 ),
-                onPressed: () => context.push('/leagues/${widget.leagueId}/admin'),
+                onPressed: () =>
+                    context.push('/leagues/${widget.leagueId}/admin'),
               ),
             ),
             if (isSwiss) ...[
@@ -1377,8 +1455,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: cs.primary),
-                    foregroundColor: cs.primary,
+                    side: const BorderSide(color: AppTheme.limeAccentDark),
+                    foregroundColor: AppTheme.limeAccentDark,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -1400,8 +1478,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: cs.primary),
-                    foregroundColor: cs.primary,
+                    side: const BorderSide(color: AppTheme.limeAccentDark),
+                    foregroundColor: AppTheme.limeAccentDark,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -1424,8 +1502,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                     child: TextButton.icon(
                       style: TextButton.styleFrom(
                         foregroundColor: hasKnockouts
-                            ? cs.primary
-                            : cs.onSurface.withOpacity(0.30),
+                            ? AppTheme.limeAccentDark
+                            : AppTheme.secondaryText(brightness),
                       ),
                       onPressed: hasKnockouts
                           ? () => context.push('/leagues/${widget.leagueId}/knockout')
@@ -1443,8 +1521,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                     child: TextButton.icon(
                       style: TextButton.styleFrom(
                         foregroundColor: hasKnockouts
-                            ? cs.primary
-                            : cs.onSurface.withOpacity(0.30),
+                            ? AppTheme.limeAccentDark
+                            : AppTheme.secondaryText(brightness),
                       ),
                       onPressed: hasKnockouts
                           ? () async {
@@ -1479,7 +1557,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   ) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     if (!isLive) {
       return Row(
@@ -1487,8 +1565,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           Expanded(
             child: OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
-                foregroundColor: cs.primary,
-                side: BorderSide(color: cs.primary.withOpacity(0.55)),
+                foregroundColor: AppTheme.limeAccentDark,
+                side: BorderSide(
+                  color: AppTheme.limeAccentDark.withOpacity(0.55),
+                ),
               ),
               onPressed: () => _onOpenSpace(league),
               icon: const Icon(Icons.spatial_audio_off, size: 18),
@@ -1502,11 +1582,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.limeAccent,
+                  foregroundColor: AppTheme.darkText,
+                ),
                 onPressed: () => _onStartSpace(league, currentUserId),
                 icon: const Icon(Icons.mic, size: 18),
                 label: Text(
                   l10n.tr('league_details_start_space'),
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 12),
                 ),
               ),
             ),
@@ -1521,19 +1606,22 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: cs.onSurface.withOpacity(0.06),
+          color: AppTheme.searchBackground(brightness),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: cs.primary.withOpacity(0.55)),
+          border: Border.all(
+            color: AppTheme.limeAccentDark.withOpacity(0.55),
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.graphic_eq, color: cs.primary, size: 18),
+            const Icon(Icons.graphic_eq,
+                color: AppTheme.limeAccentDark, size: 18),
             const SizedBox(width: 8),
             Text(
               l10n.tr('league_details_space_live'),
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface,
+                color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w800,
                 fontSize: 12,
               ),
@@ -1541,17 +1629,21 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             if (isOwner) ...[
               const SizedBox(width: 10),
               Container(
-                  width: 1,
-                  height: 16,
-                  color: cs.onSurface.withOpacity(0.18)),
+                width: 1,
+                height: 16,
+                color: AppTheme.cardBorder(brightness),
+              ),
               const SizedBox(width: 6),
               InkWell(
                 onTap: () => _onEndSpace(league),
                 borderRadius: BorderRadius.circular(999),
                 child: Padding(
                   padding: const EdgeInsets.all(4),
-                  child: Icon(Icons.stop_circle_outlined,
-                      size: 18, color: cs.error),
+                  child: Icon(
+                    Icons.stop_circle_outlined,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                 ),
               ),
             ],
@@ -1572,7 +1664,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   }) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final unplayedFixtures = fixtures.where((f) => !f.isPlayed).toList();
     final unplayedRounds =
@@ -1580,6 +1672,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     return Glass(
       padding: const EdgeInsets.all(20),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1587,7 +1681,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             l10n.tr('league_details_coming_up_next'),
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontSize: 16,
             ),
           ),
@@ -1616,7 +1710,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 child: Text(
                   l10n.tr('league_details_no_upcoming_fixtures'),
                   style: TextStyle(
-                    color: cs.onSurface.withOpacity(0.45),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1631,7 +1725,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 ],
               ],
             ),
-          Divider(color: cs.onSurface.withOpacity(0.12)),
+          Divider(color: AppTheme.cardBorder(brightness)),
           Align(
             alignment: AlignmentDirectional.center,
             child: TextButton(
@@ -1640,10 +1734,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 if (!mounted) return;
                 _reloadScreen();
               },
-              child: Text(
-                l10n.tr('league_details_view_all_fixtures'),
+              child: const Text(
+                'View all fixtures',
                 style: TextStyle(
-                  color: cs.primary,
+                  color: AppTheme.limeAccentDark,
                   fontSize: 12,
                   fontWeight: FontWeight.w900,
                 ),
@@ -1660,7 +1754,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     required bool selected,
     required VoidCallback onTap,
   }) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     return InkWell(
       onTap: onTap,
@@ -1668,16 +1762,22 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? cs.primary : cs.onSurface.withOpacity(0.06),
+          color: selected
+              ? AppTheme.limeAccent
+              : AppTheme.tabInactiveBackground(brightness),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-              color:
-                  selected ? cs.primary : cs.onSurface.withOpacity(0.12)),
+            color: selected
+                ? AppTheme.limeAccentDark
+                : AppTheme.cardBorder(brightness),
+          ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? cs.onPrimary : cs.onSurface.withOpacity(0.75),
+            color: selected
+                ? AppTheme.darkText
+                : AppTheme.tabInactiveText(brightness),
             fontWeight: FontWeight.w900,
             fontSize: 12,
           ),
@@ -1694,7 +1794,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   ) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final isRtl = Directionality.of(context) == TextDirection.rtl;
 
@@ -1707,27 +1807,29 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final chevronIcon = isRtl ? Icons.chevron_left : Icons.chevron_right;
 
     return InkWell(
-      onTap: () => context.push('/leagues/${widget.leagueId}/matches/${f.id}'),
+      onTap: () =>
+          context.push('/leagues/${widget.leagueId}/matches/${f.id}'),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: cs.onSurface.withOpacity(0.05),
+          color: AppTheme.searchBackground(brightness),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+          border: Border.all(color: AppTheme.searchOutline(brightness)),
         ),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: cs.onSurface.withOpacity(0.10),
+                color: AppTheme.tabInactiveBackground(brightness),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
                 '${l10n.tr('league_details_round_prefix')}${f.roundNumber}',
                 style: TextStyle(
-                  color: cs.onSurface.withOpacity(0.65),
+                  color: AppTheme.secondaryText(brightness),
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
                 ),
@@ -1745,7 +1847,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.end,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w800,
                         fontSize: 13,
                       ),
@@ -1760,8 +1862,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Text(
                 l10n.tr('league_details_vs'),
-                style: TextStyle(
-                  color: cs.primary,
+                style: const TextStyle(
+                  color: AppTheme.limeAccentDark,
                   fontWeight: FontWeight.w900,
                   fontSize: 12,
                 ),
@@ -1779,7 +1881,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.start,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w800,
                         fontSize: 13,
                       ),
@@ -1789,7 +1891,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            Icon(chevronIcon, color: cs.onSurface.withOpacity(0.45)),
+            Icon(
+              chevronIcon,
+              color: AppTheme.secondaryText(brightness),
+            ),
           ],
         ),
       ),
@@ -1802,7 +1907,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return InkWell(
       onTap: onTap,
@@ -1810,18 +1915,18 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: cs.onSurface.withOpacity(0.05),
+          color: AppTheme.searchBackground(brightness),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+          border: Border.all(color: AppTheme.searchOutline(brightness)),
         ),
         child: Column(
           children: [
-            Icon(icon, color: cs.onSurface.withOpacity(0.72)),
+            Icon(icon, color: AppTheme.limeAccentDark),
             const SizedBox(height: 8),
             Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface,
+                color: AppTheme.primaryText(brightness),
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
               ),
@@ -1936,12 +2041,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       _toastOk(label);
       if (mounted) _reloadScreen();
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 
   Future<void> _generateGroupKnockouts(
-      BuildContext context, League league) async {
+    BuildContext context,
+    League league,
+  ) async {
     final l10n = context.l10n;
 
     try {
@@ -2021,7 +2130,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           return;
         }
 
-        final rows = StandingsCalculator.calculate(teams: groupTeams, matches: gm);
+        final rows =
+            StandingsCalculator.calculate(teams: groupTeams, matches: gm);
         if (rows.length != 4) {
           _toastErr(
               '${l10n.tr('league_details_group_standings_invalid_prefix')} $groupId.');
@@ -2055,7 +2165,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       _toastOk(label);
       if (mounted) _reloadScreen();
     } catch (e) {
-      _toastErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _toastErr(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+      );
     }
   }
 }
@@ -2074,8 +2186,12 @@ class _LeagueHero extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url,
-      {int width = 1200, int height = 600, String crop = 'fill'}) {
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    int width = 1200,
+    int height = 600,
+    String crop = 'fill',
+  }) {
     final u = url.trim();
     if (u.isEmpty) return u;
 
@@ -2136,7 +2252,7 @@ class _LeagueHero extends StatelessWidget {
     int cacheHeight = 600,
     bool optimizeCloudinary = true,
   }) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     final u = url.trim();
     final bytes = u.isEmpty ? null : _tryDecodeDataUri(u);
@@ -2159,8 +2275,11 @@ class _LeagueHero extends StatelessWidget {
         cacheWidth: cacheWidth,
         cacheHeight: cacheHeight,
         errorBuilder: (_, __, ___) => Center(
-          child: Icon(Icons.emoji_events_outlined,
-              size: 36, color: cs.onSurface.withOpacity(0.55)),
+          child: Icon(
+            Icons.emoji_events_outlined,
+            size: 36,
+            color: AppTheme.secondaryText(brightness),
+          ),
         ),
         loadingBuilder: (context, child, event) {
           if (event == null) return child;
@@ -2170,7 +2289,7 @@ class _LeagueHero extends StatelessWidget {
               height: 18,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: cs.primary.withOpacity(0.85),
+                color: AppTheme.limeAccentDark.withOpacity(0.85),
               ),
             ),
           );
@@ -2183,8 +2302,11 @@ class _LeagueHero extends StatelessWidget {
         u,
         fit: fit,
         errorBuilder: (_, __, ___) => Center(
-          child: Icon(Icons.emoji_events_outlined,
-              size: 36, color: cs.onSurface.withOpacity(0.55)),
+          child: Icon(
+            Icons.emoji_events_outlined,
+            size: 36,
+            color: AppTheme.secondaryText(brightness),
+          ),
         ),
         loadingBuilder: (context, child, event) {
           if (event == null) return child;
@@ -2194,7 +2316,7 @@ class _LeagueHero extends StatelessWidget {
               height: 18,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: cs.primary.withOpacity(0.85),
+                color: AppTheme.limeAccentDark.withOpacity(0.85),
               ),
             ),
           );
@@ -2203,14 +2325,17 @@ class _LeagueHero extends StatelessWidget {
     }
 
     return Center(
-      child: Icon(Icons.emoji_events_outlined,
-          size: 48, color: cs.onSurface.withOpacity(0.55)),
+      child: Icon(
+        Icons.emoji_events_outlined,
+        size: 48,
+        color: AppTheme.secondaryText(brightness),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     final mainUrl = leagueImageUrl.trim();
     final sponsorUrl = sponsorImageUrl.trim();
@@ -2221,9 +2346,9 @@ class _LeagueHero extends StatelessWidget {
         height: 160,
         width: double.infinity,
         decoration: BoxDecoration(
-          color: cs.onSurface.withOpacity(0.05),
+          color: AppTheme.searchBackground(brightness),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: cs.onSurface.withOpacity(0.12)),
+          border: Border.all(color: AppTheme.searchOutline(brightness)),
         ),
         child: Stack(
           fit: StackFit.expand,
@@ -2248,8 +2373,9 @@ class _LeagueHero extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.92),
                       borderRadius: BorderRadius.circular(12),
-                      border:
-                          Border.all(color: cs.onSurface.withOpacity(0.12)),
+                      border: Border.all(
+                        color: AppTheme.cardBorder(brightness),
+                      ),
                     ),
                     child: _imageOrPlaceholder(
                       context,
@@ -2319,7 +2445,7 @@ class _TeamThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     final raw = url.trim();
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
@@ -2331,9 +2457,9 @@ class _TeamThumb extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: cs.onSurface.withOpacity(0.06),
+        color: AppTheme.searchBackground(brightness),
         shape: BoxShape.circle,
-        border: Border.all(color: cs.onSurface.withOpacity(0.14)),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: ClipOval(
         child: has
@@ -2347,21 +2473,21 @@ class _TeamThumb extends StatelessWidget {
                 errorBuilder: (_, __, ___) => Icon(
                   Icons.emoji_events_outlined,
                   size: size * 0.70,
-                  color: cs.onSurface.withOpacity(0.55),
+                  color: AppTheme.secondaryText(brightness),
                 ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
                   return Icon(
                     Icons.emoji_events_outlined,
                     size: size * 0.70,
-                    color: cs.onSurface.withOpacity(0.55),
+                    color: AppTheme.secondaryText(brightness),
                   );
                 },
               )
             : Icon(
                 Icons.emoji_events_outlined,
                 size: size * 0.70,
-                color: cs.onSurface.withOpacity(0.55),
+                color: AppTheme.secondaryText(brightness),
               ),
       ),
     );

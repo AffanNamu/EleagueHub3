@@ -3,8 +3,8 @@
   "short_name": "eSportlyic",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#0A1D37",
-  "theme_color": "#0A1D37",
+  "background_color": "#F8FAFC",
+  "theme_color": "#B6FF00",
   "description": "eSportlyic desktop web experience",
   "orientation": "any"
 }

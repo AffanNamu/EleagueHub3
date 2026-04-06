@@ -20,13 +20,10 @@ class StatusBadge extends StatelessWidget {
         return l10n.tr('admin_knockout_status_pending');
       case 'completed':
         return l10n.tr('admin_knockout_status_completed');
-
-      // Common app-wide badges.
       case 'live':
         return l10n.tr('league_space_live_badge');
       case 'ended':
         return l10n.tr('league_space_ended_badge');
-
       default:
         return raw;
     }
@@ -35,17 +32,15 @@ class StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
     final backgroundColor = AppTheme.statusColor(status, theme.brightness);
-
-    // Use readable foreground on any status color (yellow/green/etc).
     final bgBrightness = ThemeData.estimateBrightnessForColor(backgroundColor);
-    final foregroundColor = (bgBrightness == Brightness.dark) ? Colors.white : cs.onSurface;
+    final foregroundColor =
+        bgBrightness == Brightness.dark ? Colors.white : AppTheme.darkText;
 
-    final borderColor = (bgBrightness == Brightness.dark)
-        ? Colors.white.withOpacity(0.18)
-        : cs.onSurface.withOpacity(0.14);
+    final borderColor = bgBrightness == Brightness.dark
+        ? Colors.white.withOpacity(0.14)
+        : AppTheme.darkText.withOpacity(0.10);
 
     final label = _localizedStatus(context, status);
 
@@ -63,7 +58,7 @@ class StatusBadge extends StatelessWidget {
         style: theme.textTheme.labelSmall?.copyWith(
           color: foregroundColor,
           fontWeight: FontWeight.w800,
-          letterSpacing: 0.7,
+          letterSpacing: 0.6,
         ),
       ),
     );

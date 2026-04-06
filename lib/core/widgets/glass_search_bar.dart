@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../locale/app_localizations.dart';
@@ -20,46 +18,43 @@ class GlassSearchBar extends StatelessWidget {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
-    final fill = AppTheme.glassFill(brightness);
-    final stroke = AppTheme.glassStroke(brightness);
-
-    // This widget is used on top of GlassScaffold backgrounds in both themes.
-    // Keep consistent "on glass" typography (white) across light/dark.
-    const textColor = Colors.white;
+    final fill = AppTheme.searchBackground(brightness);
+    final stroke = AppTheme.searchOutline(brightness);
+    final textColor = AppTheme.primaryText(brightness);
+    final hintColor = AppTheme.secondaryText(brightness);
 
     return Padding(
       padding: const EdgeInsetsDirectional.fromSTEB(16, 8, 16, 8),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(15),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: stroke),
+      child: Container(
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: stroke),
+          boxShadow: AppTheme.softCardShadow(brightness),
+        ),
+        child: TextField(
+          controller: controller,
+          onChanged: onChanged,
+          style: TextStyle(
+            color: textColor,
+            fontWeight: FontWeight.w500,
+          ),
+          textAlignVertical: TextAlignVertical.center,
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: l10n.tr('glass_search_bar_hint'),
+            hintStyle: TextStyle(
+              color: hintColor,
+              fontWeight: FontWeight.w500,
             ),
-            child: TextField(
-              controller: controller,
-              onChanged: onChanged,
-              style: const TextStyle(color: textColor),
-              textAlignVertical: TextAlignVertical.center,
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: l10n.tr('glass_search_bar_hint'),
-                hintStyle: TextStyle(
-                  color: textColor.withOpacity(0.55),
-                ),
-                prefixIcon: Icon(
-                  Icons.search,
-                  color: textColor.withOpacity(0.72),
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 14,
-                ),
-              ),
+            prefixIcon: Icon(
+              Icons.search,
+              color: hintColor,
+            ),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 16,
             ),
           ),
         ),

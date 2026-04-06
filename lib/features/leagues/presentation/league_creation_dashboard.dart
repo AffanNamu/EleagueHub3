@@ -16,6 +16,7 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/home_shell_tab_controller.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
@@ -127,7 +128,8 @@ class _LeagueCreationDashboardState
         _hasLeagueAccess = true;
         _isPaidPlanUser = isPaid;
         _currentLeagueCardCount = count;
-        _activePlanLabel = isPaid ? (activePlan?.displayName ?? 'Paid Plan') : 'Basic';
+        _activePlanLabel =
+            isPaid ? (activePlan?.displayName ?? 'Paid Plan') : 'Basic';
         _checkingAccess = false;
       });
     } catch (_) {
@@ -305,34 +307,15 @@ class _LeagueCreationDashboardState
   bool get _isLight => Theme.of(context).brightness == Brightness.light;
 
   Color _panelFill(ThemeData theme) {
-    if (theme.brightness == Brightness.light) {
-      return Colors.white.withOpacity(0.40);
-    }
-    return theme.colorScheme.onSurface.withOpacity(0.04);
+    return AppTheme.cardColor(theme.brightness);
   }
 
   Color _panelBorder(ThemeData theme, {Color? accent}) {
-    final cs = theme.colorScheme;
-    if (theme.brightness == Brightness.light) {
-      final a = accent ?? cs.primary;
-      return Color.alphaBlend(
-        a.withOpacity(0.12),
-        Colors.white.withOpacity(0.78),
-      );
-    }
-    return cs.onSurface.withOpacity(0.10);
+    return AppTheme.cardBorder(theme.brightness);
   }
 
   List<BoxShadow>? _panelShadow(ThemeData theme, {Color? tint}) {
-    if (theme.brightness != Brightness.light) return null;
-    final c = tint ?? const Color(0xFFB4D2FF);
-    return <BoxShadow>[
-      BoxShadow(
-        color: c.withOpacity(0.20),
-        blurRadius: 28,
-        offset: const Offset(0, 16),
-      ),
-    ];
+    return AppTheme.softCardShadow(theme.brightness);
   }
 
   void _showSnack(String message) {
@@ -571,7 +554,7 @@ class _LeagueCreationDashboardState
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth >= 900;
@@ -591,20 +574,27 @@ class _LeagueCreationDashboardState
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
                   padding: const EdgeInsets.all(16),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.login, color: cs.primary, size: 44),
+                      Icon(
+                        Icons.login,
+                        color: AppTheme.limeAccentDark,
+                        size: 44,
+                      ),
                       const SizedBox(height: 10),
                       Text(
                         'Sign in required',
                         style: theme.textTheme.titleMedium?.copyWith(
-                          color: cs.onSurface,
+                          color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -613,13 +603,17 @@ class _LeagueCreationDashboardState
                         'Please sign in to create a league.',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: cs.onSurface.withOpacity(0.70),
+                          color: AppTheme.secondaryText(brightness),
                           height: 1.35,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 12),
                       FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
                         onPressed: () => context.pop(),
                         child: const Text('Close'),
                       ),
@@ -651,7 +645,8 @@ class _LeagueCreationDashboardState
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding: const EdgeInsetsDirectional.fromSTEB(16, 24, 16, 24),
+              padding:
+                  const EdgeInsetsDirectional.fromSTEB(16, 24, 16, 24),
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: isWide ? 760 : 520),
                 child: Column(
@@ -683,13 +678,15 @@ class _LeagueCreationDashboardState
                     const SizedBox(height: 16),
                     Glass(
                       padding: const EdgeInsets.all(16),
+                      fill: AppTheme.cardColor(brightness),
+                      borderColor: AppTheme.cardBorder(brightness),
                       child: Column(
                         children: [
                           Text(
                             l10n.tr('league_create_share_hint'),
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: cs.onSurface.withOpacity(0.75),
+                              color: AppTheme.secondaryText(brightness),
                               height: 1.4,
                               fontWeight: FontWeight.w600,
                             ),
@@ -711,6 +708,10 @@ class _LeagueCreationDashboardState
                             children: [
                               Expanded(
                                 child: FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppTheme.limeAccent,
+                                    foregroundColor: AppTheme.darkText,
+                                  ),
                                   onPressed: () {
                                     if (_inMasterLeagueMode) {
                                       context.go(
@@ -751,7 +752,7 @@ class _LeagueCreationDashboardState
                                 'league_create_open_league_details_upper',
                               ),
                               style: TextStyle(
-                                color: cs.primary,
+                                color: AppTheme.limeAccentDark,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
@@ -788,13 +789,15 @@ class _LeagueCreationDashboardState
                   : (maxWidth >= 900 ? 900.0 : 560.0);
 
               final left = ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: isWide ? 720 : contentMax),
+                constraints:
+                    BoxConstraints(maxWidth: isWide ? 720 : contentMax),
                 child: _buildMainCard(context),
               );
 
               if (!isWide) {
                 return SingleChildScrollView(
-                  padding: const EdgeInsetsDirectional.fromSTEB(16, 16, 16, 16),
+                  padding:
+                      const EdgeInsetsDirectional.fromSTEB(16, 16, 16, 16),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: contentMax),
                     child: left,
@@ -803,7 +806,8 @@ class _LeagueCreationDashboardState
               }
 
               return SingleChildScrollView(
-                padding: const EdgeInsetsDirectional.fromSTEB(16, 16, 16, 16),
+                padding:
+                    const EdgeInsetsDirectional.fromSTEB(16, 16, 16, 16),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: contentMax),
                   child: Row(
@@ -828,11 +832,13 @@ class _LeagueCreationDashboardState
 
   Widget _buildMainCard(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Glass(
       padding: const EdgeInsets.all(16),
       borderRadius: 28,
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -842,8 +848,9 @@ class _LeagueCreationDashboardState
             _infoBanner(
               icon: Icons.hourglass_top_rounded,
               title: 'Checking your access...',
-              subtitle: 'Please wait while we load your Basic or paid entitlement.',
-              accent: cs.primary,
+              subtitle:
+                  'Please wait while we load your Basic or paid entitlement.',
+              accent: AppTheme.limeAccentDark,
             )
           else if (_freeLimitReachedForNewLeague)
             _infoBanner(
@@ -858,7 +865,7 @@ class _LeagueCreationDashboardState
               title: 'Paid plan active',
               subtitle:
                   '$_activePlanLabel plan active. You can create more leagues and competitions.',
-              accent: cs.primary,
+              accent: AppTheme.limeAccentDark,
             )
           else
             _infoBanner(
@@ -866,7 +873,7 @@ class _LeagueCreationDashboardState
               title: 'Basic/free access active',
               subtitle:
                   'You have used $_currentLeagueCardCount / $_freeLeagueListLimit free league/competition slots.',
-              accent: cs.primary,
+              accent: AppTheme.limeAccentDark,
             ),
           const SizedBox(height: 14),
           AnimatedSwitcher(
@@ -885,18 +892,20 @@ class _LeagueCreationDashboardState
   Widget _buildSideSummary(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Glass(
       padding: const EdgeInsets.all(16),
       borderRadius: 28,
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             l10n.tr('league_create_summary_title'),
             style: theme.textTheme.titleMedium?.copyWith(
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w900,
               fontSize: 16,
             ),
@@ -911,10 +920,10 @@ class _LeagueCreationDashboardState
                 ? _activePlanLabel
                 : 'Basic • $_currentLeagueCardCount / $_freeLeagueListLimit used',
             valueColor: _isPaidPlanUser
-                ? cs.primary
+                ? AppTheme.limeAccentDark
                 : (_freeLimitReachedForNewLeague
                     ? _premiumAmber
-                    : cs.onSurface.withOpacity(0.78)),
+                    : AppTheme.primaryText(brightness)),
           ),
           if (_freeLimitReachedForNewLeague)
             _summaryRow(
@@ -928,7 +937,7 @@ class _LeagueCreationDashboardState
               Icons.hub_rounded,
               'Master',
               'Inside Master League',
-              valueColor: cs.primary,
+              valueColor: AppTheme.limeAccentDark,
             ),
           _summaryRow(
             Icons.auto_awesome,
@@ -960,16 +969,16 @@ class _LeagueCreationDashboardState
               'Home/Away',
               _homeAwayEnabled ? 'Enabled' : 'Disabled',
               valueColor: _homeAwayEnabled
-                  ? cs.primary
-                  : cs.onSurface.withOpacity(0.75),
+                  ? AppTheme.limeAccentDark
+                  : AppTheme.secondaryText(brightness),
             ),
           _summaryRow(
             Icons.card_giftcard_outlined,
             'Rewards',
             _containsRewards ? 'Yes' : 'No',
             valueColor: _containsRewards
-                ? cs.primary
-                : cs.onSurface.withOpacity(0.75),
+                ? AppTheme.limeAccentDark
+                : AppTheme.secondaryText(brightness),
           ),
           _summaryRow(
             Icons.verified,
@@ -981,7 +990,7 @@ class _LeagueCreationDashboardState
                     : 'Included in Basic allowance'),
             valueColor: _freeLimitReachedForNewLeague
                 ? _premiumAmber
-                : cs.primary,
+                : AppTheme.limeAccentDark,
           ),
           const SizedBox(height: 10),
           Text(
@@ -993,7 +1002,7 @@ class _LeagueCreationDashboardState
             style: theme.textTheme.bodySmall?.copyWith(
               color: _freeLimitReachedForNewLeague
                   ? _premiumAmber
-                  : cs.onSurface.withOpacity(0.60),
+                  : AppTheme.secondaryText(brightness),
               height: 1.35,
               fontSize: 12,
               fontWeight: FontWeight.w600,
@@ -1004,6 +1013,10 @@ class _LeagueCreationDashboardState
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.limeAccent,
+                  foregroundColor: AppTheme.darkText,
+                ),
                 onPressed: _submitting ? null : _openPlanUpgradeFlow,
                 icon: const Icon(Icons.workspace_premium_rounded),
                 label: const Text(
@@ -1025,21 +1038,21 @@ class _LeagueCreationDashboardState
     Color? valueColor,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Padding(
       padding: const EdgeInsetsDirectional.only(bottom: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: cs.primary),
+          Icon(icon, size: 18, color: AppTheme.limeAccentDark),
           const SizedBox(width: 10),
           SizedBox(
             width: 90,
             child: Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.70),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
                 fontSize: 12,
               ),
@@ -1049,7 +1062,7 @@ class _LeagueCreationDashboardState
             child: Text(
               value,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: valueColor ?? cs.onSurface,
+                color: valueColor ?? AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w800,
                 height: 1.25,
               ),
@@ -1063,13 +1076,16 @@ class _LeagueCreationDashboardState
   Widget _buildStepHeader(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final steps = <_StepMeta>[
       _StepMeta(l10n.tr('league_create_step_type'), Icons.auto_awesome),
       _StepMeta(l10n.tr('league_create_step_details'), Icons.edit_note),
       _StepMeta(l10n.tr('league_create_step_privacy'), Icons.lock),
-      _StepMeta(l10n.tr('league_create_step_payment'), Icons.payments_outlined),
+      _StepMeta(
+        l10n.tr('league_create_step_payment'),
+        Icons.payments_outlined,
+      ),
       _StepMeta(
         l10n.tr('league_create_step_confirm'),
         Icons.check_circle_outline,
@@ -1084,19 +1100,24 @@ class _LeagueCreationDashboardState
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
-              color: cs.primary.withOpacity(0.10),
-              border: Border.all(color: cs.primary.withOpacity(0.25)),
-              boxShadow: _panelShadow(theme, tint: cs.primary),
+              color: brightness == Brightness.dark
+                  ? AppTheme.limeAccentDark.withOpacity(0.10)
+                  : const Color(0xFFECFCCB),
+              border: Border.all(color: AppTheme.cardBorder(brightness)),
+              boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
             ),
             child: Row(
               children: [
-                Icon(Icons.hub_rounded, color: cs.primary),
+                Icon(
+                  Icons.hub_rounded,
+                  color: AppTheme.limeAccentDark,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     'Creating inside Master League',
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: cs.primary,
+                      color: AppTheme.limeAccentDark,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -1110,7 +1131,7 @@ class _LeagueCreationDashboardState
               ? 'Create Competition'
               : l10n.tr('league_create_header_title'),
           style: theme.textTheme.titleLarge?.copyWith(
-            color: cs.onSurface,
+            color: AppTheme.primaryText(brightness),
             fontWeight: FontWeight.w900,
             fontSize: 18,
           ),
@@ -1137,8 +1158,8 @@ class _LeagueCreationDashboardState
           child: LinearProgressIndicator(
             value: (_step + 1) / steps.length,
             minHeight: 8,
-            backgroundColor: cs.onSurface.withOpacity(0.08),
-            color: cs.primary,
+            backgroundColor: AppTheme.searchOutline(brightness),
+            color: AppTheme.limeAccentDark,
           ),
         ),
       ],
@@ -1152,38 +1173,36 @@ class _LeagueCreationDashboardState
     required int current,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final active = index == current;
     final done = index < current;
 
     final Color borderColor = active
-        ? cs.primary.withOpacity(0.70)
+        ? AppTheme.limeAccentDark
         : done
-            ? cs.primary.withOpacity(0.40)
-            : (_isLight
-                ? Colors.white.withOpacity(0.72)
-                : cs.onSurface.withOpacity(0.14));
+            ? AppTheme.limeAccentDark.withOpacity(0.40)
+            : AppTheme.cardBorder(brightness);
 
     final Color bgColor = active
-        ? cs.primary.withOpacity(0.14)
+        ? (brightness == Brightness.dark
+            ? AppTheme.limeAccentDark.withOpacity(0.10)
+            : const Color(0xFFECFCCB))
         : done
-            ? cs.onSurface.withOpacity(0.06)
-            : (_isLight
-                ? Colors.white.withOpacity(0.28)
-                : cs.onSurface.withOpacity(0.04));
+            ? AppTheme.searchBackground(brightness)
+            : AppTheme.cardColor(brightness);
 
     final Color iconColor = active
-        ? cs.primary
+        ? AppTheme.limeAccentDark
         : done
-            ? cs.primary.withOpacity(0.85)
-            : cs.onSurface.withOpacity(0.55);
+            ? AppTheme.limeAccentDark
+            : AppTheme.secondaryText(brightness);
 
     final Color textColor = active
-        ? cs.primary
+        ? AppTheme.limeAccentDark
         : done
-            ? cs.onSurface.withOpacity(0.75)
-            : cs.onSurface.withOpacity(0.55);
+            ? AppTheme.primaryText(brightness)
+            : AppTheme.secondaryText(brightness);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -1191,7 +1210,7 @@ class _LeagueCreationDashboardState
         color: bgColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor),
-        boxShadow: _panelShadow(theme, tint: cs.primary),
+        boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1235,7 +1254,7 @@ class _LeagueCreationDashboardState
   Widget _stepLeagueType(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Column(
       key: key,
@@ -1246,7 +1265,7 @@ class _LeagueCreationDashboardState
               ? 'Select the competition type for your Master League.'
               : l10n.tr('league_create_choose_type_help'),
           style: theme.textTheme.bodyMedium?.copyWith(
-            color: cs.onSurface.withOpacity(0.72),
+            color: AppTheme.secondaryText(brightness),
             height: 1.35,
             fontWeight: FontWeight.w600,
           ),
@@ -1290,21 +1309,17 @@ class _LeagueCreationDashboardState
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                   selected: _maxTeams == n,
-                  selectedColor: cs.primary.withOpacity(0.18),
-                  backgroundColor: _isLight
-                      ? Colors.white.withOpacity(0.34)
-                      : cs.onSurface.withOpacity(0.06),
+                  selectedColor: AppTheme.limeAccent,
+                  backgroundColor: AppTheme.tabInactiveBackground(brightness),
                   side: BorderSide(
                     color: _maxTeams == n
-                        ? cs.primary.withOpacity(0.35)
-                        : (_isLight
-                            ? Colors.white.withOpacity(0.72)
-                            : cs.onSurface.withOpacity(0.12)),
+                        ? AppTheme.limeAccentDark
+                        : AppTheme.cardBorder(brightness),
                   ),
                   labelStyle: TextStyle(
                     color: _maxTeams == n
-                        ? cs.primary
-                        : cs.onSurface.withOpacity(0.72),
+                        ? AppTheme.darkText
+                        : AppTheme.tabInactiveText(brightness),
                     fontWeight:
                         _maxTeams == n ? FontWeight.w900 : FontWeight.w800,
                   ),
@@ -1329,13 +1344,18 @@ class _LeagueCreationDashboardState
     required IconData icon,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final selected = _type == type;
 
-    final fill = selected ? cs.primary.withOpacity(0.14) : _panelFill(theme);
+    final fill = selected
+        ? (brightness == Brightness.dark
+            ? AppTheme.limeAccentDark.withOpacity(0.10)
+            : const Color(0xFFECFCCB))
+        : _panelFill(theme);
+
     final border = selected
-        ? _panelBorder(theme, accent: cs.primary)
+        ? AppTheme.limeAccentDark
         : _panelBorder(theme);
 
     return InkWell(
@@ -1348,10 +1368,8 @@ class _LeagueCreationDashboardState
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
           color: fill,
-          border: Border.all(
-            color: selected ? cs.primary.withOpacity(0.55) : border,
-          ),
-          boxShadow: _panelShadow(theme, tint: cs.primary),
+          border: Border.all(color: border),
+          boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
         ),
         child: Row(
           children: [
@@ -1360,24 +1378,16 @@ class _LeagueCreationDashboardState
               height: 46,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                color: selected
-                    ? cs.primary.withOpacity(0.18)
-                    : (_isLight
-                        ? Colors.white.withOpacity(0.36)
-                        : cs.onSurface.withOpacity(0.06)),
+                color: AppTheme.iconCircleBackground(brightness),
                 border: Border.all(
-                  color: selected
-                      ? cs.primary.withOpacity(0.55)
-                      : (_isLight
-                          ? Colors.white.withOpacity(0.70)
-                          : cs.onSurface.withOpacity(0.12)),
+                  color: AppTheme.cardBorder(brightness),
                 ),
               ),
               child: Icon(
                 icon,
                 color: selected
-                    ? cs.primary
-                    : cs.onSurface.withOpacity(0.72),
+                    ? AppTheme.limeAccentDark
+                    : AppTheme.secondaryText(brightness),
               ),
             ),
             const SizedBox(width: 12),
@@ -1388,7 +1398,7 @@ class _LeagueCreationDashboardState
                   Text(
                     title,
                     style: theme.textTheme.titleSmall?.copyWith(
-                      color: cs.onSurface,
+                      color: AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w900,
                       fontSize: 14,
                     ),
@@ -1397,7 +1407,7 @@ class _LeagueCreationDashboardState
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.70),
+                      color: AppTheme.secondaryText(brightness),
                       height: 1.25,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -1408,20 +1418,17 @@ class _LeagueCreationDashboardState
             ),
             const SizedBox(width: 10),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
                 color: selected
-                    ? cs.primary
-                    : (_isLight
-                        ? Colors.white.withOpacity(0.36)
-                        : cs.onSurface.withOpacity(0.06)),
+                    ? AppTheme.limeAccent
+                    : AppTheme.tabInactiveBackground(brightness),
                 borderRadius: BorderRadius.circular(999),
                 border: selected
                     ? null
                     : Border.all(
-                        color: _isLight
-                            ? Colors.white.withOpacity(0.70)
-                            : cs.onSurface.withOpacity(0.12),
+                        color: AppTheme.cardBorder(brightness),
                       ),
               ),
               child: Text(
@@ -1429,8 +1436,9 @@ class _LeagueCreationDashboardState
                     ? context.l10n.tr('common_selected')
                     : context.l10n.tr('common_select'),
                 style: TextStyle(
-                  color:
-                      selected ? cs.onPrimary : cs.onSurface.withOpacity(0.72),
+                  color: selected
+                      ? AppTheme.darkText
+                      : AppTheme.tabInactiveText(brightness),
                   fontWeight: FontWeight.w900,
                   fontSize: 11,
                 ),
@@ -1444,7 +1452,7 @@ class _LeagueCreationDashboardState
 
   Widget _stepLeagueDetails(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
     final locked = _freeLimitReachedForNewLeague || _checkingAccess;
 
     return Column(
@@ -1456,7 +1464,10 @@ class _LeagueCreationDashboardState
         TextField(
           controller: _name,
           enabled: !locked,
-          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            color: AppTheme.primaryText(brightness),
+            fontWeight: FontWeight.w700,
+          ),
           decoration: InputDecoration(
             labelText: l10n.tr('league_create_league_name_required_label'),
             prefixIcon: const Icon(Icons.edit_note),
@@ -1471,7 +1482,10 @@ class _LeagueCreationDashboardState
           enabled: !locked,
           minLines: 3,
           maxLines: 7,
-          style: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: AppTheme.primaryText(brightness),
+            fontWeight: FontWeight.w600,
+          ),
           decoration: InputDecoration(
             labelText:
                 l10n.tr('league_create_league_description_recommended_label'),
@@ -1533,13 +1547,18 @@ class _LeagueCreationDashboardState
     required String subtitle,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final selected = _privacy == value;
 
-    final fill = selected ? cs.primary.withOpacity(0.14) : _panelFill(theme);
+    final fill = selected
+        ? (brightness == Brightness.dark
+            ? AppTheme.limeAccentDark.withOpacity(0.10)
+            : const Color(0xFFECFCCB))
+        : _panelFill(theme);
+
     final border = selected
-        ? _panelBorder(theme, accent: cs.primary)
+        ? AppTheme.limeAccentDark
         : _panelBorder(theme);
 
     return InkWell(
@@ -1552,16 +1571,16 @@ class _LeagueCreationDashboardState
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           color: fill,
-          border: Border.all(
-            color: selected ? cs.primary.withOpacity(0.55) : border,
-          ),
+          border: Border.all(color: border),
           boxShadow: _panelShadow(theme),
         ),
         child: Row(
           children: [
             Icon(
               selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? cs.primary : cs.onSurface.withOpacity(0.55),
+              color: selected
+                  ? AppTheme.limeAccentDark
+                  : AppTheme.secondaryText(brightness),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1571,7 +1590,7 @@ class _LeagueCreationDashboardState
                   Text(
                     title,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: cs.onSurface,
+                      color: AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -1579,7 +1598,7 @@ class _LeagueCreationDashboardState
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.65),
+                      color: AppTheme.secondaryText(brightness),
                       height: 1.25,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -1595,8 +1614,6 @@ class _LeagueCreationDashboardState
   }
 
   Widget _stepPayment(BuildContext context, {Key? key}) {
-    final cs = Theme.of(context).colorScheme;
-
     if (_checkingAccess) {
       return Column(
         key: key,
@@ -1608,7 +1625,7 @@ class _LeagueCreationDashboardState
             icon: Icons.hourglass_top_rounded,
             title: 'Checking your access...',
             subtitle: 'Please wait before continuing.',
-            accent: cs.primary,
+            accent: AppTheme.limeAccentDark,
           ),
         ],
       );
@@ -1629,6 +1646,10 @@ class _LeagueCreationDashboardState
           ),
           const SizedBox(height: 14),
           FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
+            ),
             onPressed: _submitting ? null : _openPlanUpgradeFlow,
             icon: const Icon(Icons.workspace_premium_rounded),
             label: const Text(
@@ -1654,7 +1675,7 @@ class _LeagueCreationDashboardState
           subtitle: _isPaidPlanUser
               ? 'Your paid plan includes additional league and competition creation.'
               : 'Basic users can create up to $_freeLeagueListLimit leagues/competitions total across all creation flows.',
-          accent: cs.primary,
+          accent: AppTheme.limeAccentDark,
         ),
       ],
     );
@@ -1663,7 +1684,7 @@ class _LeagueCreationDashboardState
   Widget _stepConfirm(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final canCreate = _type != null &&
         _name.text.trim().isNotEmpty &&
@@ -1693,7 +1714,7 @@ class _LeagueCreationDashboardState
             Icons.hub_rounded,
             'Master League',
             'Inside Master League',
-            valueColor: cs.primary,
+            valueColor: AppTheme.limeAccentDark,
           ),
         _confirmRow(
           Icons.lock,
@@ -1713,16 +1734,16 @@ class _LeagueCreationDashboardState
             'Home & away matches',
             _homeAwayEnabled ? 'Enabled' : 'Disabled',
             valueColor: _homeAwayEnabled
-                ? cs.primary
-                : cs.onSurface.withOpacity(0.75),
+                ? AppTheme.limeAccentDark
+                : AppTheme.secondaryText(brightness),
           ),
         _confirmRow(
           Icons.card_giftcard_outlined,
           'Rewards',
           _containsRewards ? 'Enabled' : 'Disabled',
           valueColor: _containsRewards
-              ? cs.primary
-              : cs.onSurface.withOpacity(0.75),
+              ? AppTheme.limeAccentDark
+              : AppTheme.secondaryText(brightness),
         ),
         const SizedBox(height: 12),
         if (_freeLimitReachedForNewLeague) ...[
@@ -1734,6 +1755,10 @@ class _LeagueCreationDashboardState
           ),
           const SizedBox(height: 12),
           FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
+            ),
             onPressed: _submitting ? null : _openPlanUpgradeFlow,
             icon: const Icon(Icons.workspace_premium_rounded),
             label: const Text(
@@ -1750,7 +1775,7 @@ class _LeagueCreationDashboardState
             subtitle: _inMasterLeagueMode
                 ? 'This competition uses the same shared creation allowance as normal leagues.'
                 : 'You can create this league now.',
-            accent: cs.primary,
+            accent: AppTheme.limeAccentDark,
           ),
         ],
         const SizedBox(height: 12),
@@ -1774,12 +1799,12 @@ class _LeagueCreationDashboardState
                     },
               controlAffinity: ListTileControlAffinity.leading,
               contentPadding: EdgeInsets.zero,
-              activeColor: cs.primary,
+              activeColor: AppTheme.limeAccentDark,
               checkColor: Colors.white,
               title: Text(
                 'Home and Away Matches',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurface,
+                  color: AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -1788,7 +1813,7 @@ class _LeagueCreationDashboardState
                     ? 'Each team plays twice (home + away).'
                     : 'Each team plays once.',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: cs.onSurface.withOpacity(0.65),
+                  color: AppTheme.secondaryText(brightness),
                   fontSize: 12,
                   height: 1.25,
                   fontWeight: FontWeight.w600,
@@ -1808,24 +1833,23 @@ class _LeagueCreationDashboardState
           ),
           child: SwitchListTile.adaptive(
             value: _creatorWillParticipate,
-            onChanged: (_submitting ||
-                    _freeLimitReachedForNewLeague ||
-                    _checkingAccess)
-                ? null
-                : (v) => setState(() => _creatorWillParticipate = v),
-            activeColor: cs.primary,
+            onChanged:
+                (_submitting || _freeLimitReachedForNewLeague || _checkingAccess)
+                    ? null
+                    : (v) => setState(() => _creatorWillParticipate = v),
+            activeColor: AppTheme.limeAccentDark,
             contentPadding: EdgeInsets.zero,
             title: Text(
               l10n.tr('league_create_creator_participate_title'),
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.onSurface,
+                color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w900,
               ),
             ),
             subtitle: Text(
               l10n.tr('league_create_creator_participate_subtitle'),
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.65),
+                color: AppTheme.secondaryText(brightness),
                 fontSize: 12,
                 height: 1.25,
                 fontWeight: FontWeight.w600,
@@ -1841,7 +1865,7 @@ class _LeagueCreationDashboardState
           style: theme.textTheme.bodyMedium?.copyWith(
             color: _freeLimitReachedForNewLeague
                 ? _premiumAmber
-                : cs.onSurface.withOpacity(0.70),
+                : AppTheme.secondaryText(brightness),
             height: 1.35,
             fontWeight: FontWeight.w600,
           ),
@@ -1851,6 +1875,8 @@ class _LeagueCreationDashboardState
         FilledButton(
           onPressed: (_submitting || !canCreate) ? null : () => _create(context),
           style: FilledButton.styleFrom(
+            backgroundColor: AppTheme.limeAccent,
+            foregroundColor: AppTheme.darkText,
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
           child: _submitting
@@ -1859,7 +1885,7 @@ class _LeagueCreationDashboardState
                   height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: Colors.white,
+                    color: AppTheme.darkText,
                   ),
                 )
               : Text(
@@ -1882,18 +1908,18 @@ class _LeagueCreationDashboardState
     Color? valueColor,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: cs.primary),
+          Icon(icon, size: 18, color: AppTheme.limeAccentDark),
           const SizedBox(width: 10),
           Text(
             '$label: ',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.70),
+              color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -1901,7 +1927,7 @@ class _LeagueCreationDashboardState
             child: Text(
               value,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: valueColor ?? cs.onSurface,
+                color: valueColor ?? AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w900,
               ),
             ),
@@ -1913,7 +1939,7 @@ class _LeagueCreationDashboardState
 
   Widget _sectionTitle(String text, IconData icon) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return Row(
       children: [
@@ -1922,17 +1948,17 @@ class _LeagueCreationDashboardState
           height: 34,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            color: cs.primary.withOpacity(0.14),
-            border: Border.all(color: cs.primary.withOpacity(0.35)),
-            boxShadow: _panelShadow(theme, tint: cs.primary),
+            color: AppTheme.iconCircleBackground(brightness),
+            border: Border.all(color: AppTheme.cardBorder(brightness)),
+            boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
           ),
-          child: Icon(icon, size: 18, color: cs.primary),
+          child: Icon(icon, size: 18, color: AppTheme.limeAccentDark),
         ),
         const SizedBox(width: 10),
         Text(
           text,
           style: theme.textTheme.titleMedium?.copyWith(
-            color: cs.onSurface,
+            color: AppTheme.primaryText(brightness),
             fontWeight: FontWeight.w900,
             fontSize: 16,
           ),
@@ -1948,8 +1974,8 @@ class _LeagueCreationDashboardState
     Color? accent,
   }) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final a = accent ?? cs.primary;
+    final brightness = theme.brightness;
+    final a = accent ?? AppTheme.limeAccentDark;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1971,7 +1997,7 @@ class _LeagueCreationDashboardState
                 Text(
                   title,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -1979,7 +2005,7 @@ class _LeagueCreationDashboardState
                 Text(
                   subtitle,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.70),
+                    color: AppTheme.secondaryText(brightness),
                     height: 1.25,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -1996,7 +2022,7 @@ class _LeagueCreationDashboardState
   Widget _buildFooterActions(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final isLast = _step == 4;
 
@@ -2004,9 +2030,7 @@ class _LeagueCreationDashboardState
         _step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back');
 
     final outlineSide = BorderSide(
-      color: theme.brightness == Brightness.light
-          ? Colors.white.withOpacity(0.72)
-          : cs.onSurface.withOpacity(0.18),
+      color: AppTheme.cardBorder(brightness),
     );
 
     if (isLast && _createdLeague == null) {
@@ -2022,7 +2046,7 @@ class _LeagueCreationDashboardState
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 side: outlineSide,
-                foregroundColor: cs.onSurface.withOpacity(0.80),
+                foregroundColor: AppTheme.primaryText(brightness),
               ),
               child: Text(
                 backLabel.toUpperCase(),
@@ -2052,7 +2076,7 @@ class _LeagueCreationDashboardState
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
               side: outlineSide,
-              foregroundColor: cs.onSurface.withOpacity(0.80),
+              foregroundColor: AppTheme.primaryText(brightness),
             ),
             child: Text(
               backLabel.toUpperCase(),
@@ -2063,15 +2087,16 @@ class _LeagueCreationDashboardState
         const SizedBox(width: 12),
         Expanded(
           child: FilledButton(
-            onPressed: (_submitting ||
-                    _checkingAccess ||
-                    _freeLimitReachedForNewLeague)
-                ? null
-                : () async {
-                    final ok = await _validateAndAdvance(context);
-                    if (ok && mounted) setState(() => _step++);
-                  },
+            onPressed:
+                (_submitting || _checkingAccess || _freeLimitReachedForNewLeague)
+                    ? null
+                    : () async {
+                        final ok = await _validateAndAdvance(context);
+                        if (ok && mounted) setState(() => _step++);
+                      },
             style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             child: Text(
@@ -2182,9 +2207,8 @@ class _LeagueCreationDashboardState
         }
       }
 
-      final effectiveHomeAwayEnabled = _supportsHomeAwayMatches
-          ? _homeAwayEnabled
-          : false;
+      final effectiveHomeAwayEnabled =
+          _supportsHomeAwayMatches ? _homeAwayEnabled : false;
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -2307,14 +2331,10 @@ class _OptionalImageField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
-    final previewFill = theme.brightness == Brightness.light
-        ? Colors.white.withOpacity(0.40)
-        : cs.onSurface.withOpacity(0.06);
-    final previewBorder = theme.brightness == Brightness.light
-        ? Colors.white.withOpacity(0.72)
-        : cs.onSurface.withOpacity(0.14);
+    final previewFill = AppTheme.searchBackground(brightness);
+    final previewBorder = AppTheme.searchOutline(brightness);
 
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: controller,
@@ -2330,15 +2350,7 @@ class _OptionalImageField extends StatelessWidget {
             color: previewFill,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: previewBorder),
-            boxShadow: theme.brightness == Brightness.light
-                ? <BoxShadow>[
-                    BoxShadow(
-                      color: const Color(0xFFB4D2FF).withOpacity(0.18),
-                      blurRadius: 18,
-                      offset: const Offset(0, 12),
-                    ),
-                  ]
-                : null,
+            boxShadow: AppTheme.softCardShadow(brightness),
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
@@ -2350,12 +2362,12 @@ class _OptionalImageField extends StatelessWidget {
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Icon(
                           Icons.image_outlined,
-                          color: cs.onSurface.withOpacity(0.55),
+                          color: AppTheme.secondaryText(brightness),
                         ),
                       )
                     : Icon(
                         Icons.image_outlined,
-                        color: cs.onSurface.withOpacity(0.55),
+                        color: AppTheme.secondaryText(brightness),
                       )),
           ),
         );
@@ -2368,8 +2380,9 @@ class _OptionalImageField extends StatelessWidget {
 
         final IconData tickIcon =
             hasImage ? Icons.check_box : Icons.check_box_outline_blank;
-        final Color tickColor =
-            hasImage ? cs.primary : cs.onSurface.withOpacity(0.45);
+        final Color tickColor = hasImage
+            ? AppTheme.limeAccentDark
+            : AppTheme.secondaryText(brightness);
 
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2387,7 +2400,7 @@ class _OptionalImageField extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -2402,7 +2415,7 @@ class _OptionalImageField extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.onSurface.withOpacity(0.70),
+                              color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w700,
                               height: 1.1,
                             ),
@@ -2426,7 +2439,7 @@ class _OptionalImageField extends StatelessWidget {
                           padding: const EdgeInsets.all(10),
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: cs.primary,
+                            color: AppTheme.limeAccentDark,
                           ),
                         )
                       : IconButton(

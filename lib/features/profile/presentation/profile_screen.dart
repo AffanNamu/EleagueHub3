@@ -16,6 +16,7 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -264,12 +265,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       return;
     }
 
+    final brightness = Theme.of(context).brightness;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
-        final onSurface = cs.onSurface;
-
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding:
@@ -277,6 +277,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           child: Glass(
             borderRadius: 26,
             padding: const EdgeInsets.all(18),
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Column(
@@ -289,12 +291,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         height: 44,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
-                          color: cs.error.withOpacity(0.10),
-                          border: Border.all(color: cs.error.withOpacity(0.25)),
+                          color: Theme.of(ctx)
+                              .colorScheme
+                              .error
+                              .withOpacity(0.10),
+                          border: Border.all(
+                            color: Theme.of(ctx)
+                                .colorScheme
+                                .error
+                                .withOpacity(0.25),
+                          ),
                         ),
                         child: Icon(
                           Icons.delete_outline_rounded,
-                          color: cs.error,
+                          color: Theme.of(ctx).colorScheme.error,
                           size: 22,
                         ),
                       ),
@@ -303,15 +313,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         child: Text(
                           'Remove photo?',
                           style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                                color: onSurface,
+                                color: AppTheme.primaryText(brightness),
                                 fontWeight: FontWeight.w900,
                               ),
                         ),
                       ),
                       IconButton(
                         onPressed: () => Navigator.of(ctx).pop(false),
-                        icon:
-                            Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                        icon: Icon(
+                          Icons.close,
+                          color: AppTheme.secondaryText(brightness),
+                        ),
                       ),
                     ],
                   ),
@@ -321,7 +333,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     child: Text(
                       'This will remove your profile/team photo.',
                       style: TextStyle(
-                        color: onSurface.withOpacity(0.65),
+                        color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w600,
                         height: 1.35,
                       ),
@@ -340,7 +352,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       Expanded(
                         child: FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: cs.error,
+                            backgroundColor: Theme.of(ctx).colorScheme.error,
                             foregroundColor: Colors.white,
                           ),
                           onPressed: () => Navigator.of(ctx).pop(true),
@@ -422,8 +434,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       isScrollControlled: true,
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        final cs = theme.colorScheme;
-        final onSurface = cs.onSurface;
+        final brightness = theme.brightness;
 
         final cfgStream = CouponConfigService().watchConfig(leagueId);
         final redemptionsQuery = FirebaseFirestore.instance
@@ -449,6 +460,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 child: Glass(
                   borderRadius: 28,
                   padding: EdgeInsets.zero,
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       vertical: 12,
@@ -462,14 +475,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           height: 4,
                           margin: const EdgeInsets.only(bottom: 14),
                           decoration: BoxDecoration(
-                            color: onSurface.withOpacity(0.20),
+                            color: AppTheme.cardBorder(brightness),
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
                         Text(
                           'Coupons',
                           style: theme.textTheme.titleMedium?.copyWith(
-                            color: onSurface,
+                            color: AppTheme.primaryText(brightness),
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
                           ),
@@ -478,7 +491,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         Text(
                           leagueName,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: onSurface.withOpacity(0.70),
+                            color: AppTheme.secondaryText(brightness),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -498,7 +511,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 child: Text(
                                   msg,
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.error,
+                                    color: Theme.of(context).colorScheme.error,
                                     fontWeight: FontWeight.w700,
                                   ),
                                   textAlign: TextAlign.center,
@@ -512,8 +525,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 14),
                                 child: Center(
-                                  child:
-                                      CircularProgressIndicator(color: cs.primary),
+                                  child: CircularProgressIndicator(
+                                    color: AppTheme.limeAccentDark,
+                                  ),
                                 ),
                               );
                             }
@@ -530,7 +544,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       'No coupon configuration yet.',
                                       textAlign: TextAlign.center,
                                       style: theme.textTheme.bodySmall?.copyWith(
-                                        color: onSurface.withOpacity(0.70),
+                                        color: AppTheme.secondaryText(brightness),
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
@@ -549,6 +563,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: FilledButton.icon(
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: AppTheme.limeAccent,
+                                            foregroundColor: AppTheme.darkText,
+                                          ),
                                           onPressed: () {
                                             Navigator.of(ctx).pop();
                                             GoRouter.of(context).push(
@@ -605,14 +623,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   'Threshold discount',
                                   '${money(cfg.thresholdDiscountPercent)}%',
                                 ),
-                                Divider(color: onSurface.withOpacity(0.10)),
+                                Divider(color: AppTheme.cardBorder(brightness)),
                                 _kv(
                                   context,
                                   'Discount',
                                   '${cfg.discountPercent}%',
                                 ),
                                 _kv(context, 'Users pay', '$usersPay%'),
-                                Divider(color: onSurface.withOpacity(0.10)),
+                                Divider(color: AppTheme.cardBorder(brightness)),
                                 _kv(context, 'Purchased', '${cfg.qtyTotal}'),
                                 _kv(context, 'Remaining', '${cfg.qtyRemaining}'),
                                 _kv(context, 'Redeemed', '$redeemed'),
@@ -630,6 +648,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: FilledButton.icon(
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: AppTheme.limeAccent,
+                                          foregroundColor: AppTheme.darkText,
+                                        ),
                                         onPressed: () {
                                           Navigator.of(ctx).pop();
                                           GoRouter.of(context).push(
@@ -657,7 +679,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 Text(
                                   'Recent redemptions',
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: onSurface,
+                                    color: AppTheme.primaryText(brightness),
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
@@ -677,7 +699,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                             ),
                                             style: theme.textTheme.bodySmall
                                                 ?.copyWith(
-                                              color: cs.error,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .error,
                                               fontWeight: FontWeight.w700,
                                             ),
                                             textAlign: TextAlign.center,
@@ -687,7 +711,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       if (!rs.hasData) {
                                         return Center(
                                           child: CircularProgressIndicator(
-                                            color: cs.primary,
+                                            color: AppTheme.limeAccentDark,
                                           ),
                                         );
                                       }
@@ -698,7 +722,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                             'No redemptions yet.',
                                             style: theme.textTheme.bodySmall
                                                 ?.copyWith(
-                                              color: onSurface.withOpacity(0.70),
+                                              color:
+                                                  AppTheme.secondaryText(brightness),
                                               fontWeight: FontWeight.w600,
                                             ),
                                           ),
@@ -707,7 +732,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       return ListView.separated(
                                         itemCount: docs.length,
                                         separatorBuilder: (_, __) => Divider(
-                                          color: onSurface.withOpacity(0.10),
+                                          color: AppTheme.cardBorder(brightness),
                                         ),
                                         itemBuilder: (context, i) {
                                           final d = docs[i].data();
@@ -750,7 +775,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   : Icons.pending,
                                               color: isPaid
                                                   ? const Color(0xFF22C55E)
-                                                  : cs.primary,
+                                                  : AppTheme.limeAccentDark,
                                               size: 20,
                                             ),
                                             title: Text(
@@ -759,7 +784,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   : shortUserId,
                                               style: theme.textTheme.bodyMedium
                                                   ?.copyWith(
-                                                color: onSurface,
+                                                color: AppTheme.primaryText(
+                                                  brightness,
+                                                ),
                                                 fontWeight: FontWeight.w900,
                                               ),
                                             ),
@@ -769,7 +796,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   : 'Pending • ${money(expected)} $currency',
                                               style: theme.textTheme.bodySmall
                                                   ?.copyWith(
-                                                color: onSurface.withOpacity(0.65),
+                                                color:
+                                                    AppTheme.secondaryText(brightness),
                                                 fontWeight: FontWeight.w700,
                                               ),
                                             ),
@@ -777,8 +805,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               tooltip: 'Copy short id',
                                               icon: Icon(
                                                 Icons.copy,
-                                                color:
-                                                    onSurface.withOpacity(0.72),
+                                                color: AppTheme.secondaryText(
+                                                  brightness,
+                                                ),
                                                 size: 18,
                                               ),
                                               onPressed: shortUserId.isEmpty
@@ -875,26 +904,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget _verificationBadge(BuildContext context, UserProfile? profile) {
     if (profile == null) return const SizedBox.shrink();
 
-    final cs = Theme.of(context).colorScheme;
-
     if (profile.verifiedActive) {
-      return Tooltip(
+      return const Tooltip(
         message: 'Verified account',
         child: Icon(
           Icons.verified_rounded,
           size: 18,
-          color: const Color(0xFF1D9BF0),
+          color: Color(0xFF1D9BF0),
         ),
       );
     }
 
     if (profile.verificationPending) {
-      return Tooltip(
+      return const Tooltip(
         message: 'Verification pending',
         child: Icon(
           Icons.verified_outlined,
           size: 18,
-          color: const Color(0xFFF59E0B),
+          color: Color(0xFFF59E0B),
         ),
       );
     }
@@ -909,8 +936,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final t = theme.textTheme;
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     final user = FirebaseAuth.instance.currentUser;
     final uid = (user?.uid ?? '').trim();
@@ -927,8 +953,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final repo = UserProfileRepository();
 
-    final muted = onSurface.withOpacity(0.55);
-    final faint = onSurface.withOpacity(0.30);
+    final muted = AppTheme.secondaryText(brightness);
+    final faint = AppTheme.cardBorder(brightness);
 
     return GlassScaffold(
       body: SafeArea(
@@ -946,6 +972,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 Glass(
                   borderRadius: 28,
                   padding: const EdgeInsets.all(18),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: StreamBuilder<UserProfile?>(
                     stream: uid.isEmpty
                         ? const Stream<UserProfile?>.empty()
@@ -953,11 +981,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     builder: (context, snap) {
                       final profile = snap.data;
 
-                      final teamName = (profile != null &&
-                              profile.teamName.trim().isNotEmpty)
-                          ? profile.teamName.trim()
-                          : (user?.displayName ??
-                              l10n.tr('profile_team_placeholder'));
+                      final teamName =
+                          (profile != null && profile.teamName.trim().isNotEmpty)
+                              ? profile.teamName.trim()
+                              : (user?.displayName ??
+                                  l10n.tr('profile_team_placeholder'));
 
                       final shortUserId = (profile != null)
                           ? profile.effectiveShareId
@@ -983,13 +1011,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               Container(
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: cs.primary.withOpacity(0.30),
-                                      blurRadius: 26,
-                                      spreadRadius: 2,
-                                    ),
-                                  ],
+                                  boxShadow: AppTheme.fabGlow(brightness),
                                 ),
                                 child: Stack(
                                   alignment: Alignment.center,
@@ -1005,7 +1027,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       child: CircleAvatar(
                                         radius: 34,
                                         backgroundColor:
-                                            cs.primary.withOpacity(0.90),
+                                            AppTheme.iconCircleBackground(
+                                                brightness),
                                         child: ClipOval(
                                           child: SizedBox(
                                             width: 68,
@@ -1022,7 +1045,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                         (_, __, ___) =>
                                                             const Icon(
                                                       Icons.person,
-                                                      color: Colors.white,
+                                                      color: AppTheme.darkText,
                                                       size: 30,
                                                     ),
                                                     loadingBuilder: (context,
@@ -1032,14 +1055,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                       }
                                                       return const Icon(
                                                         Icons.person,
-                                                        color: Colors.white,
+                                                        color: AppTheme.darkText,
                                                         size: 30,
                                                       );
                                                     },
                                                   )
                                                 : const Icon(
                                                     Icons.person,
-                                                    color: Colors.white,
+                                                    color: AppTheme.darkText,
                                                     size: 30,
                                                   ),
                                           ),
@@ -1094,7 +1117,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                           FontWeight.w900,
                                                       fontSize: 20,
                                                       letterSpacing: -0.3,
-                                                      color: onSurface,
+                                                      color: AppTheme.primaryText(
+                                                        brightness,
+                                                      ),
                                                     ),
                                                     overflow:
                                                         TextOverflow.ellipsis,
@@ -1138,7 +1163,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         Icon(
                                           Icons.tag_rounded,
                                           size: 13,
-                                          color: onSurface.withOpacity(0.45),
+                                          color: muted,
                                         ),
                                         const SizedBox(width: 6),
                                         Expanded(
@@ -1149,8 +1174,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   )
                                                 : shortUserId,
                                             style: TextStyle(
-                                              color:
-                                                  onSurface.withOpacity(0.60),
+                                              color: muted,
                                               fontWeight: FontWeight.w700,
                                               fontSize: 12,
                                             ),
@@ -1182,8 +1206,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                             child: Icon(
                                               Icons.copy_rounded,
                                               size: 16,
-                                              color:
-                                                  onSurface.withOpacity(0.42),
+                                              color: muted,
                                             ),
                                           ),
                                         ),
@@ -1195,7 +1218,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          Divider(color: onSurface.withOpacity(0.08), height: 1),
+                          Divider(color: AppTheme.cardBorder(brightness), height: 1),
                           const SizedBox(height: 14),
                           Row(
                             children: [
@@ -1260,11 +1283,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                SectionHeader('Desktop Web'),
+                const SectionHeader('Desktop Web'),
                 const SizedBox(height: 12),
                 Glass(
                   borderRadius: 22,
                   padding: const EdgeInsets.all(6),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: _DesktopWebRow(
                     icon: Icons.qr_code_scanner_rounded,
                     title: 'Link Desktop Web',
@@ -1275,29 +1300,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ),
                 const SizedBox(height: 18),
                 if (isSuperAdmin) ...[
-                  SectionHeader('Rewards Fulfillment'),
+                  const SectionHeader('Rewards Fulfillment'),
                   const SizedBox(height: 12),
                   _SuperAdminRewardsPanel(superAdminUid: uid),
                   const SizedBox(height: 18),
                 ],
-                SectionHeader('Coupons'),
+                const SectionHeader('Coupons'),
                 const SizedBox(height: 12),
                 if (uid.isEmpty)
                   Glass(
                     borderRadius: 22,
                     padding: const EdgeInsets.all(18),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: Row(
                       children: [
                         Icon(
                           Icons.lock_outline_rounded,
-                          color: onSurface.withOpacity(0.45),
+                          color: AppTheme.secondaryText(brightness),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             'Sign in to view your coupons.',
                             style: TextStyle(
-                              color: onSurface.withOpacity(0.65),
+                              color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -1309,6 +1336,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   Glass(
                     borderRadius: 22,
                     padding: const EdgeInsets.all(14),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: FirebaseFirestore.instance
                           .collection('leagues')
@@ -1320,7 +1349,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           return Text(
                             UserFriendlyError.toMessage(snap.error as Object),
                             style: t.bodyMedium?.copyWith(
-                              color: cs.error,
+                              color: Theme.of(context).colorScheme.error,
                               fontWeight: FontWeight.w700,
                             ),
                           );
@@ -1328,7 +1357,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
                         if (!snap.hasData) {
                           return Center(
-                            child: CircularProgressIndicator(color: cs.primary),
+                            child: CircularProgressIndicator(
+                              color: AppTheme.limeAccentDark,
+                            ),
                           );
                         }
 
@@ -1350,14 +1381,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             children: [
                               Icon(
                                 Icons.confirmation_number_outlined,
-                                color: onSurface.withOpacity(0.45),
+                                color: AppTheme.secondaryText(brightness),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
                                   'No coupons found. Enable coupons during league creation payment.',
                                   style: TextStyle(
-                                    color: onSurface.withOpacity(0.65),
+                                    color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w600,
                                     height: 1.35,
                                   ),
@@ -1394,11 +1425,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                 const SizedBox(height: 18),
-                SectionHeader('Legal'),
+                const SectionHeader('Legal'),
                 const SizedBox(height: 12),
                 Glass(
                   borderRadius: 22,
                   padding: const EdgeInsets.all(6),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     children: [
                       _LegalNavRow(
@@ -1412,7 +1445,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                         ),
                       ),
-                      Divider(color: onSurface.withOpacity(0.08), height: 1),
+                      Divider(color: AppTheme.cardBorder(brightness), height: 1),
                       _LegalNavRow(
                         icon: Icons.article_outlined,
                         title: 'Terms of Service',
@@ -1423,7 +1456,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                         ),
                       ),
-                      Divider(color: onSurface.withOpacity(0.08), height: 1),
+                      Divider(color: AppTheme.cardBorder(brightness), height: 1),
                       _LegalNavRow(
                         icon: Icons.support_agent_outlined,
                         title: 'Contact',
@@ -1434,7 +1467,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                         ),
                       ),
-                      Divider(color: onSurface.withOpacity(0.08), height: 1),
+                      Divider(color: AppTheme.cardBorder(brightness), height: 1),
                       _LegalNavRow(
                         icon: Icons.link_outlined,
                         title: 'Affiliate Disclosure',
@@ -1452,11 +1485,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ),
                 const SizedBox(height: 18),
                 if (isPricingAdmin || isSuperAdmin) ...[
-                  SectionHeader('Admin'),
+                  const SectionHeader('Admin'),
                   const SizedBox(height: 12),
                   Glass(
                     borderRadius: 22,
                     padding: const EdgeInsets.all(6),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: Column(
                       children: [
                         if (isSuperAdmin) ...[
@@ -1472,7 +1507,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                           if (isPricingAdmin)
                             Divider(
-                              color: onSurface.withOpacity(0.08),
+                              color: AppTheme.cardBorder(brightness),
                               height: 1,
                             ),
                         ],
@@ -1482,14 +1517,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             title: 'Pricing (Quick Editor)',
                             onTap: () => showPricingQuickEditorSheet(context),
                           ),
-                          Divider(color: onSurface.withOpacity(0.08), height: 1),
+                          Divider(color: AppTheme.cardBorder(brightness), height: 1),
                           _AdminRow(
                             icon: Icons.admin_panel_settings_rounded,
                             title: 'Pricing Admin',
                             onTap: () =>
                                 GoRouter.of(context).push('/admin/pricing'),
                           ),
-                          Divider(color: onSurface.withOpacity(0.08), height: 1),
+                          Divider(color: AppTheme.cardBorder(brightness), height: 1),
                           _AdminRow(
                             icon: Icons.group_add_rounded,
                             title: 'Manage Pricing Admins',
@@ -1529,8 +1564,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Widget _kv(BuildContext context, String k, String v) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -1541,7 +1575,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Text(
               k,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: onSurface.withOpacity(0.70),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1550,7 +1584,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Text(
               v,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: onSurface.withOpacity(0.90),
+                color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -1564,13 +1598,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final t = theme.textTheme;
+    final brightness = theme.brightness;
+
     final res = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
       barrierColor: Colors.black.withOpacity(0.55),
       builder: (ctx) {
-        final dialogOnSurface = Theme.of(ctx).colorScheme.onSurface;
-
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding:
@@ -1578,6 +1612,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           child: Glass(
             borderRadius: 26,
             padding: const EdgeInsets.all(20),
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Column(
@@ -1606,7 +1642,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         child: Text(
                           l10n.tr('profile_logout_dialog_title'),
                           style: t.titleLarge?.copyWith(
-                            color: dialogOnSurface,
+                            color: AppTheme.primaryText(brightness),
                             fontWeight: FontWeight.w900,
                             fontSize: 20,
                           ),
@@ -1616,7 +1652,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         onPressed: () => Navigator.of(ctx).pop(false),
                         icon: Icon(
                           Icons.close,
-                          color: dialogOnSurface.withOpacity(0.5),
+                          color: AppTheme.secondaryText(brightness),
                         ),
                       ),
                     ],
@@ -1627,7 +1663,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     child: Text(
                       l10n.tr('profile_logout_dialog_message'),
                       style: TextStyle(
-                        color: dialogOnSurface.withOpacity(0.60),
+                        color: AppTheme.secondaryText(brightness),
                         height: 1.4,
                       ),
                     ),
@@ -1638,10 +1674,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor:
-                                dialogOnSurface.withOpacity(0.80),
+                            foregroundColor: AppTheme.primaryText(brightness),
                             side: BorderSide(
-                              color: dialogOnSurface.withOpacity(0.18),
+                              color: AppTheme.cardBorder(brightness),
                             ),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
@@ -1682,13 +1717,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final l10n = context.l10n;
     final controller = TextEditingController(text: current);
     final repo = UserProfileRepository();
+    final brightness = Theme.of(context).brightness;
 
     try {
       final next = await showDialog<String?>(
         context: context,
         builder: (ctx) {
           final theme = Theme.of(ctx);
-          final onSurface = theme.colorScheme.onSurface;
 
           return Dialog(
             backgroundColor: Colors.transparent,
@@ -1697,6 +1732,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Glass(
               borderRadius: 26,
               padding: const EdgeInsets.all(18),
+              fill: AppTheme.cardColor(brightness),
+              borderColor: AppTheme.cardBorder(brightness),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 480),
                 child: Column(
@@ -1709,15 +1746,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           height: 44,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
-                            color: theme.colorScheme.primary.withOpacity(0.12),
+                            color: AppTheme.iconCircleBackground(brightness),
                             border: Border.all(
-                              color:
-                                  theme.colorScheme.primary.withOpacity(0.22),
+                              color: AppTheme.cardBorder(brightness),
                             ),
                           ),
                           child: Icon(
                             Icons.edit_rounded,
-                            color: theme.colorScheme.primary,
+                            color: AppTheme.limeAccentDark,
                           ),
                         ),
                         const SizedBox(width: 14),
@@ -1725,15 +1761,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           child: Text(
                             l10n.tr('profile_edit_team_dialog_title'),
                             style: theme.textTheme.titleMedium?.copyWith(
-                              color: onSurface,
+                              color: AppTheme.primaryText(brightness),
                               fontWeight: FontWeight.w900,
                             ),
                           ),
                         ),
                         IconButton(
                           onPressed: () => Navigator.of(ctx).pop(null),
-                          icon:
-                              Icon(Icons.close, color: onSurface.withOpacity(0.55)),
+                          icon: Icon(
+                            Icons.close,
+                            color: AppTheme.secondaryText(brightness),
+                          ),
                         ),
                       ],
                     ),
@@ -1742,13 +1780,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       controller: controller,
                       autofocus: true,
                       style: TextStyle(
-                        color: onSurface,
+                        color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w700,
                       ),
                       decoration: InputDecoration(
                         hintText: l10n.tr('profile_team_name_hint'),
-                        hintStyle:
-                            TextStyle(color: onSurface.withOpacity(0.45)),
+                        hintStyle: TextStyle(
+                          color: AppTheme.secondaryText(brightness),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -1763,6 +1802,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.limeAccent,
+                              foregroundColor: AppTheme.darkText,
+                            ),
                             onPressed: () =>
                                 Navigator.of(ctx).pop(controller.text.trim()),
                             child: Text(l10n.tr('common_save')),
@@ -1894,8 +1937,11 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
   }
 
   Future<_WinnerResult?> _computeWinner(String leagueId) async {
-    final teamsSnap =
-        await _firestore.collection('leagues').doc(leagueId).collection('teams').get();
+    final teamsSnap = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .collection('teams')
+        .get();
     final matchesSnap = await _firestore
         .collection('leagues')
         .doc(leagueId)
@@ -2017,8 +2063,7 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     final leaguesQuery = _firestore
         .collection('leagues')
@@ -2028,6 +2073,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(14),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: leaguesQuery.snapshots(),
         builder: (context, snap) {
@@ -2035,13 +2082,17 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
             return Text(
               UserFriendlyError.toMessage(snap.error as Object),
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: cs.error,
+                color: Theme.of(context).colorScheme.error,
                 fontWeight: FontWeight.w800,
               ),
             );
           }
           if (!snap.hasData) {
-            return Center(child: CircularProgressIndicator(color: cs.primary));
+            return Center(
+              child: CircularProgressIndicator(
+                color: AppTheme.limeAccentDark,
+              ),
+            );
           }
 
           final docs = snap.data!.docs;
@@ -2049,7 +2100,7 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
             return Text(
               'No leagues found.',
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: onSurface.withOpacity(0.70),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
               ),
             );
@@ -2061,7 +2112,7 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
               Text(
                 'Leagues with rewards (latest $_limit)',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: onSurface,
+                  color: AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -2072,7 +2123,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                   leagueData: d.data(),
                   rewardsService: _rewardsService,
                   statusFuture: _statusFuture(d.id),
-                  onOpenLeague: () => GoRouter.of(context).push('/leagues/${d.id}'),
+                  onOpenLeague: () =>
+                      GoRouter.of(context).push('/leagues/${d.id}'),
                   onOpenStandings: () =>
                       GoRouter.of(context).push('/leagues/${d.id}/standings'),
                   onComputeWinner: () async {
@@ -2081,8 +2133,7 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                       barrierDismissible: true,
                       builder: (ctx) {
                         final t = Theme.of(ctx);
-                        final cs = t.colorScheme;
-                        final onSurface = cs.onSurface;
+                        final brightness = t.brightness;
 
                         return Dialog(
                           backgroundColor: Colors.transparent,
@@ -2093,6 +2144,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                           child: Glass(
                             borderRadius: 24,
                             padding: const EdgeInsets.all(16),
+                            fill: AppTheme.cardColor(brightness),
+                            borderColor: AppTheme.cardBorder(brightness),
                             child: ConstrainedBox(
                               constraints: const BoxConstraints(maxWidth: 520),
                               child: Column(
@@ -2106,14 +2159,16 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                         decoration: BoxDecoration(
                                           borderRadius:
                                               BorderRadius.circular(14),
-                                          color: cs.primary.withOpacity(0.12),
+                                          color: AppTheme.iconCircleBackground(
+                                            brightness,
+                                          ),
                                           border: Border.all(
-                                            color: cs.primary.withOpacity(0.22),
+                                            color: AppTheme.cardBorder(brightness),
                                           ),
                                         ),
                                         child: Icon(
                                           Icons.emoji_events_outlined,
-                                          color: cs.primary,
+                                          color: AppTheme.limeAccentDark,
                                         ),
                                       ),
                                       const SizedBox(width: 12),
@@ -2122,7 +2177,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                           'Compute Winner',
                                           style: t.textTheme.titleMedium
                                               ?.copyWith(
-                                            color: onSurface,
+                                            color:
+                                                AppTheme.primaryText(brightness),
                                             fontWeight: FontWeight.w900,
                                           ),
                                         ),
@@ -2131,7 +2187,9 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                         onPressed: () => Navigator.of(ctx).pop(),
                                         icon: Icon(
                                           Icons.close,
-                                          color: onSurface.withOpacity(0.55),
+                                          color: AppTheme.secondaryText(
+                                            brightness,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -2153,7 +2211,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                                 height: 18,
                                                 child: CircularProgressIndicator(
                                                   strokeWidth: 2.4,
-                                                  color: cs.primary,
+                                                  color:
+                                                      AppTheme.limeAccentDark,
                                                 ),
                                               ),
                                               const SizedBox(width: 12),
@@ -2162,8 +2221,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                                   'Computing from matches...',
                                                   style: t.textTheme.bodyMedium
                                                       ?.copyWith(
-                                                    color: onSurface
-                                                        .withOpacity(0.70),
+                                                    color:
+                                                        AppTheme.secondaryText(
+                                                      brightness,
+                                                    ),
                                                     fontWeight: FontWeight.w700,
                                                   ),
                                                 ),
@@ -2183,7 +2244,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                               'Winner unavailable',
                                               style: t.textTheme.bodyMedium
                                                   ?.copyWith(
-                                                color: onSurface,
+                                                color:
+                                                    AppTheme.primaryText(brightness),
                                                 fontWeight: FontWeight.w900,
                                               ),
                                             ),
@@ -2193,7 +2255,7 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                               style: t.textTheme.bodySmall
                                                   ?.copyWith(
                                                 color:
-                                                    onSurface.withOpacity(0.70),
+                                                    AppTheme.secondaryText(brightness),
                                                 fontWeight: FontWeight.w600,
                                                 height: 1.3,
                                               ),
@@ -2222,7 +2284,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                             'Winner: ${res.teamName}',
                                             style: t.textTheme.titleMedium
                                                 ?.copyWith(
-                                              color: onSurface,
+                                              color:
+                                                  AppTheme.primaryText(brightness),
                                               fontWeight: FontWeight.w900,
                                             ),
                                           ),
@@ -2269,14 +2332,19 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                               const SizedBox(width: 10),
                                               Expanded(
                                                 child: FilledButton(
+                                                  style: FilledButton.styleFrom(
+                                                    backgroundColor:
+                                                        AppTheme.limeAccent,
+                                                    foregroundColor:
+                                                        AppTheme.darkText,
+                                                  ),
                                                   onPressed: () {
                                                     Navigator.of(ctx).pop();
                                                     GoRouter.of(context).push(
                                                       '/leagues/${d.id}/standings',
                                                     );
                                                   },
-                                                  child:
-                                                      const Text('Standings'),
+                                                  child: const Text('Standings'),
                                                 ),
                                               ),
                                             ],
@@ -2305,8 +2373,7 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
 
   Widget _kvRow(BuildContext context, String k, String v) {
     final t = Theme.of(context);
-    final cs = t.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = t.brightness;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -2316,7 +2383,7 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
             child: Text(
               k,
               style: t.textTheme.bodySmall?.copyWith(
-                color: onSurface.withOpacity(0.70),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -2325,7 +2392,7 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
             child: Text(
               v,
               style: t.textTheme.bodySmall?.copyWith(
-                color: onSurface.withOpacity(0.92),
+                color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -2364,8 +2431,7 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     final name = _s(leagueData['name'], fallback: 'League');
     final code = _s(leagueData['code']);
@@ -2377,13 +2443,15 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
           return Glass(
             borderRadius: 22,
             padding: const EdgeInsets.all(12),
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   name,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: onSurface,
+                    color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -2391,7 +2459,7 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                 Text(
                   'Rewards: unavailable (${rs.error})',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.error.withOpacity(0.9),
+                    color: Theme.of(context).colorScheme.error.withOpacity(0.9),
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -2407,6 +2475,10 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
                         onPressed: onOpenStandings,
                         child: const Text('Standings'),
                       ),
@@ -2428,6 +2500,8 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
         return Glass(
           borderRadius: 22,
           padding: const EdgeInsets.all(12),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2437,7 +2511,7 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                     child: Text(
                       name,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: onSurface,
+                        color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w900,
                       ),
                       maxLines: 1,
@@ -2470,7 +2544,7 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                 Text(
                   'Top reward: $topReward',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.primary,
+                    color: AppTheme.limeAccentDark,
                     fontWeight: FontWeight.w900,
                   ),
                   maxLines: 1,
@@ -2480,7 +2554,7 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                 Text(
                   'Checking rewards...',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: onSurface.withOpacity(0.60),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -2497,13 +2571,13 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                   };
                   final color = switch (status) {
                     _LeagueProgressStatus.notStarted =>
-                      onSurface.withOpacity(0.65),
+                      AppTheme.secondaryText(brightness),
                     _LeagueProgressStatus.inProgress =>
                       const Color(0xFFF59E0B),
                     _LeagueProgressStatus.finished =>
                       const Color(0xFF22C55E),
                     _LeagueProgressStatus.unknown =>
-                      onSurface.withOpacity(0.60),
+                      AppTheme.secondaryText(brightness),
                   };
 
                   return Text(
@@ -2528,6 +2602,10 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.limeAccent,
+                        foregroundColor: AppTheme.darkText,
+                      ),
                       onPressed: onOpenStandings,
                       icon: const Icon(Icons.leaderboard_outlined),
                       label: const Text('Standings'),
@@ -2566,7 +2644,7 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                 Text(
                   'Code: $code',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: onSurface.withOpacity(0.70),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -2647,15 +2725,18 @@ class _ProfileActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = Theme.of(context).brightness;
 
-    final color = isDestructive ? const Color(0xFFE53935) : cs.primary;
-    final bg =
-        isDestructive ? color.withOpacity(0.10) : onSurface.withOpacity(0.04);
-    final border =
-        isDestructive ? color.withOpacity(0.20) : onSurface.withOpacity(0.10);
-    final fg = isDestructive ? color : cs.primary;
+    final color = isDestructive
+        ? const Color(0xFFE53935)
+        : AppTheme.limeAccentDark;
+    final bg = isDestructive
+        ? color.withOpacity(0.10)
+        : AppTheme.searchBackground(brightness);
+    final border = isDestructive
+        ? color.withOpacity(0.20)
+        : AppTheme.searchOutline(brightness);
+    final fg = isDestructive ? color : AppTheme.limeAccentDark;
 
     return InkWell(
       onTap: onTap,
@@ -2701,8 +2782,7 @@ class _DesktopWebRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = Theme.of(context).brightness;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final chevron =
         isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
@@ -2719,9 +2799,13 @@ class _DesktopWebRow extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: cs.primary.withOpacity(0.10),
+                color: AppTheme.iconCircleBackground(brightness),
               ),
-              child: Icon(icon, color: cs.primary, size: 18),
+              child: Icon(
+                icon,
+                color: AppTheme.limeAccentDark,
+                size: 18,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -2732,14 +2816,14 @@ class _DesktopWebRow extends StatelessWidget {
                     title,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: onSurface,
+                          color: AppTheme.primaryText(brightness),
                         ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: onSurface.withOpacity(0.60),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                       height: 1.25,
@@ -2748,7 +2832,11 @@ class _DesktopWebRow extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(chevron, color: onSurface.withOpacity(0.35), size: 20),
+            Icon(
+              chevron,
+              color: AppTheme.secondaryText(brightness),
+              size: 20,
+            ),
           ],
         ),
       ),
@@ -2771,8 +2859,7 @@ class _LegalNavRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = Theme.of(context).brightness;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final chevron =
         isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
@@ -2789,9 +2876,9 @@ class _LegalNavRow extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: cs.primary.withOpacity(0.10),
+                color: AppTheme.iconCircleBackground(brightness),
               ),
-              child: Icon(icon, color: cs.primary, size: 18),
+              child: Icon(icon, color: AppTheme.limeAccentDark, size: 18),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -2802,14 +2889,14 @@ class _LegalNavRow extends StatelessWidget {
                     title,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: onSurface,
+                          color: AppTheme.primaryText(brightness),
                         ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: onSurface.withOpacity(0.60),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                       height: 1.25,
@@ -2818,7 +2905,11 @@ class _LegalNavRow extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(chevron, color: onSurface.withOpacity(0.35), size: 20),
+            Icon(
+              chevron,
+              color: AppTheme.secondaryText(brightness),
+              size: 20,
+            ),
           ],
         ),
       ),
@@ -2839,8 +2930,7 @@ class _AdminRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = Theme.of(context).brightness;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final chevron =
         isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
@@ -2857,9 +2947,9 @@ class _AdminRow extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: cs.primary.withOpacity(0.10),
+                color: AppTheme.iconCircleBackground(brightness),
               ),
-              child: Icon(icon, color: cs.primary, size: 18),
+              child: Icon(icon, color: AppTheme.limeAccentDark, size: 18),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -2867,11 +2957,15 @@ class _AdminRow extends StatelessWidget {
                 title,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w900,
-                      color: onSurface,
+                      color: AppTheme.primaryText(brightness),
                     ),
               ),
             ),
-            Icon(chevron, color: onSurface.withOpacity(0.35), size: 20),
+            Icon(
+              chevron,
+              color: AppTheme.secondaryText(brightness),
+              size: 20,
+            ),
           ],
         ),
       ),
@@ -2892,12 +2986,13 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = Theme.of(context).brightness;
 
     return Glass(
       borderRadius: 18,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Row(
         children: [
           Container(
@@ -2905,11 +3000,11 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
             height: 36,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: cs.primary.withOpacity(0.12),
+              color: AppTheme.iconCircleBackground(brightness),
             ),
             child: Icon(
               Icons.confirmation_number_rounded,
-              color: cs.primary,
+              color: AppTheme.limeAccentDark,
               size: 18,
             ),
           ),
@@ -2924,14 +3019,14 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w900,
-                        color: onSurface,
+                        color: AppTheme.primaryText(brightness),
                       ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
                   style: TextStyle(
-                    color: onSurface.withOpacity(0.60),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),
@@ -2941,6 +3036,10 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
+            ),
             onPressed: onView,
             child: const Text('View'),
           ),

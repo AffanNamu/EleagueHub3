@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -115,7 +116,7 @@ class _FollowedOrganizerFeedScreenState
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -153,6 +154,8 @@ class _FollowedOrganizerFeedScreenState
                             Glass(
                               borderRadius: 28,
                               padding: const EdgeInsets.all(18),
+                              fill: AppTheme.cardColor(brightness),
+                              borderColor: AppTheme.cardBorder(brightness),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -161,14 +164,14 @@ class _FollowedOrganizerFeedScreenState
                                     style: theme.textTheme.titleLarge?.copyWith(
                                       fontWeight: FontWeight.w900,
                                       letterSpacing: -0.3,
-                                      color: cs.onSurface,
+                                      color: AppTheme.primaryText(brightness),
                                     ),
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
                                     'Latest updates from the organizer workspaces you follow.',
                                     style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: cs.onSurface.withOpacity(0.72),
+                                      color: AppTheme.secondaryText(brightness),
                                       fontWeight: FontWeight.w600,
                                       height: 1.35,
                                     ),
@@ -181,10 +184,12 @@ class _FollowedOrganizerFeedScreenState
                               Glass(
                                 borderRadius: 24,
                                 padding: const EdgeInsets.all(18),
+                                fill: AppTheme.cardColor(brightness),
+                                borderColor: AppTheme.cardBorder(brightness),
                                 child: Text(
                                   _error!,
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.error,
+                                    color: theme.colorScheme.error,
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
@@ -218,6 +223,8 @@ class _FollowedOrganizerFeedScreenState
                                     child: Glass(
                                       borderRadius: 22,
                                       padding: const EdgeInsets.all(14),
+                                      fill: AppTheme.cardColor(brightness),
+                                      borderColor: AppTheme.cardBorder(brightness),
                                       child: Row(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
@@ -231,7 +238,7 @@ class _FollowedOrganizerFeedScreenState
                                                   .withOpacity(0.12),
                                               border: Border.all(
                                                 color: _feedColor(item.type)
-                                                    .withOpacity(0.24),
+                                                    .withOpacity(0.22),
                                               ),
                                             ),
                                             child: Icon(
@@ -251,7 +258,9 @@ class _FollowedOrganizerFeedScreenState
                                                   style: theme
                                                       .textTheme.bodyMedium
                                                       ?.copyWith(
-                                                    color: cs.onSurface,
+                                                    color: AppTheme.primaryText(
+                                                      brightness,
+                                                    ),
                                                     fontWeight: FontWeight.w900,
                                                   ),
                                                 ),
@@ -261,8 +270,9 @@ class _FollowedOrganizerFeedScreenState
                                                   style: theme
                                                       .textTheme.bodySmall
                                                       ?.copyWith(
-                                                    color: cs.onSurface
-                                                        .withOpacity(0.74),
+                                                    color: AppTheme.secondaryText(
+                                                      brightness,
+                                                    ),
                                                     fontWeight: FontWeight.w700,
                                                     height: 1.3,
                                                   ),
@@ -277,11 +287,10 @@ class _FollowedOrganizerFeedScreenState
                                                               .trim()
                                                               .isEmpty
                                                           ? 'Organizer'
-                                                          : item.actorName
-                                                              .trim(),
+                                                          : item.actorName.trim(),
                                                       icon: Icons
                                                           .person_outline_rounded,
-                                                      color: cs.primary,
+                                                      color: AppTheme.limeAccentDark,
                                                     ),
                                                     _MetaChip(
                                                       label: _formatWhen(
@@ -289,7 +298,7 @@ class _FollowedOrganizerFeedScreenState
                                                       ),
                                                       icon:
                                                           Icons.schedule_rounded,
-                                                      color: cs.primary,
+                                                      color: AppTheme.limeAccentDark,
                                                     ),
                                                     if (item.masterLeagueId
                                                         .trim()
@@ -310,7 +319,9 @@ class _FollowedOrganizerFeedScreenState
                                           ),
                                           Icon(
                                             Icons.chevron_right_rounded,
-                                            color: cs.onSurface.withOpacity(0.35),
+                                            color: AppTheme.secondaryText(
+                                              brightness,
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -341,14 +352,16 @@ class _MetaChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: color.withOpacity(0.08),
-        border: Border.all(color: color.withOpacity(0.18)),
+        color: color.withOpacity(brightness == Brightness.dark ? 0.10 : 0.08),
+        border: Border.all(
+          color: color.withOpacity(brightness == Brightness.dark ? 0.22 : 0.18),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -358,7 +371,7 @@ class _MetaChip extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w800,
               fontSize: 12,
             ),

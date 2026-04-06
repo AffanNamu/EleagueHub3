@@ -45,9 +45,7 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
     });
 
     try {
-      // ── ensure Firebase is initialized before anything else ──────────
       if (Firebase.apps.isEmpty) {
-        // Firebase not initialized yet - wait a moment and check again
         await Future<void>.delayed(const Duration(milliseconds: 500));
         if (Firebase.apps.isEmpty) {
           throw StateError(
@@ -59,8 +57,7 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
       final existing = await WebDesktopSessionStore.load();
 
       if (existing != null) {
-        final pairedUid =
-            (existing['pairedUserUid'] ?? '').trim();
+        final pairedUid = (existing['pairedUserUid'] ?? '').trim();
         if (pairedUid.isNotEmpty) {
           if (!mounted) return;
           _openShell(
@@ -73,8 +70,7 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
         await WebDesktopSessionStore.clear();
       }
 
-      final session =
-          await DesktopPairingService.instance.createSession();
+      final session = await DesktopPairingService.instance.createSession();
       if (!mounted) return;
 
       setState(() {
@@ -95,14 +91,12 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
   void _startPolling() {
     _pollTimer?.cancel();
 
-    _pollTimer =
-        Timer.periodic(const Duration(seconds: 3), (_) async {
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
       final current = _session;
       if (current == null) return;
 
       try {
-        final status =
-            await DesktopPairingService.instance.getStatus(
+        final status = await DesktopPairingService.instance.getStatus(
           sessionId: current.sessionId,
           sessionSecret: current.sessionSecret,
         );
@@ -114,11 +108,9 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
             status.status == 'consumed') {
           _pollTimer?.cancel();
 
-          // ── Try Firebase custom token sign-in ────────────────────
           final token = status.firebaseCustomToken.trim();
           if (token.isNotEmpty) {
             try {
-              // Only use FirebaseAuth if Firebase is initialized
               if (Firebase.apps.isNotEmpty) {
                 final auth = FirebaseAuth.instance;
                 if (auth.currentUser != null) {
@@ -127,12 +119,10 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                 await auth.signInWithCustomToken(token);
               }
             } catch (signInErr) {
-              // Silent - continue to shell anyway
               debugPrint('Custom token sign-in skipped: $signInErr');
             }
           }
 
-          // ── Save and open shell ──────────────────────────────────
           await WebDesktopSessionStore.save(
             sessionId: current.sessionId,
             sessionSecret: current.sessionSecret,
@@ -151,8 +141,7 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
           return;
         }
 
-        if (status.status == 'expired' ||
-            status.status == 'rejected') {
+        if (status.status == 'expired' || status.status == 'rejected') {
           _pollTimer?.cancel();
           if (!mounted) return;
           setState(() {
@@ -197,8 +186,7 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: 560),
+                    constraints: const BoxConstraints(maxWidth: 560),
                     child: _InfoCard(
                       title: 'Preparing desktop session...',
                       subtitle:
@@ -209,7 +197,9 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                           width: 34,
                           height: 34,
                           child: CircularProgressIndicator(
-                              strokeWidth: 3),
+                            strokeWidth: 3,
+                            color: AppTheme.limeAccentDark,
+                          ),
                         ),
                       ),
                     ),
@@ -223,8 +213,7 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: 560),
+                    constraints: const BoxConstraints(maxWidth: 560),
                     child: _InfoCard(
                       title: 'Could not start desktop pairing',
                       subtitle: _error!,
@@ -232,6 +221,10 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                         children: [
                           const SizedBox(height: 14),
                           FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.limeAccent,
+                              foregroundColor: AppTheme.darkText,
+                            ),
                             onPressed: () async {
                               await WebDesktopSessionStore.clear();
                               _boot();
@@ -253,8 +246,7 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: 560),
+                    constraints: const BoxConstraints(maxWidth: 560),
                     child: _InfoCard(
                       title: 'No session available',
                       subtitle:
@@ -263,6 +255,10 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                         children: [
                           const SizedBox(height: 14),
                           FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.limeAccent,
+                              foregroundColor: AppTheme.darkText,
+                            ),
                             onPressed: _boot,
                             icon: const Icon(Icons.refresh),
                             label: const Text('Refresh'),
@@ -286,8 +282,7 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
                 child: ConstrainedBox(
-                  constraints:
-                      const BoxConstraints(maxWidth: 1220),
+                  constraints: const BoxConstraints(maxWidth: 1220),
                   child: stacked
                       ? Column(
                           children: [
@@ -300,8 +295,7 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                           crossAxisAlignment:
                               CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                                flex: 6, child: introPanel),
+                            Expanded(flex: 6, child: introPanel),
                             const SizedBox(width: 18),
                             Expanded(flex: 7, child: qrPanel),
                           ],
@@ -329,19 +323,21 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
     return Glass(
       borderRadius: 28,
       padding: const EdgeInsets.all(24),
-      fill: Colors.white.withOpacity(0.08),
-      borderColor: Colors.white.withOpacity(0.12),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             title,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: AppTheme.primaryText(brightness),
               fontSize: 22,
               fontWeight: FontWeight.w900,
             ),
@@ -351,7 +347,7 @@ class _InfoCard extends StatelessWidget {
             subtitle,
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.75),
+              color: AppTheme.secondaryText(brightness),
               height: 1.45,
               fontWeight: FontWeight.w600,
             ),
@@ -369,11 +365,13 @@ class _IntroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
     return Glass(
       borderRadius: 28,
       padding: EdgeInsets.all(compact ? 18 : 24),
-      fill: Colors.white.withOpacity(0.08),
-      borderColor: Colors.white.withOpacity(0.12),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -388,7 +386,7 @@ class _IntroPanel extends StatelessWidget {
                       .textTheme
                       .headlineSmall
                       ?.copyWith(
-                        color: Colors.white,
+                        color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w900,
                         fontSize: compact ? 28 : 36,
                       ),
@@ -405,7 +403,7 @@ class _IntroPanel extends StatelessWidget {
                 .textTheme
                 .headlineMedium
                 ?.copyWith(
-                  color: Colors.white,
+                  color: AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w900,
                   height: 1.08,
                   fontSize: compact ? 28 : 54,
@@ -420,7 +418,7 @@ class _IntroPanel extends StatelessWidget {
                 .textTheme
                 .titleMedium
                 ?.copyWith(
-                  color: Colors.white.withOpacity(0.84),
+                  color: AppTheme.secondaryText(brightness),
                   height: 1.5,
                   fontWeight: FontWeight.w600,
                   fontSize: compact ? 18 : 22,
@@ -430,21 +428,21 @@ class _IntroPanel extends StatelessWidget {
           Glass(
             borderRadius: 22,
             padding: const EdgeInsets.all(16),
-            fill: Colors.white.withOpacity(0.05),
-            borderColor: Colors.white.withOpacity(0.10),
+            fill: AppTheme.searchBackground(brightness),
+            borderColor: AppTheme.searchOutline(brightness),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
+                const Icon(
                   Icons.lock_outline_rounded,
-                  color: AppTheme.navyAccent,
+                  color: AppTheme.limeAccentDark,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Your phone stays the primary device. This desktop session is linked securely through your mobile app.',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.72),
+                      color: AppTheme.secondaryText(brightness),
                       height: 1.45,
                       fontWeight: FontWeight.w600,
                     ),
@@ -472,6 +470,7 @@ class _QrPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     final width = MediaQuery.of(context).size.width;
     final qrSize =
         compact ? 220.0 : (width < 1200 ? 260.0 : 300.0);
@@ -479,8 +478,8 @@ class _QrPanel extends StatelessWidget {
     return Glass(
       borderRadius: 28,
       padding: EdgeInsets.all(compact ? 18 : 24),
-      fill: Colors.white.withOpacity(0.08),
-      borderColor: Colors.white.withOpacity(0.12),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         children: [
           Container(
@@ -490,7 +489,7 @@ class _QrPanel extends StatelessWidget {
               borderRadius: BorderRadius.circular(22),
               boxShadow: const [
                 BoxShadow(
-                  color: Colors.black26,
+                  color: Colors.black12,
                   blurRadius: 24,
                   offset: Offset(0, 10),
                 ),
@@ -516,7 +515,7 @@ class _QrPanel extends StatelessWidget {
             'Scan to link this desktop',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.white,
+              color: AppTheme.primaryText(brightness),
               fontSize: compact ? 20 : 24,
               fontWeight: FontWeight.w900,
             ),
@@ -526,13 +525,17 @@ class _QrPanel extends StatelessWidget {
             'Open the eSportlyic mobile app and scan this QR code.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.72),
+              color: AppTheme.secondaryText(brightness),
               height: 1.45,
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 18),
           FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
+            ),
             onPressed: onRefresh,
             icon: const Icon(Icons.refresh),
             label: const Text('Refresh QR'),
@@ -554,10 +557,10 @@ class _BrandLogo extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        color: AppTheme.navyAccent,
+        color: AppTheme.limeAccent,
         boxShadow: [
           BoxShadow(
-            color: AppTheme.navyAccent.withOpacity(0.24),
+            color: AppTheme.limeAccentDark.withOpacity(0.24),
             blurRadius: 22,
             spreadRadius: 1,
           ),
@@ -571,7 +574,7 @@ class _BrandLogo extends StatelessWidget {
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => const Icon(
             Icons.sports_esports,
-            color: Colors.white,
+            color: AppTheme.darkText,
             size: 28,
           ),
         ),

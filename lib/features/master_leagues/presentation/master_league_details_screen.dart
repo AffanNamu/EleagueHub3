@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -69,7 +70,8 @@ class _MasterLeagueDetailsScreenState
 
   Future<String> _ownerDisplayName(String ownerId) async {
     try {
-      final profile = await UserProfileRepository().fetchByUserId(ownerId.trim());
+      final profile =
+          await UserProfileRepository().fetchByUserId(ownerId.trim());
       if (profile != null && profile.displayName.trim().isNotEmpty) {
         return profile.displayName.trim();
       }
@@ -129,12 +131,14 @@ class _MasterLeagueDetailsScreenState
   }
 
   Stream<List<LeagueAnnouncement>> _watchWorkspaceAnnouncements(
-      String masterLeagueId) {
+    String masterLeagueId,
+  ) {
     return _announcements.watchMasterLeagueAnnouncements(masterLeagueId);
   }
 
   Stream<LeagueAnnouncement?> _watchPinnedWorkspaceAnnouncement(
-      String masterLeagueId) {
+    String masterLeagueId,
+  ) {
     return _announcements.watchPinnedMasterLeagueAnnouncement(masterLeagueId);
   }
 
@@ -284,7 +288,7 @@ class _MasterLeagueDetailsScreenState
     }
 
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final selected = await showModalBottomSheet<LeagueFormat>(
       context: context,
@@ -298,7 +302,7 @@ class _MasterLeagueDetailsScreenState
           required LeagueFormat format,
           Color? tint,
         }) {
-          final c = tint ?? cs.primary;
+          final c = tint ?? AppTheme.limeAccentDark;
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: InkWell(
@@ -308,6 +312,8 @@ class _MasterLeagueDetailsScreenState
                 borderRadius: 20,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: Row(
                   children: [
                     Container(
@@ -329,14 +335,14 @@ class _MasterLeagueDetailsScreenState
                             title,
                             style: theme.textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.w900,
-                              color: cs.onSurface,
+                              color: AppTheme.primaryText(brightness),
                             ),
                           ),
                           const SizedBox(height: 3),
                           Text(
                             subtitle,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.onSurface.withOpacity(0.65),
+                              color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w700,
                               height: 1.2,
                             ),
@@ -346,7 +352,7 @@ class _MasterLeagueDetailsScreenState
                     ),
                     Icon(
                       Icons.chevron_right_rounded,
-                      color: cs.onSurface.withOpacity(0.35),
+                      color: AppTheme.secondaryText(brightness),
                     ),
                   ],
                 ),
@@ -364,16 +370,21 @@ class _MasterLeagueDetailsScreenState
                 Glass(
                   borderRadius: 24,
                   padding: const EdgeInsets.all(14),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Row(
                     children: [
-                      Icon(Icons.add_circle_outline_rounded, color: cs.primary),
+                      Icon(
+                        Icons.add_circle_outline_rounded,
+                        color: AppTheme.limeAccentDark,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           'Create Competition',
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
-                            color: cs.onSurface,
+                            color: AppTheme.primaryText(brightness),
                           ),
                         ),
                       ),
@@ -386,7 +397,7 @@ class _MasterLeagueDetailsScreenState
                   title: 'Classic League',
                   subtitle: 'Round-robin style competition',
                   format: LeagueFormat.classic,
-                  tint: cs.primary,
+                  tint: AppTheme.limeAccentDark,
                 ),
                 option(
                   icon: Icons.grid_view_rounded,
@@ -429,6 +440,8 @@ class _MasterLeagueDetailsScreenState
     final shouldPost = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
+        surfaceTintColor: Colors.transparent,
         title: const Text('Post Organizer Announcement'),
         content: SingleChildScrollView(
           child: Column(
@@ -462,6 +475,10 @@ class _MasterLeagueDetailsScreenState
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Post'),
           ),
@@ -487,7 +504,8 @@ class _MasterLeagueDetailsScreenState
 
     setState(() => _busy = true);
     try {
-      final ownerProfile = await UserProfileRepository().fetchByUserId(_currentUid);
+      final ownerProfile =
+          await UserProfileRepository().fetchByUserId(_currentUid);
       final authorName = ownerProfile?.displayName.trim().isNotEmpty == true
           ? ownerProfile!.displayName.trim()
           : 'Organizer';
@@ -539,13 +557,14 @@ class _MasterLeagueDetailsScreenState
   }
 
   Future<void> _confirmDeleteAnnouncement(LeagueAnnouncement ann) async {
-    final cs = Theme.of(context).colorScheme;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
+        surfaceTintColor: Colors.transparent,
         title: Text(
           'Delete announcement?',
-          style: TextStyle(color: cs.error),
+          style: TextStyle(color: Theme.of(ctx).colorScheme.error),
         ),
         content: Text('Delete "${ann.title}" from organizer announcements?'),
         actions: [
@@ -554,7 +573,9 @@ class _MasterLeagueDetailsScreenState
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: cs.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Delete'),
           ),
@@ -577,7 +598,7 @@ class _MasterLeagueDetailsScreenState
 
   Future<void> _showRenameDialog(MasterLeague ml) async {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final ctrl = TextEditingController(text: ml.name);
 
     final newName = await showDialog<String>(
@@ -589,6 +610,8 @@ class _MasterLeagueDetailsScreenState
         child: Glass(
           borderRadius: 28,
           padding: const EdgeInsets.all(16),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -597,7 +620,7 @@ class _MasterLeagueDetailsScreenState
                 'Rename Master League',
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w900,
-                  color: cs.onSurface,
+                  color: AppTheme.primaryText(brightness),
                 ),
               ),
               const SizedBox(height: 14),
@@ -626,6 +649,10 @@ class _MasterLeagueDetailsScreenState
                   const SizedBox(width: 12),
                   Expanded(
                     child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.limeAccent,
+                        foregroundColor: AppTheme.darkText,
+                      ),
                       onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
                       child: const Text(
                         'Rename',
@@ -664,7 +691,7 @@ class _MasterLeagueDetailsScreenState
     required String role,
   }) async {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final ctrl = TextEditingController();
 
     final shortId = await showDialog<String>(
@@ -676,6 +703,8 @@ class _MasterLeagueDetailsScreenState
         child: Glass(
           borderRadius: 28,
           padding: const EdgeInsets.all(16),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -684,14 +713,14 @@ class _MasterLeagueDetailsScreenState
                 'Add ${role == 'admin' ? 'Admin' : 'Moderator'}',
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w900,
-                  color: cs.onSurface,
+                  color: AppTheme.primaryText(brightness),
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 'Enter the user short id (share id). Example: eS44e35f',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: cs.onSurface.withOpacity(0.65),
+                  color: AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -725,6 +754,10 @@ class _MasterLeagueDetailsScreenState
                   const SizedBox(width: 12),
                   Expanded(
                     child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.limeAccent,
+                        foregroundColor: AppTheme.darkText,
+                      ),
                       onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
                       child: const Text(
                         'Add',
@@ -775,7 +808,7 @@ class _MasterLeagueDetailsScreenState
     final save = await showDialog<bool>(
       context: context,
       builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
+        final brightness = Theme.of(ctx).brightness;
         return StatefulBuilder(
           builder: (ctx, setModalState) {
             List<int> allowedTeams() {
@@ -801,6 +834,8 @@ class _MasterLeagueDetailsScreenState
             }
 
             return AlertDialog(
+              backgroundColor: AppTheme.cardColor(brightness),
+              surfaceTintColor: Colors.transparent,
               title: const Text('Create Competition Template'),
               content: SingleChildScrollView(
                 child: Column(
@@ -897,6 +932,7 @@ class _MasterLeagueDetailsScreenState
                     ),
                     const SizedBox(height: 10),
                     SwitchListTile.adaptive(
+                      activeColor: AppTheme.limeAccentDark,
                       value: containsRewards,
                       onChanged: (v) =>
                           setModalState(() => containsRewards = v),
@@ -904,6 +940,7 @@ class _MasterLeagueDetailsScreenState
                     ),
                     if (supportsHomeAway)
                       SwitchListTile.adaptive(
+                        activeColor: AppTheme.limeAccentDark,
                         value: homeAwayEnabled,
                         onChanged: (v) =>
                             setModalState(() => homeAwayEnabled = v),
@@ -919,13 +956,21 @@ class _MasterLeagueDetailsScreenState
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          color: cs.primary.withOpacity(0.08),
+                          color: brightness == Brightness.dark
+                              ? AppTheme.limeAccentDark.withOpacity(0.10)
+                              : const Color(0xFFECFCCB),
                           border: Border.all(
-                            color: cs.primary.withOpacity(0.18),
+                            color: brightness == Brightness.dark
+                                ? AppTheme.limeAccentDark.withOpacity(0.22)
+                                : const Color(0xFFD9F99D),
                           ),
                         ),
-                        child: const Text(
+                        child: Text(
                           'Swiss / Series templates are ideal for repeat tournament structures.',
+                          style: TextStyle(
+                            color: AppTheme.primaryText(brightness),
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ],
@@ -938,6 +983,10 @@ class _MasterLeagueDetailsScreenState
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.limeAccent,
+                    foregroundColor: AppTheme.darkText,
+                  ),
                   onPressed: () => Navigator.of(ctx).pop(true),
                   child: const Text('Save Template'),
                 ),
@@ -1001,13 +1050,14 @@ class _MasterLeagueDetailsScreenState
     MasterLeague ml,
     CompetitionTemplate template,
   ) async {
-    final cs = Theme.of(context).colorScheme;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
+        surfaceTintColor: Colors.transparent,
         title: Text(
           'Delete template?',
-          style: TextStyle(color: cs.error),
+          style: TextStyle(color: Theme.of(ctx).colorScheme.error),
         ),
         content: Text('Delete "${template.name}"?'),
         actions: [
@@ -1016,7 +1066,9 @@ class _MasterLeagueDetailsScreenState
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: cs.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Delete'),
           ),
@@ -1042,7 +1094,7 @@ class _MasterLeagueDetailsScreenState
 
   Future<void> _confirmDeleteWorkspace(MasterLeague master) async {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final confirmationName = master.name.trim().isNotEmpty
         ? master.name.trim()
         : await _ownerDisplayName(master.ownerId);
@@ -1067,6 +1119,8 @@ class _MasterLeagueDetailsScreenState
               child: Glass(
                 borderRadius: 30,
                 padding: const EdgeInsets.all(18),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 520),
                   child: Column(
@@ -1080,15 +1134,21 @@ class _MasterLeagueDetailsScreenState
                             width: 48,
                             height: 48,
                             decoration: BoxDecoration(
-                              color: cs.error.withOpacity(0.10),
+                              color: Theme.of(ctx)
+                                  .colorScheme
+                                  .error
+                                  .withOpacity(0.10),
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: cs.error.withOpacity(0.28),
+                                color: Theme.of(ctx)
+                                    .colorScheme
+                                    .error
+                                    .withOpacity(0.28),
                               ),
                             ),
                             child: Icon(
                               Icons.warning_amber_rounded,
-                              color: cs.error,
+                              color: Theme.of(ctx).colorScheme.error,
                               size: 26,
                             ),
                           ),
@@ -1098,7 +1158,7 @@ class _MasterLeagueDetailsScreenState
                               'Delete Workspace',
                               style: theme.textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.w900,
-                                color: cs.onSurface,
+                                color: AppTheme.primaryText(brightness),
                               ),
                             ),
                           ),
@@ -1108,16 +1168,17 @@ class _MasterLeagueDetailsScreenState
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: cs.error.withOpacity(0.08),
+                          color: Theme.of(ctx).colorScheme.error.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: cs.error.withOpacity(0.22),
+                            color:
+                                Theme.of(ctx).colorScheme.error.withOpacity(0.22),
                           ),
                         ),
                         child: Text(
                           '⚠️ This action will permanently delete your workspace, including all leagues, players, and data. This cannot be undone.',
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: cs.error,
+                            color: Theme.of(ctx).colorScheme.error,
                             fontWeight: FontWeight.w900,
                             height: 1.35,
                           ),
@@ -1127,7 +1188,7 @@ class _MasterLeagueDetailsScreenState
                       Text(
                         'Please type your profile name exactly to confirm.',
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: cs.onSurface.withOpacity(0.78),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -1138,16 +1199,16 @@ class _MasterLeagueDetailsScreenState
                           vertical: 12,
                         ),
                         decoration: BoxDecoration(
-                          color: cs.primary.withOpacity(0.06),
+                          color: AppTheme.searchBackground(brightness),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: cs.primary.withOpacity(0.18),
+                            color: AppTheme.searchOutline(brightness),
                           ),
                         ),
                         child: SelectableText(
                           confirmationName,
                           style: theme.textTheme.bodyLarge?.copyWith(
-                            color: cs.onSurface,
+                            color: AppTheme.primaryText(brightness),
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -1186,7 +1247,7 @@ class _MasterLeagueDetailsScreenState
                           Expanded(
                             child: FilledButton(
                               style: FilledButton.styleFrom(
-                                backgroundColor: cs.error,
+                                backgroundColor: Theme.of(ctx).colorScheme.error,
                                 foregroundColor: Colors.white,
                               ),
                               onPressed: (!matches || deleting)
@@ -1261,36 +1322,46 @@ class _MasterLeagueDetailsScreenState
     final selected = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
+      backgroundColor: Colors.transparent,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Rename Master League'),
-              onTap: () => Navigator.of(ctx).pop('rename'),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Glass(
+            borderRadius: 24,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            fill: AppTheme.cardColor(Theme.of(ctx).brightness),
+            borderColor: AppTheme.cardBorder(Theme.of(ctx).brightness),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('Rename Master League'),
+                  onTap: () => Navigator.of(ctx).pop('rename'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.badge_outlined),
+                  title: const Text('Organizer Profile'),
+                  onTap: () => Navigator.of(ctx).pop('profile'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.admin_panel_settings_outlined),
+                  title: const Text('Add Admin'),
+                  onTap: () => Navigator.of(ctx).pop('admin'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: const Text('Add Moderator'),
+                  onTap: () => Navigator.of(ctx).pop('moderator'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_forever_outlined),
+                  title: const Text('Delete Workspace'),
+                  onTap: () => Navigator.of(ctx).pop('delete'),
+                ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.badge_outlined),
-              title: const Text('Organizer Profile'),
-              onTap: () => Navigator.of(ctx).pop('profile'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.admin_panel_settings_outlined),
-              title: const Text('Add Admin'),
-              onTap: () => Navigator.of(ctx).pop('admin'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.shield_outlined),
-              title: const Text('Add Moderator'),
-              onTap: () => Navigator.of(ctx).pop('moderator'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_forever_outlined),
-              title: const Text('Delete Workspace'),
-              onTap: () => Navigator.of(ctx).pop('delete'),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1320,8 +1391,9 @@ class _MasterLeagueDetailsScreenState
     MasterLeague master,
     List<League> leagues,
     ThemeData theme,
-    ColorScheme cs,
   ) async {
+    final brightness = theme.brightness;
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1334,6 +1406,8 @@ class _MasterLeagueDetailsScreenState
             child: Glass(
               borderRadius: 28,
               padding: const EdgeInsets.all(16),
+              fill: AppTheme.cardColor(brightness),
+              borderColor: AppTheme.cardBorder(brightness),
               child: SizedBox(
                 height: MediaQuery.of(ctx).size.height * 0.82,
                 child: Column(
@@ -1341,21 +1415,24 @@ class _MasterLeagueDetailsScreenState
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.emoji_events_outlined, color: cs.primary),
+                        Icon(
+                          Icons.emoji_events_outlined,
+                          color: AppTheme.limeAccentDark,
+                        ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             'All Competitions',
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w900,
-                              color: cs.onSurface,
+                              color: AppTheme.primaryText(brightness),
                             ),
                           ),
                         ),
                         Text(
                           '${leagues.length}',
                           style: theme.textTheme.labelLarge?.copyWith(
-                            color: cs.primary,
+                            color: AppTheme.limeAccentDark,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -1387,6 +1464,8 @@ class _MasterLeagueDetailsScreenState
                                     return Glass(
                                       borderRadius: 22,
                                       padding: const EdgeInsets.all(12),
+                                      fill: AppTheme.cardColor(brightness),
+                                      borderColor: AppTheme.cardBorder(brightness),
                                       child: Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.stretch,
@@ -1445,6 +1524,12 @@ class _MasterLeagueDetailsScreenState
                                                         ),
                                                       )
                                                     : FilledButton.icon(
+                                                        style: FilledButton.styleFrom(
+                                                          backgroundColor:
+                                                              AppTheme.limeAccent,
+                                                          foregroundColor:
+                                                              AppTheme.darkText,
+                                                        ),
                                                         onPressed: joiningThis
                                                             ? null
                                                             : () => _promptJoinCompetition(l),
@@ -1455,8 +1540,8 @@ class _MasterLeagueDetailsScreenState
                                                                 child:
                                                                     CircularProgressIndicator(
                                                                   strokeWidth: 2,
-                                                                  color:
-                                                                      Colors.white,
+                                                                  color: AppTheme
+                                                                      .darkText,
                                                                 ),
                                                               )
                                                             : const Icon(
@@ -1495,8 +1580,8 @@ class _MasterLeagueDetailsScreenState
   Widget _buildCompetitionTemplatesSection(
     MasterLeague master,
     ThemeData theme,
-    ColorScheme cs,
   ) {
+    final brightness = theme.brightness;
     if (!_isOwner(master)) return const SizedBox.shrink();
 
     final templatesAsync =
@@ -1505,6 +1590,8 @@ class _MasterLeagueDetailsScreenState
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1524,7 +1611,7 @@ class _MasterLeagueDetailsScreenState
           Text(
             'Save reusable competition setups and launch faster next time.',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.68),
+              color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1537,7 +1624,7 @@ class _MasterLeagueDetailsScreenState
             error: (e, _) => Text(
               '$e',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.error,
+                color: theme.colorScheme.error,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -1546,7 +1633,7 @@ class _MasterLeagueDetailsScreenState
                 return Text(
                   'No templates yet. Save your first reusable competition setup.',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.65),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                   ),
                 );
@@ -1559,6 +1646,8 @@ class _MasterLeagueDetailsScreenState
                     child: Glass(
                       borderRadius: 20,
                       padding: const EdgeInsets.all(14),
+                      fill: AppTheme.cardColor(brightness),
+                      borderColor: AppTheme.cardBorder(brightness),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1568,7 +1657,7 @@ class _MasterLeagueDetailsScreenState
                                 child: Text(
                                   template.name,
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: cs.onSurface,
+                                    color: AppTheme.primaryText(brightness),
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
@@ -1579,7 +1668,7 @@ class _MasterLeagueDetailsScreenState
                                     _confirmDeleteTemplate(master, template),
                                 icon: Icon(
                                   Icons.delete_outline_rounded,
-                                  color: cs.error,
+                                  color: theme.colorScheme.error,
                                   size: 20,
                                 ),
                               ),
@@ -1590,7 +1679,7 @@ class _MasterLeagueDetailsScreenState
                             Text(
                               template.description.trim(),
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.76),
+                                color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w700,
                                 height: 1.3,
                               ),
@@ -1602,17 +1691,17 @@ class _MasterLeagueDetailsScreenState
                             runSpacing: 8,
                             children: [
                               _templateChip(
-                                cs,
+                                brightness,
                                 icon: Icons.auto_awesome_outlined,
                                 label: template.format.displayName,
                               ),
                               _templateChip(
-                                cs,
+                                brightness,
                                 icon: Icons.groups_outlined,
                                 label: '${template.maxTeams} teams',
                               ),
                               _templateChip(
-                                cs,
+                                brightness,
                                 icon: Icons.lock_outline,
                                 label: template.privacy.name == 'private'
                                     ? 'Private'
@@ -1620,13 +1709,13 @@ class _MasterLeagueDetailsScreenState
                               ),
                               if (template.homeAwayEnabled)
                                 _templateChip(
-                                  cs,
+                                  brightness,
                                   icon: Icons.swap_horiz,
                                   label: 'Home & Away',
                                 ),
                               if (template.containsRewards)
                                 _templateChip(
-                                  cs,
+                                  brightness,
                                   icon: Icons.card_giftcard_outlined,
                                   label: 'Rewards',
                                 ),
@@ -1658,7 +1747,7 @@ class _MasterLeagueDetailsScreenState
   }
 
   Widget _templateChip(
-    ColorScheme cs, {
+    Brightness brightness, {
     required IconData icon,
     required String label,
   }) {
@@ -1666,18 +1755,18 @@ class _MasterLeagueDetailsScreenState
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: cs.primary.withOpacity(0.06),
-        border: Border.all(color: cs.primary.withOpacity(0.14)),
+        color: AppTheme.searchBackground(brightness),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: cs.primary),
+          Icon(icon, size: 14, color: AppTheme.limeAccentDark),
           const SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w800,
               fontSize: 12,
             ),
@@ -1690,8 +1779,9 @@ class _MasterLeagueDetailsScreenState
   Widget _buildOwnerQuickActions(
     MasterLeague master,
     ThemeData theme,
-    ColorScheme cs,
   ) {
+    final brightness = theme.brightness;
+
     Widget tile({
       required IconData icon,
       required String title,
@@ -1705,6 +1795,8 @@ class _MasterLeagueDetailsScreenState
         child: Glass(
           borderRadius: 20,
           padding: const EdgeInsets.all(14),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Row(
             children: [
               Container(
@@ -1726,14 +1818,14 @@ class _MasterLeagueDetailsScreenState
                       title,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w900,
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                       ),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       subtitle,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.62),
+                        color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w700,
                         height: 1.2,
                       ),
@@ -1743,7 +1835,7 @@ class _MasterLeagueDetailsScreenState
               ),
               Icon(
                 Icons.chevron_right_rounded,
-                color: cs.onSurface.withOpacity(0.34),
+                color: AppTheme.secondaryText(brightness),
               ),
             ],
           ),
@@ -1758,7 +1850,7 @@ class _MasterLeagueDetailsScreenState
           title: 'Organizer Profile',
           subtitle: 'Branding, socials, bio, and public identity',
           onTap: () => _openOrganizerProfile(master),
-          tint: cs.primary,
+          tint: AppTheme.limeAccentDark,
         ),
         const SizedBox(height: 12),
         tile(
@@ -1810,7 +1902,7 @@ class _MasterLeagueDetailsScreenState
           subtitle:
               'Permanently remove this organizer workspace and all linked data',
           onTap: () => _confirmDeleteWorkspace(master),
-          tint: cs.error,
+          tint: theme.colorScheme.error,
         ),
       ],
     );
@@ -1819,8 +1911,8 @@ class _MasterLeagueDetailsScreenState
   Widget _buildVisitorOverview(
     MasterLeague master,
     ThemeData theme,
-    ColorScheme cs,
   ) {
+    final brightness = theme.brightness;
     final followStateAsync =
         ref.watch(masterLeagueFollowStateProvider(master.id));
     final followersCountAsync =
@@ -1830,7 +1922,7 @@ class _MasterLeagueDetailsScreenState
         ? const Color(0xFF1D9BF0)
         : (master.isVerificationPending
             ? const Color(0xFFF59E0B)
-            : cs.onSurface.withOpacity(0.60));
+            : AppTheme.secondaryText(brightness));
 
     final statusText = master.isVerifiedOrganizer
         ? 'Verified Organizer'
@@ -1847,6 +1939,8 @@ class _MasterLeagueDetailsScreenState
       return Glass(
         borderRadius: 18,
         padding: const EdgeInsets.all(14),
+        fill: AppTheme.cardColor(brightness),
+        borderColor: AppTheme.cardBorder(brightness),
         child: Row(
           children: [
             Container(
@@ -1868,14 +1962,14 @@ class _MasterLeagueDetailsScreenState
                     value,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w900,
-                      color: cs.onSurface,
+                      color: AppTheme.primaryText(brightness),
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     label,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.68),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -1890,13 +1984,18 @@ class _MasterLeagueDetailsScreenState
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
             'Organizer Overview',
             padding: EdgeInsets.zero,
-            trailing: Icon(Icons.visibility_outlined, color: cs.primary),
+            trailing: Icon(
+              Icons.visibility_outlined,
+              color: AppTheme.limeAccentDark,
+            ),
           ),
           const SizedBox(height: 10),
           item(
@@ -1920,7 +2019,7 @@ class _MasterLeagueDetailsScreenState
             icon: Icons.badge_outlined,
             label: 'Profile Access',
             value: 'View Organizer Profile',
-            tint: cs.primary,
+            tint: AppTheme.limeAccentDark,
           ),
           const SizedBox(height: 14),
           Row(
@@ -1967,6 +2066,10 @@ class _MasterLeagueDetailsScreenState
             error: (_, __) => SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.limeAccent,
+                  foregroundColor: AppTheme.darkText,
+                ),
                 onPressed: _followBusy ? null : () => _toggleFollow(master),
                 icon: const Icon(Icons.person_add_alt_1_rounded),
                 label: const Text(
@@ -1980,7 +2083,8 @@ class _MasterLeagueDetailsScreenState
                 width: double.infinity,
                 child: isFollowing
                     ? FilledButton.tonalIcon(
-                        onPressed: _followBusy ? null : () => _toggleFollow(master),
+                        onPressed:
+                            _followBusy ? null : () => _toggleFollow(master),
                         icon: _followBusy
                             ? const SizedBox(
                                 width: 16,
@@ -1994,14 +2098,19 @@ class _MasterLeagueDetailsScreenState
                         ),
                       )
                     : FilledButton.icon(
-                        onPressed: _followBusy ? null : () => _toggleFollow(master),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
+                        onPressed:
+                            _followBusy ? null : () => _toggleFollow(master),
                         icon: _followBusy
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color: Colors.white,
+                                  color: AppTheme.darkText,
                                 ),
                               )
                             : const Icon(Icons.person_add_alt_1_rounded),
@@ -2021,8 +2130,9 @@ class _MasterLeagueDetailsScreenState
   Widget _buildPinnedAnnouncementSection(
     MasterLeague master,
     ThemeData theme,
-    ColorScheme cs,
   ) {
+    final brightness = theme.brightness;
+
     return StreamBuilder<LeagueAnnouncement?>(
       stream: _watchPinnedWorkspaceAnnouncement(master.id),
       builder: (context, snap) {
@@ -2032,13 +2142,18 @@ class _MasterLeagueDetailsScreenState
         return Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(16),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SectionHeader(
                 'Pinned Organizer Notice',
                 padding: EdgeInsets.zero,
-                trailing: Icon(Icons.push_pin_rounded, color: cs.primary),
+                trailing: Icon(
+                  Icons.push_pin_rounded,
+                  color: AppTheme.limeAccentDark,
+                ),
               ),
               const SizedBox(height: 10),
               Row(
@@ -2047,7 +2162,7 @@ class _MasterLeagueDetailsScreenState
                     child: Text(
                       pinned.title,
                       style: theme.textTheme.titleSmall?.copyWith(
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -2067,7 +2182,7 @@ class _MasterLeagueDetailsScreenState
               Text(
                 pinned.message,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurface.withOpacity(0.82),
+                  color: AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w700,
                   height: 1.35,
                 ),
@@ -2078,14 +2193,14 @@ class _MasterLeagueDetailsScreenState
                 runSpacing: 8,
                 children: [
                   _announcementMetaChip(
-                    cs,
+                    brightness,
                     icon: Icons.person_outline_rounded,
                     label: pinned.authorName.trim().isEmpty
                         ? 'Organizer'
                         : pinned.authorName.trim(),
                   ),
                   _announcementMetaChip(
-                    cs,
+                    brightness,
                     icon: Icons.schedule_rounded,
                     label: pinned.pinnedAtMs > 0
                         ? DateTime.fromMillisecondsSinceEpoch(
@@ -2109,8 +2224,9 @@ class _MasterLeagueDetailsScreenState
   Widget _buildAnnouncementsSection(
     MasterLeague master,
     ThemeData theme,
-    ColorScheme cs,
   ) {
+    final brightness = theme.brightness;
+
     return StreamBuilder<List<LeagueAnnouncement>>(
       stream: _watchWorkspaceAnnouncements(master.id),
       builder: (context, snap) {
@@ -2119,6 +2235,8 @@ class _MasterLeagueDetailsScreenState
         return Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(16),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2134,7 +2252,10 @@ class _MasterLeagueDetailsScreenState
                           style: TextStyle(fontWeight: FontWeight.w900),
                         ),
                       )
-                    : Icon(Icons.campaign_outlined, color: cs.primary),
+                    : Icon(
+                        Icons.campaign_outlined,
+                        color: AppTheme.limeAccentDark,
+                      ),
               ),
               const SizedBox(height: 10),
               if (snap.connectionState == ConnectionState.waiting &&
@@ -2147,7 +2268,7 @@ class _MasterLeagueDetailsScreenState
                 Text(
                   'No organizer announcements yet.',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.65),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                   ),
                 )
@@ -2161,6 +2282,8 @@ class _MasterLeagueDetailsScreenState
                     child: Glass(
                       borderRadius: 20,
                       padding: const EdgeInsets.all(14),
+                      fill: AppTheme.cardColor(brightness),
+                      borderColor: AppTheme.cardBorder(brightness),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -2169,14 +2292,14 @@ class _MasterLeagueDetailsScreenState
                               children: [
                                 Icon(
                                   Icons.push_pin_rounded,
-                                  color: cs.primary,
+                                  color: AppTheme.limeAccentDark,
                                   size: 18,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
                                   'Pinned',
                                   style: theme.textTheme.labelMedium?.copyWith(
-                                    color: cs.primary,
+                                    color: AppTheme.limeAccentDark,
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
@@ -2191,7 +2314,7 @@ class _MasterLeagueDetailsScreenState
                                   ann.title,
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     fontWeight: FontWeight.w900,
-                                    color: cs.onSurface,
+                                    color: AppTheme.primaryText(brightness),
                                   ),
                                 ),
                               ),
@@ -2202,7 +2325,7 @@ class _MasterLeagueDetailsScreenState
                                     onPressed: () => _unpinAnnouncement(ann),
                                     icon: Icon(
                                       Icons.push_pin_outlined,
-                                      color: cs.primary,
+                                      color: AppTheme.limeAccentDark,
                                       size: 20,
                                     ),
                                   )
@@ -2212,7 +2335,7 @@ class _MasterLeagueDetailsScreenState
                                     onPressed: () => _pinAnnouncement(ann),
                                     icon: Icon(
                                       Icons.push_pin_rounded,
-                                      color: cs.primary,
+                                      color: AppTheme.limeAccentDark,
                                       size: 20,
                                     ),
                                   ),
@@ -2220,10 +2343,11 @@ class _MasterLeagueDetailsScreenState
                               if (_isOwner(master) || isMyAnnouncement)
                                 IconButton(
                                   tooltip: 'Delete announcement',
-                                  onPressed: () => _confirmDeleteAnnouncement(ann),
+                                  onPressed: () =>
+                                      _confirmDeleteAnnouncement(ann),
                                   icon: Icon(
                                     Icons.delete_outline_rounded,
-                                    color: cs.error,
+                                    color: theme.colorScheme.error,
                                     size: 20,
                                   ),
                                 ),
@@ -2233,7 +2357,7 @@ class _MasterLeagueDetailsScreenState
                           Text(
                             ann.message,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: cs.onSurface.withOpacity(0.78),
+                              color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w700,
                               height: 1.35,
                             ),
@@ -2244,14 +2368,14 @@ class _MasterLeagueDetailsScreenState
                             runSpacing: 8,
                             children: [
                               _announcementMetaChip(
-                                cs,
+                                brightness,
                                 icon: Icons.person_outline_rounded,
                                 label: ann.authorName.trim().isEmpty
                                     ? 'Organizer'
                                     : ann.authorName.trim(),
                               ),
                               _announcementMetaChip(
-                                cs,
+                                brightness,
                                 icon: Icons.schedule_rounded,
                                 label: ann.createdAtMs > 0
                                     ? DateTime.fromMillisecondsSinceEpoch(
@@ -2278,7 +2402,7 @@ class _MasterLeagueDetailsScreenState
   }
 
   Widget _announcementMetaChip(
-    ColorScheme cs, {
+    Brightness brightness, {
     required IconData icon,
     required String label,
   }) {
@@ -2286,18 +2410,18 @@ class _MasterLeagueDetailsScreenState
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: cs.primary.withOpacity(0.06),
-        border: Border.all(color: cs.primary.withOpacity(0.14)),
+        color: AppTheme.searchBackground(brightness),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: cs.primary),
+          Icon(icon, size: 14, color: AppTheme.limeAccentDark),
           const SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w800,
               fontSize: 12,
             ),
@@ -2311,14 +2435,16 @@ class _MasterLeagueDetailsScreenState
     MasterLeague master,
     List<League> leagues,
     ThemeData theme,
-    ColorScheme cs,
   ) {
+    final brightness = theme.brightness;
     final preview = leagues.isNotEmpty ? leagues.first : null;
     final remaining = leagues.length > 1 ? leagues.length - 1 : 0;
 
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2340,7 +2466,7 @@ class _MasterLeagueDetailsScreenState
           Text(
             'Users can join using the invite code or QR on the competition card.',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.68),
+              color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
               height: 1.25,
             ),
@@ -2358,6 +2484,10 @@ class _MasterLeagueDetailsScreenState
                 if (_isOwner(master)) ...[
                   const SizedBox(height: 12),
                   FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.limeAccent,
+                      foregroundColor: AppTheme.darkText,
+                    ),
                     onPressed: () => _showCreateCompetitionSheet(context, master),
                     icon: const Icon(Icons.add),
                     label: const Text(
@@ -2421,6 +2551,10 @@ class _MasterLeagueDetailsScreenState
                               ),
                             )
                           : FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppTheme.limeAccent,
+                                foregroundColor: AppTheme.darkText,
+                              ),
                               onPressed: joiningThis
                                   ? null
                                   : () => _promptJoinCompetition(preview),
@@ -2430,7 +2564,7 @@ class _MasterLeagueDetailsScreenState
                                       height: 16,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        color: Colors.white,
+                                        color: AppTheme.darkText,
                                       ),
                                     )
                                   : const Icon(Icons.login_rounded),
@@ -2449,7 +2583,6 @@ class _MasterLeagueDetailsScreenState
                             master,
                             leagues,
                             theme,
-                            cs,
                           ),
                           icon: const Icon(Icons.view_carousel_outlined),
                           label: Text(
@@ -2473,13 +2606,13 @@ class _MasterLeagueDetailsScreenState
   Widget _buildWorkspaceHero(
     MasterLeague master,
     ThemeData theme,
-    ColorScheme cs,
   ) {
+    final brightness = theme.brightness;
     final trustColor = master.isVerifiedOrganizer
         ? const Color(0xFF1D9BF0)
         : (master.isVerificationPending
             ? const Color(0xFFF59E0B)
-            : cs.onSurface.withOpacity(0.60));
+            : AppTheme.secondaryText(brightness));
 
     final trustLabel = master.isVerifiedOrganizer
         ? 'Verified Organizer'
@@ -2495,19 +2628,13 @@ class _MasterLeagueDetailsScreenState
         return Glass(
           borderRadius: 30,
           padding: const EdgeInsets.all(18),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Container(
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(28),
-              gradient: LinearGradient(
-                colors: [
-                  cs.primary.withOpacity(0.20),
-                  cs.secondary.withOpacity(0.08),
-                  cs.onSurface.withOpacity(0.02),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              gradient: AppTheme.leagueCardGradient(brightness),
             ),
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -2526,13 +2653,13 @@ class _MasterLeagueDetailsScreenState
                           height: 150,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(22),
-                            color: cs.onSurface.withOpacity(0.06),
+                            color: AppTheme.searchBackground(brightness),
                           ),
                           alignment: Alignment.center,
                           child: Text(
                             'Banner unavailable',
                             style: TextStyle(
-                              color: cs.onSurface.withOpacity(0.60),
+                              color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -2546,7 +2673,7 @@ class _MasterLeagueDetailsScreenState
                     children: [
                       CircleAvatar(
                         radius: 34,
-                        backgroundColor: cs.primary.withOpacity(0.14),
+                        backgroundColor: AppTheme.iconCircleBackground(brightness),
                         backgroundImage:
                             master.organizerProfile.logoUrl.trim().isNotEmpty
                                 ? NetworkImage(
@@ -2554,7 +2681,11 @@ class _MasterLeagueDetailsScreenState
                                   )
                                 : null,
                         child: master.organizerProfile.logoUrl.trim().isEmpty
-                            ? Icon(Icons.hub_rounded, color: cs.primary, size: 30)
+                            ? Icon(
+                                Icons.hub_rounded,
+                                color: AppTheme.limeAccentDark,
+                                size: 30,
+                              )
                             : null,
                       ),
                       const SizedBox(width: 14),
@@ -2574,19 +2705,16 @@ class _MasterLeagueDetailsScreenState
                                   style: theme.textTheme.titleLarge?.copyWith(
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: -0.3,
-                                    color: cs.onSurface,
+                                    color: AppTheme.primaryText(brightness),
                                   ),
                                 ),
                                 _heroPill(
                                   text: trustLabel,
                                   color: trustColor,
-                                  icon: master.isVerifiedOrganizer
-                                      ? Icons.verified_rounded
-                                      : (master.isVerificationPending
-                                          ? Icons.hourglass_top_rounded
-                                          : Icons.shield_outlined),
                                 ),
-                                if (master.organizerProfile.badge.trim().isNotEmpty)
+                                if (master.organizerProfile.badge
+                                    .trim()
+                                    .isNotEmpty)
                                   _heroPill(
                                     text: master.organizerProfile.badge.trim(),
                                     color: const Color(0xFFF59E0B),
@@ -2597,7 +2725,7 @@ class _MasterLeagueDetailsScreenState
                             Text(
                               'Managed by $ownerName',
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.68),
+                                color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
@@ -2609,7 +2737,7 @@ class _MasterLeagueDetailsScreenState
                               maxLines: 4,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: cs.onSurface.withOpacity(0.82),
+                                color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w600,
                                 height: 1.35,
                               ),
@@ -2631,7 +2759,6 @@ class _MasterLeagueDetailsScreenState
   Widget _heroPill({
     required String text,
     required Color color,
-    IconData? icon,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -2640,22 +2767,13 @@ class _MasterLeagueDetailsScreenState
         color: color.withOpacity(0.12),
         border: Border.all(color: color.withOpacity(0.28)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 6),
-          ],
-          Text(
-            text,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w900,
-              fontSize: 12,
-            ),
-          ),
-        ],
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w900,
+          fontSize: 12,
+        ),
       ),
     );
   }
@@ -2665,8 +2783,8 @@ class _MasterLeagueDetailsScreenState
     List<League> leagues,
     List<LeagueAnnouncement> announcements,
     ThemeData theme,
-    ColorScheme cs,
   ) {
+    final brightness = theme.brightness;
     final followersCountAsync =
         ref.watch(masterLeagueFollowersCountProvider(master.id));
 
@@ -2675,7 +2793,7 @@ class _MasterLeagueDetailsScreenState
         icon: Icons.emoji_events_outlined,
         label: 'Competitions',
         value: '${leagues.length}',
-        tint: cs.primary,
+        tint: AppTheme.limeAccentDark,
       ),
       _DashboardStat(
         icon: Icons.campaign_outlined,
@@ -2706,7 +2824,7 @@ class _MasterLeagueDetailsScreenState
             ? const Color(0xFF1D9BF0)
             : (master.isVerificationPending
                 ? const Color(0xFFF59E0B)
-                : cs.primary),
+                : AppTheme.limeAccentDark),
       ),
     ];
 
@@ -2725,6 +2843,8 @@ class _MasterLeagueDetailsScreenState
         return Glass(
           borderRadius: 20,
           padding: const EdgeInsets.all(14),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Row(
             children: [
               Container(
@@ -2747,14 +2867,14 @@ class _MasterLeagueDetailsScreenState
                       item.value,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       item.label,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.62),
+                        color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -2771,7 +2891,7 @@ class _MasterLeagueDetailsScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return StreamBuilder<MasterLeague?>(
       stream: _watchMasterLeague(widget.masterLeagueId),
@@ -2826,6 +2946,10 @@ class _MasterLeagueDetailsScreenState
                                 'This may have been deleted or you don\'t have access.',
                             icon: Icons.hub_rounded,
                             action: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppTheme.limeAccent,
+                                foregroundColor: AppTheme.darkText,
+                              ),
                               onPressed: () => context.go('/master-leagues'),
                               icon: const Icon(Icons.arrow_back),
                               label: const Text('Go Back'),
@@ -2857,38 +2981,34 @@ class _MasterLeagueDetailsScreenState
                                   110,
                                 ),
                                 children: [
-                                  _buildWorkspaceHero(master, theme, cs),
+                                  _buildWorkspaceHero(master, theme),
                                   const SizedBox(height: 16),
                                   _buildStatsGrid(
                                     master,
                                     leagues,
                                     announcements,
                                     theme,
-                                    cs,
                                   ),
                                   const SizedBox(height: 16),
                                   if (isOwner)
-                                    _buildOwnerQuickActions(master, theme, cs)
+                                    _buildOwnerQuickActions(master, theme)
                                   else
-                                    _buildVisitorOverview(master, theme, cs),
+                                    _buildVisitorOverview(master, theme),
                                   const SizedBox(height: 16),
                                   _buildPinnedAnnouncementSection(
                                     master,
                                     theme,
-                                    cs,
                                   ),
                                   const SizedBox(height: 16),
                                   _buildAnnouncementsSection(
                                     master,
                                     theme,
-                                    cs,
                                   ),
                                   if (isOwner) ...[
                                     const SizedBox(height: 16),
                                     _buildCompetitionTemplatesSection(
                                       master,
                                       theme,
-                                      cs,
                                     ),
                                   ],
                                   const SizedBox(height: 16),
@@ -2896,7 +3016,6 @@ class _MasterLeagueDetailsScreenState
                                     master,
                                     leagues,
                                     theme,
-                                    cs,
                                   ),
                                 ],
                               );
@@ -2911,17 +3030,27 @@ class _MasterLeagueDetailsScreenState
               if (_busy)
                 Positioned.fill(
                   child: Container(
-                    color: Colors.black.withOpacity(0.15),
+                    color: Colors.black.withOpacity(
+                      brightness == Brightness.dark ? 0.22 : 0.10,
+                    ),
                     child: const Center(child: CircularProgressIndicator()),
                   ),
                 ),
             ],
           ),
           floatingActionButton: isOwner
-              ? FloatingActionButton.extended(
-                  onPressed: () => _showCreateCompetitionSheet(context, master),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Create Competition'),
+              ? Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: AppTheme.fabGlow(brightness),
+                  ),
+                  child: FloatingActionButton.extended(
+                    backgroundColor: AppTheme.limeAccent,
+                    foregroundColor: AppTheme.darkText,
+                    onPressed: () => _showCreateCompetitionSheet(context, master),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Create Competition'),
+                  ),
                 )
               : null,
         );

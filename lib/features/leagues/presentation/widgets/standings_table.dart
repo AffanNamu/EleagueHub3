@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../domain/standings/standings.dart';
 
@@ -17,18 +18,8 @@ class StandingsTable extends StatefulWidget {
     this.allowSorting = true,
   });
 
-  /// Raw, unsorted list of standing rows.
   final List<StandingsRow> rows;
 
-  /// Optional custom row color function.
-  ///
-  /// Parameters:
-  /// - [context]: BuildContext
-  /// - [index]: 0-based index in the sorted table
-  /// - [row]: the actual [StandingsRow] for that index
-  /// - [total]: total number of rows
-  ///
-  /// Return a [Color] to tint the row, or null for no background.
   final Color? Function(
     BuildContext context,
     int index,
@@ -36,7 +27,6 @@ class StandingsTable extends StatefulWidget {
     int total,
   )? rowColorBuilder;
 
-  /// When false, preserves the incoming [rows] order and disables header sorting.
   final bool allowSorting;
 
   @override
@@ -44,14 +34,9 @@ class StandingsTable extends StatefulWidget {
 }
 
 class _StandingsTableState extends State<StandingsTable> {
-  /// Index of the currently sorted column in the DataTable.
-  /// 0 = Team, 1 = P, 2 = W, 3 = D, 4 = L, 5 = GD, 6 = GF, 7 = Pts
-  int _sortCol = 7; // default sort by points
-
-  /// Whether the sort is ascending or descending.
+  int _sortCol = 7;
   bool _asc = false;
 
-  /// Returns a sorted copy of the incoming rows based on the current sort state.
   List<StandingsRow> get _sorted {
     final rows = List<StandingsRow>.from(widget.rows);
 
@@ -60,28 +45,28 @@ class _StandingsTableState extends State<StandingsTable> {
     rows.sort((a, b) {
       int v;
       switch (_sortCol) {
-        case 0: // Team
+        case 0:
           v = a.teamName.compareTo(b.teamName);
           break;
-        case 1: // Played
+        case 1:
           v = a.mp.compareTo(b.mp);
           break;
-        case 2: // Wins
+        case 2:
           v = a.w.compareTo(b.w);
           break;
-        case 3: // Draws
+        case 3:
           v = a.d.compareTo(b.d);
           break;
-        case 4: // Losses
+        case 4:
           v = a.l.compareTo(b.l);
           break;
-        case 5: // Goal difference
+        case 5:
           v = a.gd.compareTo(b.gd);
           break;
-        case 6: // Goals for
+        case 6:
           v = a.gf.compareTo(b.gf);
           break;
-        case 7: // Points
+        case 7:
         default:
           v = a.pts.compareTo(b.pts);
       }
@@ -95,35 +80,37 @@ class _StandingsTableState extends State<StandingsTable> {
   Widget build(BuildContext context) {
     final rows = _sorted;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     final screenHeight = MediaQuery.of(context).size.height;
     final maxTableHeight = screenHeight * 0.6;
 
     final headerStyle = theme.textTheme.labelLarge?.copyWith(
-      color: cs.onSurface.withOpacity(0.82),
+      color: AppTheme.primaryText(brightness),
       fontWeight: FontWeight.w900,
     );
 
     final cellStyle = theme.textTheme.bodySmall?.copyWith(
-      color: cs.onSurface.withOpacity(0.78),
+      color: AppTheme.secondaryText(brightness),
       fontWeight: FontWeight.w700,
       height: 1.15,
     );
 
     final primaryCellStyle = theme.textTheme.bodySmall?.copyWith(
-      color: cs.onSurface.withOpacity(0.92),
+      color: AppTheme.primaryText(brightness),
       fontWeight: FontWeight.w800,
       height: 1.15,
     );
 
     final pointsStyle = theme.textTheme.bodySmall?.copyWith(
-      color: cs.onSurface.withOpacity(0.95),
+      color: AppTheme.primaryText(brightness),
       fontWeight: FontWeight.w900,
     );
 
     return Glass(
       borderRadius: 20,
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: LayoutBuilder(
         builder: (context, constraints) {
           return ConstrainedBox(
@@ -143,6 +130,9 @@ class _StandingsTableState extends State<StandingsTable> {
                   headingTextStyle: headerStyle,
                   dataTextStyle: cellStyle,
                   dividerThickness: 0.6,
+                  headingRowColor: WidgetStatePropertyAll(
+                    AppTheme.searchBackground(brightness),
+                  ),
                   columns: [
                     _col('Team', 0),
                     _col('P', 1, numeric: true),
@@ -196,17 +186,19 @@ class _StandingsTableState extends State<StandingsTable> {
     required TextStyle? primaryCellStyle,
     required TextStyle? pointsStyle,
   }) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     Color? zoneColor;
 
     if (widget.rowColorBuilder != null) {
       zoneColor = widget.rowColorBuilder!(context, i, r, total);
     } else {
-      // Default zones: keep consistent across themes and keep it premium-light friendly.
-      final topZone = const Color(0xFF22C55E).withOpacity(0.12);
-      final midZone = cs.primary.withOpacity(0.10);
+      final topZone = brightness == Brightness.dark
+          ? const Color(0xFF22C55E).withOpacity(0.12)
+          : const Color(0xFFECFCCB);
+      final midZone = brightness == Brightness.dark
+          ? AppTheme.limeAccentDark.withOpacity(0.10)
+          : const Color(0xFFF7FEE7);
       zoneColor = i < 2
           ? topZone
           : i < 4

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -271,13 +272,10 @@ class _OrganizerDisciplineScreenState
       final moderationRef = _moderationCol.doc(targetUserId);
 
       final currentModerationSnap = await moderationRef.get();
-      final currentData =
-          currentModerationSnap.data() ?? <String, dynamic>{};
+      final currentData = currentModerationSnap.data() ?? <String, dynamic>{};
 
-      final currentPoints =
-          (currentData['points'] as num?)?.toInt() ?? 0;
-      final currentWarnings =
-          (currentData['warnings'] as num?)?.toInt() ?? 0;
+      final currentPoints = (currentData['points'] as num?)?.toInt() ?? 0;
+      final currentWarnings = (currentData['warnings'] as num?)?.toInt() ?? 0;
       final currentMuted = currentData['chatMuted'] == true;
       final currentBanned = currentData['chatBanned'] == true;
 
@@ -397,8 +395,9 @@ class _OrganizerDisciplineScreenState
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
         return AlertDialog(
+          backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
+          surfaceTintColor: Colors.transparent,
           title: const Text('Reverse Discipline Action'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -424,7 +423,10 @@ class _OrganizerDisciplineScreenState
               child: const Text('Cancel'),
             ),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: cs.primary),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.limeAccent,
+                foregroundColor: AppTheme.darkText,
+              ),
               onPressed: () => Navigator.of(ctx).pop(true),
               child: const Text('Reverse'),
             ),
@@ -529,7 +531,7 @@ class _OrganizerDisciplineScreenState
     super.dispose();
   }
 
-  Widget _buildActionTypeSelector(ThemeData theme, ColorScheme cs) {
+  Widget _buildActionTypeSelector(ThemeData theme, Brightness brightness) {
     Widget chip(OrganizerDisciplineActionType type) {
       final selected = _actionType == type;
       return ChoiceChip(
@@ -544,11 +546,18 @@ class _OrganizerDisciplineScreenState
                   _actionType = type;
                   _errorText = null;
                 }),
-        selectedColor: cs.primary.withOpacity(0.18),
-        backgroundColor: cs.onSurface.withOpacity(0.06),
+        selectedColor: AppTheme.limeAccent,
+        backgroundColor: AppTheme.tabInactiveBackground(brightness),
         labelStyle: TextStyle(
-          color: selected ? cs.primary : cs.onSurface.withOpacity(0.72),
+          color: selected
+              ? AppTheme.darkText
+              : AppTheme.tabInactiveText(brightness),
           fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+        ),
+        side: BorderSide(
+          color: selected
+              ? AppTheme.limeAccentDark
+              : AppTheme.cardBorder(brightness),
         ),
       );
     }
@@ -562,7 +571,7 @@ class _OrganizerDisciplineScreenState
 
   Widget _summaryTile({
     required ThemeData theme,
-    required ColorScheme cs,
+    required Brightness brightness,
     required IconData icon,
     required String title,
     required String subtitle,
@@ -571,6 +580,8 @@ class _OrganizerDisciplineScreenState
     return Glass(
       borderRadius: 18,
       padding: const EdgeInsets.all(14),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Row(
         children: [
           Container(
@@ -591,7 +602,7 @@ class _OrganizerDisciplineScreenState
                 Text(
                   title,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface,
+                    color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -599,7 +610,7 @@ class _OrganizerDisciplineScreenState
                 Text(
                   subtitle,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.65),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                     height: 1.2,
                   ),
@@ -612,7 +623,7 @@ class _OrganizerDisciplineScreenState
     );
   }
 
-  Widget _buildModerationSummary(ThemeData theme, ColorScheme cs) {
+  Widget _buildModerationSummary(ThemeData theme, Brightness brightness) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _moderationCol
           .orderBy('updatedAtMs', descending: true)
@@ -635,13 +646,15 @@ class _OrganizerDisciplineScreenState
         return Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(16),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Current Moderation Status',
                 style: theme.textTheme.titleSmall?.copyWith(
-                  color: cs.onSurface,
+                  color: AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -667,14 +680,16 @@ class _OrganizerDisciplineScreenState
                 ].join(' • ');
 
                 final tint = banned
-                    ? cs.error
-                    : (muted ? const Color(0xFFF59E0B) : cs.primary);
+                    ? Theme.of(context).colorScheme.error
+                    : (muted
+                        ? const Color(0xFFF59E0B)
+                        : AppTheme.limeAccentDark);
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: _summaryTile(
                     theme: theme,
-                    cs: cs,
+                    brightness: brightness,
                     icon: banned
                         ? Icons.block_rounded
                         : (muted
@@ -693,7 +708,7 @@ class _OrganizerDisciplineScreenState
     );
   }
 
-  Widget _buildHistoryList(ThemeData theme, ColorScheme cs) {
+  Widget _buildHistoryList(ThemeData theme, Brightness brightness) {
     final query = _actionsCol.orderBy('createdAtMs', descending: true).limit(200);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -756,7 +771,8 @@ class _OrganizerDisciplineScreenState
             final tint = switch (actionType) {
               OrganizerDisciplineActionType.warning =>
                 const Color(0xFFF59E0B),
-              OrganizerDisciplineActionType.pointsDeduction => cs.error,
+              OrganizerDisciplineActionType.pointsDeduction =>
+                Theme.of(context).colorScheme.error,
               OrganizerDisciplineActionType.organizerChatMute =>
                 const Color(0xFF8B5CF6),
               OrganizerDisciplineActionType.organizerChatBan =>
@@ -787,6 +803,8 @@ class _OrganizerDisciplineScreenState
               child: Glass(
                 borderRadius: 20,
                 padding: const EdgeInsets.all(14),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -811,7 +829,7 @@ class _OrganizerDisciplineScreenState
                               Text(
                                 title,
                                 style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: cs.onSurface,
+                                  color: AppTheme.primaryText(brightness),
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
@@ -819,7 +837,7 @@ class _OrganizerDisciplineScreenState
                               Text(
                                 subtitleParts.join(' • '),
                                 style: theme.textTheme.bodySmall?.copyWith(
-                                  color: cs.onSurface.withOpacity(0.68),
+                                  color: AppTheme.secondaryText(brightness),
                                   fontWeight: FontWeight.w700,
                                   height: 1.3,
                                 ),
@@ -829,7 +847,7 @@ class _OrganizerDisciplineScreenState
                                 Text(
                                   'Reversal reason: $reversalReason',
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: cs.onSurface.withOpacity(0.60),
+                                    color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
@@ -863,10 +881,10 @@ class _OrganizerDisciplineScreenState
     );
   }
 
-    @override
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -893,6 +911,8 @@ class _OrganizerDisciplineScreenState
                       Glass(
                         borderRadius: 28,
                         padding: const EdgeInsets.all(16),
+                        fill: AppTheme.cardColor(brightness),
+                        borderColor: AppTheme.cardBorder(brightness),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -900,14 +920,14 @@ class _OrganizerDisciplineScreenState
                               _masterLeagueName,
                               style: theme.textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.w900,
-                                color: cs.onSurface,
+                                color: AppTheme.primaryText(brightness),
                               ),
                             ),
                             const SizedBox(height: 8),
                             Text(
                               'Apply warnings, point deductions, and organizer chat restrictions with a required reason and audit trail.',
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.72),
+                                color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w700,
                                 height: 1.35,
                               ),
@@ -917,7 +937,7 @@ class _OrganizerDisciplineScreenState
                               Text(
                                 _errorText!,
                                 style: theme.textTheme.bodySmall?.copyWith(
-                                  color: cs.error,
+                                  color: Theme.of(context).colorScheme.error,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
@@ -937,13 +957,15 @@ class _OrganizerDisciplineScreenState
                         Glass(
                           borderRadius: 24,
                           padding: const EdgeInsets.all(16),
+                          fill: AppTheme.cardColor(brightness),
+                          borderColor: AppTheme.cardBorder(brightness),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 'Apply Discipline Action',
                                 style: theme.textTheme.titleSmall?.copyWith(
-                                  color: cs.onSurface,
+                                  color: AppTheme.primaryText(brightness),
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
@@ -956,7 +978,8 @@ class _OrganizerDisciplineScreenState
                                       enabled: !_submitting,
                                       decoration: const InputDecoration(
                                         labelText: 'Target user id',
-                                        prefixIcon: Icon(Icons.person_outline_rounded),
+                                        prefixIcon:
+                                            Icon(Icons.person_outline_rounded),
                                       ),
                                       onChanged: (_) {
                                         if (_errorText != null) {
@@ -967,7 +990,8 @@ class _OrganizerDisciplineScreenState
                                   ),
                                   const SizedBox(width: 10),
                                   FilledButton.tonalIcon(
-                                    onPressed: _submitting ? null : _openUserPicker,
+                                    onPressed:
+                                        _submitting ? null : _openUserPicker,
                                     icon: const Icon(Icons.search_rounded),
                                     label: const Text(
                                       'Pick',
@@ -986,7 +1010,7 @@ class _OrganizerDisciplineScreenState
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              _buildActionTypeSelector(theme, cs),
+                              _buildActionTypeSelector(theme, brightness),
                               if (_actionType ==
                                   OrganizerDisciplineActionType.pointsDeduction) ...[
                                 const SizedBox(height: 12),
@@ -996,7 +1020,8 @@ class _OrganizerDisciplineScreenState
                                   keyboardType: TextInputType.number,
                                   decoration: const InputDecoration(
                                     labelText: 'Points to deduct',
-                                    prefixIcon: Icon(Icons.exposure_neg_1_rounded),
+                                    prefixIcon:
+                                        Icon(Icons.exposure_neg_1_rounded),
                                   ),
                                 ),
                               ],
@@ -1015,14 +1040,19 @@ class _OrganizerDisciplineScreenState
                               SizedBox(
                                 width: double.infinity,
                                 child: FilledButton.icon(
-                                  onPressed: _submitting ? null : _applyDiscipline,
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppTheme.limeAccent,
+                                    foregroundColor: AppTheme.darkText,
+                                  ),
+                                  onPressed:
+                                      _submitting ? null : _applyDiscipline,
                                   icon: _submitting
                                       ? const SizedBox(
                                           width: 18,
                                           height: 18,
                                           child: CircularProgressIndicator(
                                             strokeWidth: 2,
-                                            color: Colors.white,
+                                            color: AppTheme.darkText,
                                           ),
                                         )
                                       : const Icon(Icons.gavel_rounded),
@@ -1040,23 +1070,25 @@ class _OrganizerDisciplineScreenState
                           ),
                         ),
                         const SizedBox(height: 16),
-                        _buildModerationSummary(theme, cs),
+                        _buildModerationSummary(theme, brightness),
                         const SizedBox(height: 16),
                         Glass(
                           borderRadius: 24,
                           padding: const EdgeInsets.all(16),
+                          fill: AppTheme.cardColor(brightness),
+                          borderColor: AppTheme.cardBorder(brightness),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 'Discipline History',
                                 style: theme.textTheme.titleSmall?.copyWith(
-                                  color: cs.onSurface,
+                                  color: AppTheme.primaryText(brightness),
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              _buildHistoryList(theme, cs),
+                              _buildHistoryList(theme, brightness),
                             ],
                           ),
                         ),
@@ -1233,7 +1265,7 @@ class _OrganizerMemberPickerSheetState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
     final filtered = _filteredUsers();
 
     return SafeArea(
@@ -1247,6 +1279,8 @@ class _OrganizerMemberPickerSheetState
             child: Glass(
               borderRadius: 28,
               padding: const EdgeInsets.all(16),
+              fill: AppTheme.cardColor(brightness),
+              borderColor: AppTheme.cardBorder(brightness),
               child: SizedBox(
                 height: MediaQuery.of(context).size.height * 0.78,
                 child: Column(
@@ -1255,7 +1289,7 @@ class _OrganizerMemberPickerSheetState
                     Text(
                       'Pick User',
                       style: theme.textTheme.titleMedium?.copyWith(
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -1274,13 +1308,15 @@ class _OrganizerMemberPickerSheetState
                           : filtered.isEmpty
                               ? const EmptyState(
                                   title: 'No users found',
-                                  message: 'Try another search term or refresh the workspace members.',
+                                  message:
+                                      'Try another search term or refresh the workspace members.',
                                   icon: Icons.person_search_rounded,
                                 )
                               : ListView.separated(
                                   itemCount: filtered.length,
-                                  separatorBuilder: (_, __) =>
-                                      Divider(color: cs.onSurface.withOpacity(0.10)),
+                                  separatorBuilder: (_, __) => Divider(
+                                    color: AppTheme.cardBorder(brightness),
+                                  ),
                                   itemBuilder: (context, index) {
                                     final u = filtered[index];
                                     final title = u.displayName.isNotEmpty
@@ -1290,26 +1326,36 @@ class _OrganizerMemberPickerSheetState
                                     return ListTile(
                                       contentPadding: EdgeInsets.zero,
                                       leading: CircleAvatar(
-                                        backgroundColor: cs.primary.withOpacity(0.12),
-                                        child: Icon(Icons.person_outline_rounded, color: cs.primary),
+                                        backgroundColor:
+                                            AppTheme.iconCircleBackground(
+                                                brightness),
+                                        child: Icon(
+                                          Icons.person_outline_rounded,
+                                          color: AppTheme.limeAccentDark,
+                                        ),
                                       ),
                                       title: Text(
                                         title,
-                                        style: theme.textTheme.bodyMedium?.copyWith(
-                                          color: cs.onSurface,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                          color: AppTheme.primaryText(brightness),
                                           fontWeight: FontWeight.w900,
                                         ),
                                       ),
                                       subtitle: Text(
                                         '${u.userId} • ${u.role}',
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: cs.onSurface.withOpacity(0.65),
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                          color: AppTheme.secondaryText(
+                                              brightness),
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
-                                      trailing: const Icon(Icons.chevron_right_rounded),
+                                      trailing:
+                                          const Icon(Icons.chevron_right_rounded),
                                       onTap: () {
-                                        Navigator.of(context).pop(<String, String>{
+                                        Navigator.of(context)
+                                            .pop(<String, String>{
                                           'userId': u.userId,
                                           'displayName': u.displayName,
                                         });

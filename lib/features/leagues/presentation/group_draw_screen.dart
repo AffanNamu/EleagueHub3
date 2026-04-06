@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../logic/fixture_generator.dart';
@@ -40,12 +41,15 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   static const int _groupSize = 4;
 
   Color _baseToastBg(ThemeData theme) {
-    // Premium light toast: near-white (not dark) so it matches the white glass system.
-    return theme.brightness == Brightness.dark ? const Color(0xFF101522) : const Color(0xF2FFFFFF);
+    return theme.brightness == Brightness.dark
+        ? const Color(0xFF101522)
+        : const Color(0xFFF8FBFF);
   }
 
   Color _baseToastFg(ThemeData theme) {
-    return theme.brightness == Brightness.dark ? Colors.white : theme.colorScheme.onSurface;
+    return theme.brightness == Brightness.dark
+        ? Colors.white
+        : AppTheme.primaryText(theme.brightness);
   }
 
   void _toast(String msg, {Color? bg, Color? fg}) {
@@ -63,7 +67,11 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         backgroundColor: resolvedBg,
         content: Text(
           msg,
-          style: TextStyle(color: resolvedFg, fontWeight: FontWeight.w700, height: 1.2),
+          style: TextStyle(
+            color: resolvedFg,
+            fontWeight: FontWeight.w700,
+            height: 1.2,
+          ),
         ),
         duration: const Duration(seconds: 3),
       ),
@@ -72,15 +80,20 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
 
   void _toastOk(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final baseBg = _baseToastBg(theme);
-    final accent = cs.primary;
+    final accent = AppTheme.limeAccentDark;
 
     final bg = theme.brightness == Brightness.light
         ? Color.alphaBlend(accent.withOpacity(0.14), baseBg)
         : Color.alphaBlend(accent.withOpacity(0.22), baseBg);
 
-    _toast(msg, bg: bg, fg: theme.brightness == Brightness.light ? cs.onSurface : accent);
+    _toast(
+      msg,
+      bg: bg,
+      fg: theme.brightness == Brightness.light
+          ? AppTheme.primaryText(theme.brightness)
+          : accent,
+    );
   }
 
   void _toastWarn(String msg) {
@@ -92,19 +105,31 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         ? Color.alphaBlend(warn.withOpacity(0.12), baseBg)
         : Color.alphaBlend(warn.withOpacity(0.22), baseBg);
 
-    _toast(msg, bg: bg, fg: theme.brightness == Brightness.light ? Theme.of(context).colorScheme.onSurface : warn);
+    _toast(
+      msg,
+      bg: bg,
+      fg: theme.brightness == Brightness.light
+          ? AppTheme.primaryText(theme.brightness)
+          : warn,
+    );
   }
 
   void _toastErr(String msg) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final err = Theme.of(context).colorScheme.error;
     final baseBg = _baseToastBg(theme);
 
     final bg = theme.brightness == Brightness.light
-        ? Color.alphaBlend(cs.error.withOpacity(0.10), baseBg)
-        : Color.alphaBlend(cs.error.withOpacity(0.22), baseBg);
+        ? Color.alphaBlend(err.withOpacity(0.10), baseBg)
+        : Color.alphaBlend(err.withOpacity(0.22), baseBg);
 
-    _toast(msg, bg: bg, fg: theme.brightness == Brightness.light ? cs.onSurface : cs.error);
+    _toast(
+      msg,
+      bg: bg,
+      fg: theme.brightness == Brightness.light
+          ? AppTheme.primaryText(theme.brightness)
+          : err,
+    );
   }
 
   @override
@@ -164,9 +189,14 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     try {
       final repo = ref.read(localLeaguesRepositoryProvider);
 
-      final League? league = await repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
-      final List<Team> teams = await repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 25));
-      final List<FixtureMatch> matches = await repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
+      final League? league = await repo.getLeagueById(widget.leagueId).timeout(
+            const Duration(seconds: 20),
+          );
+      final List<Team> teams = await repo.getTeams(widget.leagueId).timeout(
+            const Duration(seconds: 25),
+          );
+      final List<FixtureMatch> matches = await repo.getMatches(widget.leagueId)
+          .timeout(const Duration(seconds: 25));
 
       if (!mounted) return;
 
@@ -190,7 +220,9 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
       _drawLocked = matches.any((m) => (m.groupId ?? '').trim().isNotEmpty);
 
       if (!(teams.length == 16 || teams.length == 32)) {
-        _toastErr('${l10n.tr('admin_score_group_team_count_error_prefix')}${teams.length}.');
+        _toastErr(
+          '${l10n.tr('admin_score_group_team_count_error_prefix')}${teams.length}.',
+        );
         setState(() {
           groups.clear();
           remainingTeams.clear();
@@ -217,7 +249,8 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         }
       }
 
-      final rem = teams.where((t) => !assignedIds.contains(t.id)).toList()..shuffle(Random());
+      final rem = teams.where((t) => !assignedIds.contains(t.id)).toList()
+        ..shuffle(Random());
 
       setState(() {
         remainingTeams
@@ -246,7 +279,9 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   }
 
   bool get _allGroupsFull =>
-      groups.isNotEmpty && groups.values.every((list) => list.length == _groupSize) && remainingTeams.isEmpty;
+      groups.isNotEmpty &&
+      groups.values.every((list) => list.length == _groupSize) &&
+      remainingTeams.isEmpty;
 
   Future<void> startDraw() async {
     final l10n = context.l10n;
@@ -280,7 +315,9 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
 
     try {
       final repo = ref.read(localLeaguesRepositoryProvider);
-      await repo.saveTeams(widget.leagueId, _allTeams).timeout(const Duration(seconds: 25));
+      await repo
+          .saveTeams(widget.leagueId, _allTeams)
+          .timeout(const Duration(seconds: 25));
       _toastOk(l10n.tr('group_draw_groups_saved_toast'));
     } catch (e) {
       _toastErr(UserFriendlyError.toMessage(e));
@@ -309,14 +346,20 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     try {
       final repo = ref.read(localLeaguesRepositoryProvider);
 
-      final League? league = await repo.getLeagueById(widget.leagueId).timeout(const Duration(seconds: 20));
+      final League? league =
+          await repo.getLeagueById(widget.leagueId).timeout(
+                const Duration(seconds: 20),
+              );
       if (league == null) {
         _toastErr(l10n.tr('fixtures_league_not_found'));
         return;
       }
 
-      final existing = await repo.getMatches(widget.leagueId).timeout(const Duration(seconds: 25));
-      final hasGroupFixtures = existing.any((m) => (m.groupId ?? '').trim().isNotEmpty);
+      final existing = await repo.getMatches(widget.leagueId).timeout(
+            const Duration(seconds: 25),
+          );
+      final hasGroupFixtures =
+          existing.any((m) => (m.groupId ?? '').trim().isNotEmpty);
       if (hasGroupFixtures) {
         _toastWarn(l10n.tr('admin_score_group_fixtures_already_exist'));
         if (mounted) setState(() => _drawLocked = true);
@@ -331,11 +374,15 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
       );
 
       if (fixtures.isEmpty) {
-        _toastErr(l10n.tr('group_draw_failed_generate_group_fixtures_check_groups'));
+        _toastErr(
+          l10n.tr('group_draw_failed_generate_group_fixtures_check_groups'),
+        );
         return;
       }
 
-      await repo.saveMatches(widget.leagueId, fixtures).timeout(const Duration(seconds: 25));
+      await repo
+          .saveMatches(widget.leagueId, fixtures)
+          .timeout(const Duration(seconds: 25));
       _toastOk(
         '${l10n.tr('admin_score_group_fixtures_generated_prefix')}${fixtures.length}${l10n.tr('admin_score_fixtures_generated_suffix')}',
       );
@@ -350,7 +397,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
 
     if (_loading) {
       return GlassScaffold(
@@ -359,7 +406,11 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
           backgroundColor: Colors.transparent,
         ),
         body: SafeArea(
-          child: Center(child: CircularProgressIndicator(color: cs.primary)),
+          child: Center(
+            child: CircularProgressIndicator(
+              color: AppTheme.limeAccentDark,
+            ),
+          ),
         ),
       );
     }
@@ -384,18 +435,27 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
               child: Glass(
                 borderRadius: 20,
                 padding: const EdgeInsets.all(16),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       _loadError!,
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: cs.error, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
                         onPressed: _loadLeagueAndTeams,
                         icon: const Icon(Icons.refresh),
                         label: Text(l10n.tr('common_retry')),
@@ -428,7 +488,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
               '${l10n.tr('group_draw_team_count_help_prefix')}${_allTeams.length}.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: cs.onBackground.withOpacity(0.72),
+                color: AppTheme.secondaryText(brightness),
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
               ),
@@ -456,7 +516,8 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         children: [
           if (_drawLocked)
             Padding(
-              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 0),
+              padding:
+                  const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 0),
               child: Text(
                 l10n.tr('group_draw_locked_banner'),
                 style: const TextStyle(
@@ -468,33 +529,51 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
               ),
             ),
           Padding(
-            padding: const EdgeInsetsDirectional.fromSTEB(16, 14, 16, 8),
+            padding:
+                const EdgeInsetsDirectional.fromSTEB(16, 14, 16, 8),
             child: Row(
               children: [
                 Expanded(
                   child: FilledButton.tonal(
-                    onPressed: (_drawLocked || isDrawing) ? null : (remainingTeams.isNotEmpty ? startDraw : null),
+                    onPressed: (_drawLocked || isDrawing)
+                        ? null
+                        : (remainingTeams.isNotEmpty ? startDraw : null),
                     child: Text(
                       isDrawing
                           ? l10n.tr('group_draw_drawing_teams')
-                          : (remainingTeams.isNotEmpty ? l10n.tr('group_draw_resume_draw') : l10n.tr('group_draw_draw_complete')),
+                          : (remainingTeams.isNotEmpty
+                              ? l10n.tr('group_draw_resume_draw')
+                              : l10n.tr('group_draw_draw_complete')),
                     ),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: (_drawLocked || !_allGroupsFull || _isGeneratingFixtures) ? null : _generateGroupFixtures,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.limeAccent,
+                      foregroundColor: AppTheme.darkText,
+                    ),
+                    onPressed:
+                        (_drawLocked || !_allGroupsFull || _isGeneratingFixtures)
+                            ? null
+                            : _generateGroupFixtures,
                     icon: _isGeneratingFixtures
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppTheme.darkText,
+                            ),
                           )
                         : const Icon(Icons.auto_awesome),
                     label: Text(
                       l10n.tr('group_draw_generate_fixtures').toUpperCase(),
-                      style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.4),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.4,
+                      ),
                     ),
                   ),
                 ),
@@ -504,7 +583,8 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
           Expanded(
             child: GridView.builder(
               padding: const EdgeInsets.all(16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              gridDelegate:
+                  const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 crossAxisSpacing: 15,
                 mainAxisSpacing: 15,
@@ -514,7 +594,10 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
               itemBuilder: (context, index) {
                 final key = orderedGroupKeys[index];
                 final teamNames = groups[key]!.map((t) => t.name).toList();
-                return GlassGroupCard(title: _displayGroupName(key), teams: teamNames);
+                return GlassGroupCard(
+                  title: _displayGroupName(key),
+                  teams: teamNames,
+                );
               },
             ),
           ),

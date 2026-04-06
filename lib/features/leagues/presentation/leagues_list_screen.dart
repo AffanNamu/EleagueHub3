@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:eleaguehub3/core/errors/user_friendly_error.dart';
 import 'package:eleaguehub3/core/locale/app_localizations.dart';
+import 'package:eleaguehub3/core/theme/app_theme.dart';
 import 'package:eleaguehub3/features/leagues/logic/coupon_codes_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_access_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
@@ -458,6 +459,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   ) async {
     final authUid = _authUidOrEmpty();
     final isOwner = _isOwnerForViewer(league, authUid);
+    final brightness = Theme.of(context).brightness;
 
     if (isOwner) {
       _snack(
@@ -471,7 +473,6 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       backgroundColor: Colors.transparent,
       builder: (sheetCtx) {
         final theme = Theme.of(sheetCtx);
-        final cs = theme.colorScheme;
 
         return SafeArea(
           child: Padding(
@@ -482,6 +483,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 child: Glass(
                   borderRadius: 26,
                   padding: const EdgeInsets.all(16),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -490,7 +493,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         height: 4,
                         margin: const EdgeInsets.only(bottom: 14),
                         decoration: BoxDecoration(
-                          color: cs.onSurface.withOpacity(0.20),
+                          color: AppTheme.cardBorder(brightness),
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -499,7 +502,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         textAlign: TextAlign.center,
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: cs.onSurface,
+                          color: AppTheme.primaryText(brightness),
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -509,7 +512,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             : 'You can remove this league from your list if you no longer need it.',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.68),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w700,
                           height: 1.35,
                         ),
@@ -570,27 +573,35 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   }
 
   Future<void> _leaveLeague(League league) async {
+    final brightness = Theme.of(context).brightness;
+
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) {
             final theme = Theme.of(ctx);
-            final cs = theme.colorScheme;
 
             return Dialog(
               backgroundColor: Colors.transparent,
               child: Glass(
                 borderRadius: 24,
                 padding: const EdgeInsets.all(18),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.exit_to_app_rounded, color: cs.primary, size: 34),
+                    Icon(
+                      Icons.exit_to_app_rounded,
+                      color: AppTheme.limeAccentDark,
+                      size: 34,
+                    ),
                     const SizedBox(height: 10),
                     Text(
                       'Remove league from your list?',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
+                        color: AppTheme.primaryText(brightness),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -598,7 +609,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       'You will leave "${league.name}" and it will no longer appear on your leagues screen.',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.70),
+                        color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w700,
                         height: 1.35,
                       ),
@@ -618,6 +629,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.limeAccent,
+                              foregroundColor: AppTheme.darkText,
+                            ),
                             onPressed: () => Navigator.of(ctx).pop(true),
                             child: const Text(
                               'Remove',
@@ -664,8 +679,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   ) async {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     if (_payingLeagueId == league.id) return;
 
@@ -866,13 +880,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
         return SafeArea(
           child: Padding(
-            padding:
-                EdgeInsets.only(bottom: bottomInset).add(const EdgeInsets.all(12)),
+            padding: EdgeInsets.only(bottom: bottomInset)
+                .add(const EdgeInsets.all(12)),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
                 child: Glass(
                   borderRadius: 28,
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: StatefulBuilder(
                     builder: (ctx, setModalState) {
                       return Padding(
@@ -885,7 +901,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               height: 4,
                               margin: const EdgeInsets.only(bottom: 16),
                               decoration: BoxDecoration(
-                                color: onSurface.withOpacity(0.25),
+                                color: AppTheme.cardBorder(brightness),
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
@@ -894,7 +910,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 18,
-                                color: onSurface,
+                                color: AppTheme.primaryText(brightness),
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -902,7 +918,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               league.name,
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: onSurface.withOpacity(0.55),
+                                color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -912,7 +928,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 'This classic league is full. You can unlock access as a viewer by paying or using a coupon.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: onSurface.withOpacity(0.50),
+                                  color: AppTheme.secondaryText(brightness),
                                   fontSize: 12,
                                   height: 1.35,
                                   fontWeight: FontWeight.w600,
@@ -923,21 +939,29 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             SizedBox(
                               width: double.infinity,
                               child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppTheme.limeAccent,
+                                  foregroundColor: AppTheme.darkText,
+                                ),
                                 onPressed:
                                     busy ? null : () => unlockByPay(setModalState),
                                 icon: busy
                                     ? const SizedBox(
                                         width: 18,
                                         height: 18,
-                                        child:
-                                            CircularProgressIndicator(strokeWidth: 2),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppTheme.darkText,
+                                        ),
                                       )
                                     : const Icon(Icons.payments_outlined),
                                 label: busy
                                     ? const Text('')
                                     : const Text(
                                         'Pay to unlock',
-                                        style: TextStyle(fontWeight: FontWeight.w900),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                        ),
                                       ),
                               ),
                             ),
@@ -947,7 +971,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               child: Text(
                                 'Or use a coupon',
                                 style: TextStyle(
-                                  color: onSurface.withOpacity(0.75),
+                                  color: AppTheme.primaryText(brightness),
                                   fontWeight: FontWeight.w900,
                                   fontSize: 12,
                                 ),
@@ -984,16 +1008,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: cs.error.withOpacity(0.10),
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .error
+                                      .withOpacity(0.10),
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
-                                    color: cs.error.withOpacity(0.25),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .error
+                                        .withOpacity(0.25),
                                   ),
                                 ),
                                 child: Text(
                                   error!.trim(),
                                   style: TextStyle(
-                                    color: cs.error,
+                                    color: Theme.of(context).colorScheme.error,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
@@ -1130,15 +1160,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     final media = MediaQuery.of(context);
     final screenWidth = media.size.width;
     final isTablet = screenWidth >= 600;
-    final headerTopOffset = widget.showAppBar
-        ? media.padding.top + kToolbarHeight + 8
-        : 8.0;
     final fabBottomOffset =
         kBottomNavigationBarHeight + media.padding.bottom + 16;
 
@@ -1166,14 +1192,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           : null,
       floatingActionButton: Padding(
         padding: EdgeInsets.only(bottom: fabBottomOffset),
-        child: FloatingActionButton(
-          onPressed: () => _showOptions(context),
-          backgroundColor: _freeLimitReached ? _premiumAmber : cs.primary,
-          foregroundColor: _freeLimitReached ? Colors.black : cs.onPrimary,
-          child: Icon(
-            _freeLimitReached
-                ? Icons.workspace_premium_rounded
-                : Icons.add_rounded,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: AppTheme.fabGlow(brightness),
+          ),
+          child: FloatingActionButton(
+            onPressed: () => _showOptions(context),
+            backgroundColor:
+                _freeLimitReached ? _premiumAmber : AppTheme.limeAccent,
+            foregroundColor:
+                _freeLimitReached ? Colors.black : AppTheme.darkText,
+            child: Icon(
+              _freeLimitReached
+                  ? Icons.workspace_premium_rounded
+                  : Icons.add_rounded,
+            ),
           ),
         ),
       ),
@@ -1200,6 +1234,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       horizontal: 14,
                       vertical: 12,
                     ),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1211,18 +1247,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               height: 38,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    cs.primary.withOpacity(0.26),
-                                    cs.primary.withOpacity(0.08),
-                                  ],
-                                ),
+                                color: AppTheme.iconCircleBackground(brightness),
                               ),
                               child: Icon(
                                 Icons.emoji_events_rounded,
-                                color: cs.primary,
+                                color: AppTheme.limeAccentDark,
                                 size: 20,
                               ),
                             ),
@@ -1239,7 +1268,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                       fontWeight: FontWeight.w900,
                                       fontSize: 17,
                                       letterSpacing: -0.3,
-                                      color: onSurface,
+                                      color: AppTheme.primaryText(brightness),
                                     ),
                                   ),
                                   const SizedBox(height: 1),
@@ -1248,7 +1277,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                         ? 'Loading...'
                                         : '${_leagues.length} league${_leagues.length == 1 ? '' : 's'}',
                                     style: TextStyle(
-                                      color: onSurface.withOpacity(0.54),
+                                      color: AppTheme.secondaryText(brightness),
                                       fontSize: 11.5,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -1271,7 +1300,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             Text(
                               'Checking your access...',
                               style: TextStyle(
-                                color: onSurface.withOpacity(0.60),
+                                color: AppTheme.secondaryText(brightness),
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
                                 height: 1.28,
@@ -1281,7 +1310,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             Text(
                               'Paid plan active: you can create more than $_freeLeagueListLimit leagues/competitions.',
                               style: TextStyle(
-                                color: cs.primary,
+                                color: AppTheme.limeAccentDark,
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
                                 height: 1.28,
@@ -1290,7 +1319,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                           else if (_freeLimitReached)
                             Text(
                               'Basic/free creation limit reached: you already created $_createdLeagueCount / $_freeLeagueListLimit leagues or competitions across normal leagues and Organizer workspace.',
-                              style: TextStyle(
+                              style: const TextStyle(
                                 color: _premiumAmber,
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
@@ -1301,7 +1330,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             Text(
                               'Basic/free access active: you have used $_createdLeagueCount / $_freeLeagueListLimit shared creation slots across normal leagues and Organizer workspace.',
                               style: TextStyle(
-                                color: onSurface.withOpacity(0.60),
+                                color: AppTheme.secondaryText(brightness),
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
                                 height: 1.28,
@@ -1314,10 +1343,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             child: FilledButton.icon(
                               onPressed: _openInlinePlanChooser,
                               style: FilledButton.styleFrom(
-                                backgroundColor:
-                                    _freeLimitReached ? _premiumAmber : cs.primary,
-                                foregroundColor:
-                                    _freeLimitReached ? Colors.black : cs.onPrimary,
+                                backgroundColor: _freeLimitReached
+                                    ? _premiumAmber
+                                    : AppTheme.limeAccent,
+                                foregroundColor: AppTheme.darkText,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 12,
                                   vertical: 10,
@@ -1344,14 +1373,18 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Glass(
-                    borderRadius: 16,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
+                    borderRadius: 18,
+                    padding: EdgeInsets.zero,
+                    fill: AppTheme.searchBackground(brightness),
+                    borderColor: AppTheme.searchOutline(brightness),
                     child: Row(
                       children: [
-                        const Icon(Icons.search_rounded, size: 19),
+                        const SizedBox(width: 12),
+                        Icon(
+                          Icons.search_rounded,
+                          size: 19,
+                          color: AppTheme.secondaryText(brightness),
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
@@ -1400,13 +1433,13 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 CircularProgressIndicator(
-                                  color: cs.primary,
+                                  color: AppTheme.limeAccentDark,
                                 ),
                                 const SizedBox(height: 14),
                                 Text(
                                   'Loading leagues...',
                                   style: TextStyle(
-                                    color: onSurface.withOpacity(0.55),
+                                    color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -1432,8 +1465,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     bool isTablet,
   ) {
     final l10n = context.l10n;
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
 
     final viewerUid = _effectiveUserId.trim();
     final authUid = _authUidOrEmpty();
@@ -1454,7 +1487,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         16,
         8,
         16,
-        16 + MediaQuery.of(context).padding.bottom + kBottomNavigationBarHeight + 80,
+        16 +
+            MediaQuery.of(context).padding.bottom +
+            kBottomNavigationBarHeight +
+            80,
       ),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: isTablet ? 2 : 1,
@@ -1540,9 +1576,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         child: _CardBadge(
                           label: l10n.tr('leagues_badge_full'),
                           icon: Icons.block_rounded,
-                          color: cs.error,
-                          bg: cs.error.withOpacity(0.14),
-                          border: cs.error.withOpacity(0.40),
+                          color: Theme.of(context).colorScheme.error,
+                          bg: Theme.of(context)
+                              .colorScheme
+                              .error
+                              .withOpacity(0.14),
+                          border: Theme.of(context)
+                              .colorScheme
+                              .error
+                              .withOpacity(0.40),
                         ),
                       ),
                     PositionedDirectional(
@@ -1566,17 +1608,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             _CardBadge(
                               label: l10n.tr('leagues_badge_owner'),
                               icon: Icons.admin_panel_settings_rounded,
-                              color: cs.primary,
-                              bg: cs.primary.withOpacity(0.18),
-                              border: cs.primary.withOpacity(0.45),
+                              color: const Color(0xFFEF4444),
+                              bg: const Color(0xFFEF4444).withOpacity(0.14),
+                              border: const Color(0xFFEF4444).withOpacity(0.40),
                             ),
                           if (!isOwner && viewerIsViewerOnly)
                             _CardBadge(
                               label: l10n.tr('leagues_badge_viewer'),
                               icon: Icons.visibility_rounded,
-                              color: onSurface.withOpacity(0.70),
-                              bg: onSurface.withOpacity(0.06),
-                              border: onSurface.withOpacity(0.12),
+                              color: AppTheme.secondaryText(brightness),
+                              bg: AppTheme.searchBackground(brightness),
+                              border: AppTheme.searchOutline(brightness),
                             ),
                         ],
                       ),
@@ -1588,9 +1630,9 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         child: _CardBadge(
                           label: 'LONG PRESS',
                           icon: Icons.touch_app_rounded,
-                          color: onSurface.withOpacity(0.78),
-                          bg: onSurface.withOpacity(0.08),
-                          border: onSurface.withOpacity(0.14),
+                          color: AppTheme.secondaryText(brightness),
+                          bg: AppTheme.searchBackground(brightness),
+                          border: AppTheme.searchOutline(brightness),
                         ),
                       ),
                     if (removingThis)
@@ -1643,8 +1685,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   Widget _buildEmptyState(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
     final media = MediaQuery.of(context);
     final bottomPadding =
         16.0 + media.padding.bottom + kBottomNavigationBarHeight + 80;
@@ -1664,6 +1705,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         child: Glass(
           borderRadius: 28,
           padding: const EdgeInsets.all(32),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1672,14 +1715,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 height: 72,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      cs.primary.withOpacity(0.25),
-                      cs.primary.withOpacity(0.08),
-                    ],
-                  ),
+                  color: AppTheme.iconCircleBackground(brightness),
                 ),
                 child: Icon(
                   hasSearch
@@ -1688,7 +1724,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                           ? Icons.hub_rounded
                           : Icons.emoji_events_rounded),
                   size: 36,
-                  color: cs.primary,
+                  color: AppTheme.limeAccentDark,
                 ),
               ),
               const SizedBox(height: 20),
@@ -1702,7 +1738,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                   fontWeight: FontWeight.w900,
                   fontSize: 20,
                   letterSpacing: -0.3,
-                  color: onSurface,
+                  color: AppTheme.primaryText(brightness),
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -1715,7 +1751,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         : l10n.tr('leagues_empty_subtitle')),
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: onSurface.withOpacity(0.60),
+                  color: AppTheme.secondaryText(brightness),
                   fontSize: 14,
                   height: 1.5,
                   fontWeight: FontWeight.w600,
@@ -1737,19 +1773,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     child: Ink(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
-                        gradient: LinearGradient(
-                          colors: hasSearch
-                              ? [cs.primary, cs.primary.withOpacity(0.75)]
-                              : (_freeLimitReached
-                                  ? [
-                                      _premiumAmber,
-                                      _premiumAmber.withOpacity(0.82),
-                                    ]
-                                  : [
-                                      cs.primary,
-                                      cs.primary.withOpacity(0.75),
-                                    ]),
-                        ),
+                        color: hasSearch
+                            ? AppTheme.limeAccent
+                            : (_freeLimitReached
+                                ? _premiumAmber
+                                : AppTheme.limeAccent),
                       ),
                       child: Center(
                         child: Row(
@@ -1761,11 +1789,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                   : (_freeLimitReached
                                       ? Icons.payments_rounded
                                       : Icons.add_rounded),
-                              color: hasSearch
-                                  ? Colors.white
-                                  : (_freeLimitReached
-                                      ? Colors.black
-                                      : Colors.white),
+                              color: AppTheme.darkText,
                               size: 20,
                             ),
                             const SizedBox(width: 8),
@@ -1775,12 +1799,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                   : (_freeLimitReached
                                       ? 'Upgrade Plan'
                                       : l10n.tr('leagues_empty_cta')),
-                              style: TextStyle(
-                                color: hasSearch
-                                    ? Colors.white
-                                    : (_freeLimitReached
-                                        ? Colors.black
-                                        : Colors.white),
+                              style: const TextStyle(
+                                color: AppTheme.darkText,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 14,
                               ),
@@ -1797,7 +1817,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 Text(
                   _freeLimitMessage('create more'),
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: _premiumAmber,
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
@@ -1815,8 +1835,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   void _showOptions(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
     final media = MediaQuery.of(context);
 
     showModalBottomSheet(
@@ -1835,6 +1854,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
               child: Glass(
                 borderRadius: 28,
                 padding: const EdgeInsets.all(6),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1846,7 +1867,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         bottom: 14,
                       ),
                       decoration: BoxDecoration(
-                        color: onSurface.withOpacity(0.20),
+                        color: AppTheme.cardBorder(brightness),
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -1859,15 +1880,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w900,
                               fontSize: 18,
-                              color: onSurface,
+                              color: AppTheme.primaryText(brightness),
                             ),
                           ),
                           if (_freeLimitReached) ...[
                             const SizedBox(height: 8),
                             Text(
-                              _freeLimitMessage('create more leagues or competitions'),
+                              _freeLimitMessage(
+                                'create more leagues or competitions',
+                              ),
                               textAlign: TextAlign.center,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 color: _premiumAmber,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w800,
@@ -1880,7 +1903,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               'Basic users can create up to $_freeLeagueListLimit total leagues or competitions. Joining leagues remains available.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: onSurface.withOpacity(0.60),
+                                color: AppTheme.secondaryText(brightness),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
                                 height: 1.35,
@@ -1897,7 +1920,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                           : Icons.add_rounded,
                       iconBg: _freeLimitReached
                           ? _premiumAmber
-                          : cs.primary,
+                          : AppTheme.limeAccentDark,
                       title: _freeLimitReached
                           ? 'Upgrade Plan'
                           : l10n.tr('leagues_options_create_title'),
@@ -1910,7 +1933,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       },
                     ),
                     Divider(
-                      color: onSurface.withOpacity(0.08),
+                      color: AppTheme.cardBorder(brightness),
                       height: 1,
                       indent: 16,
                       endIndent: 16,
@@ -1926,7 +1949,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       },
                     ),
                     Divider(
-                      color: onSurface.withOpacity(0.08),
+                      color: AppTheme.cardBorder(brightness),
                       height: 1,
                       indent: 16,
                       endIndent: 16,
@@ -1954,6 +1977,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
   Future<void> _showJoinByIdSheet(BuildContext context) async {
     final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
 
     final authUid = _authUidOrEmpty();
     if (authUid.isEmpty) {
@@ -2072,8 +2096,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         isScrollControlled: true,
         builder: (ctx) {
           final theme = Theme.of(ctx);
-          final cs = theme.colorScheme;
-          final onSurface = cs.onSurface;
+
           final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
 
           return SafeArea(
@@ -2085,6 +2108,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                   constraints: const BoxConstraints(maxWidth: 560),
                   child: Glass(
                     borderRadius: 28,
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: StatefulBuilder(
                       builder: (ctx, setModalState) {
                         return Padding(
@@ -2097,7 +2122,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 height: 4,
                                 margin: const EdgeInsets.only(bottom: 16),
                                 decoration: BoxDecoration(
-                                  color: onSurface.withOpacity(0.20),
+                                  color: AppTheme.cardBorder(brightness),
                                   borderRadius: BorderRadius.circular(2),
                                 ),
                               ),
@@ -2106,36 +2131,28 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 height: 48,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      cs.primary.withOpacity(0.30),
-                                      cs.primary.withOpacity(0.08),
-                                    ],
-                                  ),
+                                  color: AppTheme.iconCircleBackground(brightness),
                                 ),
                                 child: Icon(
                                   Icons.key_rounded,
-                                  color: cs.primary,
+                                  color: AppTheme.limeAccentDark,
                                   size: 24,
                                 ),
                               ),
                               const SizedBox(height: 12),
                               Text(
                                 l10n.tr('leagues_join_sheet_title'),
-                                style: theme.textTheme.titleMedium
-                                    ?.copyWith(
+                                style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 18,
-                                  color: onSurface,
+                                  color: AppTheme.primaryText(brightness),
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 l10n.tr('leagues_join_sheet_subtitle'),
                                 style: TextStyle(
-                                  color: onSurface.withOpacity(0.55),
+                                  color: AppTheme.secondaryText(brightness),
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -2149,7 +2166,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                     TextCapitalization.characters,
                                 style: TextStyle(
                                   fontWeight: FontWeight.w800,
-                                  color: onSurface,
+                                  color: AppTheme.primaryText(brightness),
                                 ),
                                 decoration: InputDecoration(
                                   hintText: l10n.tr('leagues_join_hint'),
@@ -2166,6 +2183,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               Glass(
                                 borderRadius: 18,
                                 padding: const EdgeInsets.all(14),
+                                fill: AppTheme.searchBackground(brightness),
+                                borderColor: AppTheme.searchOutline(brightness),
                                 child: Column(
                                   crossAxisAlignment:
                                       CrossAxisAlignment.start,
@@ -2175,7 +2194,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                       style: theme.textTheme.bodyMedium
                                           ?.copyWith(
                                         fontWeight: FontWeight.w900,
-                                        color: onSurface,
+                                        color: AppTheme.primaryText(brightness),
                                       ),
                                     ),
                                     const SizedBox(height: 10),
@@ -2230,7 +2249,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                               'leagues_join_as_participant_description',
                                             ),
                                       style: TextStyle(
-                                        color: onSurface.withOpacity(0.55),
+                                        color: AppTheme.secondaryText(brightness),
                                         fontSize: 11,
                                         height: 1.3,
                                         fontWeight: FontWeight.w600,
@@ -2254,6 +2273,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: FilledButton.icon(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: AppTheme.limeAccent,
+                                        foregroundColor: AppTheme.darkText,
+                                      ),
                                       onPressed: joining
                                           ? null
                                           : () => doJoin(setModalState),
@@ -2264,7 +2287,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                               child:
                                                   CircularProgressIndicator(
                                                 strokeWidth: 2,
-                                                color: Colors.white,
+                                                color: AppTheme.darkText,
                                               ),
                                             )
                                           : const Icon(
@@ -2309,8 +2332,7 @@ class _TopLeagueSwitcher extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
+    final brightness = theme.brightness;
 
     Widget chip({
       required _LeagueViewTab tab,
@@ -2330,8 +2352,8 @@ class _TopLeagueSwitcher extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
               color: selected
-                  ? cs.primary
-                  : Colors.transparent,
+                  ? AppTheme.limeAccent
+                  : AppTheme.tabInactiveBackground(brightness),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -2339,7 +2361,9 @@ class _TopLeagueSwitcher extends StatelessWidget {
                 Icon(
                   icon,
                   size: 17,
-                  color: selected ? cs.onPrimary : onSurface.withOpacity(0.70),
+                  color: selected
+                      ? AppTheme.darkText
+                      : AppTheme.tabInactiveText(brightness),
                 ),
                 const SizedBox(width: 8),
                 Flexible(
@@ -2348,7 +2372,9 @@ class _TopLeagueSwitcher extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelLarge?.copyWith(
-                      color: selected ? cs.onPrimary : onSurface.withOpacity(0.78),
+                      color: selected
+                          ? AppTheme.darkText
+                          : AppTheme.tabInactiveText(brightness),
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -2363,6 +2389,8 @@ class _TopLeagueSwitcher extends StatelessWidget {
     return Glass(
       borderRadius: 999,
       padding: const EdgeInsets.all(6),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Row(
         children: [
           chip(
@@ -2401,7 +2429,7 @@ class _OptionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final brightness = Theme.of(context).brightness;
 
     return InkWell(
       onTap: onTap,
@@ -2429,17 +2457,16 @@ class _OptionTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.titleSmall
-                        ?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: onSurface,
-                    ),
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.primaryText(brightness),
+                        ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: onSurface.withOpacity(0.55),
+                      color: AppTheme.secondaryText(brightness),
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -2449,7 +2476,7 @@ class _OptionTile extends StatelessWidget {
             ),
             Icon(
               Icons.chevron_right_rounded,
-              color: onSurface.withOpacity(0.25),
+              color: AppTheme.secondaryText(brightness),
               size: 20,
             ),
           ],
@@ -2474,9 +2501,10 @@ class _ModeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = cs.onSurface;
-    final color = selected ? cs.primary : onSurface.withOpacity(0.60);
+    final brightness = Theme.of(context).brightness;
+    final color = selected
+        ? AppTheme.darkText
+        : AppTheme.tabInactiveText(brightness);
 
     return InkWell(
       onTap: onTap,
@@ -2486,12 +2514,12 @@ class _ModeChip extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           color: selected
-              ? cs.primary.withOpacity(0.12)
-              : onSurface.withOpacity(0.04),
+              ? AppTheme.limeAccent
+              : AppTheme.tabInactiveBackground(brightness),
           border: Border.all(
             color: selected
-                ? cs.primary.withOpacity(0.30)
-                : onSurface.withOpacity(0.10),
+                ? AppTheme.limeAccentDark
+                : AppTheme.cardBorder(brightness),
           ),
         ),
         child: Column(

@@ -24,7 +24,7 @@ class WebDesktopShellScreen extends StatefulWidget {
 }
 
 class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
-  static const Color _accent = AppTheme.navyAccent;
+  static const Color _accent = AppTheme.limeAccentDark;
 
   int _selectedIndex = 0;
 
@@ -66,6 +66,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (ctx) {
+        final brightness = Theme.of(ctx).brightness;
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -74,8 +75,8 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
               child: Glass(
                 borderRadius: 24,
                 padding: EdgeInsets.zero,
-                fill: Colors.white.withOpacity(0.08),
-                borderColor: Colors.white.withOpacity(0.10),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
                 child: _DesktopRightPanel(
                   pairedUserUid: widget.pairedUserUid,
                   pairedUserName: widget.pairedUserName,
@@ -127,6 +128,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
 
   Widget _buildMobileLayout(BuildContext context, List<Widget> panels) {
     final currentItem = _items[_selectedIndex];
+    final brightness = Theme.of(context).brightness;
 
     return GlassScaffold(
       bottomNavigationBar: NavigationBar(
@@ -159,7 +161,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                     'eSportlyic Web',
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: Colors.white,
+                          color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w900,
                         ),
                   ),
@@ -188,7 +190,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
             ],
           ),
           drawer: Drawer(
-            backgroundColor: const Color(0xFF0E223F),
+            backgroundColor: AppTheme.cardColor(brightness),
             child: SafeArea(
               child: Column(
                 children: [
@@ -250,6 +252,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
   Widget _buildTabletLayout(BuildContext context, List<Widget> panels) {
     final currentItem = _items[_selectedIndex];
     final showRightPanel = MediaQuery.of(context).size.width >= 960;
+    final brightness = Theme.of(context).brightness;
 
     return GlassScaffold(
       body: SafeArea(
@@ -258,7 +261,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
             Glass(
               borderRadius: 0,
               padding: EdgeInsets.zero,
-              fill: Colors.white.withOpacity(0.05),
+              fill: AppTheme.cardColor(brightness),
               border: false,
               child: SizedBox(
                 width: 96,
@@ -273,16 +276,18 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                         selectedIndex: _selectedIndex,
                         labelType: NavigationRailLabelType.all,
                         groupAlignment: -1,
-                        indicatorColor: _accent.withOpacity(0.16),
-                        selectedIconTheme: const IconThemeData(color: _accent),
+                        indicatorColor: AppTheme.limeAccent,
+                        selectedIconTheme:
+                            const IconThemeData(color: _accent),
                         selectedLabelTextStyle: const TextStyle(
-                          color: Colors.white,
+                          color: _accent,
                           fontWeight: FontWeight.w800,
                         ),
-                        unselectedIconTheme:
-                            IconThemeData(color: Colors.white.withOpacity(0.72)),
+                        unselectedIconTheme: IconThemeData(
+                          color: AppTheme.secondaryText(brightness),
+                        ),
                         unselectedLabelTextStyle: TextStyle(
-                          color: Colors.white.withOpacity(0.72),
+                          color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w700,
                         ),
                         onDestinationSelected: (index) {
@@ -304,7 +309,10 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                       child: IconButton(
                         tooltip: 'Unlink desktop',
                         onPressed: _logoutDesktop,
-                        icon: const Icon(Icons.logout, color: Colors.white70),
+                        icon: Icon(
+                          Icons.logout,
+                          color: AppTheme.secondaryText(brightness),
+                        ),
                       ),
                     ),
                   ],
@@ -329,7 +337,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                 child: Glass(
                   borderRadius: 0,
                   padding: EdgeInsets.zero,
-                  fill: Colors.white.withOpacity(0.05),
+                  fill: AppTheme.cardColor(brightness),
                   border: false,
                   child: _DesktopRightPanel(
                     pairedUserUid: widget.pairedUserUid,
@@ -345,6 +353,8 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
   }
 
   Widget _buildDesktopLayout(BuildContext context, List<Widget> panels) {
+    final brightness = Theme.of(context).brightness;
+
     return GlassScaffold(
       body: SafeArea(
         child: Row(
@@ -352,7 +362,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
             Glass(
               borderRadius: 0,
               padding: EdgeInsets.zero,
-              fill: Colors.white.withOpacity(0.05),
+              fill: AppTheme.cardColor(brightness),
               border: false,
               child: SizedBox(
                 width: 308,
@@ -412,7 +422,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
               child: Glass(
                 borderRadius: 0,
                 padding: EdgeInsets.zero,
-                fill: Colors.white.withOpacity(0.05),
+                fill: AppTheme.cardColor(brightness),
                 border: false,
                 child: _DesktopRightPanel(
                   pairedUserUid: widget.pairedUserUid,
@@ -439,18 +449,20 @@ class _CompactTopBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
     return Glass(
       borderRadius: 0,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      fill: Colors.white.withOpacity(0.05),
+      fill: AppTheme.cardColor(brightness),
       border: false,
       child: Row(
         children: [
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: AppTheme.primaryText(brightness),
                 fontSize: 18,
                 fontWeight: FontWeight.w900,
               ),
@@ -459,18 +471,19 @@ class _CompactTopBanner extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
+              color: AppTheme.searchBackground(brightness),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.link_rounded, color: AppTheme.navyAccent, size: 16),
+                const Icon(Icons.link_rounded,
+                    color: AppTheme.limeAccentDark, size: 16),
                 const SizedBox(width: 6),
                 Text(
                   pairedUserName.trim().isEmpty ? 'Linked' : pairedUserName,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.82),
+                    color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),
@@ -497,6 +510,7 @@ class _DesktopSidebarHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     final initials = pairedUserName.trim().isNotEmpty
         ? pairedUserName.trim().substring(0, 1).toUpperCase()
         : 'E';
@@ -514,7 +528,7 @@ class _DesktopSidebarHeader extends StatelessWidget {
                   child: Text(
                     'eSportlyic Web',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Colors.white,
+                          color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w900,
                         ),
                   ),
@@ -526,17 +540,17 @@ class _DesktopSidebarHeader extends StatelessWidget {
           Glass(
             borderRadius: 20,
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-            fill: Colors.white.withOpacity(0.05),
-            borderColor: Colors.white.withOpacity(0.08),
+            fill: AppTheme.searchBackground(brightness),
+            borderColor: AppTheme.searchOutline(brightness),
             child: Row(
               children: [
                 CircleAvatar(
                   radius: 22,
-                  backgroundColor: AppTheme.navyAccent.withOpacity(0.22),
+                  backgroundColor: AppTheme.iconCircleBackground(brightness),
                   child: Text(
                     initials,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -552,8 +566,8 @@ class _DesktopSidebarHeader extends StatelessWidget {
                             : 'eSportlyic User',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w700,
                           fontSize: 15,
                         ),
@@ -566,7 +580,7 @@ class _DesktopSidebarHeader extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.62),
+                          color: AppTheme.secondaryText(brightness),
                           fontSize: 12,
                         ),
                       ),
@@ -597,10 +611,17 @@ class _DesktopSidebarTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fg = selected ? Colors.white : Colors.white.withOpacity(0.72);
+    final brightness = Theme.of(context).brightness;
+    final fg = selected
+        ? AppTheme.primaryText(brightness)
+        : AppTheme.secondaryText(brightness);
 
     return Material(
-      color: selected ? Colors.white.withOpacity(0.06) : Colors.transparent,
+      color: selected
+          ? (brightness == Brightness.dark
+              ? AppTheme.limeAccentDark.withOpacity(0.10)
+              : const Color(0xFFECFCCB))
+          : Colors.transparent,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
@@ -642,17 +663,19 @@ class _DesktopTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
     return Glass(
       borderRadius: 0,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      fill: Colors.white.withOpacity(0.05),
+      fill: AppTheme.cardColor(brightness),
       border: false,
       child: Row(
         children: [
           Text(
             title,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: AppTheme.primaryText(brightness),
               fontSize: 22,
               fontWeight: FontWeight.w800,
             ),
@@ -664,17 +687,18 @@ class _DesktopTopBar extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.04),
+                color: AppTheme.searchBackground(brightness),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.laptop_mac, color: AppTheme.navyAccent, size: 18),
+                  const Icon(Icons.laptop_mac,
+                      color: AppTheme.limeAccentDark, size: 18),
                   const SizedBox(width: 8),
                   Text(
                     'Linked as ${pairedUserName.trim().isEmpty ? 'user' : pairedUserName}',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.82),
+                      color: AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -701,6 +725,7 @@ class _DesktopHomePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     final userDoc =
         FirebaseFirestore.instance.collection('users').doc(pairedUserUid);
 
@@ -718,8 +743,8 @@ class _DesktopHomePanel extends StatelessWidget {
           children: [
             Text(
               'Welcome back${pairedUserName.trim().isNotEmpty ? ', $pairedUserName' : ''}',
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: AppTheme.primaryText(brightness),
                 fontSize: 28,
                 fontWeight: FontWeight.w900,
               ),
@@ -730,7 +755,7 @@ class _DesktopHomePanel extends StatelessWidget {
                   ? pairedUserEmail
                   : 'Your eSportlyic desktop companion session is active.',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.66),
+                color: AppTheme.secondaryText(brightness),
                 fontSize: 14,
               ),
             ),
@@ -748,7 +773,7 @@ class _DesktopHomePanel extends StatelessWidget {
                   child: _DesktopStatCard(
                     title: 'Desktop Status',
                     value: 'Linked',
-                    accent: AppTheme.navyAccent,
+                    accent: AppTheme.limeAccentDark,
                     icon: Icons.link,
                   ),
                 ),
@@ -800,18 +825,19 @@ class _DesktopProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     final hasPhoto = photoUrl.trim().isNotEmpty;
 
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(22),
-      fill: Colors.white.withOpacity(0.06),
-      borderColor: Colors.white.withOpacity(0.08),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Row(
         children: [
           CircleAvatar(
             radius: 36,
-            backgroundColor: AppTheme.navyAccent.withOpacity(0.18),
+            backgroundColor: AppTheme.iconCircleBackground(brightness),
             backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
             child: hasPhoto
                 ? null
@@ -819,8 +845,8 @@ class _DesktopProfileCard extends StatelessWidget {
                     name.trim().isNotEmpty
                         ? name.trim().substring(0, 1).toUpperCase()
                         : 'E',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w800,
                       fontSize: 24,
                     ),
@@ -833,8 +859,8 @@ class _DesktopProfileCard extends StatelessWidget {
               children: [
                 Text(
                   name.trim().isNotEmpty ? name : 'eSportlyic User',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: AppTheme.primaryText(brightness),
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
                   ),
@@ -844,7 +870,7 @@ class _DesktopProfileCard extends StatelessWidget {
                   Text(
                     email,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.70),
+                      color: AppTheme.secondaryText(brightness),
                     ),
                   ),
                 if (teamName.trim().isNotEmpty) ...[
@@ -852,7 +878,7 @@ class _DesktopProfileCard extends StatelessWidget {
                   Text(
                     'Team: $teamName',
                     style: const TextStyle(
-                      color: AppTheme.navyAccent,
+                      color: AppTheme.limeAccentDark,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -881,11 +907,13 @@ class _DesktopStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
     return Glass(
       borderRadius: 20,
       padding: const EdgeInsets.all(18),
-      fill: Colors.white.withOpacity(0.06),
-      borderColor: Colors.white.withOpacity(0.08),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -894,7 +922,7 @@ class _DesktopStatCard extends StatelessWidget {
           Text(
             title,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.62),
+              color: AppTheme.secondaryText(brightness),
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -902,8 +930,8 @@ class _DesktopStatCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             value,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: AppTheme.primaryText(brightness),
               fontSize: 20,
               fontWeight: FontWeight.w800,
             ),
@@ -925,18 +953,20 @@ class _DesktopPlaceholderSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(22),
-      fill: Colors.white.withOpacity(0.06),
-      borderColor: Colors.white.withOpacity(0.08),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w800,
               fontSize: 18,
             ),
@@ -945,7 +975,7 @@ class _DesktopPlaceholderSection extends StatelessWidget {
           Text(
             subtitle,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.70),
+              color: AppTheme.secondaryText(brightness),
               height: 1.5,
             ),
           ),
@@ -964,6 +994,7 @@ class _DesktopLeaguesPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     final stream = FirebaseFirestore.instance.collection('leagues').snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -1015,10 +1046,10 @@ class _DesktopLeaguesPanel extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            const Text(
+            Text(
               'Your leagues',
               style: TextStyle(
-                color: Colors.white,
+                color: AppTheme.primaryText(brightness),
                 fontSize: 26,
                 fontWeight: FontWeight.w900,
               ),
@@ -1027,7 +1058,7 @@ class _DesktopLeaguesPanel extends StatelessWidget {
             Text(
               '${docs.length} league(s) found',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.66),
+                color: AppTheme.secondaryText(brightness),
               ),
             ),
             const SizedBox(height: 20),
@@ -1044,8 +1075,8 @@ class _DesktopLeaguesPanel extends StatelessWidget {
                 child: Glass(
                   borderRadius: 20,
                   padding: const EdgeInsets.all(18),
-                  fill: Colors.white.withOpacity(0.06),
-                  borderColor: Colors.white.withOpacity(0.08),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
                   child: Row(
                     children: [
                       Container(
@@ -1053,11 +1084,11 @@ class _DesktopLeaguesPanel extends StatelessWidget {
                         height: 54,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
-                          color: AppTheme.navyAccent.withOpacity(0.14),
+                          color: AppTheme.iconCircleBackground(brightness),
                         ),
                         child: const Icon(
                           Icons.emoji_events,
-                          color: AppTheme.navyAccent,
+                          color: AppTheme.limeAccentDark,
                         ),
                       ),
                       const SizedBox(width: 14),
@@ -1067,8 +1098,8 @@ class _DesktopLeaguesPanel extends StatelessWidget {
                           children: [
                             Text(
                               name,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: AppTheme.primaryText(brightness),
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -1110,16 +1141,17 @@ class _LeagueMetaChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
+        color: AppTheme.searchBackground(brightness),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         text,
         style: TextStyle(
-          color: Colors.white.withOpacity(0.78),
+          color: AppTheme.primaryText(brightness),
           fontSize: 12,
           fontWeight: FontWeight.w700,
         ),
@@ -1133,6 +1165,7 @@ class _DesktopDiscoverPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     final stream =
         FirebaseFirestore.instance.collection('master_leagues').snapshots();
 
@@ -1148,10 +1181,10 @@ class _DesktopDiscoverPanel extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            const Text(
+            Text(
               'Organizer discovery',
               style: TextStyle(
-                color: Colors.white,
+                color: AppTheme.primaryText(brightness),
                 fontSize: 26,
                 fontWeight: FontWeight.w900,
               ),
@@ -1160,7 +1193,7 @@ class _DesktopDiscoverPanel extends StatelessWidget {
             Text(
               'Browse organizer workspaces',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.66),
+                color: AppTheme.secondaryText(brightness),
               ),
             ),
             const SizedBox(height: 20),
@@ -1181,15 +1214,15 @@ class _DesktopDiscoverPanel extends StatelessWidget {
                   child: Glass(
                     borderRadius: 20,
                     padding: const EdgeInsets.all(18),
-                    fill: Colors.white.withOpacity(0.06),
-                    borderColor: Colors.white.withOpacity(0.08),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           name,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: AppTheme.primaryText(brightness),
                             fontWeight: FontWeight.w800,
                             fontSize: 16,
                           ),
@@ -1205,7 +1238,7 @@ class _DesktopDiscoverPanel extends StatelessWidget {
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.70),
+                              color: AppTheme.secondaryText(brightness),
                               height: 1.45,
                             ),
                           ),
@@ -1227,9 +1260,9 @@ class _DesktopMarketplacePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stream = FirebaseFirestore.instance
-        .collection('marketplace_products')
-        .snapshots();
+    final brightness = Theme.of(context).brightness;
+    final stream =
+        FirebaseFirestore.instance.collection('marketplace_products').snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,
@@ -1243,10 +1276,10 @@ class _DesktopMarketplacePanel extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            const Text(
+            Text(
               'Marketplace',
               style: TextStyle(
-                color: Colors.white,
+                color: AppTheme.primaryText(brightness),
                 fontSize: 26,
                 fontWeight: FontWeight.w900,
               ),
@@ -1255,7 +1288,7 @@ class _DesktopMarketplacePanel extends StatelessWidget {
             Text(
               'Desktop browsing for products',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.66),
+                color: AppTheme.secondaryText(brightness),
               ),
             ),
             const SizedBox(height: 20),
@@ -1277,15 +1310,15 @@ class _DesktopMarketplacePanel extends StatelessWidget {
                   child: Glass(
                     borderRadius: 20,
                     padding: const EdgeInsets.all(18),
-                    fill: Colors.white.withOpacity(0.06),
-                    borderColor: Colors.white.withOpacity(0.08),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           name,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: AppTheme.primaryText(brightness),
                             fontWeight: FontWeight.w800,
                             fontSize: 16,
                           ),
@@ -1328,21 +1361,23 @@ class _DesktopRightPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
     return ListView(
       padding: const EdgeInsets.all(18),
       children: [
         Glass(
           borderRadius: 22,
           padding: const EdgeInsets.all(18),
-          fill: Colors.white.withOpacity(0.06),
-          borderColor: Colors.white.withOpacity(0.08),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Linked account',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w800,
                   fontSize: 18,
                 ),
@@ -1369,12 +1404,12 @@ class _DesktopRightPanel extends StatelessWidget {
         Glass(
           borderRadius: 22,
           padding: const EdgeInsets.all(18),
-          fill: Colors.white.withOpacity(0.06),
-          borderColor: Colors.white.withOpacity(0.08),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Text(
             'This panel is ready for selected item details such as league profile, organizer details, marketplace item info, or recent activity.',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.72),
+              color: AppTheme.secondaryText(brightness),
               height: 1.5,
             ),
           ),
@@ -1395,13 +1430,15 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.56),
+            color: AppTheme.secondaryText(brightness),
             fontSize: 12,
             fontWeight: FontWeight.w600,
           ),
@@ -1409,8 +1446,8 @@ class _InfoRow extends StatelessWidget {
         const SizedBox(height: 4),
         SelectableText(
           value,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: AppTheme.primaryText(brightness),
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -1443,10 +1480,10 @@ class _BrandLogo extends StatelessWidget {
       height: size + 12,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        color: AppTheme.navyAccent,
+        color: AppTheme.limeAccent,
         boxShadow: [
           BoxShadow(
-            color: AppTheme.navyAccent.withOpacity(0.24),
+            color: AppTheme.limeAccentDark.withOpacity(0.24),
             blurRadius: 18,
             spreadRadius: 1,
           ),
@@ -1460,7 +1497,7 @@ class _BrandLogo extends StatelessWidget {
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => const Icon(
             Icons.sports_esports,
-            color: Colors.white,
+            color: AppTheme.darkText,
             size: 20,
           ),
         ),

@@ -12,6 +12,7 @@ import 'package:http/http.dart' as http;
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -254,7 +255,8 @@ class _OrganizerProfileScreenState
   }
 
   Stream<LeagueAnnouncement?> _watchPinnedWorkspaceAnnouncement(
-      String masterLeagueId) {
+    String masterLeagueId,
+  ) {
     return _announcements.watchPinnedMasterLeagueAnnouncement(masterLeagueId);
   }
 
@@ -465,8 +467,10 @@ class _OrganizerProfileScreenState
     final shouldContinue = await showDialog<bool>(
       context: context,
       builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
+        final brightness = Theme.of(ctx).brightness;
         return AlertDialog(
+          backgroundColor: AppTheme.cardColor(brightness),
+          surfaceTintColor: Colors.transparent,
           title: const Text('Renew Verification'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -489,12 +493,22 @@ class _OrganizerProfileScreenState
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: cs.primary.withOpacity(0.08),
+                  color: brightness == Brightness.dark
+                      ? AppTheme.limeAccentDark.withOpacity(0.10)
+                      : const Color(0xFFECFCCB),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cs.primary.withOpacity(0.18)),
+                  border: Border.all(
+                    color: brightness == Brightness.dark
+                        ? AppTheme.limeAccentDark.withOpacity(0.18)
+                        : const Color(0xFFD9F99D),
+                  ),
                 ),
-                child: const Text(
+                child: Text(
                   'Renewals keep organizer trust current and require another review cycle.',
+                  style: TextStyle(
+                    color: AppTheme.primaryText(brightness),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -505,6 +519,10 @@ class _OrganizerProfileScreenState
               child: const Text('Cancel'),
             ),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.limeAccent,
+                foregroundColor: AppTheme.darkText,
+              ),
               onPressed: () => Navigator.of(ctx).pop(true),
               child: const Text('Proceed to Payment'),
             ),
@@ -581,8 +599,10 @@ class _OrganizerProfileScreenState
     final shouldContinue = await showDialog<bool>(
       context: context,
       builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
+        final brightness = Theme.of(ctx).brightness;
         return AlertDialog(
+          backgroundColor: AppTheme.cardColor(brightness),
+          surfaceTintColor: Colors.transparent,
           title: const Text('Get Verified'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -605,12 +625,22 @@ class _OrganizerProfileScreenState
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: cs.primary.withOpacity(0.08),
+                  color: brightness == Brightness.dark
+                      ? AppTheme.limeAccentDark.withOpacity(0.10)
+                      : const Color(0xFFECFCCB),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cs.primary.withOpacity(0.18)),
+                  border: Border.all(
+                    color: brightness == Brightness.dark
+                        ? AppTheme.limeAccentDark.withOpacity(0.18)
+                        : const Color(0xFFD9F99D),
+                  ),
                 ),
-                child: const Text(
+                child: Text(
                   'Verification is different from your organizer plan. It is a trust review badge for participants.',
+                  style: TextStyle(
+                    color: AppTheme.primaryText(brightness),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -621,6 +651,10 @@ class _OrganizerProfileScreenState
               child: const Text('Cancel'),
             ),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.limeAccent,
+                foregroundColor: AppTheme.darkText,
+              ),
               onPressed: () => Navigator.of(ctx).pop(true),
               child: const Text('Proceed to Payment'),
             ),
@@ -678,10 +712,9 @@ class _OrganizerProfileScreenState
   Future<void> _postProfileUpdateFeedEvent(MasterLeague ml) async {
     try {
       final profile = await UserProfileRepository().fetchByUserId(_uid);
-      final actorName =
-          (profile?.displayName.trim().isNotEmpty == true)
-              ? profile!.displayName.trim()
-              : 'Organizer';
+      final actorName = (profile?.displayName.trim().isNotEmpty == true)
+          ? profile!.displayName.trim()
+          : 'Organizer';
 
       await _organizerFeed.addEvent(
         OrganizerFeedEvent(
@@ -706,29 +739,35 @@ class _OrganizerProfileScreenState
     required BorderRadius radius,
     Widget? fallback,
   }) {
-    final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
     if (url.trim().isEmpty) {
       return Container(
         height: height,
         decoration: BoxDecoration(
           borderRadius: radius,
           gradient: LinearGradient(
-            colors: [
-              cs.primary.withOpacity(0.20),
-              cs.secondary.withOpacity(0.10),
-              cs.surface.withOpacity(0.85),
-            ],
+            colors: brightness == Brightness.dark
+                ? [
+                    AppTheme.darkCard,
+                    AppTheme.darkCardAlt,
+                    AppTheme.navyBgSoft,
+                  ]
+                : [
+                    const Color(0xFFECFCCB),
+                    const Color(0xFFF8FAFC),
+                    const Color(0xFFFFFFFF),
+                  ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+          border: Border.all(color: AppTheme.cardBorder(brightness)),
         ),
         child: fallback ??
             Center(
               child: Text(
                 'No image',
                 style: TextStyle(
-                  color: cs.onSurface.withOpacity(0.60),
+                  color: AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w800,
                 ),
               ),
@@ -753,14 +792,16 @@ class _OrganizerProfileScreenState
             height: height,
             decoration: BoxDecoration(
               borderRadius: radius,
-              color: cs.error.withOpacity(0.06),
-              border: Border.all(color: cs.error.withOpacity(0.18)),
+              color: Theme.of(context).colorScheme.error.withOpacity(0.06),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.error.withOpacity(0.18),
+              ),
             ),
             child: Center(
               child: Text(
                 'Image failed to load',
                 style: TextStyle(
-                  color: cs.error,
+                  color: Theme.of(context).colorScheme.error,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -773,7 +814,7 @@ class _OrganizerProfileScreenState
 
   Widget _metricRow({
     required ThemeData theme,
-    required ColorScheme cs,
+    required Brightness brightness,
     required String label,
     required String value,
   }) {
@@ -785,7 +826,7 @@ class _OrganizerProfileScreenState
             child: Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.70),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -793,7 +834,7 @@ class _OrganizerProfileScreenState
           Text(
             value,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -893,7 +934,7 @@ class _OrganizerProfileScreenState
   Widget _buildPinnedAnnouncementSection(
     MasterLeague ml,
     ThemeData theme,
-    ColorScheme cs,
+    Brightness brightness,
   ) {
     return StreamBuilder<LeagueAnnouncement?>(
       stream: _watchPinnedWorkspaceAnnouncement(ml.id),
@@ -904,19 +945,24 @@ class _OrganizerProfileScreenState
         return Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(16),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SectionHeader(
                 'Official Organizer Notice',
                 padding: EdgeInsets.zero,
-                trailing: Icon(Icons.push_pin_rounded, color: cs.primary),
+                trailing: Icon(
+                  Icons.push_pin_rounded,
+                  color: AppTheme.limeAccentDark,
+                ),
               ),
               const SizedBox(height: 10),
               Text(
                 pinned.title,
                 style: theme.textTheme.titleSmall?.copyWith(
-                  color: cs.onSurface,
+                  color: AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -924,7 +970,7 @@ class _OrganizerProfileScreenState
               Text(
                 pinned.message,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurface.withOpacity(0.82),
+                  color: AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w700,
                   height: 1.35,
                 ),
@@ -935,14 +981,14 @@ class _OrganizerProfileScreenState
                 runSpacing: 8,
                 children: [
                   _metaChip(
-                    cs,
+                    brightness,
                     icon: Icons.person_outline_rounded,
                     label: pinned.authorName.trim().isEmpty
                         ? 'Organizer'
                         : pinned.authorName.trim(),
                   ),
                   _metaChip(
-                    cs,
+                    brightness,
                     icon: Icons.schedule_rounded,
                     label: pinned.pinnedAtMs > 0
                         ? DateTime.fromMillisecondsSinceEpoch(
@@ -964,7 +1010,7 @@ class _OrganizerProfileScreenState
   }
 
   Widget _metaChip(
-    ColorScheme cs, {
+    Brightness brightness, {
     required IconData icon,
     required String label,
   }) {
@@ -972,18 +1018,18 @@ class _OrganizerProfileScreenState
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: cs.primary.withOpacity(0.06),
-        border: Border.all(color: cs.primary.withOpacity(0.14)),
+        color: AppTheme.searchBackground(brightness),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: cs.primary),
+          Icon(icon, size: 14, color: AppTheme.limeAccentDark),
           const SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(
-              color: cs.onSurface,
+              color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w800,
               fontSize: 12,
             ),
@@ -996,7 +1042,7 @@ class _OrganizerProfileScreenState
   Widget _verificationStatusCard(
     MasterLeague ml,
     ThemeData theme,
-    ColorScheme cs,
+    Brightness brightness,
   ) {
     Color statusColor;
     String statusTitle;
@@ -1016,7 +1062,7 @@ class _OrganizerProfileScreenState
           ? 'A paid renewal request has been submitted and is waiting for admin review.'
           : 'A paid verification request has been submitted and is waiting for admin review.';
     } else if (ml.isVerificationRejected) {
-      statusColor = cs.error;
+      statusColor = Theme.of(context).colorScheme.error;
       statusTitle = 'Verification Rejected';
       statusBody =
           'The verification request was reviewed and rejected. Please contact support or submit again later.';
@@ -1026,7 +1072,7 @@ class _OrganizerProfileScreenState
       statusBody =
           'This organizer was previously verified, but the verification period has expired and should be renewed.';
     } else {
-      statusColor = cs.onSurface.withOpacity(0.60);
+      statusColor = AppTheme.secondaryText(brightness);
       statusTitle = 'Not Verified';
       statusBody =
           'This organizer is not yet verified. Verified badges help participants identify trusted organizer identities.';
@@ -1050,6 +1096,8 @@ class _OrganizerProfileScreenState
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1073,7 +1121,7 @@ class _OrganizerProfileScreenState
           Text(
             statusBody,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface.withOpacity(0.75),
+              color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
               height: 1.35,
             ),
@@ -1081,7 +1129,7 @@ class _OrganizerProfileScreenState
           const SizedBox(height: 10),
           _metricRow(
             theme: theme,
-            cs: cs,
+            brightness: brightness,
             label: 'Verification expires',
             value: expiryLabel,
           ),
@@ -1090,7 +1138,7 @@ class _OrganizerProfileScreenState
             Text(
               'Review note: ${ml.verificationNote.trim()}',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.65),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -1101,6 +1149,10 @@ class _OrganizerProfileScreenState
               children: [
                 Expanded(
                   child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.limeAccent,
+                      foregroundColor: AppTheme.darkText,
+                    ),
                     onPressed: ownerCanStartInitial
                         ? () => _startInitialVerification(ml)
                         : () => _renewVerification(ml),
@@ -1123,7 +1175,7 @@ class _OrganizerProfileScreenState
             Text(
               'Verification purchase is separate from your organizer plan. Plan controls capacity; verification adds trust review.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.62),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
                 height: 1.3,
               ),
@@ -1137,7 +1189,7 @@ class _OrganizerProfileScreenState
   Widget _identityHero(
     MasterLeague ml,
     ThemeData theme,
-    ColorScheme cs,
+    Brightness brightness,
     String ownerName,
     bool isFollowing,
     int followersCount,
@@ -1146,7 +1198,7 @@ class _OrganizerProfileScreenState
         ? const Color(0xFF8B5CF6)
         : (ml.plan == MasterLeaguePlan.pro
             ? const Color(0xFF22C55E)
-            : cs.primary);
+            : AppTheme.limeAccentDark);
 
     final planLabel = 'Plan: ${ml.plan.displayName}';
     final canFollow = _uid.isNotEmpty && ml.ownerId.trim() != _uid;
@@ -1158,6 +1210,8 @@ class _OrganizerProfileScreenState
     return Glass(
       borderRadius: 30,
       padding: const EdgeInsets.all(12),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1178,21 +1232,31 @@ class _OrganizerProfileScreenState
                       fallback: Container(
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(24),
-                          gradient: LinearGradient(
-                            colors: [
-                              cs.primary.withOpacity(0.22),
-                              const Color(0xFF1D9BF0).withOpacity(0.18),
-                              cs.secondary.withOpacity(0.10),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+                          gradient: brightness == Brightness.dark
+                              ? const LinearGradient(
+                                  colors: [
+                                    Color(0xFF182230),
+                                    Color(0xFF222E3D),
+                                    Color(0xFF0F172A),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                )
+                              : const LinearGradient(
+                                  colors: [
+                                    Color(0xFFECFCCB),
+                                    Color(0xFFF8FAFC),
+                                    Color(0xFFFFFFFF),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
                         ),
                         child: Center(
                           child: Icon(
                             Icons.photo_size_select_actual_outlined,
                             size: 48,
-                            color: cs.onSurface.withOpacity(0.32),
+                            color: AppTheme.secondaryText(brightness),
                           ),
                         ),
                       ),
@@ -1237,9 +1301,9 @@ class _OrganizerProfileScreenState
                         height: 96,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: theme.scaffoldBackgroundColor,
+                          color: Theme.of(context).scaffoldBackgroundColor,
                           border: Border.all(
-                            color: theme.scaffoldBackgroundColor,
+                            color: Theme.of(context).scaffoldBackgroundColor,
                             width: 4,
                           ),
                           boxShadow: [
@@ -1261,9 +1325,9 @@ class _OrganizerProfileScreenState
                                   ),
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) =>
-                                      _logoFallback(cs),
+                                      _logoFallback(brightness),
                                 )
-                              : _logoFallback(cs),
+                              : _logoFallback(brightness),
                         ),
                       ),
                     ),
@@ -1295,16 +1359,16 @@ class _OrganizerProfileScreenState
                           height: 32,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: cs.primary,
+                            color: AppTheme.limeAccent,
                             border: Border.all(
-                              color: theme.scaffoldBackgroundColor,
+                              color: Theme.of(context).scaffoldBackgroundColor,
                               width: 2,
                             ),
                           ),
                           child: const Icon(
                             Icons.camera_alt_rounded,
                             size: 16,
-                            color: Colors.white,
+                            color: AppTheme.darkText,
                           ),
                         ),
                       ),
@@ -1328,7 +1392,7 @@ class _OrganizerProfileScreenState
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
                         letterSpacing: -0.3,
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                       ),
                     ),
                   ),
@@ -1370,7 +1434,7 @@ class _OrganizerProfileScreenState
                 ? 'Managed by $ownerName'
                 : 'Managed by Organizer',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: cs.onSurface.withOpacity(0.72),
+              color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1382,7 +1446,7 @@ class _OrganizerProfileScreenState
             maxLines: 4,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: cs.onSurface.withOpacity(0.82),
+              color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w600,
               height: 1.35,
             ),
@@ -1393,6 +1457,10 @@ class _OrganizerProfileScreenState
               children: [
                 Expanded(
                   child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.limeAccent,
+                      foregroundColor: AppTheme.darkText,
+                    ),
                     onPressed:
                         _followBusy ? null : () => _toggleFollow(ml, isFollowing),
                     icon: _followBusy
@@ -1401,7 +1469,7 @@ class _OrganizerProfileScreenState
                             height: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: AppTheme.darkText,
                             ),
                           )
                         : Icon(
@@ -1423,13 +1491,13 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _logoFallback(ColorScheme cs) {
+  Widget _logoFallback(Brightness brightness) {
     return Container(
-      color: cs.primary.withOpacity(0.10),
+      color: AppTheme.iconCircleBackground(brightness),
       child: Center(
         child: Icon(
           Icons.hub_rounded,
-          color: cs.primary,
+          color: AppTheme.limeAccentDark,
           size: 42,
         ),
       ),
@@ -1439,7 +1507,7 @@ class _OrganizerProfileScreenState
   Widget _trustMetrics(
     MasterLeague ml,
     ThemeData theme,
-    ColorScheme cs,
+    Brightness brightness,
     int followersCount,
   ) {
     final cards = [
@@ -1451,7 +1519,7 @@ class _OrganizerProfileScreenState
             ? const Color(0xFF8B5CF6)
             : (ml.plan == MasterLeaguePlan.pro
                 ? const Color(0xFF22C55E)
-                : cs.primary),
+                : AppTheme.limeAccentDark),
       ),
       _TrustMetric(
         icon: Icons.verified_user_outlined,
@@ -1465,13 +1533,13 @@ class _OrganizerProfileScreenState
             ? const Color(0xFF1D9BF0)
             : (ml.isVerificationPending
                 ? const Color(0xFFF59E0B)
-                : cs.onSurface.withOpacity(0.60)),
+                : AppTheme.secondaryText(brightness)),
       ),
       _TrustMetric(
         icon: Icons.emoji_events_outlined,
         label: 'Competitions Hosted',
         value: '${ml.analytics.totalTournamentsCreated}',
-        tint: cs.primary,
+        tint: AppTheme.limeAccentDark,
       ),
       _TrustMetric(
         icon: Icons.groups_rounded,
@@ -1508,6 +1576,8 @@ class _OrganizerProfileScreenState
         return Glass(
           borderRadius: 20,
           padding: const EdgeInsets.all(14),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
           child: Row(
             children: [
               Container(
@@ -1530,14 +1600,14 @@ class _OrganizerProfileScreenState
                       item.value,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
-                        color: cs.onSurface,
+                        color: AppTheme.primaryText(brightness),
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       item.label,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withOpacity(0.62),
+                        color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -1554,7 +1624,7 @@ class _OrganizerProfileScreenState
   Widget _socialLinksSection(
     MasterLeague ml,
     ThemeData theme,
-    ColorScheme cs,
+    Brightness brightness,
   ) {
     final links = ml.organizerProfile.socialLinks;
 
@@ -1562,9 +1632,11 @@ class _OrganizerProfileScreenState
       return Glass(
         borderRadius: 18,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        fill: AppTheme.cardColor(brightness),
+        borderColor: AppTheme.cardBorder(brightness),
         child: Row(
           children: [
-            Icon(Icons.link_rounded, color: cs.primary, size: 18),
+            Icon(Icons.link_rounded, color: AppTheme.limeAccentDark, size: 18),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -1573,7 +1645,7 @@ class _OrganizerProfileScreenState
                   Text(
                     key,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurface.withOpacity(0.62),
+                      color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -1583,7 +1655,7 @@ class _OrganizerProfileScreenState
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: cs.onSurface,
+                      color: AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -1598,20 +1670,22 @@ class _OrganizerProfileScreenState
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
             'Official Links',
             padding: EdgeInsets.zero,
-            trailing: Icon(Icons.public_rounded, color: cs.primary),
+            trailing: Icon(Icons.public_rounded, color: AppTheme.limeAccentDark),
           ),
           const SizedBox(height: 10),
           if (links.isEmpty)
             Text(
               'No official links published yet.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurface.withOpacity(0.65),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
               ),
             )
@@ -1631,17 +1705,26 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _aboutSection(MasterLeague ml, ThemeData theme, ColorScheme cs) {
+  Widget _aboutSection(
+    MasterLeague ml,
+    ThemeData theme,
+    Brightness brightness,
+  ) {
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
             'About Organizer',
             padding: EdgeInsets.zero,
-            trailing: Icon(Icons.subject_outlined, color: cs.primary),
+            trailing: Icon(
+              Icons.subject_outlined,
+              color: AppTheme.limeAccentDark,
+            ),
           ),
           const SizedBox(height: 10),
           Text(
@@ -1649,7 +1732,7 @@ class _OrganizerProfileScreenState
                 ? 'No bio yet.'
                 : ml.organizerProfile.bio.trim(),
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: cs.onSurface.withOpacity(0.82),
+              color: AppTheme.secondaryText(brightness),
               height: 1.35,
               fontWeight: FontWeight.w600,
             ),
@@ -1671,17 +1754,23 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _competitionHistory(MasterLeague ml, ThemeData theme, ColorScheme cs) {
+  Widget _competitionHistory(
+    MasterLeague ml,
+    ThemeData theme,
+    Brightness brightness,
+  ) {
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
             'Competition History',
             padding: EdgeInsets.zero,
-            trailing: Icon(Icons.history_rounded, color: cs.primary),
+            trailing: Icon(Icons.history_rounded, color: AppTheme.limeAccentDark),
           ),
           const SizedBox(height: 10),
           StreamBuilder<List<League>>(
@@ -1702,7 +1791,7 @@ class _OrganizerProfileScreenState
                 return Text(
                   'No competitions yet.',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurface.withOpacity(0.65),
+                    color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                   ),
                 );
@@ -1721,11 +1810,13 @@ class _OrganizerProfileScreenState
                           horizontal: 14,
                           vertical: 12,
                         ),
+                        fill: AppTheme.cardColor(brightness),
+                        borderColor: AppTheme.cardBorder(brightness),
                         child: Row(
                           children: [
                             Icon(
                               Icons.emoji_events_outlined,
-                              color: cs.primary,
+                              color: AppTheme.limeAccentDark,
                               size: 18,
                             ),
                             const SizedBox(width: 10),
@@ -1736,14 +1827,14 @@ class _OrganizerProfileScreenState
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   fontWeight: FontWeight.w800,
-                                  color: cs.onSurface,
+                                  color: AppTheme.primaryText(brightness),
                                 ),
                               ),
                             ),
                             Text(
                               l.format.displayName,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurface.withOpacity(0.65),
+                                color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
@@ -1761,25 +1852,38 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _ownerActions(MasterLeague ml, ThemeData theme, ColorScheme cs) {
+  Widget _ownerActions(
+    MasterLeague ml,
+    ThemeData theme,
+    Brightness brightness,
+  ) {
     if (!ml.isOwner(_uid)) return const SizedBox.shrink();
 
     return Glass(
       borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
             'Owner Actions',
             padding: EdgeInsets.zero,
-            trailing: Icon(Icons.settings_suggest_outlined, color: cs.primary),
+            trailing: Icon(
+              Icons.settings_suggest_outlined,
+              color: AppTheme.limeAccentDark,
+            ),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.limeAccent,
+                    foregroundColor: AppTheme.darkText,
+                  ),
                   onPressed: _saving
                       ? null
                       : () async {
@@ -1792,7 +1896,7 @@ class _OrganizerProfileScreenState
                           height: 16,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: AppTheme.darkText,
                           ),
                         )
                       : const Icon(Icons.save_outlined),
@@ -1830,7 +1934,7 @@ class _OrganizerProfileScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final brightness = theme.brightness;
 
     return StreamBuilder<MasterLeague?>(
       stream: _watchMasterLeague(widget.masterLeagueId),
@@ -1903,8 +2007,8 @@ class _OrganizerProfileScreenState
                         _saving ? 'Saving...' : 'Save',
                         style: TextStyle(
                           color: _saving
-                              ? cs.onSurface.withOpacity(0.55)
-                              : cs.primary,
+                              ? AppTheme.secondaryText(brightness)
+                              : AppTheme.limeAccentDark,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -1922,25 +2026,25 @@ class _OrganizerProfileScreenState
                         _identityHero(
                           ml,
                           theme,
-                          cs,
+                          brightness,
                           ownerName,
                           isFollowing,
                           followersCount,
                         ),
                         const SizedBox(height: 16),
-                        _buildPinnedAnnouncementSection(ml, theme, cs),
+                        _buildPinnedAnnouncementSection(ml, theme, brightness),
                         const SizedBox(height: 16),
-                        _trustMetrics(ml, theme, cs, followersCount),
+                        _trustMetrics(ml, theme, brightness, followersCount),
                         const SizedBox(height: 16),
-                        _verificationStatusCard(ml, theme, cs),
+                        _verificationStatusCard(ml, theme, brightness),
                         const SizedBox(height: 16),
-                        _aboutSection(ml, theme, cs),
+                        _aboutSection(ml, theme, brightness),
                         const SizedBox(height: 16),
-                        _socialLinksSection(ml, theme, cs),
+                        _socialLinksSection(ml, theme, brightness),
                         const SizedBox(height: 16),
-                        _competitionHistory(ml, theme, cs),
+                        _competitionHistory(ml, theme, brightness),
                         const SizedBox(height: 16),
-                        _ownerActions(ml, theme, cs),
+                        _ownerActions(ml, theme, brightness),
                       ],
                     ),
                   ),
