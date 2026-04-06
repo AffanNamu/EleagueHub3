@@ -329,6 +329,7 @@ class _HomeTab extends StatelessWidget {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final t = theme.textTheme;
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
     final secondary = AppTheme.secondaryText(brightness);
     final tertiary = AppTheme.secondaryText(brightness).withOpacity(0.88);
