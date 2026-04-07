@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
+import 'screens/web_create_master_league_screen.dart';
 import 'screens/web_league_management_screen.dart';
 import 'screens/web_master_leagues_list_screen.dart';
 import 'screens/web_pricing_admin_screen.dart';
@@ -36,6 +37,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
 
   int _selectedIndex = 0;
   bool _isAdmin = false;
+  bool _showCreateWorkspace = false;
 
   @override
   void initState() {
@@ -124,6 +126,13 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     return _selectedIndex;
   }
 
+  String get _currentTitle {
+    if (_showCreateWorkspace) return 'Create Workspace';
+    final items = _navItems;
+    if (items.isEmpty) return 'Home';
+    return items[_safeSelectedIndex].label;
+  }
+
   Future<void> _logoutDesktop() async {
     await WebDesktopSessionStore.clear();
     try {
@@ -131,6 +140,23 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     } catch (_) {}
     if (!mounted) return;
     widget.onUnlink?.call();
+  }
+
+  void _openPanelByLabel(String label) {
+    final index = _navItems.indexWhere((e) => e.label == label);
+    if (index < 0) return;
+    if (!mounted) return;
+    setState(() {
+      _showCreateWorkspace = false;
+      _selectedIndex = index;
+    });
+  }
+
+  void _openCreateWorkspace() {
+    if (!mounted) return;
+    setState(() {
+      _showCreateWorkspace = true;
+    });
   }
 
   void _openAccountSheet() {
@@ -145,7 +171,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Glass(
-                borderRadius: 24,
+                borderRadius: 22,
                 padding: const EdgeInsets.all(20),
                 fill: AppTheme.cardColor(brightness),
                 borderColor: AppTheme.cardBorder(brightness),
@@ -201,7 +227,11 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     );
   }
 
-  Widget _buildPanel(int index) {
+  Widget _buildCenterPanel() {
+    if (_showCreateWorkspace) {
+      return const WebCreateMasterLeagueScreen();
+    }
+
     final items = _navItems;
     if (items.isEmpty) {
       return _ErrorPanel(
@@ -211,8 +241,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
       );
     }
 
-    final safeIndex = index.clamp(0, items.length - 1);
-    final label = items[safeIndex].label;
+    final label = items[_safeSelectedIndex].label;
     final brightness = Theme.of(context).brightness;
 
     try {
@@ -237,6 +266,11 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
             pairedUserName: widget.pairedUserName,
             pairedUserEmail: widget.pairedUserEmail,
             brightness: brightness,
+            onOpenLeagues: () => _openPanelByLabel('Leagues'),
+            onOpenOrganizers: () => _openPanelByLabel('Organizers'),
+            onOpenDiscover: () => _openPanelByLabel('Discover'),
+            onOpenMarketplace: () => _openPanelByLabel('Marketplace'),
+            onOpenCreateWorkspace: _openCreateWorkspace,
           );
       }
     } catch (e) {
@@ -271,19 +305,27 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     Brightness brightness,
   ) {
     return GlassScaffold(
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: (i) => setState(() => _selectedIndex = i),
-        destinations: items
-            .map(
-              (item) => NavigationDestination(
-                icon: Icon(item.icon),
-                selectedIcon: Icon(item.activeIcon),
-                label: item.label,
-              ),
-            )
-            .toList(),
-      ),
+      useBubbles: false,
+      bottomNavigationBar: _showCreateWorkspace
+          ? null
+          : NavigationBar(
+              selectedIndex: selectedIndex,
+              onDestinationSelected: (i) {
+                setState(() {
+                  _showCreateWorkspace = false;
+                  _selectedIndex = i;
+                });
+              },
+              destinations: items
+                  .map(
+                    (item) => NavigationDestination(
+                      icon: Icon(item.icon),
+                      selectedIcon: Icon(item.activeIcon),
+                      label: item.label,
+                    ),
+                  )
+                  .toList(),
+            ),
       body: SafeArea(
         child: Scaffold(
           backgroundColor: Colors.transparent,
@@ -306,6 +348,15 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                 ),
               ],
             ),
+            leading: _showCreateWorkspace
+                ? IconButton(
+                    tooltip: 'Back',
+                    onPressed: () {
+                      setState(() => _showCreateWorkspace = false);
+                    },
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  )
+                : null,
             actions: [
               IconButton(
                 tooltip: 'Account',
@@ -314,7 +365,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
               ),
             ],
           ),
-          body: _buildPanel(selectedIndex),
+          body: _buildCenterPanel(),
         ),
       ),
     );
@@ -329,98 +380,44 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     final width = MediaQuery.of(context).size.width;
 
     return GlassScaffold(
+      useBubbles: false,
       body: SafeArea(
         child: Row(
           children: [
-            Glass(
-              borderRadius: 0,
-              padding: EdgeInsets.zero,
-              fill: AppTheme.cardColor(brightness),
-              border: false,
-              child: SizedBox(
-                width: 96,
-                child: Column(
-                  children: [
-                    const SizedBox(height: 14),
-                    const _BrandLogo(size: 34),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: NavigationRail(
-                        backgroundColor: Colors.transparent,
-                        selectedIndex: selectedIndex,
-                        labelType: NavigationRailLabelType.all,
-                        groupAlignment: -1,
-                        indicatorColor: AppTheme.limeAccent,
-                        selectedIconTheme:
-                            const IconThemeData(color: _accent),
-                        selectedLabelTextStyle: const TextStyle(
-                          color: _accent,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 11,
-                        ),
-                        unselectedIconTheme: IconThemeData(
-                          color: AppTheme.secondaryText(brightness),
-                        ),
-                        unselectedLabelTextStyle: TextStyle(
-                          color: AppTheme.secondaryText(brightness),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11,
-                        ),
-                        onDestinationSelected: (i) =>
-                            setState(() => _selectedIndex = i),
-                        destinations: items
-                            .map(
-                              (item) => NavigationRailDestination(
-                                icon: Icon(item.icon),
-                                selectedIcon: Icon(item.activeIcon),
-                                label: Text(item.label),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: IconButton(
-                        tooltip: 'Unlink desktop',
-                        onPressed: _logoutDesktop,
-                        icon: Icon(
-                          Icons.logout_rounded,
-                          color: AppTheme.secondaryText(brightness),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+            if (!_showCreateWorkspace)
+              _TabletSidebar(
+                items: items,
+                selectedIndex: selectedIndex,
+                brightness: brightness,
+                onSelect: (i) => setState(() {
+                  _showCreateWorkspace = false;
+                  _selectedIndex = i;
+                }),
+                onLogout: _logoutDesktop,
               ),
-            ),
             Expanded(
               child: Column(
                 children: [
                   _TopBar(
-                    title: items[selectedIndex].label,
+                    title: _currentTitle,
                     pairedUserName: widget.pairedUserName,
                     onOpenAccount: _openAccountSheet,
                     brightness: brightness,
+                    showBack: _showCreateWorkspace,
+                    onBack: () => setState(() => _showCreateWorkspace = false),
                   ),
-                  Expanded(child: _buildPanel(selectedIndex)),
+                  Expanded(child: _buildCenterPanel()),
                 ],
               ),
             ),
-            if (width >= 960)
+            if (width >= 980 && !_showCreateWorkspace)
               SizedBox(
-                width: 290,
-                child: Glass(
-                  borderRadius: 0,
-                  padding: EdgeInsets.zero,
-                  fill: AppTheme.cardColor(brightness),
-                  border: false,
-                  child: _RightPanel(
-                    pairedUserUid: widget.pairedUserUid,
-                    pairedUserName: widget.pairedUserName,
-                    pairedUserEmail: widget.pairedUserEmail,
-                    brightness: brightness,
-                  ),
+                width: 280,
+                child: _RightPanel(
+                  pairedUserUid: widget.pairedUserUid,
+                  pairedUserName: widget.pairedUserName,
+                  pairedUserEmail: widget.pairedUserEmail,
+                  brightness: brightness,
                 ),
               ),
           ],
@@ -436,75 +433,41 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     Brightness brightness,
   ) {
     return GlassScaffold(
+      useBubbles: false,
       body: SafeArea(
         child: Row(
           children: [
-            Glass(
-              borderRadius: 0,
-              padding: EdgeInsets.zero,
-              fill: AppTheme.cardColor(brightness),
-              border: false,
-              child: SizedBox(
-                width: 280,
-                child: Column(
-                  children: [
-                    _SidebarHeader(
-                      pairedUserName: widget.pairedUserName,
-                      pairedUserEmail: widget.pairedUserEmail,
-                      brightness: brightness,
-                    ),
-                    Expanded(
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                        itemCount: items.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 4),
-                        itemBuilder: (context, i) => _SidebarTile(
-                          item: items[i],
-                          selected: selectedIndex == i,
-                          accent: _accent,
-                          brightness: brightness,
-                          onTap: () => setState(() => _selectedIndex = i),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _logoutDesktop,
-                          icon: const Icon(Icons.logout_rounded),
-                          label: const Text('Unlink desktop'),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+            if (!_showCreateWorkspace)
+              _DesktopSidebar(
+                items: items,
+                selectedIndex: selectedIndex,
+                brightness: brightness,
+                pairedUserName: widget.pairedUserName,
+                pairedUserEmail: widget.pairedUserEmail,
+                onSelect: (i) => setState(() {
+                  _showCreateWorkspace = false;
+                  _selectedIndex = i;
+                }),
+                onLogout: _logoutDesktop,
               ),
-            ),
             Expanded(
               child: Column(
                 children: [
                   _TopBar(
-                    title: items[selectedIndex].label,
+                    title: _currentTitle,
                     pairedUserName: widget.pairedUserName,
                     onOpenAccount: _openAccountSheet,
                     brightness: brightness,
+                    showBack: _showCreateWorkspace,
+                    onBack: () => setState(() => _showCreateWorkspace = false),
                   ),
-                  Expanded(
-                    child: _buildPanel(selectedIndex),
-                  ),
+                  Expanded(child: _buildCenterPanel()),
                 ],
               ),
             ),
-            SizedBox(
-              width: 320,
-              child: Glass(
-                borderRadius: 0,
-                padding: EdgeInsets.zero,
-                fill: AppTheme.cardColor(brightness),
-                border: false,
+            if (!_showCreateWorkspace)
+              SizedBox(
+                width: 300,
                 child: _RightPanel(
                   pairedUserUid: widget.pairedUserUid,
                   pairedUserName: widget.pairedUserName,
@@ -512,7 +475,6 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                   brightness: brightness,
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -537,23 +499,39 @@ class _TopBar extends StatelessWidget {
   final String pairedUserName;
   final VoidCallback onOpenAccount;
   final Brightness brightness;
+  final bool showBack;
+  final VoidCallback? onBack;
 
   const _TopBar({
     required this.title,
     required this.pairedUserName,
     required this.onOpenAccount,
     required this.brightness,
+    this.showBack = false,
+    this.onBack,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Glass(
-      borderRadius: 0,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      fill: AppTheme.cardColor(brightness),
-      border: false,
+    return Container(
+      height: 72,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(brightness),
+        border: Border(
+          bottom: BorderSide(color: AppTheme.cardBorder(brightness)),
+        ),
+      ),
       child: Row(
         children: [
+          if (showBack) ...[
+            IconButton(
+              tooltip: 'Back',
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            const SizedBox(width: 6),
+          ],
           Text(
             title,
             style: TextStyle(
@@ -574,6 +552,7 @@ class _TopBar extends StatelessWidget {
               decoration: BoxDecoration(
                 color: AppTheme.searchBackground(brightness),
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.searchOutline(brightness)),
               ),
               child: Row(
                 children: [
@@ -601,15 +580,104 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _SidebarHeader extends StatelessWidget {
+class _TabletSidebar extends StatelessWidget {
+  final List<_NavItem> items;
+  final int selectedIndex;
+  final Brightness brightness;
+  final ValueChanged<int> onSelect;
+  final VoidCallback onLogout;
+
+  const _TabletSidebar({
+    required this.items,
+    required this.selectedIndex,
+    required this.brightness,
+    required this.onSelect,
+    required this.onLogout,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 92,
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(brightness),
+        border: Border(
+          right: BorderSide(color: AppTheme.cardBorder(brightness)),
+        ),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 16),
+          const _BrandLogo(size: 32),
+          const SizedBox(height: 12),
+          Expanded(
+            child: NavigationRail(
+              backgroundColor: Colors.transparent,
+              selectedIndex: selectedIndex,
+              labelType: NavigationRailLabelType.all,
+              groupAlignment: -1,
+              indicatorColor: AppTheme.limeAccent,
+              selectedIconTheme:
+                  const IconThemeData(color: AppTheme.limeAccentDark),
+              selectedLabelTextStyle: const TextStyle(
+                color: AppTheme.limeAccentDark,
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+              ),
+              unselectedIconTheme: IconThemeData(
+                color: AppTheme.secondaryText(brightness),
+              ),
+              unselectedLabelTextStyle: TextStyle(
+                color: AppTheme.secondaryText(brightness),
+                fontWeight: FontWeight.w700,
+                fontSize: 11,
+              ),
+              onDestinationSelected: onSelect,
+              destinations: items
+                  .map(
+                    (item) => NavigationRailDestination(
+                      icon: Icon(item.icon),
+                      selectedIcon: Icon(item.activeIcon),
+                      label: Text(item.label),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: IconButton(
+              tooltip: 'Unlink desktop',
+              onPressed: onLogout,
+              icon: Icon(
+                Icons.logout_rounded,
+                color: AppTheme.secondaryText(brightness),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopSidebar extends StatelessWidget {
+  final List<_NavItem> items;
+  final int selectedIndex;
+  final Brightness brightness;
   final String pairedUserName;
   final String pairedUserEmail;
-  final Brightness brightness;
+  final ValueChanged<int> onSelect;
+  final VoidCallback onLogout;
 
-  const _SidebarHeader({
+  const _DesktopSidebar({
+    required this.items,
+    required this.selectedIndex,
+    required this.brightness,
     required this.pairedUserName,
     required this.pairedUserEmail,
-    required this.brightness,
+    required this.onSelect,
+    required this.onLogout,
   });
 
   @override
@@ -618,75 +686,116 @@ class _SidebarHeader extends StatelessWidget {
         ? pairedUserName.trim().substring(0, 1).toUpperCase()
         : 'E';
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 16, 14, 12),
+    return Container(
+      width: 260,
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(brightness),
+        border: Border(
+          right: BorderSide(color: AppTheme.cardBorder(brightness)),
+        ),
+      ),
       child: Column(
         children: [
-          Row(
-            children: [
-              const _BrandLogo(size: 24),
-              const SizedBox(width: 10),
-              Text(
-                'eSportlyic Web',
-                style: TextStyle(
-                  color: AppTheme.primaryText(brightness),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 15,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Glass(
-            borderRadius: 16,
-            padding: const EdgeInsets.all(12),
-            fill: AppTheme.searchBackground(brightness),
-            borderColor: AppTheme.searchOutline(brightness),
-            child: Row(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+            child: Column(
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor:
-                      AppTheme.iconCircleBackground(brightness),
-                  child: Text(
-                    initials,
-                    style: TextStyle(
-                      color: AppTheme.primaryText(brightness),
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        pairedUserName.trim().isNotEmpty
-                            ? pairedUserName
-                            : 'eSportlyic User',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppTheme.primaryText(brightness),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
+                Row(
+                  children: [
+                    const _BrandLogo(size: 24),
+                    const SizedBox(width: 10),
+                    Text(
+                      'eSportlyic Web',
+                      style: TextStyle(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
                       ),
-                      if (pairedUserEmail.trim().isNotEmpty)
-                        Text(
-                          pairedUserEmail,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.searchBackground(brightness),
+                    borderRadius: BorderRadius.circular(16),
+                    border:
+                        Border.all(color: AppTheme.searchOutline(brightness)),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor:
+                            AppTheme.iconCircleBackground(brightness),
+                        child: Text(
+                          initials,
                           style: TextStyle(
-                            color: AppTheme.secondaryText(brightness),
-                            fontSize: 11,
+                            color: AppTheme.primaryText(brightness),
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              pairedUserName.trim().isNotEmpty
+                                  ? pairedUserName
+                                  : 'eSportlyic User',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppTheme.primaryText(brightness),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            if (pairedUserEmail.trim().isNotEmpty)
+                              Text(
+                                pairedUserEmail,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: AppTheme.secondaryText(brightness),
+                                  fontSize: 11,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ],
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 4),
+              itemBuilder: (context, i) => _SidebarTile(
+                item: items[i],
+                selected: selectedIndex == i,
+                accent: AppTheme.limeAccentDark,
+                brightness: brightness,
+                onTap: () => onSelect(i),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onLogout,
+                icon: const Icon(Icons.logout_rounded),
+                label: const Text('Unlink desktop'),
+              ),
             ),
           ),
         ],
@@ -767,61 +876,86 @@ class _RightPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Glass(
-          borderRadius: 20,
-          padding: const EdgeInsets.all(16),
-          fill: AppTheme.cardColor(brightness),
-          borderColor: AppTheme.cardBorder(brightness),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Linked account',
-                style: TextStyle(
-                  color: AppTheme.primaryText(brightness),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _InfoRowSimple(
-                label: 'Name',
-                value: pairedUserName.isEmpty ? 'N/A' : pairedUserName,
-                brightness: brightness,
-              ),
-              const SizedBox(height: 8),
-              _InfoRowSimple(
-                label: 'Email',
-                value: pairedUserEmail.isEmpty ? 'N/A' : pairedUserEmail,
-                brightness: brightness,
-              ),
-              const SizedBox(height: 8),
-              _InfoRowSimple(
-                label: 'UID',
-                value: pairedUserUid.isEmpty ? 'N/A' : pairedUserUid,
-                brightness: brightness,
-              ),
-            ],
-          ),
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(brightness),
+        border: Border(
+          left: BorderSide(color: AppTheme.cardBorder(brightness)),
         ),
-        const SizedBox(height: 14),
-        Glass(
-          borderRadius: 20,
-          padding: const EdgeInsets.all(16),
-          fill: AppTheme.cardColor(brightness),
-          borderColor: AppTheme.cardBorder(brightness),
-          child: Text(
-            'Use the Organizers panel to manage organizer workspaces, or select a league from the Leagues panel to manage fixtures, scores, and standings.',
-            style: TextStyle(
-              color: AppTheme.secondaryText(brightness),
-              height: 1.5,
+      ),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _FlatPanel(
+            brightness: brightness,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Linked account',
+                  style: TextStyle(
+                    color: AppTheme.primaryText(brightness),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _InfoRowSimple(
+                  label: 'Name',
+                  value: pairedUserName.isEmpty ? 'N/A' : pairedUserName,
+                  brightness: brightness,
+                ),
+                const SizedBox(height: 8),
+                _InfoRowSimple(
+                  label: 'Email',
+                  value: pairedUserEmail.isEmpty ? 'N/A' : pairedUserEmail,
+                  brightness: brightness,
+                ),
+                const SizedBox(height: 8),
+                _InfoRowSimple(
+                  label: 'UID',
+                  value: pairedUserUid.isEmpty ? 'N/A' : pairedUserUid,
+                  brightness: brightness,
+                ),
+              ],
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 14),
+          _FlatPanel(
+            brightness: brightness,
+            child: Text(
+              'This shell was simplified for speed. Home quick actions open organizer workspaces and workspace creation directly with less UI overhead.',
+              style: TextStyle(
+                color: AppTheme.secondaryText(brightness),
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FlatPanel extends StatelessWidget {
+  final Brightness brightness;
+  final Widget child;
+
+  const _FlatPanel({
+    required this.brightness,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.searchBackground(brightness),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
+      ),
+      child: child,
     );
   }
 }
@@ -956,12 +1090,22 @@ class _HomePanel extends StatelessWidget {
   final String pairedUserName;
   final String pairedUserEmail;
   final Brightness brightness;
+  final VoidCallback onOpenLeagues;
+  final VoidCallback onOpenOrganizers;
+  final VoidCallback onOpenDiscover;
+  final VoidCallback onOpenMarketplace;
+  final VoidCallback onOpenCreateWorkspace;
 
   const _HomePanel({
     required this.pairedUserUid,
     required this.pairedUserName,
     required this.pairedUserEmail,
     required this.brightness,
+    required this.onOpenLeagues,
+    required this.onOpenOrganizers,
+    required this.onOpenDiscover,
+    required this.onOpenMarketplace,
+    required this.onOpenCreateWorkspace,
   });
 
   @override
@@ -974,6 +1118,8 @@ class _HomePanel extends StatelessWidget {
       builder: (context, snap) {
         final data = snap.data?.data() ?? {};
         final teamName = (data['teamName'] ?? '').toString().trim();
+        final width = MediaQuery.of(context).size.width;
+        final compact = width < 980;
 
         return ListView(
           padding: const EdgeInsets.all(24),
@@ -996,12 +1142,9 @@ class _HomePanel extends StatelessWidget {
                 fontSize: 13,
               ),
             ),
-            const SizedBox(height: 20),
-            Glass(
-              borderRadius: 20,
-              padding: const EdgeInsets.all(20),
-              fill: AppTheme.cardColor(brightness),
-              borderColor: AppTheme.cardBorder(brightness),
+            const SizedBox(height: 18),
+            _FlatPanel(
+              brightness: brightness,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1049,6 +1192,107 @@ class _HomePanel extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 20),
+            Text(
+              'Quick actions',
+              style: TextStyle(
+                color: AppTheme.primaryText(brightness),
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (compact)
+              Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _HomeActionCard(
+                          icon: Icons.hub_rounded,
+                          title: 'Organizers',
+                          subtitle: 'Open organizer workspaces',
+                          brightness: brightness,
+                          onTap: onOpenOrganizers,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _HomeActionCard(
+                          icon: Icons.add_circle_outline_rounded,
+                          title: 'Create',
+                          subtitle: 'Create a workspace now',
+                          brightness: brightness,
+                          onTap: onOpenCreateWorkspace,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _HomeActionCard(
+                          icon: Icons.travel_explore_rounded,
+                          title: 'Discover',
+                          subtitle: 'Browse public organizers',
+                          brightness: brightness,
+                          onTap: onOpenDiscover,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _HomeActionCard(
+                          icon: Icons.storefront_rounded,
+                          title: 'Marketplace',
+                          subtitle: 'Open products and offers',
+                          brightness: brightness,
+                          onTap: onOpenMarketplace,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              )
+            else
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 2.7,
+                children: [
+                  _HomeActionCard(
+                    icon: Icons.hub_rounded,
+                    title: 'Organizers',
+                    subtitle: 'Open organizer workspaces',
+                    brightness: brightness,
+                    onTap: onOpenOrganizers,
+                  ),
+                  _HomeActionCard(
+                    icon: Icons.add_circle_outline_rounded,
+                    title: 'Create',
+                    subtitle: 'Create a workspace now',
+                    brightness: brightness,
+                    onTap: onOpenCreateWorkspace,
+                  ),
+                  _HomeActionCard(
+                    icon: Icons.travel_explore_rounded,
+                    title: 'Discover',
+                    subtitle: 'Browse public organizers',
+                    brightness: brightness,
+                    onTap: onOpenDiscover,
+                  ),
+                  _HomeActionCard(
+                    icon: Icons.storefront_rounded,
+                    title: 'Marketplace',
+                    subtitle: 'Open products and offers',
+                    brightness: brightness,
+                    onTap: onOpenMarketplace,
+                  ),
+                ],
+              ),
           ],
         );
       },
@@ -1071,11 +1315,13 @@ class _QuickStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Glass(
-      borderRadius: 14,
+    return Container(
       padding: const EdgeInsets.all(14),
-      fill: AppTheme.searchBackground(brightness),
-      borderColor: AppTheme.searchOutline(brightness),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(brightness),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.cardBorder(brightness)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1106,6 +1352,92 @@ class _QuickStat extends StatelessWidget {
   }
 }
 
+class _HomeActionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Brightness brightness;
+  final VoidCallback onTap;
+
+  const _HomeActionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.brightness,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.cardColor(brightness),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.cardBorder(brightness)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTheme.limeAccentDark.withOpacity(0.12),
+                ),
+                child: Icon(
+                  icon,
+                  color: AppTheme.limeAccentDark,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppTheme.secondaryText(brightness),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: AppTheme.secondaryText(brightness),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DiscoverPanel extends StatelessWidget {
   final Brightness brightness;
 
@@ -1116,6 +1448,7 @@ class _DiscoverPanel extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('master_leagues')
+          .limit(20)
           .snapshots(),
       builder: (context, snap) {
         if (snap.hasError) {
@@ -1151,17 +1484,14 @@ class _DiscoverPanel extends StatelessWidget {
                 ),
               )
             else
-              ...docs.take(20).map((doc) {
+              ...docs.map((doc) {
                 final d = doc.data();
                 final name = (d['name'] ?? 'Organizer').toString();
                 final bio = (d['bio'] ?? '').toString();
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Glass(
-                    borderRadius: 16,
-                    padding: const EdgeInsets.all(16),
-                    fill: AppTheme.cardColor(brightness),
-                    borderColor: AppTheme.cardBorder(brightness),
+                  child: _FlatPanel(
+                    brightness: brightness,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1207,6 +1537,7 @@ class _MarketplacePanel extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('marketplace_products')
+          .limit(20)
           .snapshots(),
       builder: (context, snap) {
         if (snap.hasError) {
@@ -1242,7 +1573,7 @@ class _MarketplacePanel extends StatelessWidget {
                 ),
               )
             else
-              ...docs.take(20).map((doc) {
+              ...docs.map((doc) {
                 final d = doc.data();
                 final name = (d['name'] ?? 'Product').toString();
                 final price = (d['price'] ?? '').toString();
@@ -1250,11 +1581,8 @@ class _MarketplacePanel extends StatelessWidget {
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Glass(
-                    borderRadius: 16,
-                    padding: const EdgeInsets.all(16),
-                    fill: AppTheme.cardColor(brightness),
-                    borderColor: AppTheme.cardBorder(brightness),
+                  child: _FlatPanel(
+                    brightness: brightness,
                     child: Row(
                       children: [
                         Expanded(
