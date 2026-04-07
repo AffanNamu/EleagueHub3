@@ -57,7 +57,7 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: flutter build web --web-renderer html
+      - name: Build Flutter Web with HTML Renderer
         env:
           EH_WORKER_BASE_URL: ${{ secrets.EH_WORKER_BASE_URL }}
           FLW_PUBLIC_KEY_TEST: ${{ secrets.FLW_PUBLIC_KEY_TEST }}
@@ -81,7 +81,8 @@ jobs:
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=true"
           fi
 
-          flutter build web --release ${DART_DEFINES}
+          # THIS IS THE FIX: Actually applying --web-renderer html to the build command
+          flutter build web --release --web-renderer html ${DART_DEFINES}
 
       - name: Verify web output
         run: |
