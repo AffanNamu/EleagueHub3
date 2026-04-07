@@ -25,9 +25,9 @@ class EleagueHubWebApp extends ConsumerWidget {
   }
 }
 
-/// Decides whether to show QR pairing or shell based on localStorage.
-/// Rebuilds on every hot restart and size change because it is the
-/// MaterialApp home — not a pushed route.
+/// Web root gate:
+/// - Large screens: desktop pairing / desktop shell
+/// - Small screens: informational fallback instead of desktop companion flow
 class _WebRootGate extends StatefulWidget {
   const _WebRootGate();
 
@@ -37,6 +37,8 @@ class _WebRootGate extends StatefulWidget {
 
 class _WebRootGateState extends State<_WebRootGate>
     with WidgetsBindingObserver {
+  static const double _desktopMinWidth = 760;
+
   bool _checking = true;
   Map<String, String>? _savedSession;
 
@@ -53,7 +55,6 @@ class _WebRootGateState extends State<_WebRootGate>
     super.dispose();
   }
 
-  // ── Rebuild layout on ANY metrics change (orientation, desktop view) ──────
   @override
   void didChangeMetrics() {
     if (mounted) setState(() {});
@@ -96,18 +97,26 @@ class _WebRootGateState extends State<_WebRootGate>
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isDesktopWidth = width >= _desktopMinWidth;
+
     if (_checking) {
       return const Scaffold(
         backgroundColor: Colors.transparent,
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
       );
+    }
+
+    if (!isDesktopWidth) {
+      return const _SmallScreenWebFallback();
     }
 
     final session = _savedSession;
     final uid = (session?['pairedUserUid'] ?? '').trim();
 
     if (uid.isNotEmpty) {
-      // ── Already paired → show shell directly ─────────────────────────────
       return WebDesktopShellScreen(
         pairedUserUid: uid,
         pairedUserName: session?['pairedUserName'] ?? '',
@@ -116,9 +125,91 @@ class _WebRootGateState extends State<_WebRootGate>
       );
     }
 
-    // ── Not paired → show QR pairing screen ──────────────────────────────
     return WebPairingScreen(
       onPaired: _onPaired,
+    );
+  }
+}
+
+class _SmallScreenWebFallback extends StatelessWidget {
+  const _SmallScreenWebFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
+    return Scaffold(
+      backgroundColor: brightness == Brightness.dark
+          ? const Color(0xFF08131F)
+          : const Color(0xFFF4F7FB),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppTheme.cardColor(brightness),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: AppTheme.cardBorder(brightness),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 68,
+                      height: 68,
+                      decoration: BoxDecoration(
+                        color: AppTheme.limeAccent,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Icon(
+                        Icons.desktop_windows_rounded,
+                        color: AppTheme.darkText,
+                        size: 34,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'eSportlyic Web works best on a larger screen',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppTheme.primaryText(brightness),
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Open this page on a desktop or tablet-sized browser window to pair your account and use the web dashboard.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppTheme.secondaryText(brightness),
+                        height: 1.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'If you are already on desktop, widen the browser window and refresh.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppTheme.secondaryText(brightness),
+                        fontSize: 13,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
