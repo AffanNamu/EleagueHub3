@@ -49,9 +49,16 @@ import '../../features/master_leagues/presentation/followed_organizer_feed_scree
 import '../../features/master_leagues/presentation/master_league_details_screen.dart';
 import '../../features/master_leagues/presentation/master_leagues_list_screen.dart';
 import '../../features/master_leagues/presentation/organizer_discipline_screen.dart';
+import '../../features/master_leagues/presentation/organizer_profile_screen.dart';
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
+import '../../web_app/presentation/screens/web_create_master_league_screen.dart';
+import '../../web_app/presentation/screens/web_master_league_details_screen.dart';
+import '../../web_app/presentation/screens/web_master_leagues_list_screen.dart';
+import '../../web_app/presentation/screens/web_organizer_discipline_screen.dart';
+import '../../web_app/presentation/screens/web_organizer_profile_screen.dart';
+import '../../web_app/presentation/screens/web_public_organizer_discovery_screen.dart';
 import '../../web_app/presentation/web_pairing_screen.dart';
 import '../services/app_admins_service.dart';
 import '../services/connectivity_service.dart';
@@ -394,7 +401,12 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/organizer-discovery',
-      builder: (context, state) => const PublicOrganizerDiscoveryScreen(),
+      builder: (context, state) {
+        if (kIsWeb) {
+          return const WebPublicOrganizerDiscoveryScreen();
+        }
+        return const PublicOrganizerDiscoveryScreen();
+      },
     ),
     GoRoute(
       path: '/admin/pricing',
@@ -485,18 +497,40 @@ final appRouter = GoRouter(
         ),
         GoRoute(
           path: 'master-leagues',
-          builder: (context, state) => const MasterLeaguesListScreen(),
+          builder: (context, state) {
+            if (kIsWeb) {
+              return const WebMasterLeaguesListScreen();
+            }
+            return const MasterLeaguesListScreen();
+          },
           routes: [
             GoRoute(
               path: 'create',
-              builder: (context, state) => const CreateMasterLeagueScreen(),
+              builder: (context, state) {
+                if (kIsWeb) {
+                  return const WebCreateMasterLeagueScreen();
+                }
+                return const CreateMasterLeagueScreen();
+              },
             ),
             GoRoute(
               path: ':id',
-              builder: (context, state) => MasterLeagueDetailsScreen(
-                masterLeagueId: state.pathParameters['id']!,
-              ),
+              builder: (context, state) {
+                final id = state.pathParameters['id']!;
+                return kIsWeb
+                    ? WebMasterLeagueDetailsScreen(masterLeagueId: id)
+                    : MasterLeagueDetailsScreen(masterLeagueId: id);
+              },
               routes: [
+                GoRoute(
+                  path: 'organizer-profile',
+                  builder: (context, state) {
+                    final id = state.pathParameters['id']!;
+                    return kIsWeb
+                        ? WebOrganizerProfileScreen(masterLeagueId: id)
+                        : OrganizerProfileScreen(masterLeagueId: id);
+                  },
+                ),
                 GoRoute(
                   path: 'chat',
                   builder: (context, state) => OrganizerChatScreen(
@@ -505,9 +539,12 @@ final appRouter = GoRouter(
                 ),
                 GoRoute(
                   path: 'discipline',
-                  builder: (context, state) => OrganizerDisciplineScreen(
-                    masterLeagueId: state.pathParameters['id']!,
-                  ),
+                  builder: (context, state) {
+                    final id = state.pathParameters['id']!;
+                    return kIsWeb
+                        ? WebOrganizerDisciplineScreen(masterLeagueId: id)
+                        : OrganizerDisciplineScreen(masterLeagueId: id);
+                  },
                 ),
               ],
             ),
