@@ -1,10 +1,11 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
 /// Animated ambient background with soft floating bubbles.
-/// Tuned so light mode stays subtle and dark mode keeps depth.
+/// On web, animation cost is reduced to avoid heavy full-screen repaints.
 class AnimatedBubbleBackground extends StatefulWidget {
   const AnimatedBubbleBackground({super.key});
 
@@ -19,16 +20,24 @@ class _AnimatedBubbleBackgroundState extends State<AnimatedBubbleBackground>
   late final List<_Bubble> _bubbles;
   final Random _rng = Random();
 
+  bool get _isWeb => kIsWeb;
+
   @override
   void initState() {
     super.initState();
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 18),
-    )..repeat();
+      duration: Duration(seconds: _isWeb ? 28 : 18),
+    );
 
-    _bubbles = List.generate(18, (_) => _Bubble.random(_rng));
+    if (_isWeb) {
+      _controller.value = 0.35;
+    } else {
+      _controller.repeat();
+    }
+
+    _bubbles = List.generate(_isWeb ? 8 : 18, (_) => _Bubble.random(_rng));
   }
 
   @override
@@ -45,19 +54,28 @@ class _AnimatedBubbleBackgroundState extends State<AnimatedBubbleBackground>
     return IgnorePointer(
       ignoring: true,
       child: RepaintBoundary(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, _) {
-            return CustomPaint(
-              painter: _BubblePainter(
-                t: _controller.value,
-                bubbles: _bubbles,
-                colors: colors,
-                brightness: brightness,
+        child: _isWeb
+            ? CustomPaint(
+                painter: _BubblePainter(
+                  t: _controller.value,
+                  bubbles: _bubbles,
+                  colors: colors,
+                  brightness: brightness,
+                ),
+              )
+            : AnimatedBuilder(
+                animation: _controller,
+                builder: (context, _) {
+                  return CustomPaint(
+                    painter: _BubblePainter(
+                      t: _controller.value,
+                      bubbles: _bubbles,
+                      colors: colors,
+                      brightness: brightness,
+                    ),
+                  );
+                },
               ),
-            );
-          },
-        ),
       ),
     );
   }

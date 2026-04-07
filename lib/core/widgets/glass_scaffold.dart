@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'animated_bubble_background.dart';
@@ -27,6 +28,7 @@ class GlassScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final showBubbles = useBubbles && !kIsWeb;
 
     return Scaffold(
       extendBody: extendBody,
@@ -45,7 +47,7 @@ class GlassScaffold extends StatelessWidget {
               gradient: AppTheme.backgroundGradient(brightness),
             ),
           ),
-          if (useBubbles)
+          if (showBubbles)
             const Positioned.fill(
               child: IgnorePointer(
                 child: AnimatedBubbleBackground(),

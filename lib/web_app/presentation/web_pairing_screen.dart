@@ -32,6 +32,9 @@ class _WebPairingScreenState extends State<WebPairingScreen>
   String? _error;
   Timer? _pollTimer;
   bool _paired = false;
+  int _pollCount = 0;
+  String _lastStatus = 'idle';
+  String _lastNote = 'booting';
 
   @override
   void initState() {
@@ -50,7 +53,9 @@ class _WebPairingScreenState extends State<WebPairingScreen>
   @override
   void didChangeMetrics() {
     if (mounted) {
-      setState(() {});
+      setState(() {
+        _lastNote = 'metrics changed';
+      });
     }
   }
 
@@ -64,11 +69,19 @@ class _WebPairingScreenState extends State<WebPairingScreen>
       _error = null;
       _paired = false;
       _session = null;
+      _pollCount = 0;
+      _lastStatus = 'booting';
+      _lastNote = 'starting createSession';
     });
 
     try {
       if (Firebase.apps.isEmpty) {
+        setState(() {
+          _lastNote = 'waiting for Firebase';
+        });
+
         await Future<void>.delayed(const Duration(milliseconds: 800));
+
         if (Firebase.apps.isEmpty) {
           throw StateError(
             'Firebase is not initialized. Please refresh the page.',
@@ -76,12 +89,18 @@ class _WebPairingScreenState extends State<WebPairingScreen>
         }
       }
 
+      setState(() {
+        _lastNote = 'calling DesktopPairingService.createSession';
+      });
+
       final session = await DesktopPairingService.instance.createSession();
       if (!mounted) return;
 
       setState(() {
         _session = session;
         _loading = false;
+        _lastStatus = 'session_created';
+        _lastNote = 'session ready';
       });
 
       _startPolling();
@@ -90,6 +109,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
       setState(() {
         _loading = false;
         _error = e.toString();
+        _lastStatus = 'boot_error';
+        _lastNote = 'boot failed';
       });
     }
   }
@@ -103,9 +124,25 @@ class _WebPairingScreenState extends State<WebPairingScreen>
       }
 
       final current = _session;
-      if (current == null) return;
+      if (current == null) {
+        if (mounted) {
+          setState(() {
+            _lastStatus = 'poll_skipped';
+            _lastNote = 'session missing';
+          });
+        }
+        return;
+      }
 
       try {
+        if (mounted) {
+          setState(() {
+            _pollCount++;
+            _lastStatus = 'polling';
+            _lastNote = 'requesting status';
+          });
+        }
+
         final status = await DesktopPairingService.instance.getStatus(
           sessionId: current.sessionId,
           sessionSecret: current.sessionSecret,
@@ -113,11 +150,21 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
         if (!mounted) return;
 
+        setState(() {
+          _lastStatus = status.status;
+          _lastNote = 'status received';
+        });
+
         if (status.approved ||
             status.status == 'approved' ||
             status.status == 'consumed') {
           _pollTimer?.cancel();
           _paired = true;
+
+          setState(() {
+            _lastStatus = 'approved';
+            _lastNote = 'pair approved';
+          });
 
           final token = status.firebaseCustomToken.trim();
           if (token.isNotEmpty && Firebase.apps.isNotEmpty) {
@@ -127,7 +174,18 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                 await auth.signOut();
               }
               await auth.signInWithCustomToken(token);
+
+              if (mounted) {
+                setState(() {
+                  _lastNote = 'firebase custom token sign-in ok';
+                });
+              }
             } catch (e) {
+              if (mounted) {
+                setState(() {
+                  _lastNote = 'custom token sign-in skipped: $e';
+                });
+              }
               debugPrint('Custom token sign-in skipped: $e');
             }
           }
@@ -142,6 +200,10 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
           if (!mounted) return;
 
+          setState(() {
+            _lastNote = 'local session saved; notifying parent';
+          });
+
           widget.onPaired?.call(
             uid: status.pairedUserUid,
             name: status.pairedUserName,
@@ -155,9 +217,17 @@ class _WebPairingScreenState extends State<WebPairingScreen>
           if (!mounted) return;
           setState(() {
             _error = 'Session expired. Please refresh to scan again.';
+            _lastStatus = status.status;
+            _lastNote = 'terminal state';
           });
         }
       } catch (e) {
+        if (mounted) {
+          setState(() {
+            _lastStatus = 'poll_error';
+            _lastNote = e.toString();
+          });
+        }
         debugPrint('Poll error (will retry): $e');
       }
     });
@@ -165,33 +235,37 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
+    final media = MediaQuery.of(context);
+    final size = media.size;
     final width = size.width;
+    final height = size.height;
     final compact = width < 640;
     final stacked = width < 980;
     final brightness = Theme.of(context).brightness;
 
+    final session = _session;
+
+    Widget child;
+
     if (_loading) {
-      return GlassScaffold(
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: _InfoCard(
-                title: 'Preparing desktop session...',
-                subtitle:
-                    'Please wait while we generate your eSportlyic Web QR login.',
-                brightness: brightness,
-                child: const Padding(
-                  padding: EdgeInsets.only(top: 18),
-                  child: SizedBox(
-                    width: 34,
-                    height: 34,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: AppTheme.limeAccentDark,
-                    ),
+      child = Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: _InfoCard(
+              title: 'Preparing desktop session...',
+              subtitle:
+                  'Please wait while we generate your eSportlyic Web QR login.',
+              brightness: brightness,
+              child: const Padding(
+                padding: EdgeInsets.only(top: 18),
+                child: SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: AppTheme.limeAccentDark,
                   ),
                 ),
               ),
@@ -199,79 +273,68 @@ class _WebPairingScreenState extends State<WebPairingScreen>
           ),
         ),
       );
-    }
-
-    if (_error != null) {
-      return GlassScaffold(
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: _InfoCard(
-                title: 'Could not start desktop pairing',
-                subtitle: _error!,
-                brightness: brightness,
-                child: Column(
-                  children: [
-                    const SizedBox(height: 14),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.limeAccent,
-                        foregroundColor: AppTheme.darkText,
-                      ),
-                      onPressed: () async {
-                        _paired = false;
-                        await WebDesktopSessionStore.clear();
-                        await _boot();
-                      },
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Try again'),
+    } else if (_error != null) {
+      child = Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: _InfoCard(
+              title: 'Could not start desktop pairing',
+              subtitle: _error!,
+              brightness: brightness,
+              child: Column(
+                children: [
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.limeAccent,
+                      foregroundColor: AppTheme.darkText,
                     ),
-                  ],
-                ),
+                    onPressed: () async {
+                      _paired = false;
+                      await WebDesktopSessionStore.clear();
+                      await _boot();
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try again'),
+                  ),
+                ],
               ),
             ),
           ),
         ),
       );
-    }
-
-    final session = _session;
-    if (session == null) {
-      return GlassScaffold(
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: _InfoCard(
-                title: 'No session available',
-                subtitle: 'Tap refresh to create a new QR session.',
-                brightness: brightness,
-                child: Column(
-                  children: [
-                    const SizedBox(height: 14),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.limeAccent,
-                        foregroundColor: AppTheme.darkText,
-                      ),
-                      onPressed: _boot,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Refresh'),
+    } else if (session == null) {
+      child = Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: _InfoCard(
+              title: 'No session available',
+              subtitle: 'Tap refresh to create a new QR session.',
+              brightness: brightness,
+              child: Column(
+                children: [
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.limeAccent,
+                      foregroundColor: AppTheme.darkText,
                     ),
-                  ],
-                ),
+                    onPressed: _boot,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh'),
+                  ),
+                ],
               ),
             ),
           ),
         ),
       );
-    }
-
-    return GlassScaffold(
-      body: SafeArea(
+    } else {
+      child = SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
             final availableWidth = constraints.maxWidth;
@@ -326,6 +389,105 @@ class _WebPairingScreenState extends State<WebPairingScreen>
               ),
             );
           },
+        ),
+      );
+    }
+
+    return GlassScaffold(
+      useBubbles: false,
+      body: Stack(
+        children: [
+          Positioned.fill(child: child),
+          Positioned(
+            top: 12,
+            left: 12,
+            right: 12,
+            child: _DiagnosticOverlay(
+              brightness: brightness,
+              values: {
+                'width': width.toStringAsFixed(1),
+                'height': height.toStringAsFixed(1),
+                'compact': '$compact',
+                'stacked': '$stacked',
+                'loading': '$_loading',
+                'paired': '$_paired',
+                'hasError': '${_error != null}',
+                'hasSession': '${_session != null}',
+                'firebaseApps': '${Firebase.apps.length}',
+                'pollCount': '$_pollCount',
+                'lastStatus': _lastStatus,
+                'lastNote': _lastNote,
+                'sessionId': session?.sessionId ?? '',
+                'sessionSecret': session?.sessionSecret ?? '',
+                'qrPayloadLen': session == null ? '0' : '${session.qrPayload.length}',
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiagnosticOverlay extends StatelessWidget {
+  final Brightness brightness;
+  final Map<String, String> values;
+
+  const _DiagnosticOverlay({
+    required this.brightness,
+    required this.values,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1200),
+        child: Glass(
+          borderRadius: 18,
+          padding: const EdgeInsets.all(12),
+          fill: brightness == Brightness.dark
+              ? const Color(0xE61A2230)
+              : const Color(0xEFFFFFFF),
+          borderColor: AppTheme.cardBorder(brightness),
+          child: DefaultTextStyle(
+            style: TextStyle(
+              color: AppTheme.primaryText(brightness),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+            child: Wrap(
+              spacing: 14,
+              runSpacing: 8,
+              children: values.entries.map((entry) {
+                return RichText(
+                  text: TextSpan(
+                    style: TextStyle(
+                      color: AppTheme.primaryText(brightness),
+                      fontSize: 12,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: '${entry.key}: ',
+                        style: TextStyle(
+                          color: AppTheme.limeAccentDark,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      TextSpan(
+                        text: entry.value.isEmpty ? '—' : entry.value,
+                        style: TextStyle(
+                          color: AppTheme.primaryText(brightness),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
         ),
       ),
     );
@@ -514,20 +676,32 @@ class _QrPanel extends StatelessWidget {
                 ),
               ],
             ),
-            child: QrImageView(
-              data: session.qrPayload,
-              version: QrVersions.auto,
-              size: qrSize,
-              gapless: true,
-              eyeStyle: const QrEyeStyle(
-                eyeShape: QrEyeShape.square,
-                color: Colors.black,
-              ),
-              dataModuleStyle: const QrDataModuleStyle(
-                dataModuleShape: QrDataModuleShape.square,
-                color: Colors.black,
-              ),
-            ),
+            child: session.qrPayload.trim().isEmpty
+                ? const SizedBox(
+                    width: 260,
+                    height: 260,
+                    child: Center(
+                      child: Text(
+                        'QR payload empty',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.black),
+                      ),
+                    ),
+                  )
+                : QrImageView(
+                    data: session.qrPayload,
+                    version: QrVersions.auto,
+                    size: qrSize,
+                    gapless: true,
+                    eyeStyle: const QrEyeStyle(
+                      eyeShape: QrEyeShape.square,
+                      color: Colors.black,
+                    ),
+                    dataModuleStyle: const QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: Colors.black,
+                    ),
+                  ),
           ),
           const SizedBox(height: 22),
           Text(
@@ -547,6 +721,16 @@ class _QrPanel extends StatelessWidget {
               color: AppTheme.secondaryText(brightness),
               height: 1.45,
               fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SelectableText(
+            'payload: ${session.qrPayload}',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppTheme.secondaryText(brightness),
+              fontSize: 11,
+              height: 1.35,
             ),
           ),
           const SizedBox(height: 18),
