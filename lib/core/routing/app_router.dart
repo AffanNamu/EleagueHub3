@@ -54,6 +54,8 @@ import '../../features/master_leagues/presentation/public_organizer_discovery_sc
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
 import '../../web_app/presentation/screens/web_create_master_league_screen.dart';
+import '../../web_app/presentation/screens/web_league_creation_dashboard.dart';
+import '../../web_app/presentation/screens/web_league_creation_payment_screen.dart';
 import '../../web_app/presentation/screens/web_master_league_details_screen.dart';
 import '../../web_app/presentation/screens/web_master_leagues_list_screen.dart';
 import '../../web_app/presentation/screens/web_organizer_discipline_screen.dart';
@@ -556,7 +558,12 @@ final appRouter = GoRouter(
           routes: [
             GoRoute(
               path: 'create',
-              builder: (context, state) => const LeagueCreationDashboard(),
+              builder: (context, state) {
+                if (kIsWeb) {
+                  return const WebLeagueCreationDashboard();
+                }
+                return const LeagueCreationDashboard();
+              },
             ),
             GoRoute(
               path: 'create-wizard',
@@ -582,6 +589,11 @@ final appRouter = GoRouter(
                     leagueName = map['leagueName'] as String;
                   }
                 }
+                if (kIsWeb) {
+                  return WebLeagueCreationPaymentScreen(
+                    leagueName: leagueName,
+                  );
+                }
                 return LeagueCreationPaymentScreen(leagueName: leagueName);
               },
             ),
@@ -595,6 +607,11 @@ final appRouter = GoRouter(
                   if (map['leagueName'] is String) {
                     leagueName = map['leagueName'] as String;
                   }
+                }
+                if (kIsWeb) {
+                  return WebLeagueCreationPaymentScreen(
+                    leagueName: leagueName,
+                  );
                 }
                 return LeagueCreationPaymentScreen(leagueName: leagueName);
               },
