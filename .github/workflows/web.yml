@@ -57,7 +57,7 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Flutter web
+      - name: flutter build web --web-renderer html
         env:
           EH_WORKER_BASE_URL: ${{ secrets.EH_WORKER_BASE_URL }}
           FLW_PUBLIC_KEY_TEST: ${{ secrets.FLW_PUBLIC_KEY_TEST }}
