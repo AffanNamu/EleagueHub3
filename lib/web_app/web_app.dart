@@ -21,13 +21,16 @@ class EleagueHubWebApp extends ConsumerWidget {
       theme: AppTheme.skyTheme(),
       darkTheme: AppTheme.navyTheme(),
       home: const _WebRootGate(),
+      builder: (context, child) {
+        return Scaffold(
+          backgroundColor: Colors.white,
+          body: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
 }
 
-/// Web root gate:
-/// - Large screens: desktop pairing / desktop shell
-/// - Small screens: informational fallback instead of desktop companion flow
 class _WebRootGate extends StatefulWidget {
   const _WebRootGate();
 
@@ -35,38 +38,42 @@ class _WebRootGate extends StatefulWidget {
   State<_WebRootGate> createState() => _WebRootGateState();
 }
 
-class _WebRootGateState extends State<_WebRootGate>
-    with WidgetsBindingObserver {
-  static const double _desktopMinWidth = 760;
-
+class _WebRootGateState extends State<_WebRootGate> {
   bool _checking = true;
   Map<String, String>? _savedSession;
+  String _status = 'init';
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _check();
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeMetrics() {
-    if (mounted) setState(() {});
-  }
-
   Future<void> _check() async {
-    final saved = await WebDesktopSessionStore.load();
     if (!mounted) return;
     setState(() {
-      _savedSession = saved;
-      _checking = false;
+      _status = 'loading local session';
+      _checking = true;
+      _error = null;
     });
+
+    try {
+      final saved = await WebDesktopSessionStore.load();
+      if (!mounted) return;
+      setState(() {
+        _savedSession = saved;
+        _checking = false;
+        _status = 'local session loaded';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _checking = false;
+        _error = e.toString();
+        _status = 'load failed';
+      });
+    }
   }
 
   void _onPaired({
@@ -83,6 +90,7 @@ class _WebRootGateState extends State<_WebRootGate>
         'sessionId': '',
         'sessionSecret': '',
       };
+      _status = 'paired callback received';
     });
   }
 
@@ -92,122 +100,138 @@ class _WebRootGateState extends State<_WebRootGate>
     setState(() {
       _savedSession = null;
       _checking = false;
+      _status = 'unlinked';
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final isDesktopWidth = width >= _desktopMinWidth;
-
-    if (_checking) {
-      return const Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
-    if (!isDesktopWidth) {
-      return const _SmallScreenWebFallback();
-    }
-
     final session = _savedSession;
     final uid = (session?['pairedUserUid'] ?? '').trim();
-
-    if (uid.isNotEmpty) {
-      return WebDesktopShellScreen(
-        pairedUserUid: uid,
-        pairedUserName: session?['pairedUserName'] ?? '',
-        pairedUserEmail: session?['pairedUserEmail'] ?? '',
-        onUnlink: _onUnlink,
-      );
-    }
-
-    return WebPairingScreen(
-      onPaired: _onPaired,
-    );
-  }
-}
-
-class _SmallScreenWebFallback extends StatelessWidget {
-  const _SmallScreenWebFallback();
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
+    final width = MediaQuery.of(context).size.width;
+    final height = MediaQuery.of(context).size.height;
 
     return Scaffold(
-      backgroundColor: brightness == Brightness.dark
-          ? const Color(0xFF08131F)
-          : const Color(0xFFF4F7FB),
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: AppTheme.cardColor(brightness),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: AppTheme.cardBorder(brightness),
-                  ),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 68,
-                      height: 68,
-                      decoration: BoxDecoration(
-                        color: AppTheme.limeAccent,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: const Icon(
-                        Icons.desktop_windows_rounded,
-                        color: AppTheme.darkText,
-                        size: 34,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'eSportlyic Web works best on a larger screen',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppTheme.primaryText(brightness),
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Open this page on a desktop or tablet-sized browser window to pair your account and use the web dashboard.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppTheme.secondaryText(brightness),
-                        height: 1.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'If you are already on desktop, widen the browser window and refresh.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppTheme.secondaryText(brightness),
-                        fontSize: 13,
-                        height: 1.45,
-                      ),
-                    ),
-                  ],
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              color: Colors.black,
+              padding: const EdgeInsets.all(12),
+              child: const Text(
+                'ROOT DIAGNOSTIC',
+                style: TextStyle(
+                  color: Colors.lime,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
                 ),
               ),
             ),
-          ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  SelectableText('width: $width'),
+                  SelectableText('height: $height'),
+                  SelectableText('checking: $_checking'),
+                  SelectableText('status: $_status'),
+                  SelectableText('error: ${_error ?? 'none'}'),
+                  SelectableText('hasSavedSession: ${session != null}'),
+                  SelectableText('uid: $uid'),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      ElevatedButton(
+                        onPressed: _check,
+                        child: const Text('Reload gate'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () async {
+                          await WebDesktopSessionStore.clear();
+                          if (!mounted) return;
+                          setState(() {
+                            _savedSession = null;
+                            _status = 'local session cleared';
+                          });
+                        },
+                        child: const Text('Clear local session'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => WebPairingScreen(
+                                onPaired: _onPaired,
+                              ),
+                            ),
+                          );
+                        },
+                        child: const Text('Open pairing screen'),
+                      ),
+                      ElevatedButton(
+                        onPressed: uid.isEmpty
+                            ? null
+                            : () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => WebDesktopShellScreen(
+                                      pairedUserUid: uid,
+                                      pairedUserName:
+                                          session?['pairedUserName'] ?? '',
+                                      pairedUserEmail:
+                                          session?['pairedUserEmail'] ?? '',
+                                      onUnlink: _onUnlink,
+                                    ),
+                                  ),
+                                );
+                              },
+                        child: const Text('Open shell screen'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    color: Colors.blue.shade50,
+                    child: Text(
+                      _checking
+                          ? 'GATE STATE: CHECKING'
+                          : (uid.isNotEmpty
+                              ? 'GATE STATE: HAS SAVED SESSION'
+                              : 'GATE STATE: NO SAVED SESSION'),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  if (_checking)
+                    const Text('Child screen not mounted yet.')
+                  else if (uid.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      color: Colors.green.shade50,
+                      child: const Text(
+                        'A saved session exists. Use "Open shell screen" to test shell rendering directly.',
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      color: Colors.orange.shade50,
+                      child: const Text(
+                        'No saved session. Use "Open pairing screen" to test pairing rendering directly.',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
