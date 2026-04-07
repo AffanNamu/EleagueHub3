@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
 import 'screens/web_league_management_screen.dart';
+import 'screens/web_master_leagues_list_screen.dart';
 import 'screens/web_pricing_admin_screen.dart';
 import 'web_desktop_session_store.dart';
 
@@ -91,6 +92,11 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
           label: 'Leagues',
           icon: Icons.emoji_events_outlined,
           activeIcon: Icons.emoji_events_rounded,
+        ),
+        const _NavItem(
+          label: 'Organizers',
+          icon: Icons.hub_outlined,
+          activeIcon: Icons.hub_rounded,
         ),
         const _NavItem(
           label: 'Discover',
@@ -215,6 +221,8 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
           return WebLeagueManagementScreen(
             pairedUserUid: widget.pairedUserUid,
           );
+        case 'Organizers':
+          return const WebMasterLeaguesListScreen();
         case 'Admin':
           return WebPricingAdminScreen(
             pairedUserUid: widget.pairedUserUid,
@@ -806,7 +814,7 @@ class _RightPanel extends StatelessWidget {
           fill: AppTheme.cardColor(brightness),
           borderColor: AppTheme.cardBorder(brightness),
           child: Text(
-            'Select a league from the Leagues panel to see details, manage fixtures, scores and standings here.',
+            'Use the Organizers panel to manage organizer workspaces, or select a league from the Leagues panel to manage fixtures, scores, and standings.',
             style: TextStyle(
               color: AppTheme.secondaryText(brightness),
               height: 1.5,
