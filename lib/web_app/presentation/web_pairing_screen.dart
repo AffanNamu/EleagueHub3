@@ -27,9 +27,6 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
   String? _error;
   Timer? _pollTimer;
   bool _paired = false;
-  int _pollCount = 0;
-  String _lastStatus = 'idle';
-  String _lastNote = 'init';
 
   @override
   void initState() {
@@ -52,26 +49,16 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
       _error = null;
       _session = null;
       _paired = false;
-      _pollCount = 0;
-      _lastStatus = 'booting';
-      _lastNote = 'starting';
     });
 
     try {
       if (Firebase.apps.isEmpty) {
-        setState(() {
-          _lastNote = 'Firebase.apps is empty, waiting';
-        });
         await Future<void>.delayed(const Duration(milliseconds: 800));
       }
 
       if (Firebase.apps.isEmpty) {
-        throw StateError('Firebase is not initialized');
+        throw StateError('Firebase is not initialized. Please refresh the page.');
       }
-
-      setState(() {
-        _lastNote = 'calling createSession';
-      });
 
       final session = await DesktopPairingService.instance.createSession();
 
@@ -79,8 +66,6 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
       setState(() {
         _session = session;
         _loading = false;
-        _lastStatus = 'session_created';
-        _lastNote = 'createSession ok';
       });
 
       _startPolling();
@@ -89,8 +74,6 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
       setState(() {
         _loading = false;
         _error = e.toString();
-        _lastStatus = 'boot_error';
-        _lastNote = 'boot failed';
       });
     }
   }
@@ -104,33 +87,15 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
       }
 
       final current = _session;
-      if (current == null) {
-        if (!mounted) return;
-        setState(() {
-          _lastStatus = 'poll_skipped';
-          _lastNote = 'session null';
-        });
-        return;
-      }
+      if (current == null) return;
 
       try {
-        if (!mounted) return;
-        setState(() {
-          _pollCount++;
-          _lastStatus = 'polling';
-          _lastNote = 'calling getStatus';
-        });
-
         final status = await DesktopPairingService.instance.getStatus(
           sessionId: current.sessionId,
           sessionSecret: current.sessionSecret,
         );
 
         if (!mounted) return;
-        setState(() {
-          _lastStatus = status.status;
-          _lastNote = 'getStatus ok';
-        });
 
         if (status.approved ||
             status.status == 'approved' ||
@@ -146,17 +111,8 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
                 await auth.signOut();
               }
               await auth.signInWithCustomToken(token);
-              if (mounted) {
-                setState(() {
-                  _lastNote = 'custom token sign-in ok';
-                });
-              }
             } catch (e) {
-              if (mounted) {
-                setState(() {
-                  _lastNote = 'custom token sign-in skipped: $e';
-                });
-              }
+              debugPrint('Custom token sign-in skipped: $e');
             }
           }
 
@@ -169,10 +125,6 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
           );
 
           if (!mounted) return;
-          setState(() {
-            _lastStatus = 'approved';
-            _lastNote = 'saved locally, notifying parent';
-          });
 
           widget.onPaired?.call(
             uid: status.pairedUserUid,
@@ -186,93 +138,265 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
           _pollTimer?.cancel();
           if (!mounted) return;
           setState(() {
-            _error = 'Session expired or rejected';
-            _lastStatus = status.status;
-            _lastNote = 'terminal state';
+            _error = 'Session expired. Please refresh to scan again.';
           });
         }
       } catch (e) {
-        if (!mounted) return;
-        setState(() {
-          _lastStatus = 'poll_error';
-          _lastNote = e.toString();
-        });
+        debugPrint('Poll error (will retry): $e');
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final media = MediaQuery.of(context);
-    final session = _session;
+    final width = MediaQuery.of(context).size.width;
+    final wide = width >= 980;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF5F6F8),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1220),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: _loading
+                  ? const _PlainStatusCard(
+                      title: 'Preparing desktop session...',
+                      subtitle:
+                          'Please wait while we generate your eSportlyic Web login session.',
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 16),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  : _error != null
+                      ? _PlainStatusCard(
+                          title: 'Could not start desktop pairing',
+                          subtitle: _error!,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 16),
+                            child: FilledButton(
+                              onPressed: _boot,
+                              child: const Text('Try again'),
+                            ),
+                          ),
+                        )
+                      : _session == null
+                          ? _PlainStatusCard(
+                              title: 'No session available',
+                              subtitle: 'Tap refresh to create a new session.',
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 16),
+                                child: FilledButton(
+                                  onPressed: _boot,
+                                  child: const Text('Refresh'),
+                                ),
+                              ),
+                            )
+                          : wide
+                              ? Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: _PlainIntroCard(
+                                        session: _session!,
+                                        onRefresh: _boot,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 20),
+                                    Expanded(
+                                      child: _PlainQrCard(
+                                        session: _session!,
+                                        onRefresh: _boot,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Column(
+                                  children: [
+                                    _PlainQrCard(
+                                      session: _session!,
+                                      onRefresh: _boot,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    _PlainIntroCard(
+                                      session: _session!,
+                                      onRefresh: _boot,
+                                    ),
+                                  ],
+                                ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlainStatusCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Widget child;
+
+  const _PlainStatusCard({
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              color: Colors.black,
-              child: const Text(
-                'WEB PAIRING DIAGNOSTIC',
-                style: TextStyle(
-                  color: Colors.lime,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 12),
-            SelectableText('width: ${media.size.width}'),
-            SelectableText('height: ${media.size.height}'),
-            SelectableText('loading: $_loading'),
-            SelectableText('paired: $_paired'),
-            SelectableText('error: ${_error ?? 'none'}'),
-            SelectableText('firebaseApps: ${Firebase.apps.length}'),
-            SelectableText('pollCount: $_pollCount'),
-            SelectableText('lastStatus: $_lastStatus'),
-            SelectableText('lastNote: $_lastNote'),
-            SelectableText('hasSession: ${session != null}'),
-            SelectableText('sessionId: ${session?.sessionId ?? ''}'),
-            SelectableText('sessionSecret: ${session?.sessionSecret ?? ''}'),
-            SelectableText('qrPayload: ${session?.qrPayload ?? ''}'),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 15,
+                color: Colors.black54,
+                height: 1.4,
+              ),
+            ),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlainIntroCard extends StatelessWidget {
+  final DesktopPairingSession session;
+  final VoidCallback onRefresh;
+
+  const _PlainIntroCard({
+    required this.session,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'eSportlyic Web',
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                ElevatedButton(
-                  onPressed: _boot,
-                  child: const Text('Refresh session'),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(
-                  onPressed: () async {
-                    await WebDesktopSessionStore.clear();
-                    if (!mounted) return;
-                    setState(() {
-                      _lastNote = 'local session cleared';
-                    });
-                  },
-                  child: const Text('Clear local session'),
-                ),
-              ],
+            const Text(
+              'Use eSportlyic on your computer',
+              style: TextStyle(
+                fontSize: 42,
+                fontWeight: FontWeight.w900,
+                height: 1.05,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '1. Open eSportlyic on your phone\n'
+              '2. Go to the QR scanner\n'
+              '3. Scan the pairing payload shown on this page',
+              style: TextStyle(
+                fontSize: 18,
+                height: 1.5,
+                color: Colors.black87,
+              ),
             ),
             const SizedBox(height: 20),
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(16),
-              color: Colors.grey.shade200,
-              child: Text(
-                _loading
-                    ? 'STATE: LOADING'
-                    : (_error != null
-                        ? 'STATE: ERROR'
-                        : (session == null ? 'STATE: NO SESSION' : 'STATE: SESSION READY')),
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+              color: const Color(0xFFF2F4F7),
+              child: const Text(
+                'This temporary production-safe fallback uses a plain layout while web rendering issues are isolated.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.black54,
+                  height: 1.4,
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlainQrCard extends StatelessWidget {
+  final DesktopPairingSession session;
+  final VoidCallback onRefresh;
+
+  const _PlainQrCard({
+    required this.session,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            const Text(
+              'Desktop pairing payload',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: const Color(0xFFF8F9FB),
+              child: SelectableText(
+                session.qrPayload,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.45,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SelectableText(
+              'sessionId: ${session.sessionId}',
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              'sessionSecret: ${session.sessionSecret}',
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: onRefresh,
+              child: const Text('Refresh session'),
             ),
           ],
         ),
