@@ -34,14 +34,20 @@ class Glass extends StatelessWidget {
     final brightness = Theme.of(context).brightness;
     final br = BorderRadius.circular(borderRadius);
 
+    // On web, we force a slightly more opaque fill since we bypass blur.
+    final double effectiveOpacity = kIsWeb ? (opacity + 0.15).clamp(0.0, 1.0) : opacity;
     final effectiveFill = (fill ?? AppTheme.cardColor(brightness))
-        .withOpacity(opacity.clamp(0, 1));
+        .withOpacity(effectiveOpacity);
 
     final effectiveBorderEnabled = enableBorder ?? border;
     final effectiveBorderColor =
         borderColor ?? AppTheme.cardBorder(brightness);
-    final effectiveShadow =
-        boxShadow ?? AppTheme.softCardShadow(brightness);
+
+    // FATAL WEB CRASH FIX: Nested blurred shadows on high-res desktop monitors 
+    // cause WebGL max texture size limit crashes. Stripping them on web fixes it.
+    final effectiveShadow = kIsWeb 
+        ? null 
+        : (boxShadow ?? AppTheme.softCardShadow(brightness));
 
     final content = Container(
       padding: padding,
@@ -98,15 +104,25 @@ class GlassCard extends StatelessWidget {
     final brightness = Theme.of(context).brightness;
     final br = borderRadius ?? BorderRadius.circular(24);
 
+    // Same web crash fix: disable shadows on web desktop, increase opacity slightly
+    final baseColor = fill ?? AppTheme.cardColor(brightness);
+    final effectiveFill = kIsWeb 
+        ? baseColor.withOpacity((baseColor.opacity + 0.15).clamp(0.0, 1.0)) 
+        : baseColor;
+
+    final effectiveShadow = kIsWeb 
+        ? null 
+        : (boxShadow ?? AppTheme.softCardShadow(brightness));
+
     final content = Container(
       padding: padding,
       decoration: BoxDecoration(
         borderRadius: br,
-        color: fill ?? AppTheme.cardColor(brightness),
+        color: effectiveFill,
         border: Border.all(
           color: borderColor ?? AppTheme.cardBorder(brightness),
         ),
-        boxShadow: boxShadow ?? AppTheme.softCardShadow(brightness),
+        boxShadow: effectiveShadow,
       ),
       child: child,
     );
