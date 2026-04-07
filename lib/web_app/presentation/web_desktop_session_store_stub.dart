@@ -12,4 +12,6 @@ class WebDesktopSessionStore {
   }
 
   static Future<void> clear() async {}
+
+  static bool get hasSession => false;
 }

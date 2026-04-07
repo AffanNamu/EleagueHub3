@@ -25,12 +25,19 @@ class WebDesktopSessionStore {
     final sessionId = html.window.localStorage[_kSessionId]?.trim() ?? '';
     final sessionSecret =
         html.window.localStorage[_kSessionSecret]?.trim() ?? '';
-    if (sessionId.isEmpty || sessionSecret.isEmpty) return null;
+    final pairedUserUid =
+        html.window.localStorage[_kPairedUserUid]?.trim() ?? '';
+
+    if (sessionId.isEmpty ||
+        sessionSecret.isEmpty ||
+        pairedUserUid.isEmpty) {
+      return null;
+    }
 
     return <String, String>{
       'sessionId': sessionId,
       'sessionSecret': sessionSecret,
-      'pairedUserUid': html.window.localStorage[_kPairedUserUid] ?? '',
+      'pairedUserUid': pairedUserUid,
       'pairedUserName': html.window.localStorage[_kPairedUserName] ?? '',
       'pairedUserEmail': html.window.localStorage[_kPairedUserEmail] ?? '',
     };
@@ -42,5 +49,10 @@ class WebDesktopSessionStore {
     html.window.localStorage.remove(_kPairedUserUid);
     html.window.localStorage.remove(_kPairedUserName);
     html.window.localStorage.remove(_kPairedUserEmail);
+  }
+
+  static bool get hasSession {
+    final uid = html.window.localStorage[_kPairedUserUid]?.trim() ?? '';
+    return uid.isNotEmpty;
   }
 }
