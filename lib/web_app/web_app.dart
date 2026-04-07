@@ -25,9 +25,6 @@ class EleagueHubWebApp extends ConsumerWidget {
   }
 }
 
-/// Decides whether to show QR pairing or shell based on localStorage.
-/// Rebuilds on every hot restart and size change because it is the
-/// MaterialApp home — not a pushed route.
 class _WebRootGate extends StatefulWidget {
   const _WebRootGate();
 
@@ -38,6 +35,7 @@ class _WebRootGate extends StatefulWidget {
 class _WebRootGateState extends State<_WebRootGate>
     with WidgetsBindingObserver {
   bool _checking = true;
+  String? _startupError;
   Map<String, String>? _savedSession;
 
   @override
@@ -59,12 +57,20 @@ class _WebRootGateState extends State<_WebRootGate>
   }
 
   Future<void> _check() async {
-    final saved = await WebDesktopSessionStore.load();
-    if (!mounted) return;
-    setState(() {
-      _savedSession = saved;
-      _checking = false;
-    });
+    try {
+      final saved = await WebDesktopSessionStore.load();
+      if (!mounted) return;
+      setState(() {
+        _savedSession = saved;
+        _checking = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _startupError = e.toString();
+        _checking = false;
+      });
+    }
   }
 
   void _onPaired({
@@ -95,10 +101,34 @@ class _WebRootGateState extends State<_WebRootGate>
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    
+    // Fallback error screen if the root store fails
+    if (_startupError != null) {
+      return Scaffold(
+        backgroundColor: AppTheme.cardColor(brightness),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'Failed to load App Data:\n$_startupError',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppTheme.ownerRed, fontSize: 18),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Fixed blind screen: Removed 'Colors.transparent' background.
     if (_checking) {
-      return const Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: AppTheme.cardColor(brightness),
+        body: const Center(
+          child: CircularProgressIndicator(
+            color: AppTheme.limeAccentDark,
+          ),
+        ),
       );
     }
 
