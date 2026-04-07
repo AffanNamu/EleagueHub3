@@ -30,13 +30,20 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  if (!kIsWeb) {
-    OverlayBridge.ensureInitialized();
+  // 1. Initialize Flutter Bindings safely
+  try {
+    WidgetsFlutterBinding.ensureInitialized();
+  } catch (e) {
+    debugPrint('WidgetsFlutterBinding error: $e');
   }
 
-  // ── Initialize Firebase with explicit options (required for web) ──────────
+  if (!kIsWeb) {
+    try {
+      OverlayBridge.ensureInitialized();
+    } catch (_) {}
+  }
+
+  // 2. Initialize Firebase
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -46,7 +53,7 @@ Future<void> main() async {
     debugPrintStack(stackTrace: st);
   }
 
-  // ── Initialize Supabase ───────────────────────────────────────────────────
+  // 3. Initialize Supabase
   try {
     await DesktopPairingService.initializeSupabase();
   } catch (e, st) {
@@ -54,18 +61,15 @@ Future<void> main() async {
     debugPrintStack(stackTrace: st);
   }
 
+  // 4. Mobile-only configurations
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  }
-
-  if (!kIsWeb) {
+    
     try {
       FirebaseFirestore.instance.settings =
           const Settings(persistenceEnabled: false);
     } catch (_) {}
-  }
 
-  if (!kIsWeb) {
     try {
       await FirebaseCrashlytics.instance
           .setCrashlyticsCollectionEnabled(!kDebugMode);
@@ -84,41 +88,80 @@ Future<void> main() async {
     }
   }
 
+  // 5. Run the App inside a guarded zone
   runZonedGuarded(() async {
-    final prefs = await PreferencesService.create();
+    try {
+      final prefs = await PreferencesService.create();
 
-    await ConnectivityService.instance.initialize();
-
-    if (!kIsWeb) {
+      // FATAL WEB CRASH FIX: Connectivity service often crashes on web. 
+      // If it throws, we catch it here so it doesn't kill the boot sequence.
       try {
-        await NotificationService().init();
-      } catch (e, st) {
-        await FirebaseCrashlytics.instance
-            .recordError(e, st, fatal: false);
+        await ConnectivityService.instance.initialize();
+      } catch (e) {
+        debugPrint('Connectivity init bypassed (safe on web): $e');
       }
 
-      try {
-        await PushMessagingService.instance.init();
-      } catch (e, st) {
-        await FirebaseCrashlytics.instance
-            .recordError(e, st, fatal: false);
+      if (!kIsWeb) {
+        try {
+          await NotificationService().init();
+        } catch (e, st) {
+          await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+        }
+
+        try {
+          await PushMessagingService.instance.init();
+        } catch (e, st) {
+          await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+        }
+      }
+
+      // STRICT SEPARATION: Web stays Web, App stays App.
+      final Widget app = kIsWeb
+          ? const EleagueHubWebApp()
+          : DeepLinkGate(
+              child: const EleagueHubApp(),
+            );
+
+      runApp(
+        ProviderScope(
+          overrides: [
+            prefsServiceProvider.overrideWithValue(prefs),
+          ],
+          child: app,
+        ),
+      );
+      
+    } catch (fatalError, stackTrace) {
+      // ANTI-WHITE-SCREEN GUARD
+      // If anything above failed completely, draw the error to the screen 
+      // instead of leaving a completely blank white screen.
+      if (kIsWeb) {
+        runApp(
+          MaterialApp(
+            debugShowCheckedModeBanner: false,
+            home: Scaffold(
+              backgroundColor: const Color(0xFF0F172A),
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      'CRITICAL BOOT ERROR:\n\n$fatalError\n\n$stackTrace',
+                      style: const TextStyle(
+                        color: Colors.redAccent, 
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textDirection: TextDirection.ltr,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
       }
     }
-
-    final Widget app = kIsWeb
-        ? const EleagueHubWebApp()
-        : DeepLinkGate(
-            child: const EleagueHubApp(),
-          );
-
-    runApp(
-      ProviderScope(
-        overrides: [
-          prefsServiceProvider.overrideWithValue(prefs),
-        ],
-        child: app,
-      ),
-    );
   }, (error, stack) async {
     if (!kIsWeb) {
       try {
