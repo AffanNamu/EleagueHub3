@@ -11,66 +11,69 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
 import 'web_desktop_session_store.dart';
-import 'web_desktop_shell_screen.dart';
 
 class WebPairingScreen extends StatefulWidget {
-  const WebPairingScreen({super.key});
+  /// Called when phone successfully scans and approves.
+  /// Parent swaps to shell without Navigator push.
+  final void Function({
+    required String uid,
+    required String name,
+    required String email,
+  })? onPaired;
+
+  const WebPairingScreen({super.key, this.onPaired});
 
   @override
   State<WebPairingScreen> createState() => _WebPairingScreenState();
 }
 
-class _WebPairingScreenState extends State<WebPairingScreen> {
+class _WebPairingScreenState extends State<WebPairingScreen>
+    with WidgetsBindingObserver {
   DesktopPairingSession? _session;
   bool _loading = true;
   String? _error;
   Timer? _pollTimer;
+  bool _paired = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _boot();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pollTimer?.cancel();
     super.dispose();
   }
 
+  @override
+  void didChangeMetrics() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _boot() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
+      _paired = false;
     });
 
     try {
+      // Wait for Firebase
       if (Firebase.apps.isEmpty) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await Future<void>.delayed(const Duration(milliseconds: 800));
         if (Firebase.apps.isEmpty) {
           throw StateError(
-            'Firebase is not initialized. Please refresh the page.',
-          );
+              'Firebase is not initialized. Please refresh the page.');
         }
       }
 
-      final existing = await WebDesktopSessionStore.load();
-
-      if (existing != null) {
-        final pairedUid = (existing['pairedUserUid'] ?? '').trim();
-        if (pairedUid.isNotEmpty) {
-          if (!mounted) return;
-          _openShell(
-            pairedUserUid: existing['pairedUserUid'] ?? '',
-            pairedUserName: existing['pairedUserName'] ?? '',
-            pairedUserEmail: existing['pairedUserEmail'] ?? '',
-          );
-          return;
-        }
-        await WebDesktopSessionStore.clear();
-      }
-
-      final session = await DesktopPairingService.instance.createSession();
+      final session =
+          await DesktopPairingService.instance.createSession();
       if (!mounted) return;
 
       setState(() {
@@ -90,13 +93,19 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
 
   void _startPolling() {
     _pollTimer?.cancel();
+    _pollTimer =
+        Timer.periodic(const Duration(seconds: 3), (_) async {
+      if (_paired) {
+        _pollTimer?.cancel();
+        return;
+      }
 
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
       final current = _session;
       if (current == null) return;
 
       try {
-        final status = await DesktopPairingService.instance.getStatus(
+        final status =
+            await DesktopPairingService.instance.getStatus(
           sessionId: current.sessionId,
           sessionSecret: current.sessionSecret,
         );
@@ -107,22 +116,21 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
             status.status == 'approved' ||
             status.status == 'consumed') {
           _pollTimer?.cancel();
+          _paired = true;
 
+          // Try Firebase custom token sign-in
           final token = status.firebaseCustomToken.trim();
-          if (token.isNotEmpty) {
+          if (token.isNotEmpty && Firebase.apps.isNotEmpty) {
             try {
-              if (Firebase.apps.isNotEmpty) {
-                final auth = FirebaseAuth.instance;
-                if (auth.currentUser != null) {
-                  await auth.signOut();
-                }
-                await auth.signInWithCustomToken(token);
-              }
-            } catch (signInErr) {
-              debugPrint('Custom token sign-in skipped: $signInErr');
+              final auth = FirebaseAuth.instance;
+              if (auth.currentUser != null) await auth.signOut();
+              await auth.signInWithCustomToken(token);
+            } catch (e) {
+              debugPrint('Custom token sign-in skipped: $e');
             }
           }
 
+          // Save to localStorage
           await WebDesktopSessionStore.save(
             sessionId: current.sessionId,
             sessionSecret: current.sessionSecret,
@@ -133,20 +141,22 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
 
           if (!mounted) return;
 
-          _openShell(
-            pairedUserUid: status.pairedUserUid,
-            pairedUserName: status.pairedUserName,
-            pairedUserEmail: status.pairedUserEmail,
+          // ── Notify parent to swap screen (no Navigator.push) ──────
+          widget.onPaired?.call(
+            uid: status.pairedUserUid,
+            name: status.pairedUserName,
+            email: status.pairedUserEmail,
           );
           return;
         }
 
-        if (status.status == 'expired' || status.status == 'rejected') {
+        if (status.status == 'expired' ||
+            status.status == 'rejected') {
           _pollTimer?.cancel();
           if (!mounted) return;
           setState(() {
             _error =
-                'This desktop session expired. Please refresh and scan again.';
+                'Session expired. Please refresh to scan again.';
           });
         }
       } catch (e) {
@@ -155,176 +165,183 @@ class _WebPairingScreenState extends State<WebPairingScreen> {
     });
   }
 
-  void _openShell({
-    required String pairedUserUid,
-    required String pairedUserName,
-    required String pairedUserEmail,
-  }) {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => WebDesktopShellScreen(
-          pairedUserUid: pairedUserUid,
-          pairedUserName: pairedUserName,
-          pairedUserEmail: pairedUserEmail,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final width = constraints.maxWidth;
-            final compact = width < 640;
-            final stacked = width < 980;
+    final size = MediaQuery.of(context).size;
+    final width = size.width;
+    final compact = width < 640;
+    final stacked = width < 980;
+    final brightness = Theme.of(context).brightness;
 
-            if (_loading) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: _InfoCard(
-                      title: 'Preparing desktop session...',
-                      subtitle:
-                          'Please wait while we generate your eSportlyic Web QR login.',
-                      child: const Padding(
-                        padding: EdgeInsets.only(top: 18),
-                        child: SizedBox(
-                          width: 34,
-                          height: 34,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 3,
-                            color: AppTheme.limeAccentDark,
-                          ),
-                        ),
-                      ),
+    if (_loading) {
+      return GlassScaffold(
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: _InfoCard(
+                title: 'Preparing desktop session...',
+                subtitle:
+                    'Please wait while we generate your eSportlyic Web QR login.',
+                brightness: brightness,
+                child: const Padding(
+                  padding: EdgeInsets.only(top: 18),
+                  child: SizedBox(
+                    width: 34,
+                    height: 34,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      color: AppTheme.limeAccentDark,
                     ),
                   ),
-                ),
-              );
-            }
-
-            if (_error != null) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: _InfoCard(
-                      title: 'Could not start desktop pairing',
-                      subtitle: _error!,
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 14),
-                          FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.limeAccent,
-                              foregroundColor: AppTheme.darkText,
-                            ),
-                            onPressed: () async {
-                              await WebDesktopSessionStore.clear();
-                              _boot();
-                            },
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Try again'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            final session = _session;
-            if (session == null) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: _InfoCard(
-                      title: 'No session available',
-                      subtitle:
-                          'Tap refresh to create a new QR session.',
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 14),
-                          FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.limeAccent,
-                              foregroundColor: AppTheme.darkText,
-                            ),
-                            onPressed: _boot,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Refresh'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            final introPanel = _IntroPanel(compact: compact);
-            final qrPanel = _QrPanel(
-              session: session,
-              onRefresh: _boot,
-              compact: compact,
-            );
-
-            return Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1220),
-                  child: stacked
-                      ? Column(
-                          children: [
-                            qrPanel,
-                            const SizedBox(height: 16),
-                            introPanel,
-                          ],
-                        )
-                      : Row(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            Expanded(flex: 6, child: introPanel),
-                            const SizedBox(width: 18),
-                            Expanded(flex: 7, child: qrPanel),
-                          ],
-                        ),
                 ),
               ),
-            );
-          },
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return GlassScaffold(
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: _InfoCard(
+                title: 'Could not start desktop pairing',
+                subtitle: _error!,
+                brightness: brightness,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 14),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.limeAccent,
+                        foregroundColor: AppTheme.darkText,
+                      ),
+                      onPressed: () async {
+                        _paired = false;
+                        await WebDesktopSessionStore.clear();
+                        _boot();
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Try again'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final session = _session;
+    if (session == null) {
+      return GlassScaffold(
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: _InfoCard(
+                title: 'No session available',
+                subtitle: 'Tap refresh to create a new QR session.',
+                brightness: brightness,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 14),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.limeAccent,
+                        foregroundColor: AppTheme.darkText,
+                      ),
+                      onPressed: _boot,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Refresh'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return GlassScaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1220),
+              child: stacked
+                  ? Column(
+                      children: [
+                        _QrPanel(
+                          session: session,
+                          onRefresh: _boot,
+                          compact: compact,
+                          brightness: brightness,
+                        ),
+                        const SizedBox(height: 16),
+                        _IntroPanel(
+                          compact: compact,
+                          brightness: brightness,
+                        ),
+                      ],
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 6,
+                          child: _IntroPanel(
+                            compact: compact,
+                            brightness: brightness,
+                          ),
+                        ),
+                        const SizedBox(width: 18),
+                        Expanded(
+                          flex: 7,
+                          child: _QrPanel(
+                            session: session,
+                            onRefresh: _boot,
+                            compact: compact,
+                            brightness: brightness,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
+// ── Widgets ───────────────────────────────────────────────────────────────────
+
 class _InfoCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final Widget child;
+  final Brightness brightness;
 
   const _InfoCard({
     required this.title,
     required this.subtitle,
     required this.child,
+    required this.brightness,
   });
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
     return Glass(
       borderRadius: 28,
       padding: const EdgeInsets.all(24),
@@ -361,12 +378,11 @@ class _InfoCard extends StatelessWidget {
 
 class _IntroPanel extends StatelessWidget {
   final bool compact;
-  const _IntroPanel({required this.compact});
+  final Brightness brightness;
+  const _IntroPanel({required this.compact, required this.brightness});
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
     return Glass(
       borderRadius: 28,
       padding: EdgeInsets.all(compact ? 18 : 24),
@@ -382,14 +398,12 @@ class _IntroPanel extends StatelessWidget {
               Expanded(
                 child: Text(
                   'eSportlyic Web',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(
-                        color: AppTheme.primaryText(brightness),
-                        fontWeight: FontWeight.w900,
-                        fontSize: compact ? 28 : 36,
-                      ),
+                  style:
+                      Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            color: AppTheme.primaryText(brightness),
+                            fontWeight: FontWeight.w900,
+                            fontSize: compact ? 28 : 36,
+                          ),
                 ),
               ),
             ],
@@ -399,25 +413,20 @@ class _IntroPanel extends StatelessWidget {
             compact
                 ? 'Open eSportlyic on another device'
                 : 'Use eSportlyic on your computer',
-            style: Theme.of(context)
-                .textTheme
-                .headlineMedium
-                ?.copyWith(
-                  color: AppTheme.primaryText(brightness),
-                  fontWeight: FontWeight.w900,
-                  height: 1.08,
-                  fontSize: compact ? 28 : 54,
-                ),
+            style:
+                Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: AppTheme.primaryText(brightness),
+                      fontWeight: FontWeight.w900,
+                      height: 1.08,
+                      fontSize: compact ? 28 : 54,
+                    ),
           ),
           const SizedBox(height: 16),
           Text(
             '1. Open eSportlyic on your phone\n'
             '2. Go to the QR scanner\n'
             '3. Scan this code to link your desktop',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: AppTheme.secondaryText(brightness),
                   height: 1.5,
                   fontWeight: FontWeight.w600,
@@ -440,7 +449,9 @@ class _IntroPanel extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Your phone stays the primary device. This desktop session is linked securely through your mobile app.',
+                    'Your phone stays the primary device. '
+                    'This desktop session is linked securely '
+                    'through your mobile app.',
                     style: TextStyle(
                       color: AppTheme.secondaryText(brightness),
                       height: 1.45,
@@ -461,16 +472,17 @@ class _QrPanel extends StatelessWidget {
   final DesktopPairingSession session;
   final VoidCallback onRefresh;
   final bool compact;
+  final Brightness brightness;
 
   const _QrPanel({
     required this.session,
     required this.onRefresh,
     required this.compact,
+    required this.brightness,
   });
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
     final width = MediaQuery.of(context).size.width;
     final qrSize =
         compact ? 220.0 : (width < 1200 ? 260.0 : 300.0);

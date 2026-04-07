@@ -7,6 +7,7 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/home_shell_tab_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
+import '../../../core/widgets/glass_scaffold.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../master_leagues/data/organizer_feed_firebase.dart';
@@ -202,8 +203,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
     return WillPopScope(
       onWillPop: _handleSystemBack,
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
+      child: GlassScaffold(
         extendBody: true,
         appBar: AppBar(
           title: Text(tabTitles[_index]),

@@ -5,145 +5,237 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
+import 'screens/web_league_management_screen.dart';
+import 'screens/web_pricing_admin_screen.dart';
 import 'web_desktop_session_store.dart';
 
 class WebDesktopShellScreen extends StatefulWidget {
   final String pairedUserUid;
   final String pairedUserName;
   final String pairedUserEmail;
+  final VoidCallback? onUnlink;
 
   const WebDesktopShellScreen({
     super.key,
     required this.pairedUserUid,
     required this.pairedUserName,
     required this.pairedUserEmail,
+    this.onUnlink,
   });
 
   @override
-  State<WebDesktopShellScreen> createState() => _WebDesktopShellScreenState();
+  State<WebDesktopShellScreen> createState() =>
+      _WebDesktopShellScreenState();
 }
 
-class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
-  static const Color _accent = AppTheme.limeAccentDark;
+class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
+    with WidgetsBindingObserver {
+  static const String _staticAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
+  static const Color  _accent         = AppTheme.limeAccentDark;
 
-  int _selectedIndex = 0;
+  int  _selectedIndex = 0;
+  bool _isAdmin       = false;
 
-  final List<_DesktopNavItem> _items = const [
-    _DesktopNavItem(
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkAdmin();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _checkAdmin() async {
+    final uid = widget.pairedUserUid.trim();
+    if (uid.isEmpty) return;
+
+    if (uid == _staticAdminUid) {
+      if (mounted) setState(() => _isAdmin = true);
+      return;
+    }
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('app')
+          .doc('admins')
+          .get();
+      if (!snap.exists) return;
+      final list = snap.data()?['pricingAdmins'];
+      if (list is List &&
+          list.any((v) => v.toString().trim() == uid)) {
+        if (mounted) setState(() => _isAdmin = true);
+      }
+    } catch (_) {}
+  }
+
+  List<_NavItem> get _navItems => [
+    const _NavItem(
       label: 'Home',
       icon: Icons.home_outlined,
-      activeIcon: Icons.home,
+      activeIcon: Icons.home_rounded,
     ),
-    _DesktopNavItem(
+    const _NavItem(
       label: 'Leagues',
       icon: Icons.emoji_events_outlined,
-      activeIcon: Icons.emoji_events,
+      activeIcon: Icons.emoji_events_rounded,
     ),
-    _DesktopNavItem(
+    const _NavItem(
       label: 'Discover',
       icon: Icons.travel_explore_outlined,
-      activeIcon: Icons.travel_explore,
+      activeIcon: Icons.travel_explore_rounded,
     ),
-    _DesktopNavItem(
+    const _NavItem(
       label: 'Marketplace',
       icon: Icons.storefront_outlined,
-      activeIcon: Icons.storefront,
+      activeIcon: Icons.storefront_rounded,
     ),
+    if (_isAdmin)
+      const _NavItem(
+        label: 'Admin',
+        icon: Icons.admin_panel_settings_outlined,
+        activeIcon: Icons.admin_panel_settings_rounded,
+      ),
   ];
 
   Future<void> _logoutDesktop() async {
     await WebDesktopSessionStore.clear();
-    try {
-      await FirebaseAuth.instance.signOut();
-    } catch (_) {}
+    try { await FirebaseAuth.instance.signOut(); } catch (_) {}
     if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil('/desktop', (route) => false);
+    widget.onUnlink?.call();
   }
 
-  void _openLinkedAccountSheet() {
+  void _openAccountSheet() {
+    final brightness = Theme.of(context).brightness;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) {
-        final brightness = Theme.of(ctx).brightness;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Glass(
                 borderRadius: 24,
-                padding: EdgeInsets.zero,
+                padding: const EdgeInsets.all(20),
                 fill: AppTheme.cardColor(brightness),
                 borderColor: AppTheme.cardBorder(brightness),
-                child: _DesktopRightPanel(
-                  pairedUserUid: widget.pairedUserUid,
-                  pairedUserName: widget.pairedUserName,
-                  pairedUserEmail: widget.pairedUserEmail,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Linked account',
+                        style: TextStyle(
+                          color: AppTheme.primaryText(brightness),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                        )),
+                    const SizedBox(height: 14),
+                    _InfoRowSimple(
+                        label: 'Name',
+                        value: widget.pairedUserName,
+                        brightness: brightness),
+                    const SizedBox(height: 8),
+                    _InfoRowSimple(
+                        label: 'Email',
+                        value: widget.pairedUserEmail,
+                        brightness: brightness),
+                    const SizedBox(height: 8),
+                    _InfoRowSimple(
+                        label: 'UID',
+                        value: widget.pairedUserUid,
+                        brightness: brightness),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _logoutDesktop();
+                        },
+                        icon: const Icon(Icons.logout_rounded),
+                        label: const Text('Unlink desktop'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
-  List<Widget> _buildPanels() {
-    return [
-      _DesktopHomePanel(
-        pairedUserUid: widget.pairedUserUid,
-        pairedUserName: widget.pairedUserName,
-        pairedUserEmail: widget.pairedUserEmail,
-      ),
-      _DesktopLeaguesPanel(
-        pairedUserUid: widget.pairedUserUid,
-      ),
-      const _DesktopDiscoverPanel(),
-      const _DesktopMarketplacePanel(),
-    ];
+  Widget _buildPanel(int index) {
+    final items = _navItems;
+    if (index < 0 || index >= items.length) index = 0;
+    final label = items[index].label;
+
+    switch (label) {
+      case 'Leagues':
+        return WebLeagueManagementScreen(
+          pairedUserUid: widget.pairedUserUid,
+        );
+      case 'Admin':
+        return WebPricingAdminScreen(
+          pairedUserUid: widget.pairedUserUid,
+        );
+      case 'Discover':
+        return _DiscoverPanel(brightness: Theme.of(context).brightness);
+      case 'Marketplace':
+        return _MarketplacePanel(
+            brightness: Theme.of(context).brightness);
+      default:
+        return _HomePanel(
+          pairedUserUid: widget.pairedUserUid,
+          pairedUserName: widget.pairedUserName,
+          pairedUserEmail: widget.pairedUserEmail,
+          brightness: Theme.of(context).brightness,
+        );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final panels = _buildPanels();
+    final width = MediaQuery.of(context).size.width;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
+    // Clamp selected index in case admin tab toggled
+    final items = _navItems;
+    if (_selectedIndex >= items.length) {
+      _selectedIndex = 0;
+    }
 
-        if (width < 760) {
-          return _buildMobileLayout(context, panels);
-        }
-
-        if (width < 1180) {
-          return _buildTabletLayout(context, panels);
-        }
-
-        return _buildDesktopLayout(context, panels);
-      },
-    );
+    if (width < 760)  return _buildMobileLayout(context);
+    if (width < 1180) return _buildTabletLayout(context);
+    return _buildDesktopLayout(context);
   }
 
-  Widget _buildMobileLayout(BuildContext context, List<Widget> panels) {
-    final currentItem = _items[_selectedIndex];
+  // ── Mobile ────────────────────────────────────────────────────────────────
+  Widget _buildMobileLayout(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final items      = _navItems;
 
     return GlassScaffold(
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          setState(() => _selectedIndex = index);
-        },
-        destinations: _items
-            .map(
-              (item) => NavigationDestination(
-                icon: Icon(item.icon),
-                selectedIcon: Icon(item.activeIcon),
-                label: item.label,
-              ),
-            )
+        onDestinationSelected: (i) =>
+            setState(() => _selectedIndex = i),
+        destinations: items
+            .map((item) => NavigationDestination(
+                  icon: Icon(item.icon),
+                  selectedIcon: Icon(item.activeIcon),
+                  label: item.label,
+                ))
             .toList(),
       ),
       body: SafeArea(
@@ -154,105 +246,37 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
             titleSpacing: 12,
             title: Row(
               children: [
-                const _BrandLogo(size: 28),
+                const _BrandLogo(size: 26),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'eSportlyic Web',
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: AppTheme.primaryText(brightness),
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
+                  child: Text('eSportlyic Web',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w900,
+                      )),
                 ),
               ],
             ),
             actions: [
               IconButton(
-                tooltip: 'Linked account',
-                onPressed: _openLinkedAccountSheet,
-                icon: const Icon(Icons.person_outline),
-              ),
-              PopupMenuButton<String>(
-                onSelected: (value) async {
-                  if (value == 'unlink') {
-                    await _logoutDesktop();
-                  }
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem<String>(
-                    value: 'unlink',
-                    child: Text('Unlink desktop'),
-                  ),
-                ],
+                tooltip: 'Account',
+                onPressed: _openAccountSheet,
+                icon: const Icon(Icons.person_outline_rounded),
               ),
             ],
           ),
-          drawer: Drawer(
-            backgroundColor: AppTheme.cardColor(brightness),
-            child: SafeArea(
-              child: Column(
-                children: [
-                  _DesktopSidebarHeader(
-                    pairedUserName: widget.pairedUserName,
-                    pairedUserEmail: widget.pairedUserEmail,
-                    showBrandName: true,
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                      itemCount: _items.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 6),
-                      itemBuilder: (context, index) {
-                        final item = _items[index];
-                        final selected = _selectedIndex == index;
-                        return _DesktopSidebarTile(
-                          item: item,
-                          selected: selected,
-                          accent: _accent,
-                          onTap: () {
-                            setState(() => _selectedIndex = index);
-                            Navigator.of(context).pop();
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _logoutDesktop,
-                        icon: const Icon(Icons.logout),
-                        label: const Text('Unlink desktop'),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          body: Column(
-            children: [
-              _CompactTopBanner(
-                title: currentItem.label,
-                pairedUserName: widget.pairedUserName,
-              ),
-              Expanded(child: panels[_selectedIndex]),
-            ],
-          ),
+          body: _buildPanel(_selectedIndex),
         ),
       ),
     );
   }
 
-  Widget _buildTabletLayout(BuildContext context, List<Widget> panels) {
-    final currentItem = _items[_selectedIndex];
-    final showRightPanel = MediaQuery.of(context).size.width >= 960;
+  // ── Tablet ────────────────────────────────────────────────────────────────
+  Widget _buildTabletLayout(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final width      = MediaQuery.of(context).size.width;
+    final items      = _navItems;
 
     return GlassScaffold(
       body: SafeArea(
@@ -268,7 +292,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                 child: Column(
                   children: [
                     const SizedBox(height: 14),
-                    const _BrandLogo(size: 36),
+                    const _BrandLogo(size: 34),
                     const SizedBox(height: 12),
                     Expanded(
                       child: NavigationRail(
@@ -282,25 +306,23 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                         selectedLabelTextStyle: const TextStyle(
                           color: _accent,
                           fontWeight: FontWeight.w800,
+                          fontSize: 11,
                         ),
                         unselectedIconTheme: IconThemeData(
-                          color: AppTheme.secondaryText(brightness),
-                        ),
+                            color: AppTheme.secondaryText(brightness)),
                         unselectedLabelTextStyle: TextStyle(
                           color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w700,
+                          fontSize: 11,
                         ),
-                        onDestinationSelected: (index) {
-                          setState(() => _selectedIndex = index);
-                        },
-                        destinations: _items
-                            .map(
-                              (item) => NavigationRailDestination(
-                                icon: Icon(item.icon),
-                                selectedIcon: Icon(item.activeIcon),
-                                label: Text(item.label),
-                              ),
-                            )
+                        onDestinationSelected: (i) =>
+                            setState(() => _selectedIndex = i),
+                        destinations: items
+                            .map((item) => NavigationRailDestination(
+                                  icon: Icon(item.icon),
+                                  selectedIcon: Icon(item.activeIcon),
+                                  label: Text(item.label),
+                                ))
                             .toList(),
                       ),
                     ),
@@ -309,10 +331,9 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                       child: IconButton(
                         tooltip: 'Unlink desktop',
                         onPressed: _logoutDesktop,
-                        icon: Icon(
-                          Icons.logout,
-                          color: AppTheme.secondaryText(brightness),
-                        ),
+                        icon: Icon(Icons.logout_rounded,
+                            color:
+                                AppTheme.secondaryText(brightness)),
                       ),
                     ),
                   ],
@@ -322,27 +343,29 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
             Expanded(
               child: Column(
                 children: [
-                  _DesktopTopBar(
-                    title: currentItem.label,
+                  _TopBar(
+                    title: items[_selectedIndex].label,
                     pairedUserName: widget.pairedUserName,
-                    onOpenAccount: _openLinkedAccountSheet,
+                    onOpenAccount: _openAccountSheet,
+                    brightness: brightness,
                   ),
-                  Expanded(child: panels[_selectedIndex]),
+                  Expanded(child: _buildPanel(_selectedIndex)),
                 ],
               ),
             ),
-            if (showRightPanel)
+            if (width >= 960)
               SizedBox(
-                width: 300,
+                width: 290,
                 child: Glass(
                   borderRadius: 0,
                   padding: EdgeInsets.zero,
                   fill: AppTheme.cardColor(brightness),
                   border: false,
-                  child: _DesktopRightPanel(
+                  child: _RightPanel(
                     pairedUserUid: widget.pairedUserUid,
                     pairedUserName: widget.pairedUserName,
                     pairedUserEmail: widget.pairedUserEmail,
+                    brightness: brightness,
                   ),
                 ),
               ),
@@ -352,42 +375,46 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
     );
   }
 
-  Widget _buildDesktopLayout(BuildContext context, List<Widget> panels) {
+  // ── Desktop ───────────────────────────────────────────────────────────────
+  Widget _buildDesktopLayout(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final items      = _navItems;
 
     return GlassScaffold(
       body: SafeArea(
         child: Row(
           children: [
+            // Sidebar
             Glass(
               borderRadius: 0,
               padding: EdgeInsets.zero,
               fill: AppTheme.cardColor(brightness),
               border: false,
               child: SizedBox(
-                width: 308,
+                width: 280,
                 child: Column(
                   children: [
-                    _DesktopSidebarHeader(
+                    _SidebarHeader(
                       pairedUserName: widget.pairedUserName,
                       pairedUserEmail: widget.pairedUserEmail,
-                      showBrandName: true,
+                      brightness: brightness,
                     ),
                     Expanded(
                       child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                        itemCount: _items.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 6),
-                        itemBuilder: (context, index) {
-                          final item = _items[index];
-                          final selected = _selectedIndex == index;
-                          return _DesktopSidebarTile(
-                            item: item,
-                            selected: selected,
-                            accent: _accent,
-                            onTap: () => setState(() => _selectedIndex = index),
-                          );
-                        },
+                        padding: const EdgeInsets.fromLTRB(
+                            12, 8, 12, 8),
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 4),
+                        itemBuilder: (context, i) =>
+                            _SidebarTile(
+                          item: items[i],
+                          selected: _selectedIndex == i,
+                          accent: _accent,
+                          brightness: brightness,
+                          onTap: () =>
+                              setState(() => _selectedIndex = i),
+                        ),
                       ),
                     ),
                     Padding(
@@ -396,7 +423,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                         width: double.infinity,
                         child: OutlinedButton.icon(
                           onPressed: _logoutDesktop,
-                          icon: const Icon(Icons.logout),
+                          icon: const Icon(Icons.logout_rounded),
                           label: const Text('Unlink desktop'),
                         ),
                       ),
@@ -405,29 +432,35 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
                 ),
               ),
             ),
+
+            // Main content
             Expanded(
               child: Column(
                 children: [
-                  _DesktopTopBar(
-                    title: _items[_selectedIndex].label,
+                  _TopBar(
+                    title: items[_selectedIndex].label,
                     pairedUserName: widget.pairedUserName,
-                    onOpenAccount: _openLinkedAccountSheet,
+                    onOpenAccount: _openAccountSheet,
+                    brightness: brightness,
                   ),
-                  Expanded(child: panels[_selectedIndex]),
+                  Expanded(child: _buildPanel(_selectedIndex)),
                 ],
               ),
             ),
+
+            // Right panel
             SizedBox(
-              width: 340,
+              width: 320,
               child: Glass(
                 borderRadius: 0,
                 padding: EdgeInsets.zero,
                 fill: AppTheme.cardColor(brightness),
                 border: false,
-                child: _DesktopRightPanel(
+                child: _RightPanel(
                   pairedUserUid: widget.pairedUserUid,
                   pairedUserName: widget.pairedUserName,
                   pairedUserEmail: widget.pairedUserEmail,
+                  brightness: brightness,
                 ),
               ),
             ),
@@ -438,57 +471,76 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen> {
   }
 }
 
-class _CompactTopBanner extends StatelessWidget {
+// ── Shared layout widgets ─────────────────────────────────────────────────────
+
+class _NavItem {
+  final String label;
+  final IconData icon;
+  final IconData activeIcon;
+  const _NavItem({
+    required this.label,
+    required this.icon,
+    required this.activeIcon,
+  });
+}
+
+class _TopBar extends StatelessWidget {
   final String title;
   final String pairedUserName;
-
-  const _CompactTopBanner({
+  final VoidCallback onOpenAccount;
+  final Brightness brightness;
+  const _TopBar({
     required this.title,
     required this.pairedUserName,
+    required this.onOpenAccount,
+    required this.brightness,
   });
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
     return Glass(
       borderRadius: 0,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+          horizontal: 20, vertical: 14),
       fill: AppTheme.cardColor(brightness),
       border: false,
       child: Row(
         children: [
-          Expanded(
-            child: Text(
-              title,
+          Text(title,
               style: TextStyle(
                 color: AppTheme.primaryText(brightness),
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              )),
+          const Spacer(),
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onOpenAccount,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.searchBackground(brightness),
+                borderRadius: BorderRadius.circular(12),
               ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppTheme.searchBackground(brightness),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.link_rounded,
-                    color: AppTheme.limeAccentDark, size: 16),
-                const SizedBox(width: 6),
-                Text(
-                  pairedUserName.trim().isEmpty ? 'Linked' : pairedUserName,
-                  style: TextStyle(
-                    color: AppTheme.primaryText(brightness),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
+              child: Row(
+                children: [
+                  const Icon(Icons.laptop_mac_rounded,
+                      color: AppTheme.limeAccentDark,
+                      size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    pairedUserName.trim().isEmpty
+                        ? 'Linked'
+                        : pairedUserName,
+                    style: TextStyle(
+                      color: AppTheme.primaryText(brightness),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -497,65 +549,57 @@ class _CompactTopBanner extends StatelessWidget {
   }
 }
 
-class _DesktopSidebarHeader extends StatelessWidget {
+class _SidebarHeader extends StatelessWidget {
   final String pairedUserName;
   final String pairedUserEmail;
-  final bool showBrandName;
-
-  const _DesktopSidebarHeader({
+  final Brightness brightness;
+  const _SidebarHeader({
     required this.pairedUserName,
     required this.pairedUserEmail,
-    this.showBrandName = false,
+    required this.brightness,
   });
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
     final initials = pairedUserName.trim().isNotEmpty
         ? pairedUserName.trim().substring(0, 1).toUpperCase()
         : 'E';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      padding: const EdgeInsets.fromLTRB(14, 16, 14, 12),
       child: Column(
         children: [
-          if (showBrandName) ...[
-            Row(
-              children: [
-                const _BrandLogo(size: 26),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'eSportlyic Web',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: AppTheme.primaryText(brightness),
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-          ],
+          Row(
+            children: [
+              const _BrandLogo(size: 24),
+              const SizedBox(width: 10),
+              Text('eSportlyic Web',
+                  style: TextStyle(
+                    color: AppTheme.primaryText(brightness),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                  )),
+            ],
+          ),
+          const SizedBox(height: 14),
           Glass(
-            borderRadius: 20,
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+            borderRadius: 16,
+            padding: const EdgeInsets.all(12),
             fill: AppTheme.searchBackground(brightness),
             borderColor: AppTheme.searchOutline(brightness),
             child: Row(
               children: [
                 CircleAvatar(
-                  radius: 22,
-                  backgroundColor: AppTheme.iconCircleBackground(brightness),
-                  child: Text(
-                    initials,
-                    style: TextStyle(
-                      color: AppTheme.primaryText(brightness),
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+                  radius: 20,
+                  backgroundColor:
+                      AppTheme.iconCircleBackground(brightness),
+                  child: Text(initials,
+                      style: TextStyle(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w800,
+                      )),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -569,21 +613,18 @@ class _DesktopSidebarHeader extends StatelessWidget {
                         style: TextStyle(
                           color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w700,
-                          fontSize: 15,
+                          fontSize: 14,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        pairedUserEmail.trim().isNotEmpty
-                            ? pairedUserEmail
-                            : 'Desktop linked',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppTheme.secondaryText(brightness),
-                          fontSize: 12,
-                        ),
-                      ),
+                      if (pairedUserEmail.trim().isNotEmpty)
+                        Text(pairedUserEmail,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color:
+                                  AppTheme.secondaryText(brightness),
+                              fontSize: 11,
+                            )),
                     ],
                   ),
                 ),
@@ -596,22 +637,22 @@ class _DesktopSidebarHeader extends StatelessWidget {
   }
 }
 
-class _DesktopSidebarTile extends StatelessWidget {
-  final _DesktopNavItem item;
+class _SidebarTile extends StatelessWidget {
+  final _NavItem item;
   final bool selected;
-  final VoidCallback onTap;
   final Color accent;
-
-  const _DesktopSidebarTile({
+  final Brightness brightness;
+  final VoidCallback onTap;
+  const _SidebarTile({
     required this.item,
     required this.selected,
-    required this.onTap,
     required this.accent,
+    required this.brightness,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
     final fg = selected
         ? AppTheme.primaryText(brightness)
         : AppTheme.secondaryText(brightness);
@@ -622,26 +663,26 @@ class _DesktopSidebarTile extends StatelessWidget {
               ? AppTheme.limeAccentDark.withOpacity(0.10)
               : const Color(0xFFECFCCB))
           : Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 12, vertical: 12),
           child: Row(
             children: [
               Icon(
-                selected ? item.activeIcon : item.icon,
-                color: selected ? accent : fg,
-              ),
+                  selected ? item.activeIcon : item.icon,
+                  color: selected ? accent : fg,
+                  size: 20),
               const SizedBox(width: 12),
-              Text(
-                item.label,
-                style: TextStyle(
-                  color: fg,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              Text(item.label,
+                  style: TextStyle(
+                    color: fg,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  )),
             ],
           ),
         ),
@@ -650,768 +691,75 @@ class _DesktopSidebarTile extends StatelessWidget {
   }
 }
 
-class _DesktopTopBar extends StatelessWidget {
-  final String title;
-  final String pairedUserName;
-  final VoidCallback onOpenAccount;
-
-  const _DesktopTopBar({
-    required this.title,
-    required this.pairedUserName,
-    required this.onOpenAccount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
-    return Glass(
-      borderRadius: 0,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      fill: AppTheme.cardColor(brightness),
-      border: false,
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              color: AppTheme.primaryText(brightness),
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const Spacer(),
-          InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: onOpenAccount,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppTheme.searchBackground(brightness),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.laptop_mac,
-                      color: AppTheme.limeAccentDark, size: 18),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Linked as ${pairedUserName.trim().isEmpty ? 'user' : pairedUserName}',
-                    style: TextStyle(
-                      color: AppTheme.primaryText(brightness),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DesktopHomePanel extends StatelessWidget {
+class _RightPanel extends StatelessWidget {
   final String pairedUserUid;
   final String pairedUserName;
   final String pairedUserEmail;
-
-  const _DesktopHomePanel({
+  final Brightness brightness;
+  const _RightPanel({
     required this.pairedUserUid,
     required this.pairedUserName,
     required this.pairedUserEmail,
+    required this.brightness,
   });
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final userDoc =
-        FirebaseFirestore.instance.collection('users').doc(pairedUserUid);
-
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: userDoc.snapshots(),
-      builder: (context, snapshot) {
-        final data = snapshot.data?.data() ?? <String, dynamic>{};
-        final teamName = (data['teamName'] ?? '').toString().trim();
-        final photoUrl = (data['photoUrl'] ?? data['profileImageUrl'] ?? '')
-            .toString()
-            .trim();
-
-        return ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            Text(
-              'Welcome back${pairedUserName.trim().isNotEmpty ? ', $pairedUserName' : ''}',
-              style: TextStyle(
-                color: AppTheme.primaryText(brightness),
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              pairedUserEmail.trim().isNotEmpty
-                  ? pairedUserEmail
-                  : 'Your eSportlyic desktop companion session is active.',
-              style: TextStyle(
-                color: AppTheme.secondaryText(brightness),
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 24),
-            _DesktopProfileCard(
-              name: pairedUserName,
-              email: pairedUserEmail,
-              teamName: teamName,
-              photoUrl: photoUrl,
-            ),
-            const SizedBox(height: 20),
-            const Row(
-              children: [
-                Expanded(
-                  child: _DesktopStatCard(
-                    title: 'Desktop Status',
-                    value: 'Linked',
-                    accent: AppTheme.limeAccentDark,
-                    icon: Icons.link,
-                  ),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: _DesktopStatCard(
-                    title: 'Session Mode',
-                    value: 'Companion',
-                    accent: Color(0xFF38BDF8),
-                    icon: Icons.devices,
-                  ),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: _DesktopStatCard(
-                    title: 'Web Access',
-                    value: 'Active',
-                    accent: Color(0xFF22C55E),
-                    icon: Icons.public,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            const _DesktopPlaceholderSection(
-              title: 'Live account connected',
-              subtitle:
-                  'Your eSportlyic desktop shell is connected to your live Firestore profile and league data.',
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _DesktopProfileCard extends StatelessWidget {
-  final String name;
-  final String email;
-  final String teamName;
-  final String photoUrl;
-
-  const _DesktopProfileCard({
-    required this.name,
-    required this.email,
-    required this.teamName,
-    required this.photoUrl,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final hasPhoto = photoUrl.trim().isNotEmpty;
-
-    return Glass(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(22),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 36,
-            backgroundColor: AppTheme.iconCircleBackground(brightness),
-            backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
-            child: hasPhoto
-                ? null
-                : Text(
-                    name.trim().isNotEmpty
-                        ? name.trim().substring(0, 1).toUpperCase()
-                        : 'E',
-                    style: TextStyle(
-                      color: AppTheme.primaryText(brightness),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 24,
-                    ),
-                  ),
-          ),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name.trim().isNotEmpty ? name : 'eSportlyic User',
-                  style: TextStyle(
-                    color: AppTheme.primaryText(brightness),
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                if (email.trim().isNotEmpty)
-                  Text(
-                    email,
-                    style: TextStyle(
-                      color: AppTheme.secondaryText(brightness),
-                    ),
-                  ),
-                if (teamName.trim().isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Team: $teamName',
-                    style: const TextStyle(
-                      color: AppTheme.limeAccentDark,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DesktopStatCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final Color accent;
-  final IconData icon;
-
-  const _DesktopStatCard({
-    required this.title,
-    required this.value,
-    required this.accent,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
-    return Glass(
-      borderRadius: 20,
-      padding: const EdgeInsets.all(18),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: accent),
-          const SizedBox(height: 14),
-          Text(
-            title,
-            style: TextStyle(
-              color: AppTheme.secondaryText(brightness),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              color: AppTheme.primaryText(brightness),
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DesktopPlaceholderSection extends StatelessWidget {
-  final String title;
-  final String subtitle;
-
-  const _DesktopPlaceholderSection({
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
-    return Glass(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(22),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              color: AppTheme.primaryText(brightness),
-              fontWeight: FontWeight.w800,
-              fontSize: 18,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            subtitle,
-            style: TextStyle(
-              color: AppTheme.secondaryText(brightness),
-              height: 1.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DesktopLeaguesPanel extends StatelessWidget {
-  final String pairedUserUid;
-
-  const _DesktopLeaguesPanel({
-    required this.pairedUserUid,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final stream = FirebaseFirestore.instance.collection('leagues').snapshots();
-
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: stream,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: _DesktopPlaceholderSection(
-              title: 'Leagues',
-              subtitle: 'Could not load leagues: ${snapshot.error}',
-            ),
-          );
-        }
-
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final docs = snapshot.data!.docs.where((doc) {
-          final d = doc.data();
-          final organizerUid = (d['organizerUid'] ?? '').toString().trim();
-          final ownerUid = (d['ownerUid'] ?? '').toString().trim();
-          final organizerUserId = (d['organizerUserId'] ?? '').toString().trim();
-          final ownerId = (d['ownerId'] ?? '').toString().trim();
-          final memberIds = (d['memberIds'] is List)
-              ? List<String>.from(
-                  (d['memberIds'] as List).map((e) => e.toString()),
-                )
-              : <String>[];
-
-          return organizerUid == pairedUserUid ||
-              ownerUid == pairedUserUid ||
-              organizerUserId == pairedUserUid ||
-              ownerId == pairedUserUid ||
-              memberIds.contains(pairedUserUid);
-        }).toList();
-
-        if (docs.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.all(24),
-            child: _DesktopPlaceholderSection(
-              title: 'Leagues',
-              subtitle: 'No connected leagues found yet for this paired account.',
-            ),
-          );
-        }
-
-        return ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            Text(
-              'Your leagues',
-              style: TextStyle(
-                color: AppTheme.primaryText(brightness),
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${docs.length} league(s) found',
-              style: TextStyle(
-                color: AppTheme.secondaryText(brightness),
-              ),
-            ),
-            const SizedBox(height: 20),
-            ...docs.map((doc) {
-              final d = doc.data();
-              final name = (d['name'] ?? 'League').toString();
-              final season = (d['season'] ?? '').toString();
-              final region = (d['region'] ?? '').toString();
-              final code = (d['code'] ?? '').toString();
-              final format = (d['format'] ?? '').toString();
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: Glass(
-                  borderRadius: 20,
-                  padding: const EdgeInsets.all(18),
-                  fill: AppTheme.cardColor(brightness),
-                  borderColor: AppTheme.cardBorder(brightness),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 54,
-                        height: 54,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          color: AppTheme.iconCircleBackground(brightness),
-                        ),
-                        child: const Icon(
-                          Icons.emoji_events,
-                          color: AppTheme.limeAccentDark,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              style: TextStyle(
-                                color: AppTheme.primaryText(brightness),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                if (season.trim().isNotEmpty)
-                                  _LeagueMetaChip(text: season),
-                                if (region.trim().isNotEmpty)
-                                  _LeagueMetaChip(text: region),
-                                if (format.trim().isNotEmpty)
-                                  _LeagueMetaChip(text: format),
-                                if (code.trim().isNotEmpty)
-                                  _LeagueMetaChip(text: 'Code: $code'),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _LeagueMetaChip extends StatelessWidget {
-  final String text;
-
-  const _LeagueMetaChip({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppTheme.searchBackground(brightness),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: AppTheme.primaryText(brightness),
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
-
-class _DesktopDiscoverPanel extends StatelessWidget {
-  const _DesktopDiscoverPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final stream =
-        FirebaseFirestore.instance.collection('master_leagues').snapshots();
-
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: stream,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final docs = snapshot.data!.docs;
-
-        return ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            Text(
-              'Organizer discovery',
-              style: TextStyle(
-                color: AppTheme.primaryText(brightness),
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Browse organizer workspaces',
-              style: TextStyle(
-                color: AppTheme.secondaryText(brightness),
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (docs.isEmpty)
-              const _DesktopPlaceholderSection(
-                title: 'No organizers yet',
-                subtitle: 'Organizer workspaces will appear here once available.',
-              )
-            else
-              ...docs.take(12).map((doc) {
-                final d = doc.data();
-                final name = (d['name'] ?? 'Organizer').toString();
-                final bio = (d['bio'] ?? '').toString();
-                final plan = (d['plan'] ?? '').toString();
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: Glass(
-                    borderRadius: 20,
-                    padding: const EdgeInsets.all(18),
-                    fill: AppTheme.cardColor(brightness),
-                    borderColor: AppTheme.cardBorder(brightness),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: TextStyle(
-                            color: AppTheme.primaryText(brightness),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
-                        ),
-                        if (plan.trim().isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          _LeagueMetaChip(text: 'Plan: $plan'),
-                        ],
-                        if (bio.trim().isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            bio,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: AppTheme.secondaryText(brightness),
-                              height: 1.45,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                );
-              }),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _DesktopMarketplacePanel extends StatelessWidget {
-  const _DesktopMarketplacePanel();
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final stream =
-        FirebaseFirestore.instance.collection('marketplace_products').snapshots();
-
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: stream,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final docs = snapshot.data!.docs;
-
-        return ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            Text(
-              'Marketplace',
-              style: TextStyle(
-                color: AppTheme.primaryText(brightness),
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Desktop browsing for products',
-              style: TextStyle(
-                color: AppTheme.secondaryText(brightness),
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (docs.isEmpty)
-              const _DesktopPlaceholderSection(
-                title: 'No marketplace products yet',
-                subtitle: 'Products will appear here when available.',
-              )
-            else
-              ...docs.take(12).map((doc) {
-                final d = doc.data();
-                final name = (d['name'] ?? 'Product').toString();
-                final price = (d['price'] ?? '').toString();
-                final sellerName = (d['sellerName'] ?? '').toString();
-                final category = (d['category'] ?? '').toString();
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: Glass(
-                    borderRadius: 20,
-                    padding: const EdgeInsets.all(18),
-                    fill: AppTheme.cardColor(brightness),
-                    borderColor: AppTheme.cardBorder(brightness),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: TextStyle(
-                            color: AppTheme.primaryText(brightness),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            if (price.trim().isNotEmpty)
-                              _LeagueMetaChip(text: price),
-                            if (sellerName.trim().isNotEmpty)
-                              _LeagueMetaChip(text: sellerName),
-                            if (category.trim().isNotEmpty)
-                              _LeagueMetaChip(text: category),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _DesktopRightPanel extends StatelessWidget {
-  final String pairedUserUid;
-  final String pairedUserName;
-  final String pairedUserEmail;
-
-  const _DesktopRightPanel({
-    required this.pairedUserUid,
-    required this.pairedUserName,
-    required this.pairedUserEmail,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
     return ListView(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       children: [
         Glass(
-          borderRadius: 22,
-          padding: const EdgeInsets.all(18),
+          borderRadius: 20,
+          padding: const EdgeInsets.all(16),
           fill: AppTheme.cardColor(brightness),
           borderColor: AppTheme.cardBorder(brightness),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Linked account',
-                style: TextStyle(
-                  color: AppTheme.primaryText(brightness),
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                ),
-              ),
-              const SizedBox(height: 14),
-              _InfoRow(
+              Text('Linked account',
+                  style: TextStyle(
+                    color: AppTheme.primaryText(brightness),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  )),
+              const SizedBox(height: 12),
+              _InfoRowSimple(
                 label: 'Name',
-                value: pairedUserName.isEmpty ? 'N/A' : pairedUserName,
+                value: pairedUserName.isEmpty
+                    ? 'N/A'
+                    : pairedUserName,
+                brightness: brightness,
               ),
-              const SizedBox(height: 10),
-              _InfoRow(
+              const SizedBox(height: 8),
+              _InfoRowSimple(
                 label: 'Email',
-                value: pairedUserEmail.isEmpty ? 'N/A' : pairedUserEmail,
+                value: pairedUserEmail.isEmpty
+                    ? 'N/A'
+                    : pairedUserEmail,
+                brightness: brightness,
               ),
-              const SizedBox(height: 10),
-              _InfoRow(
+              const SizedBox(height: 8),
+              _InfoRowSimple(
                 label: 'UID',
-                value: pairedUserUid.isEmpty ? 'N/A' : pairedUserUid,
+                value: pairedUserUid.isEmpty
+                    ? 'N/A'
+                    : pairedUserUid,
+                brightness: brightness,
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         Glass(
-          borderRadius: 22,
-          padding: const EdgeInsets.all(18),
+          borderRadius: 20,
+          padding: const EdgeInsets.all(16),
           fill: AppTheme.cardColor(brightness),
           borderColor: AppTheme.cardBorder(brightness),
           child: Text(
-            'This panel is ready for selected item details such as league profile, organizer details, marketplace item info, or recent activity.',
+            'Select a league from the Leagues panel to see details, manage fixtures, scores and standings here.',
             style: TextStyle(
-              color: AppTheme.secondaryText(brightness),
-              height: 1.5,
-            ),
+                color: AppTheme.secondaryText(brightness),
+                height: 1.5),
           ),
         ),
       ],
@@ -1419,89 +767,358 @@ class _DesktopRightPanel extends StatelessWidget {
   }
 }
 
-class _InfoRow extends StatelessWidget {
+class _InfoRowSimple extends StatelessWidget {
   final String label;
   final String value;
-
-  const _InfoRow({
+  final Brightness brightness;
+  const _InfoRowSimple({
     required this.label,
     required this.value,
+    required this.brightness,
   });
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: AppTheme.secondaryText(brightness),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        SelectableText(
-          value,
-          style: TextStyle(
-            color: AppTheme.primaryText(brightness),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        Text(label,
+            style: TextStyle(
+              color: AppTheme.secondaryText(brightness),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            )),
+        const SizedBox(height: 3),
+        SelectableText(value,
+            style: TextStyle(
+              color: AppTheme.primaryText(brightness),
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            )),
       ],
     );
   }
 }
 
-class _DesktopNavItem {
-  final String label;
-  final IconData icon;
-  final IconData activeIcon;
-
-  const _DesktopNavItem({
-    required this.label,
-    required this.icon,
-    required this.activeIcon,
-  });
-}
-
 class _BrandLogo extends StatelessWidget {
   final double size;
-
   const _BrandLogo({required this.size});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: size + 12,
-      height: size + 12,
+      width: size + 10, height: size + 10,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         color: AppTheme.limeAccent,
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.limeAccentDark.withOpacity(0.24),
-            blurRadius: 18,
-            spreadRadius: 1,
-          ),
+      ),
+      padding: const EdgeInsets.all(5),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.asset('assets/icon.png',
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const Icon(
+                Icons.sports_esports_rounded,
+                color: AppTheme.darkText,
+                size: 16)),
+      ),
+    );
+  }
+}
+
+// ── Placeholder panels ────────────────────────────────────────────────────────
+
+class _HomePanel extends StatelessWidget {
+  final String pairedUserUid;
+  final String pairedUserName;
+  final String pairedUserEmail;
+  final Brightness brightness;
+  const _HomePanel({
+    required this.pairedUserUid,
+    required this.pairedUserName,
+    required this.pairedUserEmail,
+    required this.brightness,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(pairedUserUid)
+          .snapshots(),
+      builder: (context, snap) {
+        final data     = snap.data?.data() ?? {};
+        final teamName = (data['teamName'] ?? '').toString().trim();
+
+        return ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            Text(
+              'Welcome back'
+              '${pairedUserName.trim().isNotEmpty ? ', $pairedUserName' : ''}',
+              style: TextStyle(
+                color: AppTheme.primaryText(brightness),
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              pairedUserEmail.trim().isNotEmpty
+                  ? pairedUserEmail
+                  : 'Your eSportlyic desktop session is active.',
+              style: TextStyle(
+                  color: AppTheme.secondaryText(brightness),
+                  fontSize: 13),
+            ),
+            const SizedBox(height: 20),
+            Glass(
+              borderRadius: 20,
+              padding: const EdgeInsets.all(20),
+              fill: AppTheme.cardColor(brightness),
+              borderColor: AppTheme.cardBorder(brightness),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Quick stats',
+                      style: TextStyle(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                      )),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Expanded(child: _QuickStat(
+                      label: 'Status',
+                      value: 'Linked',
+                      icon: Icons.link_rounded,
+                      brightness: brightness,
+                    )),
+                    const SizedBox(width: 12),
+                    Expanded(child: _QuickStat(
+                      label: 'Mode',
+                      value: 'Desktop',
+                      icon: Icons.laptop_mac_rounded,
+                      brightness: brightness,
+                    )),
+                    if (teamName.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      Expanded(child: _QuickStat(
+                        label: 'Team',
+                        value: teamName,
+                        icon: Icons.shield_rounded,
+                        brightness: brightness,
+                      )),
+                    ],
+                  ]),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _QuickStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Brightness brightness;
+  const _QuickStat({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.brightness,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Glass(
+      borderRadius: 14,
+      padding: const EdgeInsets.all(14),
+      fill: AppTheme.searchBackground(brightness),
+      borderColor: AppTheme.searchOutline(brightness),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: AppTheme.limeAccentDark, size: 18),
+          const SizedBox(height: 8),
+          Text(label,
+              style: TextStyle(
+                color: AppTheme.secondaryText(brightness),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              )),
+          const SizedBox(height: 2),
+          Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AppTheme.primaryText(brightness),
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+              )),
         ],
       ),
-      padding: const EdgeInsets.all(6),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.asset(
-          'assets/icon.png',
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const Icon(
-            Icons.sports_esports,
-            color: AppTheme.darkText,
-            size: 20,
-          ),
-        ),
-      ),
+    );
+  }
+}
+
+class _DiscoverPanel extends StatelessWidget {
+  final Brightness brightness;
+  const _DiscoverPanel({required this.brightness});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('master_leagues')
+          .snapshots(),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final docs = snap.data!.docs;
+        return ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            Text('Organizer discovery',
+                style: TextStyle(
+                  color: AppTheme.primaryText(brightness),
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                )),
+            const SizedBox(height: 16),
+            if (docs.isEmpty)
+              Text('No organizers yet.',
+                  style: TextStyle(
+                      color: AppTheme.secondaryText(brightness)))
+            else
+              ...docs.take(20).map((doc) {
+                final d    = doc.data();
+                final name = (d['name'] ?? 'Organizer').toString();
+                final bio  = (d['bio'] ?? '').toString();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Glass(
+                    borderRadius: 16,
+                    padding: const EdgeInsets.all(16),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name,
+                            style: TextStyle(
+                              color: AppTheme.primaryText(brightness),
+                              fontWeight: FontWeight.w800,
+                            )),
+                        if (bio.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(bio,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color:
+                                    AppTheme.secondaryText(brightness),
+                                fontSize: 13,
+                                height: 1.4,
+                              )),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              }),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MarketplacePanel extends StatelessWidget {
+  final Brightness brightness;
+  const _MarketplacePanel({required this.brightness});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('marketplace_products')
+          .snapshots(),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final docs = snap.data!.docs;
+        return ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            Text('Marketplace',
+                style: TextStyle(
+                  color: AppTheme.primaryText(brightness),
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                )),
+            const SizedBox(height: 16),
+            if (docs.isEmpty)
+              Text('No products yet.',
+                  style: TextStyle(
+                      color: AppTheme.secondaryText(brightness)))
+            else
+              ...docs.take(20).map((doc) {
+                final d      = doc.data();
+                final name   = (d['name'] ?? 'Product').toString();
+                final price  = (d['price'] ?? '').toString();
+                final seller = (d['sellerName'] ?? '').toString();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Glass(
+                    borderRadius: 16,
+                    padding: const EdgeInsets.all(16),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              Text(name,
+                                  style: TextStyle(
+                                    color: AppTheme.primaryText(
+                                        brightness),
+                                    fontWeight: FontWeight.w800,
+                                  )),
+                              if (seller.isNotEmpty)
+                                Text(seller,
+                                    style: TextStyle(
+                                      color: AppTheme.secondaryText(
+                                          brightness),
+                                      fontSize: 12,
+                                    )),
+                            ],
+                          ),
+                        ),
+                        if (price.isNotEmpty)
+                          Text(price,
+                              style: TextStyle(
+                                color: AppTheme.limeAccentDark,
+                                fontWeight: FontWeight.w900,
+                              )),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+          ],
+        );
+      },
     );
   }
 }
