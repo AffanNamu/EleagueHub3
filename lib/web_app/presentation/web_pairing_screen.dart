@@ -13,8 +13,6 @@ import '../../core/widgets/glass_scaffold.dart';
 import 'web_desktop_session_store.dart';
 
 class WebPairingScreen extends StatefulWidget {
-  /// Called when phone successfully scans and approves.
-  /// Parent swaps to shell without Navigator push.
   final void Function({
     required String uid,
     required String name,
@@ -51,29 +49,34 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
   @override
   void didChangeMetrics() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _boot() async {
     if (!mounted) return;
+
+    _pollTimer?.cancel();
+
     setState(() {
       _loading = true;
       _error = null;
       _paired = false;
+      _session = null;
     });
 
     try {
-      // Wait for Firebase
       if (Firebase.apps.isEmpty) {
         await Future<void>.delayed(const Duration(milliseconds: 800));
         if (Firebase.apps.isEmpty) {
           throw StateError(
-              'Firebase is not initialized. Please refresh the page.');
+            'Firebase is not initialized. Please refresh the page.',
+          );
         }
       }
 
-      final session =
-          await DesktopPairingService.instance.createSession();
+      final session = await DesktopPairingService.instance.createSession();
       if (!mounted) return;
 
       setState(() {
@@ -93,8 +96,7 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer =
-        Timer.periodic(const Duration(seconds: 3), (_) async {
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
       if (_paired) {
         _pollTimer?.cancel();
         return;
@@ -104,8 +106,7 @@ class _WebPairingScreenState extends State<WebPairingScreen>
       if (current == null) return;
 
       try {
-        final status =
-            await DesktopPairingService.instance.getStatus(
+        final status = await DesktopPairingService.instance.getStatus(
           sessionId: current.sessionId,
           sessionSecret: current.sessionSecret,
         );
@@ -118,19 +119,19 @@ class _WebPairingScreenState extends State<WebPairingScreen>
           _pollTimer?.cancel();
           _paired = true;
 
-          // Try Firebase custom token sign-in
           final token = status.firebaseCustomToken.trim();
           if (token.isNotEmpty && Firebase.apps.isNotEmpty) {
             try {
               final auth = FirebaseAuth.instance;
-              if (auth.currentUser != null) await auth.signOut();
+              if (auth.currentUser != null) {
+                await auth.signOut();
+              }
               await auth.signInWithCustomToken(token);
             } catch (e) {
               debugPrint('Custom token sign-in skipped: $e');
             }
           }
 
-          // Save to localStorage
           await WebDesktopSessionStore.save(
             sessionId: current.sessionId,
             sessionSecret: current.sessionSecret,
@@ -141,7 +142,6 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
           if (!mounted) return;
 
-          // ── Notify parent to swap screen (no Navigator.push) ──────
           widget.onPaired?.call(
             uid: status.pairedUserUid,
             name: status.pairedUserName,
@@ -150,13 +150,11 @@ class _WebPairingScreenState extends State<WebPairingScreen>
           return;
         }
 
-        if (status.status == 'expired' ||
-            status.status == 'rejected') {
+        if (status.status == 'expired' || status.status == 'rejected') {
           _pollTimer?.cancel();
           if (!mounted) return;
           setState(() {
-            _error =
-                'Session expired. Please refresh to scan again.';
+            _error = 'Session expired. Please refresh to scan again.';
           });
         }
       } catch (e) {
@@ -225,7 +223,7 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                       onPressed: () async {
                         _paired = false;
                         await WebDesktopSessionStore.clear();
-                        _boot();
+                        await _boot();
                       },
                       icon: const Icon(Icons.refresh),
                       label: const Text('Try again'),
@@ -274,58 +272,65 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
     return GlassScaffold(
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1220),
-              child: stacked
-                  ? Column(
-                      children: [
-                        _QrPanel(
-                          session: session,
-                          onRefresh: _boot,
-                          compact: compact,
-                          brightness: brightness,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final availableWidth = constraints.maxWidth;
+            final useStacked = stacked || availableWidth < 980;
+
+            return Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1220),
+                  child: useStacked
+                      ? Column(
+                          children: [
+                            _QrPanel(
+                              session: session,
+                              onRefresh: _boot,
+                              compact: compact,
+                              brightness: brightness,
+                            ),
+                            const SizedBox(height: 16),
+                            _IntroPanel(
+                              compact: compact,
+                              brightness: brightness,
+                            ),
+                          ],
+                        )
+                      : Wrap(
+                          spacing: 18,
+                          runSpacing: 18,
+                          alignment: WrapAlignment.center,
+                          crossAxisAlignment: WrapCrossAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 540,
+                              child: _IntroPanel(
+                                compact: compact,
+                                brightness: brightness,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 620,
+                              child: _QrPanel(
+                                session: session,
+                                onRefresh: _boot,
+                                compact: compact,
+                                brightness: brightness,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        _IntroPanel(
-                          compact: compact,
-                          brightness: brightness,
-                        ),
-                      ],
-                    )
-                  : Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          flex: 6,
-                          child: _IntroPanel(
-                            compact: compact,
-                            brightness: brightness,
-                          ),
-                        ),
-                        const SizedBox(width: 18),
-                        Expanded(
-                          flex: 7,
-                          child: _QrPanel(
-                            session: session,
-                            onRefresh: _boot,
-                            compact: compact,
-                            brightness: brightness,
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
 }
-
-// ── Widgets ───────────────────────────────────────────────────────────────────
 
 class _InfoCard extends StatelessWidget {
   final String title;
@@ -379,7 +384,11 @@ class _InfoCard extends StatelessWidget {
 class _IntroPanel extends StatelessWidget {
   final bool compact;
   final Brightness brightness;
-  const _IntroPanel({required this.compact, required this.brightness});
+
+  const _IntroPanel({
+    required this.compact,
+    required this.brightness,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -398,12 +407,11 @@ class _IntroPanel extends StatelessWidget {
               Expanded(
                 child: Text(
                   'eSportlyic Web',
-                  style:
-                      Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            color: AppTheme.primaryText(brightness),
-                            fontWeight: FontWeight.w900,
-                            fontSize: compact ? 28 : 36,
-                          ),
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w900,
+                        fontSize: compact ? 28 : 36,
+                      ),
                 ),
               ),
             ],
@@ -413,13 +421,12 @@ class _IntroPanel extends StatelessWidget {
             compact
                 ? 'Open eSportlyic on another device'
                 : 'Use eSportlyic on your computer',
-            style:
-                Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: AppTheme.primaryText(brightness),
-                      fontWeight: FontWeight.w900,
-                      height: 1.08,
-                      fontSize: compact ? 28 : 54,
-                    ),
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  color: AppTheme.primaryText(brightness),
+                  fontWeight: FontWeight.w900,
+                  height: 1.08,
+                  fontSize: compact ? 28 : 54,
+                ),
           ),
           const SizedBox(height: 16),
           Text(
@@ -484,8 +491,7 @@ class _QrPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
-    final qrSize =
-        compact ? 220.0 : (width < 1200 ? 260.0 : 300.0);
+    final qrSize = compact ? 220.0 : (width < 1200 ? 260.0 : 300.0);
 
     return Glass(
       borderRadius: 28,
@@ -493,6 +499,7 @@ class _QrPanel extends StatelessWidget {
       fill: AppTheme.cardColor(brightness),
       borderColor: AppTheme.cardBorder(brightness),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             padding: const EdgeInsets.all(18),
@@ -560,6 +567,7 @@ class _QrPanel extends StatelessWidget {
 
 class _BrandLogo extends StatelessWidget {
   final double size;
+
   const _BrandLogo({required this.size});
 
   @override

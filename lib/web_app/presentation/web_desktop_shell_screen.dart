@@ -31,10 +31,10 @@ class WebDesktopShellScreen extends StatefulWidget {
 class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     with WidgetsBindingObserver {
   static const String _staticAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
-  static const Color  _accent         = AppTheme.limeAccentDark;
+  static const Color _accent = AppTheme.limeAccentDark;
 
-  int  _selectedIndex = 0;
-  bool _isAdmin       = false;
+  int _selectedIndex = 0;
+  bool _isAdmin = false;
 
   @override
   void initState() {
@@ -59,7 +59,9 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     if (uid.isEmpty) return;
 
     if (uid == _staticAdminUid) {
-      if (mounted) setState(() => _isAdmin = true);
+      if (mounted) {
+        setState(() => _isAdmin = true);
+      }
       return;
     }
 
@@ -72,43 +74,55 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
       final list = snap.data()?['pricingAdmins'];
       if (list is List &&
           list.any((v) => v.toString().trim() == uid)) {
-        if (mounted) setState(() => _isAdmin = true);
+        if (mounted) {
+          setState(() => _isAdmin = true);
+        }
       }
     } catch (_) {}
   }
 
   List<_NavItem> get _navItems => [
-    const _NavItem(
-      label: 'Home',
-      icon: Icons.home_outlined,
-      activeIcon: Icons.home_rounded,
-    ),
-    const _NavItem(
-      label: 'Leagues',
-      icon: Icons.emoji_events_outlined,
-      activeIcon: Icons.emoji_events_rounded,
-    ),
-    const _NavItem(
-      label: 'Discover',
-      icon: Icons.travel_explore_outlined,
-      activeIcon: Icons.travel_explore_rounded,
-    ),
-    const _NavItem(
-      label: 'Marketplace',
-      icon: Icons.storefront_outlined,
-      activeIcon: Icons.storefront_rounded,
-    ),
-    if (_isAdmin)
-      const _NavItem(
-        label: 'Admin',
-        icon: Icons.admin_panel_settings_outlined,
-        activeIcon: Icons.admin_panel_settings_rounded,
-      ),
-  ];
+        const _NavItem(
+          label: 'Home',
+          icon: Icons.home_outlined,
+          activeIcon: Icons.home_rounded,
+        ),
+        const _NavItem(
+          label: 'Leagues',
+          icon: Icons.emoji_events_outlined,
+          activeIcon: Icons.emoji_events_rounded,
+        ),
+        const _NavItem(
+          label: 'Discover',
+          icon: Icons.travel_explore_outlined,
+          activeIcon: Icons.travel_explore_rounded,
+        ),
+        const _NavItem(
+          label: 'Marketplace',
+          icon: Icons.storefront_outlined,
+          activeIcon: Icons.storefront_rounded,
+        ),
+        if (_isAdmin)
+          const _NavItem(
+            label: 'Admin',
+            icon: Icons.admin_panel_settings_outlined,
+            activeIcon: Icons.admin_panel_settings_rounded,
+          ),
+      ];
+
+  int get _safeSelectedIndex {
+    final items = _navItems;
+    if (items.isEmpty) return 0;
+    if (_selectedIndex < 0) return 0;
+    if (_selectedIndex >= items.length) return 0;
+    return _selectedIndex;
+  }
 
   Future<void> _logoutDesktop() async {
     await WebDesktopSessionStore.clear();
-    try { await FirebaseAuth.instance.signOut(); } catch (_) {}
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
     if (!mounted) return;
     widget.onUnlink?.call();
   }
@@ -133,27 +147,32 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Linked account',
-                        style: TextStyle(
-                          color: AppTheme.primaryText(brightness),
-                          fontWeight: FontWeight.w900,
-                          fontSize: 18,
-                        )),
+                    Text(
+                      'Linked account',
+                      style: TextStyle(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                      ),
+                    ),
                     const SizedBox(height: 14),
                     _InfoRowSimple(
-                        label: 'Name',
-                        value: widget.pairedUserName,
-                        brightness: brightness),
+                      label: 'Name',
+                      value: widget.pairedUserName,
+                      brightness: brightness,
+                    ),
                     const SizedBox(height: 8),
                     _InfoRowSimple(
-                        label: 'Email',
-                        value: widget.pairedUserEmail,
-                        brightness: brightness),
+                      label: 'Email',
+                      value: widget.pairedUserEmail,
+                      brightness: brightness,
+                    ),
                     const SizedBox(height: 8),
                     _InfoRowSimple(
-                        label: 'UID',
-                        value: widget.pairedUserUid,
-                        brightness: brightness),
+                      label: 'UID',
+                      value: widget.pairedUserUid,
+                      brightness: brightness,
+                    ),
                     const SizedBox(height: 18),
                     SizedBox(
                       width: double.infinity,
@@ -178,64 +197,83 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
 
   Widget _buildPanel(int index) {
     final items = _navItems;
-    if (index < 0 || index >= items.length) index = 0;
-    final label = items[index].label;
+    if (items.isEmpty) {
+      return _ErrorPanel(
+        title: 'No navigation items',
+        message: 'No sections are currently available.',
+        brightness: Theme.of(context).brightness,
+      );
+    }
 
-    switch (label) {
-      case 'Leagues':
-        return WebLeagueManagementScreen(
-          pairedUserUid: widget.pairedUserUid,
-        );
-      case 'Admin':
-        return WebPricingAdminScreen(
-          pairedUserUid: widget.pairedUserUid,
-        );
-      case 'Discover':
-        return _DiscoverPanel(brightness: Theme.of(context).brightness);
-      case 'Marketplace':
-        return _MarketplacePanel(
-            brightness: Theme.of(context).brightness);
-      default:
-        return _HomePanel(
-          pairedUserUid: widget.pairedUserUid,
-          pairedUserName: widget.pairedUserName,
-          pairedUserEmail: widget.pairedUserEmail,
-          brightness: Theme.of(context).brightness,
-        );
+    final safeIndex = index.clamp(0, items.length - 1);
+    final label = items[safeIndex].label;
+    final brightness = Theme.of(context).brightness;
+
+    try {
+      switch (label) {
+        case 'Leagues':
+          return WebLeagueManagementScreen(
+            pairedUserUid: widget.pairedUserUid,
+          );
+        case 'Admin':
+          return WebPricingAdminScreen(
+            pairedUserUid: widget.pairedUserUid,
+          );
+        case 'Discover':
+          return _DiscoverPanel(brightness: brightness);
+        case 'Marketplace':
+          return _MarketplacePanel(brightness: brightness);
+        default:
+          return _HomePanel(
+            pairedUserUid: widget.pairedUserUid,
+            pairedUserName: widget.pairedUserName,
+            pairedUserEmail: widget.pairedUserEmail,
+            brightness: brightness,
+          );
+      }
+    } catch (e) {
+      return _ErrorPanel(
+        title: 'Screen failed to load',
+        message: e.toString(),
+        brightness: brightness,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
-
-    // Clamp selected index in case admin tab toggled
+    final brightness = Theme.of(context).brightness;
     final items = _navItems;
-    if (_selectedIndex >= items.length) {
-      _selectedIndex = 0;
-    }
+    final selectedIndex = _safeSelectedIndex;
 
-    if (width < 760)  return _buildMobileLayout(context);
-    if (width < 1180) return _buildTabletLayout(context);
-    return _buildDesktopLayout(context);
+    if (width < 760) {
+      return _buildMobileLayout(context, items, selectedIndex, brightness);
+    }
+    if (width < 1180) {
+      return _buildTabletLayout(context, items, selectedIndex, brightness);
+    }
+    return _buildDesktopLayout(context, items, selectedIndex, brightness);
   }
 
-  // ── Mobile ────────────────────────────────────────────────────────────────
-  Widget _buildMobileLayout(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final items      = _navItems;
-
+  Widget _buildMobileLayout(
+    BuildContext context,
+    List<_NavItem> items,
+    int selectedIndex,
+    Brightness brightness,
+  ) {
     return GlassScaffold(
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (i) =>
-            setState(() => _selectedIndex = i),
+        selectedIndex: selectedIndex,
+        onDestinationSelected: (i) => setState(() => _selectedIndex = i),
         destinations: items
-            .map((item) => NavigationDestination(
-                  icon: Icon(item.icon),
-                  selectedIcon: Icon(item.activeIcon),
-                  label: item.label,
-                ))
+            .map(
+              (item) => NavigationDestination(
+                icon: Icon(item.icon),
+                selectedIcon: Icon(item.activeIcon),
+                label: item.label,
+              ),
+            )
             .toList(),
       ),
       body: SafeArea(
@@ -249,12 +287,14 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                 const _BrandLogo(size: 26),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text('eSportlyic Web',
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppTheme.primaryText(brightness),
-                        fontWeight: FontWeight.w900,
-                      )),
+                  child: Text(
+                    'eSportlyic Web',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppTheme.primaryText(brightness),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -266,17 +306,19 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
               ),
             ],
           ),
-          body: _buildPanel(_selectedIndex),
+          body: _buildPanel(selectedIndex),
         ),
       ),
     );
   }
 
-  // ── Tablet ────────────────────────────────────────────────────────────────
-  Widget _buildTabletLayout(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final width      = MediaQuery.of(context).size.width;
-    final items      = _navItems;
+  Widget _buildTabletLayout(
+    BuildContext context,
+    List<_NavItem> items,
+    int selectedIndex,
+    Brightness brightness,
+  ) {
+    final width = MediaQuery.of(context).size.width;
 
     return GlassScaffold(
       body: SafeArea(
@@ -297,7 +339,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                     Expanded(
                       child: NavigationRail(
                         backgroundColor: Colors.transparent,
-                        selectedIndex: _selectedIndex,
+                        selectedIndex: selectedIndex,
                         labelType: NavigationRailLabelType.all,
                         groupAlignment: -1,
                         indicatorColor: AppTheme.limeAccent,
@@ -309,7 +351,8 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                           fontSize: 11,
                         ),
                         unselectedIconTheme: IconThemeData(
-                            color: AppTheme.secondaryText(brightness)),
+                          color: AppTheme.secondaryText(brightness),
+                        ),
                         unselectedLabelTextStyle: TextStyle(
                           color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w700,
@@ -318,11 +361,13 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                         onDestinationSelected: (i) =>
                             setState(() => _selectedIndex = i),
                         destinations: items
-                            .map((item) => NavigationRailDestination(
-                                  icon: Icon(item.icon),
-                                  selectedIcon: Icon(item.activeIcon),
-                                  label: Text(item.label),
-                                ))
+                            .map(
+                              (item) => NavigationRailDestination(
+                                icon: Icon(item.icon),
+                                selectedIcon: Icon(item.activeIcon),
+                                label: Text(item.label),
+                              ),
+                            )
                             .toList(),
                       ),
                     ),
@@ -331,9 +376,10 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                       child: IconButton(
                         tooltip: 'Unlink desktop',
                         onPressed: _logoutDesktop,
-                        icon: Icon(Icons.logout_rounded,
-                            color:
-                                AppTheme.secondaryText(brightness)),
+                        icon: Icon(
+                          Icons.logout_rounded,
+                          color: AppTheme.secondaryText(brightness),
+                        ),
                       ),
                     ),
                   ],
@@ -344,12 +390,12 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
               child: Column(
                 children: [
                   _TopBar(
-                    title: items[_selectedIndex].label,
+                    title: items[selectedIndex].label,
                     pairedUserName: widget.pairedUserName,
                     onOpenAccount: _openAccountSheet,
                     brightness: brightness,
                   ),
-                  Expanded(child: _buildPanel(_selectedIndex)),
+                  Expanded(child: _buildPanel(selectedIndex)),
                 ],
               ),
             ),
@@ -375,16 +421,16 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     );
   }
 
-  // ── Desktop ───────────────────────────────────────────────────────────────
-  Widget _buildDesktopLayout(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final items      = _navItems;
-
+  Widget _buildDesktopLayout(
+    BuildContext context,
+    List<_NavItem> items,
+    int selectedIndex,
+    Brightness brightness,
+  ) {
     return GlassScaffold(
       body: SafeArea(
         child: Row(
           children: [
-            // Sidebar
             Glass(
               borderRadius: 0,
               padding: EdgeInsets.zero,
@@ -401,19 +447,16 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                     ),
                     Expanded(
                       child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(
-                            12, 8, 12, 8),
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                         itemCount: items.length,
                         separatorBuilder: (_, __) =>
                             const SizedBox(height: 4),
-                        itemBuilder: (context, i) =>
-                            _SidebarTile(
+                        itemBuilder: (context, i) => _SidebarTile(
                           item: items[i],
-                          selected: _selectedIndex == i,
+                          selected: selectedIndex == i,
                           accent: _accent,
                           brightness: brightness,
-                          onTap: () =>
-                              setState(() => _selectedIndex = i),
+                          onTap: () => setState(() => _selectedIndex = i),
                         ),
                       ),
                     ),
@@ -432,23 +475,21 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
                 ),
               ),
             ),
-
-            // Main content
             Expanded(
               child: Column(
                 children: [
                   _TopBar(
-                    title: items[_selectedIndex].label,
+                    title: items[selectedIndex].label,
                     pairedUserName: widget.pairedUserName,
                     onOpenAccount: _openAccountSheet,
                     brightness: brightness,
                   ),
-                  Expanded(child: _buildPanel(_selectedIndex)),
+                  Expanded(
+                    child: _buildPanel(selectedIndex),
+                  ),
                 ],
               ),
             ),
-
-            // Right panel
             SizedBox(
               width: 320,
               child: Glass(
@@ -471,12 +512,11 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
   }
 }
 
-// ── Shared layout widgets ─────────────────────────────────────────────────────
-
 class _NavItem {
   final String label;
   final IconData icon;
   final IconData activeIcon;
+
   const _NavItem({
     required this.label,
     required this.icon,
@@ -489,6 +529,7 @@ class _TopBar extends StatelessWidget {
   final String pairedUserName;
   final VoidCallback onOpenAccount;
   final Brightness brightness;
+
   const _TopBar({
     required this.title,
     required this.pairedUserName,
@@ -500,39 +541,42 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Glass(
       borderRadius: 0,
-      padding: const EdgeInsets.symmetric(
-          horizontal: 20, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       fill: AppTheme.cardColor(brightness),
       border: false,
       child: Row(
         children: [
-          Text(title,
-              style: TextStyle(
-                color: AppTheme.primaryText(brightness),
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              )),
+          Text(
+            title,
+            style: TextStyle(
+              color: AppTheme.primaryText(brightness),
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
           const Spacer(),
           InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: onOpenAccount,
             child: Container(
               padding: const EdgeInsets.symmetric(
-                  horizontal: 12, vertical: 8),
+                horizontal: 12,
+                vertical: 8,
+              ),
               decoration: BoxDecoration(
                 color: AppTheme.searchBackground(brightness),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.laptop_mac_rounded,
-                      color: AppTheme.limeAccentDark,
-                      size: 16),
+                  const Icon(
+                    Icons.laptop_mac_rounded,
+                    color: AppTheme.limeAccentDark,
+                    size: 16,
+                  ),
                   const SizedBox(width: 8),
                   Text(
-                    pairedUserName.trim().isEmpty
-                        ? 'Linked'
-                        : pairedUserName,
+                    pairedUserName.trim().isEmpty ? 'Linked' : pairedUserName,
                     style: TextStyle(
                       color: AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w600,
@@ -553,6 +597,7 @@ class _SidebarHeader extends StatelessWidget {
   final String pairedUserName;
   final String pairedUserEmail;
   final Brightness brightness;
+
   const _SidebarHeader({
     required this.pairedUserName,
     required this.pairedUserEmail,
@@ -573,12 +618,14 @@ class _SidebarHeader extends StatelessWidget {
             children: [
               const _BrandLogo(size: 24),
               const SizedBox(width: 10),
-              Text('eSportlyic Web',
-                  style: TextStyle(
-                    color: AppTheme.primaryText(brightness),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
-                  )),
+              Text(
+                'eSportlyic Web',
+                style: TextStyle(
+                  color: AppTheme.primaryText(brightness),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -593,11 +640,13 @@ class _SidebarHeader extends StatelessWidget {
                   radius: 20,
                   backgroundColor:
                       AppTheme.iconCircleBackground(brightness),
-                  child: Text(initials,
-                      style: TextStyle(
-                        color: AppTheme.primaryText(brightness),
-                        fontWeight: FontWeight.w800,
-                      )),
+                  child: Text(
+                    initials,
+                    style: TextStyle(
+                      color: AppTheme.primaryText(brightness),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -617,14 +666,15 @@ class _SidebarHeader extends StatelessWidget {
                         ),
                       ),
                       if (pairedUserEmail.trim().isNotEmpty)
-                        Text(pairedUserEmail,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color:
-                                  AppTheme.secondaryText(brightness),
-                              fontSize: 11,
-                            )),
+                        Text(
+                          pairedUserEmail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppTheme.secondaryText(brightness),
+                            fontSize: 11,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -643,6 +693,7 @@ class _SidebarTile extends StatelessWidget {
   final Color accent;
   final Brightness brightness;
   final VoidCallback onTap;
+
   const _SidebarTile({
     required this.item,
     required this.selected,
@@ -668,21 +719,23 @@ class _SidebarTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 12, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           child: Row(
             children: [
               Icon(
-                  selected ? item.activeIcon : item.icon,
-                  color: selected ? accent : fg,
-                  size: 20),
+                selected ? item.activeIcon : item.icon,
+                color: selected ? accent : fg,
+                size: 20,
+              ),
               const SizedBox(width: 12),
-              Text(item.label,
-                  style: TextStyle(
-                    color: fg,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  )),
+              Text(
+                item.label,
+                style: TextStyle(
+                  color: fg,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
             ],
           ),
         ),
@@ -696,6 +749,7 @@ class _RightPanel extends StatelessWidget {
   final String pairedUserName;
   final String pairedUserEmail;
   final Brightness brightness;
+
   const _RightPanel({
     required this.pairedUserUid,
     required this.pairedUserName,
@@ -716,34 +770,30 @@ class _RightPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Linked account',
-                  style: TextStyle(
-                    color: AppTheme.primaryText(brightness),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                  )),
+              Text(
+                'Linked account',
+                style: TextStyle(
+                  color: AppTheme.primaryText(brightness),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                ),
+              ),
               const SizedBox(height: 12),
               _InfoRowSimple(
                 label: 'Name',
-                value: pairedUserName.isEmpty
-                    ? 'N/A'
-                    : pairedUserName,
+                value: pairedUserName.isEmpty ? 'N/A' : pairedUserName,
                 brightness: brightness,
               ),
               const SizedBox(height: 8),
               _InfoRowSimple(
                 label: 'Email',
-                value: pairedUserEmail.isEmpty
-                    ? 'N/A'
-                    : pairedUserEmail,
+                value: pairedUserEmail.isEmpty ? 'N/A' : pairedUserEmail,
                 brightness: brightness,
               ),
               const SizedBox(height: 8),
               _InfoRowSimple(
                 label: 'UID',
-                value: pairedUserUid.isEmpty
-                    ? 'N/A'
-                    : pairedUserUid,
+                value: pairedUserUid.isEmpty ? 'N/A' : pairedUserUid,
                 brightness: brightness,
               ),
             ],
@@ -758,8 +808,9 @@ class _RightPanel extends StatelessWidget {
           child: Text(
             'Select a league from the Leagues panel to see details, manage fixtures, scores and standings here.',
             style: TextStyle(
-                color: AppTheme.secondaryText(brightness),
-                height: 1.5),
+              color: AppTheme.secondaryText(brightness),
+              height: 1.5,
+            ),
           ),
         ),
       ],
@@ -771,6 +822,7 @@ class _InfoRowSimple extends StatelessWidget {
   final String label;
   final String value;
   final Brightness brightness;
+
   const _InfoRowSimple({
     required this.label,
     required this.value,
@@ -782,19 +834,23 @@ class _InfoRowSimple extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: TextStyle(
-              color: AppTheme.secondaryText(brightness),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            )),
+        Text(
+          label,
+          style: TextStyle(
+            color: AppTheme.secondaryText(brightness),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(height: 3),
-        SelectableText(value,
-            style: TextStyle(
-              color: AppTheme.primaryText(brightness),
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
-            )),
+        SelectableText(
+          value,
+          style: TextStyle(
+            color: AppTheme.primaryText(brightness),
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+          ),
+        ),
       ],
     );
   }
@@ -802,12 +858,14 @@ class _InfoRowSimple extends StatelessWidget {
 
 class _BrandLogo extends StatelessWidget {
   final double size;
+
   const _BrandLogo({required this.size});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: size + 10, height: size + 10,
+      width: size + 10,
+      height: size + 10,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
         color: AppTheme.limeAccent,
@@ -815,24 +873,82 @@ class _BrandLogo extends StatelessWidget {
       padding: const EdgeInsets.all(5),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
-        child: Image.asset('assets/icon.png',
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const Icon(
-                Icons.sports_esports_rounded,
-                color: AppTheme.darkText,
-                size: 16)),
+        child: Image.asset(
+          'assets/icon.png',
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const Icon(
+            Icons.sports_esports_rounded,
+            color: AppTheme.darkText,
+            size: 16,
+          ),
+        ),
       ),
     );
   }
 }
 
-// ── Placeholder panels ────────────────────────────────────────────────────────
+class _ErrorPanel extends StatelessWidget {
+  final String title;
+  final String message;
+  final Brightness brightness;
+
+  const _ErrorPanel({
+    required this.title,
+    required this.message,
+    required this.brightness,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Glass(
+          borderRadius: 20,
+          padding: const EdgeInsets.all(20),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                color: AppTheme.limeAccentDark,
+                size: 32,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppTheme.primaryText(brightness),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SelectableText(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppTheme.secondaryText(brightness),
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _HomePanel extends StatelessWidget {
   final String pairedUserUid;
   final String pairedUserName;
   final String pairedUserEmail;
   final Brightness brightness;
+
   const _HomePanel({
     required this.pairedUserUid,
     required this.pairedUserName,
@@ -848,15 +964,14 @@ class _HomePanel extends StatelessWidget {
           .doc(pairedUserUid)
           .snapshots(),
       builder: (context, snap) {
-        final data     = snap.data?.data() ?? {};
+        final data = snap.data?.data() ?? {};
         final teamName = (data['teamName'] ?? '').toString().trim();
 
         return ListView(
           padding: const EdgeInsets.all(24),
           children: [
             Text(
-              'Welcome back'
-              '${pairedUserName.trim().isNotEmpty ? ', $pairedUserName' : ''}',
+              'Welcome back${pairedUserName.trim().isNotEmpty ? ', $pairedUserName' : ''}',
               style: TextStyle(
                 color: AppTheme.primaryText(brightness),
                 fontSize: 26,
@@ -869,8 +984,9 @@ class _HomePanel extends StatelessWidget {
                   ? pairedUserEmail
                   : 'Your eSportlyic desktop session is active.',
               style: TextStyle(
-                  color: AppTheme.secondaryText(brightness),
-                  fontSize: 13),
+                color: AppTheme.secondaryText(brightness),
+                fontSize: 13,
+              ),
             ),
             const SizedBox(height: 20),
             Glass(
@@ -881,37 +997,47 @@ class _HomePanel extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Quick stats',
-                      style: TextStyle(
-                        color: AppTheme.primaryText(brightness),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                      )),
+                  Text(
+                    'Quick stats',
+                    style: TextStyle(
+                      color: AppTheme.primaryText(brightness),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
                   const SizedBox(height: 12),
-                  Row(children: [
-                    Expanded(child: _QuickStat(
-                      label: 'Status',
-                      value: 'Linked',
-                      icon: Icons.link_rounded,
-                      brightness: brightness,
-                    )),
-                    const SizedBox(width: 12),
-                    Expanded(child: _QuickStat(
-                      label: 'Mode',
-                      value: 'Desktop',
-                      icon: Icons.laptop_mac_rounded,
-                      brightness: brightness,
-                    )),
-                    if (teamName.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _QuickStat(
+                          label: 'Status',
+                          value: 'Linked',
+                          icon: Icons.link_rounded,
+                          brightness: brightness,
+                        ),
+                      ),
                       const SizedBox(width: 12),
-                      Expanded(child: _QuickStat(
-                        label: 'Team',
-                        value: teamName,
-                        icon: Icons.shield_rounded,
-                        brightness: brightness,
-                      )),
+                      Expanded(
+                        child: _QuickStat(
+                          label: 'Mode',
+                          value: 'Desktop',
+                          icon: Icons.laptop_mac_rounded,
+                          brightness: brightness,
+                        ),
+                      ),
+                      if (teamName.isNotEmpty) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _QuickStat(
+                            label: 'Team',
+                            value: teamName,
+                            icon: Icons.shield_rounded,
+                            brightness: brightness,
+                          ),
+                        ),
+                      ],
                     ],
-                  ]),
+                  ),
                 ],
               ),
             ),
@@ -927,6 +1053,7 @@ class _QuickStat extends StatelessWidget {
   final String value;
   final IconData icon;
   final Brightness brightness;
+
   const _QuickStat({
     required this.label,
     required this.value,
@@ -946,21 +1073,25 @@ class _QuickStat extends StatelessWidget {
         children: [
           Icon(icon, color: AppTheme.limeAccentDark, size: 18),
           const SizedBox(height: 8),
-          Text(label,
-              style: TextStyle(
-                color: AppTheme.secondaryText(brightness),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              )),
+          Text(
+            label,
+            style: TextStyle(
+              color: AppTheme.secondaryText(brightness),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AppTheme.primaryText(brightness),
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-              )),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: AppTheme.primaryText(brightness),
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
+          ),
         ],
       ),
     );
@@ -969,6 +1100,7 @@ class _QuickStat extends StatelessWidget {
 
 class _DiscoverPanel extends StatelessWidget {
   final Brightness brightness;
+
   const _DiscoverPanel({required this.brightness});
 
   @override
@@ -978,29 +1110,43 @@ class _DiscoverPanel extends StatelessWidget {
           .collection('master_leagues')
           .snapshots(),
       builder: (context, snap) {
+        if (snap.hasError) {
+          return _ErrorPanel(
+            title: 'Failed to load organizers',
+            message: snap.error.toString(),
+            brightness: brightness,
+          );
+        }
+
         if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
+
         final docs = snap.data!.docs;
         return ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            Text('Organizer discovery',
-                style: TextStyle(
-                  color: AppTheme.primaryText(brightness),
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                )),
+            Text(
+              'Organizer discovery',
+              style: TextStyle(
+                color: AppTheme.primaryText(brightness),
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
             const SizedBox(height: 16),
             if (docs.isEmpty)
-              Text('No organizers yet.',
-                  style: TextStyle(
-                      color: AppTheme.secondaryText(brightness)))
+              Text(
+                'No organizers yet.',
+                style: TextStyle(
+                  color: AppTheme.secondaryText(brightness),
+                ),
+              )
             else
               ...docs.take(20).map((doc) {
-                final d    = doc.data();
+                final d = doc.data();
                 final name = (d['name'] ?? 'Organizer').toString();
-                final bio  = (d['bio'] ?? '').toString();
+                final bio = (d['bio'] ?? '').toString();
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Glass(
@@ -1011,22 +1157,25 @@ class _DiscoverPanel extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name,
-                            style: TextStyle(
-                              color: AppTheme.primaryText(brightness),
-                              fontWeight: FontWeight.w800,
-                            )),
+                        Text(
+                          name,
+                          style: TextStyle(
+                            color: AppTheme.primaryText(brightness),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                         if (bio.isNotEmpty) ...[
                           const SizedBox(height: 6),
-                          Text(bio,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color:
-                                    AppTheme.secondaryText(brightness),
-                                fontSize: 13,
-                                height: 1.4,
-                              )),
+                          Text(
+                            bio,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppTheme.secondaryText(brightness),
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
                         ],
                       ],
                     ),
@@ -1042,6 +1191,7 @@ class _DiscoverPanel extends StatelessWidget {
 
 class _MarketplacePanel extends StatelessWidget {
   final Brightness brightness;
+
   const _MarketplacePanel({required this.brightness});
 
   @override
@@ -1051,30 +1201,45 @@ class _MarketplacePanel extends StatelessWidget {
           .collection('marketplace_products')
           .snapshots(),
       builder: (context, snap) {
+        if (snap.hasError) {
+          return _ErrorPanel(
+            title: 'Failed to load marketplace',
+            message: snap.error.toString(),
+            brightness: brightness,
+          );
+        }
+
         if (!snap.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
+
         final docs = snap.data!.docs;
         return ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            Text('Marketplace',
-                style: TextStyle(
-                  color: AppTheme.primaryText(brightness),
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                )),
+            Text(
+              'Marketplace',
+              style: TextStyle(
+                color: AppTheme.primaryText(brightness),
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
             const SizedBox(height: 16),
             if (docs.isEmpty)
-              Text('No products yet.',
-                  style: TextStyle(
-                      color: AppTheme.secondaryText(brightness)))
+              Text(
+                'No products yet.',
+                style: TextStyle(
+                  color: AppTheme.secondaryText(brightness),
+                ),
+              )
             else
               ...docs.take(20).map((doc) {
-                final d      = doc.data();
-                final name   = (d['name'] ?? 'Product').toString();
-                final price  = (d['price'] ?? '').toString();
+                final d = doc.data();
+                final name = (d['name'] ?? 'Product').toString();
+                final price = (d['price'] ?? '').toString();
                 final seller = (d['sellerName'] ?? '').toString();
+
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Glass(
@@ -1089,28 +1254,32 @@ class _MarketplacePanel extends StatelessWidget {
                             crossAxisAlignment:
                                 CrossAxisAlignment.start,
                             children: [
-                              Text(name,
-                                  style: TextStyle(
-                                    color: AppTheme.primaryText(
-                                        brightness),
-                                    fontWeight: FontWeight.w800,
-                                  )),
+                              Text(
+                                name,
+                                style: TextStyle(
+                                  color: AppTheme.primaryText(brightness),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
                               if (seller.isNotEmpty)
-                                Text(seller,
-                                    style: TextStyle(
-                                      color: AppTheme.secondaryText(
-                                          brightness),
-                                      fontSize: 12,
-                                    )),
+                                Text(
+                                  seller,
+                                  style: TextStyle(
+                                    color: AppTheme.secondaryText(brightness),
+                                    fontSize: 12,
+                                  ),
+                                ),
                             ],
                           ),
                         ),
                         if (price.isNotEmpty)
-                          Text(price,
-                              style: TextStyle(
-                                color: AppTheme.limeAccentDark,
-                                fontWeight: FontWeight.w900,
-                              )),
+                          Text(
+                            price,
+                            style: TextStyle(
+                              color: AppTheme.limeAccentDark,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                       ],
                     ),
                   ),

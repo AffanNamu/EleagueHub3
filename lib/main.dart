@@ -36,6 +36,7 @@ Future<void> main() async {
     OverlayBridge.ensureInitialized();
   }
 
+  // ── Initialize Firebase with explicit options (required for web) ──────────
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -45,6 +46,7 @@ Future<void> main() async {
     debugPrintStack(stackTrace: st);
   }
 
+  // ── Initialize Supabase ───────────────────────────────────────────────────
   try {
     await DesktopPairingService.initializeSupabase();
   } catch (e, st) {
@@ -91,18 +93,20 @@ Future<void> main() async {
       try {
         await NotificationService().init();
       } catch (e, st) {
-        await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+        await FirebaseCrashlytics.instance
+            .recordError(e, st, fatal: false);
       }
 
       try {
         await PushMessagingService.instance.init();
       } catch (e, st) {
-        await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+        await FirebaseCrashlytics.instance
+            .recordError(e, st, fatal: false);
       }
     }
 
     final Widget app = kIsWeb
-        ? const _ResponsiveWebEntry()
+        ? const EleagueHubWebApp()
         : DeepLinkGate(
             child: const EleagueHubApp(),
           );
@@ -118,34 +122,12 @@ Future<void> main() async {
   }, (error, stack) async {
     if (!kIsWeb) {
       try {
-        await FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        await FirebaseCrashlytics.instance
+            .recordError(error, stack, fatal: true);
       } catch (_) {}
     } else {
       debugPrint('Uncaught zone error: $error');
       debugPrintStack(stackTrace: stack);
     }
   });
-}
-
-class _ResponsiveWebEntry extends StatelessWidget {
-  const _ResponsiveWebEntry();
-
-  static const double _desktopWebMinWidth = 760;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-
-        if (width >= _desktopWebMinWidth) {
-          return const EleagueHubWebApp();
-        }
-
-        return DeepLinkGate(
-          child: const EleagueHubApp(),
-        );
-      },
-    );
-  }
 }

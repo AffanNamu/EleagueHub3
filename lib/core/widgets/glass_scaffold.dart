@@ -38,15 +38,19 @@ class GlassScaffold extends StatelessWidget {
       floatingActionButtonLocation: floatingActionButtonLocation,
       bottomNavigationBar: bottomNavigationBar,
       body: Stack(
+        fit: StackFit.expand,
         children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: AppTheme.backgroundGradient(brightness),
-              ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: AppTheme.backgroundGradient(brightness),
             ),
           ),
-          if (useBubbles) const Positioned.fill(child: AnimatedBubbleBackground()),
+          if (useBubbles)
+            const Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBubbleBackground(),
+              ),
+            ),
           if (brightness == Brightness.light)
             Positioned(
               top: -90,
@@ -87,7 +91,7 @@ class GlassScaffold extends StatelessWidget {
                 ),
               ),
             ),
-          body,
+          Positioned.fill(child: body),
         ],
       ),
     );

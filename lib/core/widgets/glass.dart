@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
@@ -39,26 +40,34 @@ class Glass extends StatelessWidget {
     final effectiveBorderEnabled = enableBorder ?? border;
     final effectiveBorderColor =
         borderColor ?? AppTheme.cardBorder(brightness);
-
     final effectiveShadow =
         boxShadow ?? AppTheme.softCardShadow(brightness);
+
+    final content = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        borderRadius: br,
+        color: effectiveFill,
+        border: effectiveBorderEnabled
+            ? Border.all(color: effectiveBorderColor)
+            : null,
+        boxShadow: effectiveShadow,
+      ),
+      child: child,
+    );
+
+    if (kIsWeb || blur <= 0) {
+      return ClipRRect(
+        borderRadius: br,
+        child: content,
+      );
+    }
 
     return ClipRRect(
       borderRadius: br,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            borderRadius: br,
-            color: effectiveFill,
-            border: effectiveBorderEnabled
-                ? Border.all(color: effectiveBorderColor)
-                : null,
-            boxShadow: effectiveShadow,
-          ),
-          child: child,
-        ),
+        child: content,
       ),
     );
   }
@@ -89,22 +98,31 @@ class GlassCard extends StatelessWidget {
     final brightness = Theme.of(context).brightness;
     final br = borderRadius ?? BorderRadius.circular(24);
 
+    final content = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        borderRadius: br,
+        color: fill ?? AppTheme.cardColor(brightness),
+        border: Border.all(
+          color: borderColor ?? AppTheme.cardBorder(brightness),
+        ),
+        boxShadow: boxShadow ?? AppTheme.softCardShadow(brightness),
+      ),
+      child: child,
+    );
+
+    if (kIsWeb || blur <= 0) {
+      return ClipRRect(
+        borderRadius: br,
+        child: content,
+      );
+    }
+
     return ClipRRect(
       borderRadius: br,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            borderRadius: br,
-            color: fill ?? AppTheme.cardColor(brightness),
-            border: Border.all(
-              color: borderColor ?? AppTheme.cardBorder(brightness),
-            ),
-            boxShadow: boxShadow ?? AppTheme.softCardShadow(brightness),
-          ),
-          child: child,
-        ),
+        child: content,
       ),
     );
   }
