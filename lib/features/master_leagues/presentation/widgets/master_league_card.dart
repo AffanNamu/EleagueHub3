@@ -1,343 +1,389 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
-import '../../../auth/data/user_profile_repository.dart';
-import '../../../auth/models/user_profile.dart';
 import '../../domain/master_league.dart';
+import '../../domain/master_league_plan.dart';
 
 class MasterLeagueCard extends StatelessWidget {
   const MasterLeagueCard({
     super.key,
     required this.masterLeague,
-    required this.onTap,
+    this.onTap,
   });
 
   final MasterLeague masterLeague;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
-  String _createdLabel() {
-    final ts = masterLeague.createdAt;
-    if (ts == null) return '';
-    try {
-      final dt = ts.toDate().toLocal();
-      final month = dt.month.toString().padLeft(2, '0');
-      final day = dt.day.toString().padLeft(2, '0');
-      return '${dt.year}-$month-$day';
-    } catch (_) {
-      return '';
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    int? width,
+    int? height,
+    String crop = 'fill',
+  }) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+    final isCloudinary =
+        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+    const marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = <String>[
+      'f_auto',
+      'q_auto',
+      if (width != null && width > 0) 'w_$width',
+      if (height != null && height > 0) 'h_$height',
+      (crop == 'fit') ? 'c_fit' : 'c_fill',
+      if (crop != 'fit') 'g_auto',
+    ].join(',');
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly =
+        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  Color _planColor() {
+    switch (masterLeague.plan) {
+      case MasterLeaguePlan.elite:
+        return const Color(0xFF8B5CF6);
+      case MasterLeaguePlan.pro:
+        return const Color(0xFF22C55E);
+      case MasterLeaguePlan.basic:
+      default:
+        return AppTheme.limeAccentDark;
     }
   }
 
-  String _safeNetworkImage(String url) {
-    final value = url.trim();
-    if (value.startsWith('http://') || value.startsWith('https://')) {
-      return value;
+  Widget _statusPill(
+    BuildContext context, {
+    required String text,
+    required Color color,
+    IconData? icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.24)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 5),
+          ],
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w900,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bannerPreview(Brightness brightness) {
+    final url = masterLeague.organizerProfile.bannerUrl.trim();
+    if (url.isEmpty) {
+      return Container(
+        height: 132,
+        decoration: BoxDecoration(
+          color: AppTheme.searchBackground(brightness),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppTheme.searchOutline(brightness)),
+        ),
+        child: Center(
+          child: Icon(
+            Icons.photo_size_select_actual_outlined,
+            color: AppTheme.secondaryText(brightness),
+            size: 34,
+          ),
+        ),
+      );
     }
-    return '';
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Image.network(
+        _cloudinaryOptimizedUrl(
+          url,
+          width: 1000,
+          height: 280,
+          crop: 'fill',
+        ),
+        height: 132,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.low,
+        errorBuilder: (_, __, ___) => Container(
+          height: 132,
+          decoration: BoxDecoration(
+            color: AppTheme.searchBackground(brightness),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.searchOutline(brightness)),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            'Banner unavailable',
+            style: TextStyle(
+              color: AppTheme.secondaryText(brightness),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _logo(Brightness brightness) {
+    final logoUrl = masterLeague.organizerProfile.logoUrl.trim();
+
+    return Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: AppTheme.iconCircleBackground(brightness),
+        border: Border.all(color: AppTheme.cardBorder(brightness)),
+      ),
+      child: ClipOval(
+        child: logoUrl.isEmpty
+            ? Icon(
+                Icons.hub_rounded,
+                color: AppTheme.limeAccentDark,
+                size: 28,
+              )
+            : Image.network(
+                _cloudinaryOptimizedUrl(
+                  logoUrl,
+                  width: 180,
+                  height: 180,
+                  crop: 'fill',
+                ),
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.low,
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.hub_rounded,
+                  color: AppTheme.limeAccentDark,
+                  size: 28,
+                ),
+              ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
-    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-    final isOwner =
-        currentUid.isNotEmpty && masterLeague.ownerId.trim() == currentUid;
+    final planColor = _planColor();
+    final isVerified = masterLeague.isVerifiedOrganizer;
+    final isPending = masterLeague.isVerificationPending;
 
-    final title = masterLeague.name.trim().isEmpty
-        ? 'Master League'
-        : masterLeague.name.trim();
-
-    final bio = masterLeague.organizerProfile.bio.trim();
-    final badge = masterLeague.organizerProfile.badge.trim();
-    final created = _createdLabel();
-    final initialCompetition = masterLeague.initialCompetition;
-
-    final subtitle =
-        masterLeague.isActive ? 'Organizer workspace' : 'Inactive organizer workspace';
-
-    final rewardsText = initialCompetition == null
-        ? ''
-        : initialCompetition.rewardsPlan.trim();
-
-    final organizerLogoUrl =
-        _safeNetworkImage(masterLeague.organizerProfile.logoUrl);
-
-    return FutureBuilder<UserProfile?>(
-      future: UserProfileRepository().fetchByUserId(masterLeague.ownerId),
-      builder: (context, ownerSnap) {
-        final ownerProfile = ownerSnap.data;
-        final ownerImageUrl =
-            _safeNetworkImage(ownerProfile?.effectivePhotoUrl ?? '');
-        final effectiveAvatarUrl =
-            organizerLogoUrl.isNotEmpty ? organizerLogoUrl : ownerImageUrl;
-
-        return InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(24),
-          child: Glass(
-            borderRadius: 24,
-            padding: EdgeInsets.zero,
-            fill: AppTheme.cardColor(brightness),
-            borderColor: AppTheme.cardBorder(brightness),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
-                gradient: AppTheme.leagueCardGradient(brightness),
-              ),
+    final hero = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _bannerPreview(brightness),
+        const SizedBox(height: 14),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _logo(brightness),
+            const SizedBox(width: 12),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      CircleAvatar(
-                        radius: 28,
-                        backgroundColor: AppTheme.iconCircleBackground(brightness),
-                        backgroundImage: effectiveAvatarUrl.isNotEmpty
-                            ? NetworkImage(effectiveAvatarUrl)
-                            : null,
-                        child: effectiveAvatarUrl.isEmpty
-                            ? Icon(
-                                Icons.hub_rounded,
-                                color: AppTheme.limeAccentDark,
-                              )
-                            : null,
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                Text(
-                                  title,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    color: AppTheme.primaryText(brightness),
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                _chip(
-                                  theme: theme,
-                                  brightness: brightness,
-                                  color: masterLeague.isActive
-                                      ? const Color(0xFF22C55E)
-                                      : const Color(0xFFF59E0B),
-                                  label: masterLeague.isActive
-                                      ? 'ACTIVE'
-                                      : 'INACTIVE',
-                                ),
-                                _chip(
-                                  theme: theme,
-                                  brightness: brightness,
-                                  color: AppTheme.limeAccentDark,
-                                  label: masterLeague.plan.displayName.toUpperCase(),
-                                ),
-                                _chip(
-                                  theme: theme,
-                                  brightness: brightness,
-                                  color: isOwner
-                                      ? const Color(0xFFEF4444)
-                                      : const Color(0xFF8B5CF6),
-                                  label: isOwner ? 'OWNER' : 'VISITOR',
-                                ),
-                                if (masterLeague.isVerifiedOrganizer)
-                                  _chip(
-                                    theme: theme,
-                                    brightness: brightness,
-                                    color: const Color(0xFF1D9BF0),
-                                    label: 'VERIFIED',
-                                  ),
-                                if (masterLeague.isVerificationPending)
-                                  _chip(
-                                    theme: theme,
-                                    brightness: brightness,
-                                    color: const Color(0xFFF59E0B),
-                                    label: 'PENDING REVIEW',
-                                  ),
-                                if (badge.isNotEmpty)
-                                  _chip(
-                                    theme: theme,
-                                    brightness: brightness,
-                                    color: const Color(0xFFF59E0B),
-                                    label: badge.toUpperCase(),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: AppTheme.secondaryText(brightness),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        masterLeague.name.trim().isEmpty
+                            ? 'Master League'
+                            : masterLeague.name.trim(),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.3,
+                          color: AppTheme.primaryText(brightness),
                         ),
                       ),
+                      if (isVerified)
+                        const Icon(
+                          Icons.verified_rounded,
+                          color: Color(0xFF1D9BF0),
+                          size: 18,
+                        )
+                      else if (isPending)
+                        const Icon(
+                          Icons.verified_outlined,
+                          color: Color(0xFFF59E0B),
+                          size: 18,
+                        ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    bio.isEmpty ? 'No organizer bio added yet.' : bio,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.secondaryText(brightness),
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
-                    ),
-                  ),
-                  if (initialCompetition != null) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        color: brightness == Brightness.dark
-                            ? AppTheme.limeAccentDark.withOpacity(0.12)
-                            : const Color(0xFFECFCCB),
-                        border: Border.all(
-                          color: brightness == Brightness.dark
-                              ? AppTheme.limeAccentDark.withOpacity(0.22)
-                              : const Color(0xFFD9F99D),
-                        ),
-                      ),
-                      child: Text(
-                        rewardsText.isEmpty
-                            ? 'First competition: ${initialCompetition.name}'
-                            : 'First competition: ${initialCompetition.name} • Rewards: $rewardsText',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppTheme.primaryText(brightness),
-                          fontWeight: FontWeight.w800,
-                          height: 1.25,
-                        ),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 6),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _stat(
+                      _statusPill(
                         context,
-                        '${masterLeague.analytics.totalParticipantsTeams} teams',
+                        text: masterLeague.plan.displayName,
+                        color: planColor,
+                        icon: Icons.workspace_premium_rounded,
                       ),
-                      _stat(
-                        context,
-                        '${masterLeague.followersCount} followers',
-                      ),
-                      if (created.isNotEmpty) _stat(context, 'Created $created'),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            color: AppTheme.limeAccent,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.dashboard_customize_outlined,
-                                size: 18,
-                                color: AppTheme.darkText,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Open Workspace',
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  color: AppTheme.darkText,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ],
-                          ),
+                      if (masterLeague.organizerProfile.badge
+                          .trim()
+                          .isNotEmpty)
+                        _statusPill(
+                          context,
+                          text: masterLeague.organizerProfile.badge.trim(),
+                          color: const Color(0xFFF59E0B),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: AppTheme.secondaryText(brightness),
+                      _statusPill(
+                        context,
+                        text:
+                            '${masterLeague.followersCount} follower${masterLeague.followersCount == 1 ? '' : 's'}',
+                        color: const Color(0xFF22C55E),
+                        icon: Icons.favorite_border_rounded,
                       ),
                     ],
                   ),
                 ],
               ),
             ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          masterLeague.organizerProfile.bio.trim().isEmpty
+              ? 'No organizer bio yet.'
+              : masterLeague.organizerProfile.bio.trim(),
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: AppTheme.secondaryText(brightness),
+            height: 1.4,
+            fontWeight: FontWeight.w600,
           ),
-        );
-      },
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                children: [
+                  _metaText(
+                    brightness,
+                    icon: Icons.emoji_events_outlined,
+                    text:
+                        '${masterLeague.analytics.totalTournamentsCreated} competitions',
+                  ),
+                  _metaText(
+                    brightness,
+                    icon: Icons.groups_rounded,
+                    text:
+                        '${masterLeague.analytics.totalParticipantsTeams} teams',
+                  ),
+                  _metaText(
+                    brightness,
+                    icon: Icons.sports_score_rounded,
+                    text: '${masterLeague.analytics.totalMatches} matches',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: AppTheme.secondaryText(brightness),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final isWebWide = MediaQuery.of(context).size.width >= 900;
+
+    if (isWebWide) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: onTap,
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppTheme.cardColor(brightness),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppTheme.cardBorder(brightness)),
+            ),
+            padding: const EdgeInsets.all(16),
+            child: hero,
+          ),
+        ),
+      );
+    }
+
+    return Glass(
+      borderRadius: 22,
+      padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: hero,
+        ),
+      ),
     );
   }
 
-  Widget _chip({
-    required ThemeData theme,
-    required Brightness brightness,
-    required Color color,
-    required String label,
+  Widget _metaText(
+    Brightness brightness, {
+    required IconData icon,
+    required String text,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: brightness == Brightness.dark
-            ? color.withOpacity(0.14)
-            : color.withOpacity(0.10),
-        border: Border.all(
-          color: brightness == Brightness.dark
-              ? color.withOpacity(0.28)
-              : color.withOpacity(0.22),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: AppTheme.limeAccentDark),
+        const SizedBox(width: 5),
+        Text(
+          text,
+          style: TextStyle(
+            color: AppTheme.secondaryText(brightness),
+            fontWeight: FontWeight.w700,
+            fontSize: 11.5,
+          ),
         ),
-      ),
-      child: Text(
-        label,
-        style: theme.textTheme.labelSmall?.copyWith(
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.6,
-          color: color,
-        ),
-      ),
-    );
-  }
-
-  Widget _stat(BuildContext context, String text) {
-    final brightness = Theme.of(context).brightness;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: AppTheme.searchBackground(brightness),
-        border: Border.all(color: AppTheme.searchOutline(brightness)),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: AppTheme.primaryText(brightness),
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-        ),
-      ),
+      ],
     );
   }
 }

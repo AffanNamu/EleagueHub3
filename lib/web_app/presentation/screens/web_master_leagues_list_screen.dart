@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
-import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../features/leagues/logic/league_premium_upgrade_helper.dart';
 import '../../../features/master_leagues/domain/master_league.dart';
@@ -89,6 +88,38 @@ class _WebMasterLeaguesListScreenState
     return 'Active plan: ${plan.displayName} • ${sub.duration.displayName} • ${sub.daysRemaining} days remaining';
   }
 
+  Widget _panel({
+    required Widget child,
+    EdgeInsets padding = const EdgeInsets.all(18),
+  }) {
+    final brightness = Theme.of(context).brightness;
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(brightness),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppTheme.cardBorder(brightness)),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _softPanel({
+    required Widget child,
+    EdgeInsets padding = const EdgeInsets.all(14),
+  }) {
+    final brightness = Theme.of(context).brightness;
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: AppTheme.searchBackground(brightness),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
+      ),
+      child: child,
+    );
+  }
+
   Widget _sectionTitle(
     BuildContext context, {
     required String title,
@@ -166,11 +197,7 @@ class _WebMasterLeaguesListScreenState
     required String value,
     required Color accent,
   }) {
-    return Glass(
-      borderRadius: 18,
-      padding: const EdgeInsets.all(16),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+    return _softPanel(
       child: Row(
         children: [
           Container(
@@ -179,7 +206,6 @@ class _WebMasterLeaguesListScreenState
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: accent.withOpacity(0.12),
-              border: Border.all(color: accent.withOpacity(0.24)),
             ),
             child: Icon(icon, color: accent, size: 20),
           ),
@@ -221,11 +247,7 @@ class _WebMasterLeaguesListScreenState
     AsyncValue<int> workspaceCountAsync,
     AsyncValue<bool> shouldShowPayAsync,
   ) {
-    return Glass(
-      borderRadius: 30,
-      padding: const EdgeInsets.all(20),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+    return _panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -233,7 +255,7 @@ class _WebMasterLeaguesListScreenState
             'Organizer Workspaces',
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w900,
-              letterSpacing: -0.4,
+              letterSpacing: -0.35,
               color: AppTheme.primaryText(brightness),
             ),
           ),
@@ -375,11 +397,7 @@ class _WebMasterLeaguesListScreenState
 
   Widget _errorCard(ThemeData theme, Brightness brightness) {
     if (_error == null) return const SizedBox.shrink();
-    return Glass(
-      borderRadius: 20,
-      padding: const EdgeInsets.all(16),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+    return _panel(
       child: Text(
         _error!,
         style: theme.textTheme.bodyMedium?.copyWith(
@@ -403,6 +421,7 @@ class _WebMasterLeaguesListScreenState
     final shouldShowPayAsync = ref.watch(shouldShowWorkspacePaymentProvider);
 
     return GlassScaffold(
+      useBubbles: false,
       appBar: AppBar(
         title: const Text('Master Leagues'),
         backgroundColor: Colors.transparent,
@@ -423,7 +442,7 @@ class _WebMasterLeaguesListScreenState
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1380),
+            constraints: const BoxConstraints(maxWidth: 1320),
             child: RefreshIndicator(
               onRefresh: _load,
               child: ListView(
@@ -448,7 +467,7 @@ class _WebMasterLeaguesListScreenState
                       crossAxisCount: isCompact ? 2 : 4,
                       mainAxisSpacing: 12,
                       crossAxisSpacing: 12,
-                      childAspectRatio: isCompact ? 2.1 : 2.35,
+                      childAspectRatio: isCompact ? 2.05 : 2.3,
                       children: [
                         _statTile(
                           brightness: brightness,
@@ -502,11 +521,7 @@ class _WebMasterLeaguesListScreenState
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Glass(
-                          borderRadius: 24,
-                          padding: const EdgeInsets.all(16),
-                          fill: AppTheme.cardColor(brightness),
-                          borderColor: AppTheme.cardBorder(brightness),
+                        _panel(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -528,11 +543,7 @@ class _WebMasterLeaguesListScreenState
                           ),
                         ),
                         const SizedBox(height: 16),
-                        Glass(
-                          borderRadius: 24,
-                          padding: const EdgeInsets.all(16),
-                          fill: AppTheme.cardColor(brightness),
-                          borderColor: AppTheme.cardBorder(brightness),
+                        _panel(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -561,11 +572,7 @@ class _WebMasterLeaguesListScreenState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          child: Glass(
-                            borderRadius: 24,
-                            padding: const EdgeInsets.all(16),
-                            fill: AppTheme.cardColor(brightness),
-                            borderColor: AppTheme.cardBorder(brightness),
+                          child: _panel(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -589,11 +596,7 @@ class _WebMasterLeaguesListScreenState
                         ),
                         const SizedBox(width: 16),
                         Expanded(
-                          child: Glass(
-                            borderRadius: 24,
-                            padding: const EdgeInsets.all(16),
-                            fill: AppTheme.cardColor(brightness),
-                            borderColor: AppTheme.cardBorder(brightness),
+                          child: _panel(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [

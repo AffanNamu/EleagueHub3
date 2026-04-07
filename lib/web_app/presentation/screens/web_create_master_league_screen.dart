@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../features/master_leagues/domain/master_league.dart';
 import '../../../features/master_leagues/domain/master_league_plan.dart';
@@ -65,6 +64,9 @@ class _WebCreateMasterLeagueScreenState
   }
 
   Future<void> _loadEntitlement() async {
+    if (!mounted) return;
+    setState(() => _loadingEntitlement = true);
+
     try {
       final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
       final ent = await entitlementSvc.getEntitlement(forceRefresh: false);
@@ -74,7 +76,6 @@ class _WebCreateMasterLeagueScreenState
       setState(() {
         _activePlan = ent.plan;
         _ownedWorkspaceCount = count;
-        _loadingEntitlement = false;
         if (ent.plan != null &&
             _planOrder(_selectedPlan) < _planOrder(ent.plan!)) {
           _selectedPlan = ent.plan!;
@@ -85,18 +86,21 @@ class _WebCreateMasterLeagueScreenState
       setState(() {
         _activePlan = null;
         _ownedWorkspaceCount = 0;
-        _loadingEntitlement = false;
       });
+    } finally {
+      if (mounted) setState(() => _loadingEntitlement = false);
     }
   }
 
   void _showMessage(String text, {bool error = false}) {
     if (!mounted) return;
+    final msg = text.trim();
+    if (msg.isEmpty) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         backgroundColor: error ? Theme.of(context).colorScheme.error : null,
-        content: Text(text),
+        content: Text(msg),
       ),
     );
   }
@@ -264,11 +268,93 @@ class _WebCreateMasterLeagueScreenState
       _showMessage('Master League created successfully.');
       context.go('/master-leagues/${created.id}');
     } catch (e) {
-      if (kDebugMode) debugPrint('[CreateML][Web] Create failed: $e');
+      if (kDebugMode) debugPrint('[CreateML][Web][Fast] Create failed: $e');
       _showMessage('$e', error: true);
     } finally {
       if (mounted) setState(() => _processing = false);
     }
+  }
+
+  Widget _flatPanel({
+    required Widget child,
+    EdgeInsets padding = const EdgeInsets.all(18),
+  }) {
+    final brightness = Theme.of(context).brightness;
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor(brightness),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppTheme.cardBorder(brightness)),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _miniPanel({
+    required Widget child,
+    EdgeInsets padding = const EdgeInsets.all(14),
+  }) {
+    final brightness = Theme.of(context).brightness;
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: AppTheme.searchBackground(brightness),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.searchOutline(brightness)),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _chip(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.24)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w900,
+          fontSize: 9,
+          letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+
+  Widget _statusBar(ThemeData theme, Brightness brightness) {
+    if (_loadingEntitlement) {
+      return Text(
+        'Checking active plan...',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: AppTheme.secondaryText(brightness),
+          fontWeight: FontWeight.w800,
+        ),
+      );
+    }
+
+    if (_activePlan != null) {
+      return Text(
+        'Active plan: ${_activePlan!.displayName} • Workspaces: $_ownedWorkspaceCount / ${_activePlan!.unlimitedMasterLeagues ? '∞' : '${_activePlan!.maxMasterLeagues}'}',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: AppTheme.limeAccentDark,
+          fontWeight: FontWeight.w900,
+        ),
+      );
+    }
+
+    return Text(
+      'No active plan. Select a plan below.',
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: AppTheme.secondaryText(brightness),
+        fontWeight: FontWeight.w800,
+      ),
+    );
   }
 
   Widget _planTile(
@@ -282,79 +368,133 @@ class _WebCreateMasterLeagueScreenState
 
     return Opacity(
       opacity: lockedLowerPlan ? 0.55 : 1.0,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: (_processing || lockedLowerPlan)
+              ? null
+              : () => setState(() => _selectedPlan = plan),
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? (brightness == Brightness.dark
+                      ? AppTheme.limeAccentDark.withOpacity(0.10)
+                      : const Color(0xFFECFCCB))
+                  : AppTheme.searchBackground(brightness),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: isSelected
+                    ? AppTheme.limeAccentDark
+                    : AppTheme.searchOutline(brightness),
+                width: isSelected ? 1.6 : 1,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  isSelected
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_off_rounded,
+                  color: isSelected
+                      ? AppTheme.limeAccentDark
+                      : AppTheme.secondaryText(brightness),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          Text(
+                            plan.displayName,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: AppTheme.primaryText(brightness),
+                            ),
+                          ),
+                          if (plan.isPopular)
+                            _chip('MOST POPULAR', const Color(0xFF22C55E)),
+                          if (isCurrent)
+                            _chip('CURRENT', AppTheme.limeAccentDark),
+                          if (plan.isFree)
+                            _chip('FREE', const Color(0xFF22C55E)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        plan.description,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppTheme.secondaryText(brightness),
+                          fontWeight: FontWeight.w700,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _durationTile(
+    PlanDuration dur,
+    ThemeData theme,
+    Brightness brightness,
+  ) {
+    final isSelected = _selectedDuration == dur;
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
-        onTap: (_processing || lockedLowerPlan)
-            ? null
-            : () => setState(() => _selectedPlan = plan),
-        borderRadius: BorderRadius.circular(18),
-        child: Glass(
-          borderRadius: 18,
-          padding: const EdgeInsets.all(16),
-          fill: isSelected
-              ? (brightness == Brightness.dark
-                  ? AppTheme.limeAccentDark.withOpacity(0.10)
-                  : const Color(0xFFECFCCB))
-              : AppTheme.cardColor(brightness),
-          borderColor: isSelected
-              ? AppTheme.limeAccentDark
-              : AppTheme.cardBorder(brightness),
+        onTap: _processing ? null : () => setState(() => _selectedDuration = dur),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (brightness == Brightness.dark
+                    ? AppTheme.limeAccentDark.withOpacity(0.10)
+                    : const Color(0xFFECFCCB))
+                : AppTheme.searchBackground(brightness),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected
+                  ? AppTheme.limeAccentDark
+                  : AppTheme.searchOutline(brightness),
+              width: isSelected ? 1.6 : 1,
+            ),
+          ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(
                 isSelected
-                    ? Icons.radio_button_checked_rounded
-                    : Icons.radio_button_off_rounded,
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off,
                 color: isSelected
                     ? AppTheme.limeAccentDark
                     : AppTheme.secondaryText(brightness),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          plan.displayName,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: AppTheme.primaryText(brightness),
-                          ),
-                        ),
-                        if (plan.isPopular)
-                          _chip(
-                            'MOST POPULAR',
-                            const Color(0xFF22C55E),
-                          ),
-                        if (isCurrent)
-                          _chip(
-                            'CURRENT',
-                            AppTheme.limeAccentDark,
-                          ),
-                        if (plan.isFree)
-                          _chip(
-                            'FREE',
-                            const Color(0xFF22C55E),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      plan.description,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppTheme.secondaryText(brightness),
-                        fontWeight: FontWeight.w700,
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  dur.displayName,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: AppTheme.primaryText(brightness),
+                  ),
                 ),
               ),
+              if (dur.hasDiscount)
+                _chip(dur.discountLabel, const Color(0xFF22C55E)),
             ],
           ),
         ),
@@ -362,125 +502,41 @@ class _WebCreateMasterLeagueScreenState
     );
   }
 
-  Widget _chip(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.28)),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.45,
-          color: color,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDurationSelector(ThemeData theme) {
-    final brightness = theme.brightness;
-    if (!_selectedNeedsPayment) return const SizedBox.shrink();
-
-    return Glass(
-      borderRadius: 22,
-      padding: const EdgeInsets.all(16),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Choose Duration',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: AppTheme.primaryText(brightness),
+  Widget _summaryRow(
+    String label,
+    String value,
+    Brightness brightness, {
+    Color? valueColor,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: AppTheme.secondaryText(brightness),
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
             ),
           ),
-          const SizedBox(height: 12),
-          ...PlanDuration.values.map((dur) {
-            final isSelected = _selectedDuration == dur;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: InkWell(
-                onTap: _processing
-                    ? null
-                    : () => setState(() => _selectedDuration = dur),
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    color: isSelected
-                        ? (brightness == Brightness.dark
-                            ? AppTheme.limeAccentDark.withOpacity(0.10)
-                            : const Color(0xFFECFCCB))
-                        : AppTheme.searchBackground(brightness),
-                    border: Border.all(
-                      color: isSelected
-                          ? AppTheme.limeAccentDark
-                          : AppTheme.searchOutline(brightness),
-                      width: isSelected ? 2 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        isSelected
-                            ? Icons.radio_button_checked
-                            : Icons.radio_button_off,
-                        color: isSelected
-                            ? AppTheme.limeAccentDark
-                            : AppTheme.secondaryText(brightness),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          dur.displayName,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: AppTheme.primaryText(brightness),
-                          ),
-                        ),
-                      ),
-                      if (dur.hasDiscount)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF22C55E).withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            dur.discountLabel,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF22C55E),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
+        ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: valueColor ?? AppTheme.primaryText(brightness),
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildSummaryCard(
-    ThemeData theme,
-    Brightness brightness,
-  ) {
+  Widget _summaryCard(ThemeData theme, Brightness brightness) {
     final planLabel = _selectedPlan.displayName;
     final durationLabel =
         _selectedNeedsPayment ? _selectedDuration.displayName : 'Free';
@@ -488,11 +544,7 @@ class _WebCreateMasterLeagueScreenState
         ? 'Choose Plan & Pay'
         : 'Create Workspace';
 
-    return Glass(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(18),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+    return _flatPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -513,6 +565,12 @@ class _WebCreateMasterLeagueScreenState
             _enableRewards ? 'Enabled for first competition' : 'Disabled',
             brightness,
           ),
+          const SizedBox(height: 8),
+          _summaryRow(
+            'Workspace count',
+            _loadingEntitlement ? 'Checking...' : '$_ownedWorkspaceCount',
+            brightness,
+          ),
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
@@ -522,7 +580,7 @@ class _WebCreateMasterLeagueScreenState
                 foregroundColor: AppTheme.darkText,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
               onPressed: _processing
@@ -559,48 +617,8 @@ class _WebCreateMasterLeagueScreenState
               height: 1.35,
             ),
           ),
-          if (!_shouldShowPaymentButton) ...[
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: _processing ? null : _create,
-              icon: const Icon(Icons.rocket_launch_outlined),
-              label: const Text(
-                'Create Now',
-                style: TextStyle(fontWeight: FontWeight.w900),
-              ),
-            ),
-          ],
         ],
       ),
-    );
-  }
-
-  Widget _summaryRow(String label, String value, Brightness brightness) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: AppTheme.secondaryText(brightness),
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Flexible(
-          child: Text(
-            value,
-            textAlign: TextAlign.right,
-            style: TextStyle(
-              color: AppTheme.primaryText(brightness),
-              fontWeight: FontWeight.w900,
-              fontSize: 12,
-            ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -609,29 +627,23 @@ class _WebCreateMasterLeagueScreenState
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final width = MediaQuery.of(context).size.width;
-    final isCompact = width < 960;
+    final isCompact = width < 1080;
 
     return GlassScaffold(
+      useBubbles: false,
       appBar: AppBar(
         title: const Text('Create Master League'),
         backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.transparent,
-        scrolledUnderElevation: 0,
         elevation: 0,
       ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1280),
+            constraints: const BoxConstraints(maxWidth: 1240),
             child: ListView(
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
               children: [
-                Glass(
-                  borderRadius: 30,
-                  padding: const EdgeInsets.all(20),
-                  fill: AppTheme.cardColor(brightness),
-                  borderColor: AppTheme.cardBorder(brightness),
+                _flatPanel(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -644,7 +656,7 @@ class _WebCreateMasterLeagueScreenState
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Set up your Master League, pick a plan, and create the first competition without leaving this screen.',
+                        'Set up your Master League, pick a plan, and create the first competition with a faster desktop-first flow.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w600,
@@ -652,42 +664,15 @@ class _WebCreateMasterLeagueScreenState
                         ),
                       ),
                       const SizedBox(height: 12),
-                      if (_loadingEntitlement)
-                        Text(
-                          'Checking active plan...',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: AppTheme.secondaryText(brightness),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        )
-                      else if (_activePlan != null)
-                        Text(
-                          'Active plan: ${_activePlan!.displayName} • Workspaces: $_ownedWorkspaceCount / ${_activePlan!.unlimitedMasterLeagues ? '∞' : '${_activePlan!.maxMasterLeagues}'}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: AppTheme.limeAccentDark,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        )
-                      else
-                        Text(
-                          'No active plan. Select a plan below.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: AppTheme.secondaryText(brightness),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                      _statusBar(theme, brightness),
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 16),
                 if (isCompact)
                   Column(
                     children: [
-                      Glass(
-                        borderRadius: 26,
-                        padding: const EdgeInsets.all(18),
-                        fill: AppTheme.cardColor(brightness),
-                        borderColor: AppTheme.cardBorder(brightness),
+                      _flatPanel(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -720,24 +705,26 @@ class _WebCreateMasterLeagueScreenState
                               ),
                             ),
                             const SizedBox(height: 14),
-                            SwitchListTile.adaptive(
-                              activeColor: AppTheme.limeAccentDark,
-                              value: _enableRewards,
-                              onChanged: _processing
-                                  ? null
-                                  : (v) => setState(() => _enableRewards = v),
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                'Enable rewards for first competition',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  color: AppTheme.primaryText(brightness),
+                            _miniPanel(
+                              child: SwitchListTile.adaptive(
+                                activeColor: AppTheme.limeAccentDark,
+                                value: _enableRewards,
+                                onChanged: _processing
+                                    ? null
+                                    : (v) => setState(() => _enableRewards = v),
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  'Enable rewards for first competition',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: AppTheme.primaryText(brightness),
+                                  ),
                                 ),
-                              ),
-                              subtitle: Text(
-                                'Full reward details will be configured later.',
-                                style: TextStyle(
-                                  color: AppTheme.secondaryText(brightness),
+                                subtitle: Text(
+                                  'Full reward details will be configured later.',
+                                  style: TextStyle(
+                                    color: AppTheme.secondaryText(brightness),
+                                  ),
                                 ),
                               ),
                             ),
@@ -745,11 +732,7 @@ class _WebCreateMasterLeagueScreenState
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Glass(
-                        borderRadius: 26,
-                        padding: const EdgeInsets.all(18),
-                        fill: AppTheme.cardColor(brightness),
-                        borderColor: AppTheme.cardBorder(brightness),
+                      _flatPanel(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -770,10 +753,32 @@ class _WebCreateMasterLeagueScreenState
                           ],
                         ),
                       ),
+                      if (_selectedNeedsPayment) ...[
+                        const SizedBox(height: 16),
+                        _flatPanel(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Choose Duration',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: AppTheme.primaryText(brightness),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              ...PlanDuration.values.map(
+                                (dur) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: _durationTile(dur, theme, brightness),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 16),
-                      _buildDurationSelector(theme),
-                      const SizedBox(height: 16),
-                      _buildSummaryCard(theme, brightness),
+                      _summaryCard(theme, brightness),
                     ],
                   )
                 else
@@ -784,11 +789,7 @@ class _WebCreateMasterLeagueScreenState
                         flex: 7,
                         child: Column(
                           children: [
-                            Glass(
-                              borderRadius: 26,
-                              padding: const EdgeInsets.all(18),
-                              fill: AppTheme.cardColor(brightness),
-                              borderColor: AppTheme.cardBorder(brightness),
+                            _flatPanel(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -821,24 +822,26 @@ class _WebCreateMasterLeagueScreenState
                                     ),
                                   ),
                                   const SizedBox(height: 14),
-                                  SwitchListTile.adaptive(
-                                    activeColor: AppTheme.limeAccentDark,
-                                    value: _enableRewards,
-                                    onChanged: _processing
-                                        ? null
-                                        : (v) => setState(() => _enableRewards = v),
-                                    contentPadding: EdgeInsets.zero,
-                                    title: Text(
-                                      'Enable rewards for first competition',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        color: AppTheme.primaryText(brightness),
+                                  _miniPanel(
+                                    child: SwitchListTile.adaptive(
+                                      activeColor: AppTheme.limeAccentDark,
+                                      value: _enableRewards,
+                                      onChanged: _processing
+                                          ? null
+                                          : (v) => setState(() => _enableRewards = v),
+                                      contentPadding: EdgeInsets.zero,
+                                      title: Text(
+                                        'Enable rewards for first competition',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          color: AppTheme.primaryText(brightness),
+                                        ),
                                       ),
-                                    ),
-                                    subtitle: Text(
-                                      'Full reward details will be configured later.',
-                                      style: TextStyle(
-                                        color: AppTheme.secondaryText(brightness),
+                                      subtitle: Text(
+                                        'Full reward details will be configured later.',
+                                        style: TextStyle(
+                                          color: AppTheme.secondaryText(brightness),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -846,11 +849,7 @@ class _WebCreateMasterLeagueScreenState
                               ),
                             ),
                             const SizedBox(height: 16),
-                            Glass(
-                              borderRadius: 26,
-                              padding: const EdgeInsets.all(18),
-                              fill: AppTheme.cardColor(brightness),
-                              borderColor: AppTheme.cardBorder(brightness),
+                            _flatPanel(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -874,14 +873,40 @@ class _WebCreateMasterLeagueScreenState
                           ],
                         ),
                       ),
-                      const SizedBox(width: 18),
+                      const SizedBox(width: 16),
                       Expanded(
                         flex: 5,
                         child: Column(
                           children: [
-                            _buildDurationSelector(theme),
-                            const SizedBox(height: 16),
-                            _buildSummaryCard(theme, brightness),
+                            if (_selectedNeedsPayment)
+                              _flatPanel(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Choose Duration',
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                        color: AppTheme.primaryText(brightness),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    ...PlanDuration.values.map(
+                                      (dur) => Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 8),
+                                        child: _durationTile(
+                                          dur,
+                                          theme,
+                                          brightness,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            if (_selectedNeedsPayment) const SizedBox(height: 16),
+                            _summaryCard(theme, brightness),
                           ],
                         ),
                       ),
