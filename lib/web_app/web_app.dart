@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/routing/app_router.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_controller.dart';
-import 'presentation/web_desktop_session_store.dart';
-import 'presentation/web_desktop_shell_screen.dart';
-import 'presentation/web_pairing_screen.dart';
 
+/// The web entry-point app.
+///
+/// We now use [MaterialApp.router] with the SAME [appRouter] used by the
+/// mobile app. This gives the web shell full access to GoRouter so that
+/// [GoRouter.of(context).push('/leagues/create')] works from any widget
+/// inside the web tree — including [WebDesktopShellScreen] and its children.
+///
+/// Session gating (pairing vs shell) is handled by the router redirect
+/// and [WebSessionGateScreen] — see [app_router.dart].
 class EleagueHubWebApp extends ConsumerWidget {
   const EleagueHubWebApp({super.key});
 
@@ -14,138 +21,13 @@ class EleagueHubWebApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeControllerProvider).mode;
 
-    return MaterialApp(
+    return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'eSportlyic Web',
       themeMode: themeMode,
       theme: AppTheme.skyTheme(),
       darkTheme: AppTheme.navyTheme(),
-      home: const _WebRootGate(),
-    );
-  }
-}
-
-class _WebRootGate extends StatefulWidget {
-  const _WebRootGate();
-
-  @override
-  State<_WebRootGate> createState() => _WebRootGateState();
-}
-
-class _WebRootGateState extends State<_WebRootGate>
-    with WidgetsBindingObserver {
-  bool _checking = true;
-  String? _startupError;
-  Map<String, String>? _savedSession;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _check();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeMetrics() {
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _check() async {
-    try {
-      final saved = await WebDesktopSessionStore.load();
-      if (!mounted) return;
-      setState(() {
-        _savedSession = saved;
-        _checking = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _startupError = e.toString();
-        _checking = false;
-      });
-    }
-  }
-
-  void _onPaired({
-    required String uid,
-    required String name,
-    required String email,
-  }) {
-    if (!mounted) return;
-    setState(() {
-      _savedSession = {
-        'pairedUserUid': uid,
-        'pairedUserName': name,
-        'pairedUserEmail': email,
-        'sessionId': '',
-        'sessionSecret': '',
-      };
-    });
-  }
-
-  void _onUnlink() {
-    WebDesktopSessionStore.clear();
-    if (!mounted) return;
-    setState(() {
-      _savedSession = null;
-      _checking = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    
-    // Fallback error screen if the root store fails
-    if (_startupError != null) {
-      return Scaffold(
-        backgroundColor: AppTheme.cardColor(brightness),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              'Failed to load App Data:\n$_startupError',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppTheme.ownerRed, fontSize: 18),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // Fixed blind screen: Removed 'Colors.transparent' background.
-    if (_checking) {
-      return Scaffold(
-        backgroundColor: AppTheme.cardColor(brightness),
-        body: const Center(
-          child: CircularProgressIndicator(
-            color: AppTheme.limeAccentDark,
-          ),
-        ),
-      );
-    }
-
-    final session = _savedSession;
-    final uid = (session?['pairedUserUid'] ?? '').trim();
-
-    if (uid.isNotEmpty) {
-      return WebDesktopShellScreen(
-        pairedUserUid: uid,
-        pairedUserName: session?['pairedUserName'] ?? '',
-        pairedUserEmail: session?['pairedUserEmail'] ?? '',
-        onUnlink: _onUnlink,
-      );
-    }
-
-    return WebPairingScreen(
-      onPaired: _onPaired,
+      routerConfig: appRouter,
     );
   }
 }

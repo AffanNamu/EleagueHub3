@@ -17,6 +17,7 @@ import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/onboarding_screen.dart';
 import '../../features/auth/presentation/reset_password_screen.dart';
 import '../../features/auth/presentation/verify_email_screen.dart';
+import '../../features/call/presentation/call_room_screen.dart';
 import '../../features/chat/presentation/global_chat_admin_requests_screen.dart';
 import '../../features/chat/presentation/global_chat_screen.dart';
 import '../../features/chat/presentation/league_chat_screen.dart';
@@ -39,6 +40,8 @@ import '../../features/leagues/presentation/league_standings_screen.dart';
 import '../../features/leagues/presentation/leagues_list_screen.dart';
 import '../../features/leagues/presentation/match_detail_screen.dart';
 import '../../features/leagues/presentation/qr_scanner_screen.dart';
+import '../../features/live/presentation/join_match_screen.dart';
+import '../../features/live/presentation/live_view_screen.dart';
 import '../../features/marketplace/presentation/admin_marketplace_upload_screen.dart';
 import '../../features/marketplace/presentation/marketplace_screen.dart';
 import '../../features/master_leagues/presentation/create_master_league_screen.dart';
@@ -49,34 +52,14 @@ import '../../features/master_leagues/presentation/organizer_discipline_screen.d
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
+import '../../web_app/presentation/web_desktop_session_store.dart';
+import '../../web_app/presentation/web_desktop_shell_screen.dart';
 import '../../web_app/presentation/web_pairing_screen.dart';
 import '../services/app_admins_service.dart';
 import '../services/connectivity_service.dart';
 
 // ---------------------------------------------------------------------------
-// NOTE: CallRoomScreen and LiveViewScreen / JoinMatchScreen are intentionally
-// NOT imported on web. Those screens depend on native platform APIs
-// (camera, foreground services, WebRTC native stack) that are unavailable
-// in a browser context. We guard their routes with kIsWeb checks below.
-// ---------------------------------------------------------------------------
-
-// Lazy imports for mobile-only screens so the web compiler tree-shakes them.
-// We use a conditional import pattern via factory functions instead of
-// top-level imports, because top-level imports are always compiled even
-// when guarded by kIsWeb at runtime on the web target.
-//
-// HOWEVER: since Flutter web compiles everything into one bundle regardless,
-// the safest approach for screens that HAVE web-incompatible platform imports
-// is to keep them imported but guard the ROUTE BUILDER with kIsWeb.
-// The mobile-only screens themselves must internally guard any dart:io usage.
-//
-// For CallRoomScreen and Live screens we DO guard the route entirely.
-import '../../features/call/presentation/call_room_screen.dart';
-import '../../features/live/presentation/join_match_screen.dart';
-import '../../features/live/presentation/live_view_screen.dart';
-
-// ---------------------------------------------------------------------------
-// Web-only error screen shown when a mobile-only route is hit on web
+// Mobile-only screen — shown when a mobile-only route is hit on web
 // ---------------------------------------------------------------------------
 
 class _MobileOnlyScreen extends StatelessWidget {
@@ -111,7 +94,8 @@ class _MobileOnlyScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               const Text(
-                'Download the eSportlyic app to access\nlive matches and voice rooms.',
+                'Download the eSportlyic app to access\n'
+                'live matches and voice rooms.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Color(0xFF94A3B8),
@@ -122,7 +106,8 @@ class _MobileOnlyScreen extends StatelessWidget {
               ),
               const SizedBox(height: 32),
               TextButton.icon(
-                onPressed: () => Navigator.of(context).maybePop(),
+                onPressed: () =>
+                    GoRouter.of(context).go('/'),
                 icon: const Icon(
                   Icons.arrow_back_rounded,
                   color: Color(0xFFBEF264),
@@ -145,7 +130,167 @@ class _MobileOnlyScreen extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// AuthRouterRefresh — unchanged from original
+// Web session gate screen
+//
+// This replaces the old _WebRootGate that lived inside web_app.dart.
+// It lives here so it can be used as a normal GoRouter route builder,
+// giving it full access to the router context.
+//
+// Flow:
+//   1. Check WebDesktopSessionStore for a saved session
+//   2. If found → show WebDesktopShellScreen (the sidebar shell)
+//   3. If not found → show WebPairingScreen (QR pairing)
+//   4. On pair → save session → rebuild to show shell
+//   5. On unlink → clear session → rebuild to show pairing
+// ---------------------------------------------------------------------------
+
+class WebSessionGateScreen extends StatefulWidget {
+  /// Optional deep-link destination to push after the shell loads.
+  /// e.g. '/leagues/create' when user navigated directly via URL.
+  final String? pendingRoute;
+
+  const WebSessionGateScreen({super.key, this.pendingRoute});
+
+  @override
+  State<WebSessionGateScreen> createState() => _WebSessionGateScreenState();
+}
+
+class _WebSessionGateScreenState extends State<WebSessionGateScreen>
+    with WidgetsBindingObserver {
+  bool _checking = true;
+  String? _startupError;
+  Map<String, String>? _savedSession;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _check();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _check() async {
+    try {
+      final saved = await WebDesktopSessionStore.load();
+      if (!mounted) return;
+      setState(() {
+        _savedSession = saved;
+        _checking = false;
+      });
+
+      // If we have a session and a pending deep-link route, push it now.
+      if (saved != null &&
+          (saved['pairedUserUid'] ?? '').trim().isNotEmpty &&
+          widget.pendingRoute != null &&
+          widget.pendingRoute!.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          try {
+            GoRouter.of(context).push(widget.pendingRoute!);
+          } catch (_) {}
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _startupError = e.toString();
+        _checking = false;
+      });
+    }
+  }
+
+  void _onPaired({
+    required String uid,
+    required String name,
+    required String email,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      _savedSession = {
+        'pairedUserUid': uid,
+        'pairedUserName': name,
+        'pairedUserEmail': email,
+        'sessionId': '',
+        'sessionSecret': '',
+      };
+    });
+  }
+
+  void _onUnlink() {
+    WebDesktopSessionStore.clear();
+    if (!mounted) return;
+    setState(() {
+      _savedSession = null;
+      _checking = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
+    // ── Startup error ──────────────────────────────────────────────────────
+    if (_startupError != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'Failed to load session:\n$_startupError',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.redAccent,
+                fontSize: 18,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ── Loading ────────────────────────────────────────────────────────────
+    if (_checking) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
+        body: const Center(
+          child: CircularProgressIndicator(
+            color: Color(0xFFBEF264),
+          ),
+        ),
+      );
+    }
+
+    final session = _savedSession;
+    final uid = (session?['pairedUserUid'] ?? '').trim();
+
+    // ── Active session → show desktop shell ────────────────────────────────
+    if (uid.isNotEmpty) {
+      return WebDesktopShellScreen(
+        pairedUserUid: uid,
+        pairedUserName: session?['pairedUserName'] ?? '',
+        pairedUserEmail: session?['pairedUserEmail'] ?? '',
+        onUnlink: _onUnlink,
+      );
+    }
+
+    // ── No session → show pairing screen ──────────────────────────────────
+    return WebPairingScreen(onPaired: _onPaired);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AuthRouterRefresh — unchanged
 // ---------------------------------------------------------------------------
 
 enum _ProfileState { unknown, checking, missing, exists }
@@ -176,7 +321,8 @@ class AuthRouterRefresh extends ChangeNotifier {
       unawaited(_checkProfileFor(_user!.uid));
     });
 
-    _connSub = ConnectivityService.instance.connectionStream.listen((online) {
+    _connSub =
+        ConnectivityService.instance.connectionStream.listen((online) {
       if (!online) {
         _cancelRetry();
         return;
@@ -208,11 +354,10 @@ class AuthRouterRefresh extends ChangeNotifier {
     final u = _user;
     if (u == null) return false;
     if (u.isAnonymous) return false;
-
-    final providerIds = u.providerData.map((p) => p.providerId).toSet();
+    final providerIds =
+        u.providerData.map((p) => p.providerId).toSet();
     final isPassword = providerIds.contains('password');
     if (!isPassword) return false;
-
     return !u.emailVerified;
   }
 
@@ -235,18 +380,14 @@ class AuthRouterRefresh extends ChangeNotifier {
   Future<void> refreshAuthUser() async {
     final u = FirebaseAuth.instance.currentUser;
     if (u == null) return;
-
     try {
       await u.reload().timeout(const Duration(seconds: 12));
     } catch (_) {}
-
     _user = FirebaseAuth.instance.currentUser;
     notifyListeners();
-
     final uid = _user?.uid;
     if (uid == null) return;
     if (needsEmailVerification) return;
-
     if (_profileState == _ProfileState.unknown) {
       await _checkProfileFor(uid);
     }
@@ -281,21 +422,19 @@ class AuthRouterRefresh extends ChangeNotifier {
       return e.code == 'network-request-failed';
     }
     if (e is FirebaseException) {
-      return e.code == 'unavailable' || e.code == 'deadline-exceeded';
+      return e.code == 'unavailable' ||
+          e.code == 'deadline-exceeded';
     }
-
     final raw = e.toString().toLowerCase();
     if (raw.contains('socketexception')) return true;
     if (raw.contains('network')) return true;
     if (raw.contains('timed out')) return true;
     if (raw.contains('failed host lookup')) return true;
-
     return false;
   }
 
   Future<void> _checkProfileFor(String uid) async {
     final prev = _profileState;
-
     _cancelRetry();
     _setProfileState(_ProfileState.checking);
 
@@ -315,11 +454,13 @@ class AuthRouterRefresh extends ChangeNotifier {
 
       if (kDebugMode) {
         debugPrint(
-          'AuthRouterRefresh: profile check failed for uid=$uid → $e',
+          'AuthRouterRefresh: profile check failed uid=$uid → $e',
         );
       }
 
-      if (_isNetworkError(e is Object ? e : Exception('unknown'))) return;
+      if (_isNetworkError(e is Object ? e : Exception('unknown'))) {
+        return;
+      }
       if (_retryAttempt >= 5) return;
 
       final delay = _retryDelayForAttempt(_retryAttempt);
@@ -344,13 +485,13 @@ class AuthRouterRefresh extends ChangeNotifier {
 }
 
 // ---------------------------------------------------------------------------
-// Singleton refresh notifier — unchanged
+// Singleton
 // ---------------------------------------------------------------------------
 
 final AuthRouterRefresh authRouterRefresh = AuthRouterRefresh();
 
 // ---------------------------------------------------------------------------
-// Admin checks — unchanged
+// Admin helpers — unchanged
 // ---------------------------------------------------------------------------
 
 bool _isPricingAdminUidSync(String uid) {
@@ -375,7 +516,8 @@ final appRouter = GoRouter(
     AppAdminsService.instance.ensureStarted();
 
     final loc = state.matchedLocation;
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final uid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
     final inDesktop = loc == '/desktop';
     final inLogin = loc == '/login';
@@ -388,13 +530,14 @@ final appRouter = GoRouter(
     final inPricingAdmin = loc == '/admin/pricing';
     final inPricingAdmins = loc == '/admin/pricing-admins';
     final inAnalyticsAdmin = loc == '/admin/analytics';
-    final inVerificationAdmin = loc == '/admin/verification-requests';
-    final inMarketplaceAdminUpload = loc == '/admin/marketplace-upload';
-    final inGlobalChatRequestsAdmin = loc == '/admin/global-chat-requests';
+    final inVerificationAdmin =
+        loc == '/admin/verification-requests';
+    final inMarketplaceAdminUpload =
+        loc == '/admin/marketplace-upload';
+    final inGlobalChatRequestsAdmin =
+        loc == '/admin/global-chat-requests';
 
-    // ── Web-only: block mobile-only routes at the redirect level ──────────
-    // Even if someone manually types /call or /live/* in the browser,
-    // redirect them back to home immediately.
+    // ── Web: block mobile-only routes ─────────────────────────────────────
     if (kIsWeb) {
       if (loc.startsWith('/live') || loc == '/call') {
         return '/';
@@ -415,7 +558,9 @@ final appRouter = GoRouter(
     if (inDesktop) return null;
 
     if (!authRouterRefresh.isSignedIn) {
-      if (inLogin || inForgot || inReset || inVerifyEmail) return null;
+      if (inLogin || inForgot || inReset || inVerifyEmail) {
+        return null;
+      }
       return '/login';
     }
 
@@ -459,13 +604,22 @@ final appRouter = GoRouter(
     return null;
   },
   routes: [
-    // ── Desktop pairing entry point ────────────────────────────────────────
+    // ── Desktop pairing / web session gate ────────────────────────────────
+    //
+    // /desktop → classic QR pairing entry point (unchanged behaviour)
+    //
+    // Web app now uses the SAME appRouter via MaterialApp.router.
+    // The web session gate (WebSessionGateScreen) is wired as the '/'
+    // shell on web. On mobile '/' renders HomeShell as before.
+    //
+    // We detect platform with kIsWeb inside the builder so a single
+    // route definition serves both targets cleanly.
     GoRoute(
       path: '/desktop',
       builder: (context, state) => const WebPairingScreen(),
     ),
 
-    // ── Auth flow ──────────────────────────────────────────────────────────
+    // ── Auth ───────────────────────────────────────────────────────────────
     GoRoute(
       path: '/bootstrap',
       builder: (context, state) => const BootstrapScreen(),
@@ -500,23 +654,23 @@ final appRouter = GoRouter(
       builder: (context, state) => const OnboardingScreen(),
     ),
 
-    // ── Top-level standalone routes ────────────────────────────────────────
+    // ── Standalone routes ──────────────────────────────────────────────────
     GoRoute(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
     ),
     GoRoute(
       path: '/organizer-feed',
-      builder: (context, state) => const FollowedOrganizerFeedScreen(),
+      builder: (context, state) =>
+          const FollowedOrganizerFeedScreen(),
     ),
     GoRoute(
       path: '/organizer-discovery',
-      builder: (context, state) => const PublicOrganizerDiscoveryScreen(),
+      builder: (context, state) =>
+          const PublicOrganizerDiscoveryScreen(),
     ),
 
     // ── Call Room — mobile only ────────────────────────────────────────────
-    // On web: redirect guard above sends to '/'. This builder is a
-    // second safety net in case redirect is somehow bypassed.
     GoRoute(
       path: '/call',
       builder: (context, state) {
@@ -527,7 +681,7 @@ final appRouter = GoRouter(
       },
     ),
 
-    // ── Admin routes ───────────────────────────────────────────────────────
+    // ── Admin ──────────────────────────────────────────────────────────────
     GoRoute(
       path: '/admin/pricing',
       builder: (context, state) => const PricingAdminScreen(),
@@ -538,7 +692,8 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/admin/analytics',
-      builder: (context, state) => const DeveloperAnalyticsDashboardScreen(),
+      builder: (context, state) =>
+          const DeveloperAnalyticsDashboardScreen(),
     ),
     GoRoute(
       path: '/admin/verification-requests',
@@ -547,19 +702,33 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/admin/marketplace-upload',
-      builder: (context, state) => const AdminMarketplaceUploadScreen(),
+      builder: (context, state) =>
+          const AdminMarketplaceUploadScreen(),
     ),
     GoRoute(
       path: '/admin/global-chat-requests',
-      builder: (context, state) => const GlobalChatAdminRequestsScreen(),
+      builder: (context, state) =>
+          const GlobalChatAdminRequestsScreen(),
     ),
 
-    // ── Shell + nested routes ──────────────────────────────────────────────
+    // ── Root shell ─────────────────────────────────────────────────────────
+    //
+    // On WEB  → WebSessionGateScreen (handles pairing + desktop shell)
+    // On MOBILE → HomeShell (bottom nav shell)
+    //
+    // Both share all the same child routes below.
+    // This is the single most important architectural decision:
+    // one route tree, two shells, zero duplication.
     GoRoute(
       path: '/',
-      builder: (context, state) => const HomeShell(),
+      builder: (context, state) {
+        if (kIsWeb) {
+          return const WebSessionGateScreen();
+        }
+        return const HomeShell();
+      },
       routes: [
-        // ── Profile ───────────────────────────────────────────────────────
+        // ── Profile ─────────────────────────────────────────────────────
         GoRoute(
           path: 'profile',
           builder: (context, state) => const ProfileScreen(),
@@ -571,25 +740,25 @@ final appRouter = GoRouter(
           ],
         ),
 
-        // ── Marketplace ───────────────────────────────────────────────────
+        // ── Marketplace ─────────────────────────────────────────────────
         GoRoute(
           path: 'marketplace',
           builder: (context, state) => const MarketplaceScreen(),
         ),
 
-        // ── Global chat ───────────────────────────────────────────────────
+        // ── Global chat ─────────────────────────────────────────────────
         GoRoute(
           path: 'global-chat',
           builder: (context, state) => const GlobalChatScreen(),
         ),
 
-        // ── Live — mobile only ─────────────────────────────────────────────
-        // Redirect guard above catches these on web. Builder is a safety net.
+        // ── Live — mobile only ───────────────────────────────────────────
         GoRoute(
           path: 'live/join',
           builder: (context, state) {
             if (kIsWeb) {
-              return const _MobileOnlyScreen(featureName: 'Live Match');
+              return const _MobileOnlyScreen(
+                  featureName: 'Live Match');
             }
             return const JoinMatchScreen();
           },
@@ -598,35 +767,40 @@ final appRouter = GoRouter(
           path: 'live/view/:id',
           builder: (context, state) {
             if (kIsWeb) {
-              return const _MobileOnlyScreen(featureName: 'Live Match');
+              return const _MobileOnlyScreen(
+                  featureName: 'Live Match');
             }
-
             final id = state.pathParameters['id']!;
-
             bool isHost = false;
             String? hostAddress;
             int? port;
             String? homeName;
             String? awayName;
             String? hostSide;
-
             final extra = state.extra;
             if (extra is bool) {
               isHost = extra;
             } else if (extra is Map) {
               final map = extra.cast<dynamic, dynamic>();
-              if (map['isHost'] is bool) isHost = map['isHost'] as bool;
-              if (map['host'] is String) hostAddress = map['host'] as String;
-              if (map['port'] is int) port = map['port'] as int;
+              if (map['isHost'] is bool) {
+                isHost = map['isHost'] as bool;
+              }
+              if (map['host'] is String) {
+                hostAddress = map['host'] as String;
+              }
+              if (map['port'] is int) {
+                port = map['port'] as int;
+              }
               if (map['homeName'] is String) {
                 homeName = map['homeName'] as String;
               }
               if (map['awayName'] is String) {
                 awayName = map['awayName'] as String;
               }
-              if (map['side'] is String) hostSide = map['side'] as String;
+              if (map['side'] is String) {
+                hostSide = map['side'] as String;
+              }
             }
-
             return LiveViewScreen(
               matchId: id,
               isHost: isHost,
@@ -639,16 +813,16 @@ final appRouter = GoRouter(
           },
         ),
 
-        // ── Master leagues (Organizer Workspaces) ─────────────────────────
-        // Both web and mobile now use the SAME real screens.
-        // No more kIsWeb branching to deleted web_* versions.
+        // ── Master leagues ───────────────────────────────────────────────
         GoRoute(
           path: 'master-leagues',
-          builder: (context, state) => const MasterLeaguesListScreen(),
+          builder: (context, state) =>
+              const MasterLeaguesListScreen(),
           routes: [
             GoRoute(
               path: 'create',
-              builder: (context, state) => const CreateMasterLeagueScreen(),
+              builder: (context, state) =>
+                  const CreateMasterLeagueScreen(),
             ),
             GoRoute(
               path: ':id',
@@ -664,7 +838,8 @@ final appRouter = GoRouter(
                 ),
                 GoRoute(
                   path: 'discipline',
-                  builder: (context, state) => OrganizerDisciplineScreen(
+                  builder: (context, state) =>
+                      OrganizerDisciplineScreen(
                     masterLeagueId: state.pathParameters['id']!,
                   ),
                 ),
@@ -673,27 +848,26 @@ final appRouter = GoRouter(
           ],
         ),
 
-        // ── Leagues ───────────────────────────────────────────────────────
-        // Both web and mobile now use the SAME real screens.
-        // No more kIsWeb branching to deleted web_* versions.
+        // ── Leagues ──────────────────────────────────────────────────────
         GoRoute(
           path: 'leagues',
           builder: (context, state) => const LeaguesListScreen(),
           routes: [
-            // Create entry point — same screen for both platforms
+            // Create entry point
             GoRoute(
               path: 'create',
-              builder: (context, state) => const LeagueCreationDashboard(),
+              builder: (context, state) =>
+                  const LeagueCreationDashboard(),
             ),
-
-            // Create wizard — same screen for both platforms
+            // Create wizard
             GoRoute(
               path: 'create-wizard',
               builder: (context, state) {
                 final extra =
                     state.extra as Map<String, dynamic>? ?? {};
                 final masterLeagueId =
-                    (extra['masterLeagueId'] as String?)?.trim() ?? '';
+                    (extra['masterLeagueId'] as String?)?.trim() ??
+                        '';
                 final format =
                     extra['initialFormat'] as LeagueFormat?;
                 return LeagueCreateWizard(
@@ -702,8 +876,7 @@ final appRouter = GoRouter(
                 );
               },
             ),
-
-            // Payment screens
+            // Payment
             GoRoute(
               path: 'payment',
               builder: (context, state) {
@@ -734,20 +907,17 @@ final appRouter = GoRouter(
                     leagueName: leagueName);
               },
             ),
-
-            // QR Scanner — mobile only (camera not available in browser)
+            // QR Scanner — mobile only
             GoRoute(
               path: 'join-scanner',
               builder: (context, state) {
                 if (kIsWeb) {
                   return const _MobileOnlyScreen(
-                    featureName: 'QR Scanner',
-                  );
+                      featureName: 'QR Scanner');
                 }
                 return const QRScannerScreen();
               },
             ),
-
             // Add teams
             GoRoute(
               path: 'add-teams',
@@ -762,8 +932,7 @@ final appRouter = GoRouter(
                     leagueId: leagueId, format: format);
               },
             ),
-
-            // League detail and its children
+            // League detail
             GoRoute(
               path: ':id',
               builder: (context, state) => LeagueDetailScreen(
@@ -772,13 +941,15 @@ final appRouter = GoRouter(
               routes: [
                 GoRoute(
                   path: 'standings',
-                  builder: (context, state) => LeagueStandingsScreen(
+                  builder: (context, state) =>
+                      LeagueStandingsScreen(
                     id: state.pathParameters['id']!,
                   ),
                 ),
                 GoRoute(
                   path: 'knockout',
-                  builder: (context, state) => KnockoutBracketScreen(
+                  builder: (context, state) =>
+                      KnockoutBracketScreen(
                     leagueId: state.pathParameters['id']!,
                   ),
                 ),
@@ -788,7 +959,8 @@ final appRouter = GoRouter(
                     leagueId: state.pathParameters['id']!,
                     title: 'Organizer Access Only',
                     message:
-                        'Only the organizer or allowed admins can manage knockout scores.',
+                        'Only the organizer or allowed admins '
+                        'can manage knockout scores.',
                     child: AdminKnockoutScoreMgmtScreen(
                       leagueId: state.pathParameters['id']!,
                     ),
@@ -796,7 +968,8 @@ final appRouter = GoRouter(
                 ),
                 GoRoute(
                   path: 'space',
-                  builder: (context, state) => LeagueSpaceRoomScreen(
+                  builder: (context, state) =>
+                      LeagueSpaceRoomScreen(
                     leagueId: state.pathParameters['id']!,
                   ),
                 ),
@@ -808,7 +981,6 @@ final appRouter = GoRouter(
                 ),
               ],
             ),
-
             // Fixtures
             GoRoute(
               path: ':leagueId/fixtures',
@@ -816,7 +988,6 @@ final appRouter = GoRouter(
                 leagueId: state.pathParameters['leagueId']!,
               ),
             ),
-
             // Admin scores
             GoRoute(
               path: ':leagueId/admin-scores',
@@ -824,13 +995,13 @@ final appRouter = GoRouter(
                 leagueId: state.pathParameters['leagueId']!,
                 title: 'Organizer Access Only',
                 message:
-                    'Only the organizer or allowed admins can manage league scores.',
+                    'Only the organizer or allowed admins '
+                    'can manage league scores.',
                 child: AdminScoreMgmtScreen(
                   leagueId: state.pathParameters['leagueId']!,
                 ),
               ),
             ),
-
             // League admin settings
             GoRoute(
               path: ':leagueId/admin',
@@ -838,13 +1009,13 @@ final appRouter = GoRouter(
                 leagueId: state.pathParameters['leagueId']!,
                 title: 'Organizer Access Only',
                 message:
-                    'Only the organizer or allowed admins can open league settings.',
+                    'Only the organizer or allowed admins '
+                    'can open league settings.',
                 child: LeagueAdminScreen(
                   leagueId: state.pathParameters['leagueId']!,
                 ),
               ),
             ),
-
             // Match detail
             GoRoute(
               path: ':leagueId/matches/:matchId',

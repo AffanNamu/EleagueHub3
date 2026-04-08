@@ -21,6 +21,10 @@ String _trOr(AppLocalizations l10n, String key, String fallback) {
   return v == key ? fallback : v;
 }
 
+// ---------------------------------------------------------------------------
+// HomeShell
+// ---------------------------------------------------------------------------
+
 class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
 
@@ -64,7 +68,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
   }
 
   void _handleExternalTabChange() {
-    final next = homeShellTabIndexNotifier.value.clamp(0, _tabs.length - 1);
+    final next =
+        homeShellTabIndexNotifier.value.clamp(0, _tabs.length - 1);
     if (!mounted || next == _index) return;
     setState(() {
       _index = next;
@@ -117,7 +122,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: AppTheme.iconCircleBackground(brightness),
-                    border: Border.all(color: AppTheme.cardBorder(brightness)),
+                    border:
+                        Border.all(color: AppTheme.cardBorder(brightness)),
                   ),
                   child: Icon(
                     Icons.exit_to_app_rounded,
@@ -225,7 +231,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
         bottomNavigationBar: SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 8),
+            padding:
+                const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 8),
             child: Glass(
               padding: EdgeInsets.zero,
               borderRadius: 28,
@@ -313,16 +320,26 @@ class _HomeShellState extends ConsumerState<HomeShell>
 }
 
 // ---------------------------------------------------------------------------
-// Home tab — mobile content
+// _HomeTab
 // ---------------------------------------------------------------------------
 
 class _HomeTab extends StatelessWidget {
   const _HomeTab();
 
-  void _safePush(BuildContext context, String route) {
+  /// Navigation helper.
+  ///
+  /// Uses [GoRouter.of] explicitly instead of the [BuildContext] extension
+  /// so that it always resolves the correct router — even when the widget
+  /// is mounted inside an [Offstage] subtree or a nested [Navigator].
+  void _navigate(BuildContext context, String location) {
+    // We use GoRouter.of(context).push() with the FULL path.
+    // All paths here start with '/' so they are absolute — GoRouter
+    // will not try to resolve them relative to the current shell route.
     try {
-      context.push(route);
-    } catch (_) {}
+      GoRouter.of(context).push(location);
+    } catch (e) {
+      debugPrint('[HomeTab] Navigation to $location failed: $e');
+    }
   }
 
   @override
@@ -332,14 +349,11 @@ class _HomeTab extends StatelessWidget {
     final brightness = theme.brightness;
     final t = theme.textTheme;
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final isWeb = kIsWeb;
 
     final secondary = AppTheme.secondaryText(brightness);
     final tertiary = AppTheme.secondaryText(brightness).withOpacity(0.88);
     final faint = const Color(0xFF9CA3AF);
-
-    // On web we do not show Live Match or Voice Room quick actions.
-    // Those features require native device capabilities.
-    final isWeb = kIsWeb;
 
     return ListView(
       physics: const BouncingScrollPhysics(
@@ -413,8 +427,8 @@ class _HomeTab extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Manage leagues, jump into live matches, follow '
-                          'organizers, and explore premium experiences.',
+                          'Manage leagues, jump into live matches, '
+                          'follow organizers, and explore premium experiences.',
                           style: TextStyle(
                             color: secondary,
                             fontWeight: FontWeight.w600,
@@ -446,10 +460,7 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
 
-        // ── Create League + Live Match row ───────────────────────────────
-        // Live Match card is hidden on web (kIsWeb). It depends on
-        // foreground streaming services and camera permissions that are
-        // mobile-only in this codebase.
+        // ── Create League + Live Match ───────────────────────────────────
         Row(
           children: [
             Expanded(
@@ -466,7 +477,8 @@ class _HomeTab extends StatelessWidget {
                         const Color(0xFFECFCCB),
                         const Color(0xFFFFFFFF),
                       ],
-                onTap: () => _safePush(context, '/leagues/create'),
+                // ── FIX: absolute path pushed via GoRouter.of(context) ──
+                onTap: () => _navigate(context, '/leagues/create'),
               ),
             ),
             // Live Match — mobile only
@@ -486,7 +498,7 @@ class _HomeTab extends StatelessWidget {
                           const Color(0xFFE0F2FE),
                           const Color(0xFFFFFFFF),
                         ],
-                  onTap: () => _safePush(context, '/live/join'),
+                  onTap: () => _navigate(context, '/live/join'),
                 ),
               ),
             ],
@@ -513,14 +525,14 @@ class _HomeTab extends StatelessWidget {
                   const Color(0xFFECFCCB),
                   const Color(0xFFF8FAFC),
                 ],
-          onTap: () => _safePush(context, '/master-leagues'),
+          // ── FIX: absolute path pushed via GoRouter.of(context) ──────
+          onTap: () => _navigate(context, '/master-leagues'),
           isWide: true,
         ),
 
         const SizedBox(height: 12),
 
         // ── Voice Room — mobile only ─────────────────────────────────────
-        // Call Room uses LiveKit/WebRTC native APIs. Not available on web.
         if (!isWeb)
           _QuickActionCard(
             icon: Icons.headset_mic_rounded,
@@ -543,7 +555,7 @@ class _HomeTab extends StatelessWidget {
                     const Color(0xFFF3E8FF),
                     const Color(0xFFFFFFFF),
                   ],
-            onTap: () => _safePush(context, '/call'),
+            onTap: () => _navigate(context, '/call'),
             isWide: true,
           ),
 
@@ -579,7 +591,8 @@ class _HomeTab extends StatelessWidget {
                 icon: Icons.travel_explore_rounded,
                 title: 'Organizer Discovery',
                 subtitle: 'Featured, verified, and active organizers',
-                onTap: () => _safePush(context, '/organizer-discovery'),
+                onTap: () =>
+                    _navigate(context, '/organizer-discovery'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -597,7 +610,7 @@ class _HomeTab extends StatelessWidget {
                   'home_explore_master_leagues_sub',
                   'Trusted organizer hubs for multiple competitions',
                 ),
-                onTap: () => _safePush(context, '/master-leagues'),
+                onTap: () => _navigate(context, '/master-leagues'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -607,7 +620,8 @@ class _HomeTab extends StatelessWidget {
                 icon: Icons.dynamic_feed_rounded,
                 title: 'Organizer Feed',
                 subtitle: 'Latest updates from organizers you follow',
-                onTap: () => _safePush(context, '/organizer-feed'),
+                onTap: () =>
+                    _navigate(context, '/organizer-feed'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -622,7 +636,7 @@ class _HomeTab extends StatelessWidget {
                   'home_explore_global_chat_sub',
                   'Request access & chat in realtime',
                 ),
-                onTap: () => _safePush(context, '/global-chat'),
+                onTap: () => _navigate(context, '/global-chat'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -637,7 +651,7 @@ class _HomeTab extends StatelessWidget {
                   'home_explore_marketplace_sub',
                   'Browse gaming gear & accessories',
                 ),
-                onTap: () => _safePush(context, '/marketplace'),
+                onTap: () => _navigate(context, '/marketplace'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -654,7 +668,7 @@ class _HomeTab extends StatelessWidget {
                 ),
                 onTap: () {
                   openHomeShellTab(1);
-                  context.go('/');
+                  GoRouter.of(context).go('/');
                 },
                 secondaryColor: tertiary,
                 chevronColor: faint,
@@ -668,7 +682,7 @@ class _HomeTab extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Followed organizer feed preview (unchanged from original)
+// _FollowedOrganizerFeedPreview
 // ---------------------------------------------------------------------------
 
 class _FollowedOrganizerFeedPreview extends StatefulWidget {
@@ -696,7 +710,8 @@ class _FollowedOrganizerFeedPreviewState
   }
 
   @override
-  void didUpdateWidget(covariant _FollowedOrganizerFeedPreview oldWidget) {
+  void didUpdateWidget(
+      covariant _FollowedOrganizerFeedPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.uid != widget.uid) _load();
   }
@@ -716,7 +731,8 @@ class _FollowedOrganizerFeedPreviewState
     if (mounted) setState(() => _loading = true);
 
     try {
-      final items = await _feed.fetchFollowedOrganizerFeedOnce(uid);
+      final items =
+          await _feed.fetchFollowedOrganizerFeedOnce(uid);
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -820,7 +836,7 @@ class _FollowedOrganizerFeedPreviewState
               TextButton.icon(
                 onPressed: () {
                   try {
-                    context.push('/organizer-feed');
+                    GoRouter.of(context).push('/organizer-feed');
                   } catch (_) {}
                 },
                 icon: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -864,13 +880,15 @@ class _FollowedOrganizerFeedPreviewState
                     onTap: () {
                       try {
                         if (item.leagueId.trim().isNotEmpty) {
-                          context.push(
-                              '/leagues/${item.leagueId.trim()}');
+                          GoRouter.of(context).push(
+                            '/leagues/${item.leagueId.trim()}',
+                          );
                           return;
                         }
                         if (item.masterLeagueId.trim().isNotEmpty) {
-                          context.push(
-                            '/master-leagues/${item.masterLeagueId.trim()}',
+                          GoRouter.of(context).push(
+                            '/master-leagues/'
+                            '${item.masterLeagueId.trim()}',
                           );
                         }
                       } catch (_) {}
@@ -897,8 +915,8 @@ class _FollowedOrganizerFeedPreviewState
                                 Text(
                                   item.title,
                                   style: t.bodyMedium?.copyWith(
-                                    color:
-                                        AppTheme.primaryText(brightness),
+                                    color: AppTheme.primaryText(
+                                        brightness),
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
@@ -919,7 +937,8 @@ class _FollowedOrganizerFeedPreviewState
                           ),
                           Icon(
                             Icons.chevron_right_rounded,
-                            color: AppTheme.secondaryText(brightness),
+                            color:
+                                AppTheme.secondaryText(brightness),
                           ),
                         ],
                       ),
@@ -935,7 +954,7 @@ class _FollowedOrganizerFeedPreviewState
 }
 
 // ---------------------------------------------------------------------------
-// Quick action card (mobile home tab)
+// _QuickActionCard
 // ---------------------------------------------------------------------------
 
 class _QuickActionCard extends StatefulWidget {
@@ -988,7 +1007,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final secondary = AppTheme.secondaryText(brightness);
-    final tertiary = AppTheme.secondaryText(brightness).withOpacity(0.88);
+    final tertiary =
+        AppTheme.secondaryText(brightness).withOpacity(0.88);
     final faint = const Color(0xFF9CA3AF);
 
     return AnimatedBuilder(
@@ -1025,8 +1045,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         height: 46,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color:
-                              AppTheme.iconCircleBackground(brightness),
+                          color: AppTheme.iconCircleBackground(
+                              brightness),
                           border: Border.all(
                             color: AppTheme.cardBorder(brightness),
                           ),
@@ -1040,14 +1060,17 @@ class _QuickActionCardState extends State<_QuickActionCard>
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
                           children: [
                             Text(
                               widget.title,
-                              style: theme.textTheme.titleSmall?.copyWith(
+                              style: theme.textTheme.titleSmall
+                                  ?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 15,
-                                color: AppTheme.primaryText(brightness),
+                                color:
+                                    AppTheme.primaryText(brightness),
                               ),
                             ),
                             const SizedBox(height: 3),
@@ -1077,8 +1100,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         height: 42,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color:
-                              AppTheme.iconCircleBackground(brightness),
+                          color: AppTheme.iconCircleBackground(
+                              brightness),
                           border: Border.all(
                             color: AppTheme.cardBorder(brightness),
                           ),
@@ -1094,7 +1117,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         widget.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall?.copyWith(
+                        style:
+                            theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w900,
                           fontSize: 14,
                           color: AppTheme.primaryText(brightness),
@@ -1122,7 +1146,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
 }
 
 // ---------------------------------------------------------------------------
-// Explore row (mobile home tab)
+// _ExploreRow
 // ---------------------------------------------------------------------------
 
 class _ExploreRow extends StatelessWidget {
@@ -1151,7 +1175,8 @@ class _ExploreRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 14, vertical: 14),
         child: Row(
           children: [
             Container(
@@ -1160,9 +1185,14 @@ class _ExploreRow extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppTheme.iconCircleBackground(brightness),
-                border: Border.all(color: AppTheme.cardBorder(brightness)),
+                border: Border.all(
+                    color: AppTheme.cardBorder(brightness)),
               ),
-              child: Icon(icon, color: AppTheme.limeAccentDark, size: 20),
+              child: Icon(
+                icon,
+                color: AppTheme.limeAccentDark,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -1188,8 +1218,11 @@ class _ExploreRow extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded,
-                color: chevronColor, size: 22),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: chevronColor,
+              size: 22,
+            ),
           ],
         ),
       ),
