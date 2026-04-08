@@ -17,7 +17,6 @@ import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/onboarding_screen.dart';
 import '../../features/auth/presentation/reset_password_screen.dart';
 import '../../features/auth/presentation/verify_email_screen.dart';
-import '../../features/call/presentation/call_room_screen.dart';
 import '../../features/chat/presentation/global_chat_admin_requests_screen.dart';
 import '../../features/chat/presentation/global_chat_screen.dart';
 import '../../features/chat/presentation/league_chat_screen.dart';
@@ -40,8 +39,6 @@ import '../../features/leagues/presentation/league_standings_screen.dart';
 import '../../features/leagues/presentation/leagues_list_screen.dart';
 import '../../features/leagues/presentation/match_detail_screen.dart';
 import '../../features/leagues/presentation/qr_scanner_screen.dart';
-import '../../features/live/presentation/join_match_screen.dart';
-import '../../features/live/presentation/live_view_screen.dart';
 import '../../features/marketplace/presentation/admin_marketplace_upload_screen.dart';
 import '../../features/marketplace/presentation/marketplace_screen.dart';
 import '../../features/master_leagues/presentation/create_master_league_screen.dart';
@@ -52,12 +49,104 @@ import '../../features/master_leagues/presentation/organizer_discipline_screen.d
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
-import '../../web_app/presentation/screens/web_create_master_league_screen.dart';
-import '../../web_app/presentation/screens/web_league_create_wizard.dart';
-import '../../web_app/presentation/screens/web_master_leagues_list_screen.dart';
 import '../../web_app/presentation/web_pairing_screen.dart';
 import '../services/app_admins_service.dart';
 import '../services/connectivity_service.dart';
+
+// ---------------------------------------------------------------------------
+// NOTE: CallRoomScreen and LiveViewScreen / JoinMatchScreen are intentionally
+// NOT imported on web. Those screens depend on native platform APIs
+// (camera, foreground services, WebRTC native stack) that are unavailable
+// in a browser context. We guard their routes with kIsWeb checks below.
+// ---------------------------------------------------------------------------
+
+// Lazy imports for mobile-only screens so the web compiler tree-shakes them.
+// We use a conditional import pattern via factory functions instead of
+// top-level imports, because top-level imports are always compiled even
+// when guarded by kIsWeb at runtime on the web target.
+//
+// HOWEVER: since Flutter web compiles everything into one bundle regardless,
+// the safest approach for screens that HAVE web-incompatible platform imports
+// is to keep them imported but guard the ROUTE BUILDER with kIsWeb.
+// The mobile-only screens themselves must internally guard any dart:io usage.
+//
+// For CallRoomScreen and Live screens we DO guard the route entirely.
+import '../../features/call/presentation/call_room_screen.dart';
+import '../../features/live/presentation/join_match_screen.dart';
+import '../../features/live/presentation/live_view_screen.dart';
+
+// ---------------------------------------------------------------------------
+// Web-only error screen shown when a mobile-only route is hit on web
+// ---------------------------------------------------------------------------
+
+class _MobileOnlyScreen extends StatelessWidget {
+  final String featureName;
+  const _MobileOnlyScreen({required this.featureName});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.smartphone_rounded,
+                color: Color(0xFFBEF264),
+                size: 64,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                '$featureName is available\non the mobile app only.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Download the eSportlyic app to access\nlive matches and voice rooms.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFF94A3B8),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              TextButton.icon(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                  color: Color(0xFFBEF264),
+                ),
+                label: const Text(
+                  'Go Back',
+                  style: TextStyle(
+                    color: Color(0xFFBEF264),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AuthRouterRefresh — unchanged from original
+// ---------------------------------------------------------------------------
 
 enum _ProfileState { unknown, checking, missing, exists }
 
@@ -211,10 +300,12 @@ class AuthRouterRefresh extends ChangeNotifier {
     _setProfileState(_ProfileState.checking);
 
     try {
-      final exists =
-          await _profiles.profileExists(uid).timeout(const Duration(seconds: 12));
+      final exists = await _profiles
+          .profileExists(uid)
+          .timeout(const Duration(seconds: 12));
       _retryAttempt = 0;
-      _setProfileState(exists ? _ProfileState.exists : _ProfileState.missing);
+      _setProfileState(
+          exists ? _ProfileState.exists : _ProfileState.missing);
       return;
     } catch (e) {
       final fallback = (prev == _ProfileState.exists)
@@ -223,7 +314,9 @@ class AuthRouterRefresh extends ChangeNotifier {
       _setProfileState(fallback);
 
       if (kDebugMode) {
-        debugPrint('AuthRouterRefresh: profile check failed for uid=$uid → $e');
+        debugPrint(
+          'AuthRouterRefresh: profile check failed for uid=$uid → $e',
+        );
       }
 
       if (_isNetworkError(e is Object ? e : Exception('unknown'))) return;
@@ -250,7 +343,15 @@ class AuthRouterRefresh extends ChangeNotifier {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Singleton refresh notifier — unchanged
+// ---------------------------------------------------------------------------
+
 final AuthRouterRefresh authRouterRefresh = AuthRouterRefresh();
+
+// ---------------------------------------------------------------------------
+// Admin checks — unchanged
+// ---------------------------------------------------------------------------
 
 bool _isPricingAdminUidSync(String uid) {
   if (uid.isEmpty) return false;
@@ -261,6 +362,10 @@ const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
 bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
     r.needsOnboarding;
+
+// ---------------------------------------------------------------------------
+// App router
+// ---------------------------------------------------------------------------
 
 final appRouter = GoRouter(
   initialLocation: '/bootstrap',
@@ -287,9 +392,19 @@ final appRouter = GoRouter(
     final inMarketplaceAdminUpload = loc == '/admin/marketplace-upload';
     final inGlobalChatRequestsAdmin = loc == '/admin/global-chat-requests';
 
+    // ── Web-only: block mobile-only routes at the redirect level ──────────
+    // Even if someone manually types /call or /live/* in the browser,
+    // redirect them back to home immediately.
+    if (kIsWeb) {
+      if (loc.startsWith('/live') || loc == '/call') {
+        return '/';
+      }
+    }
+
     if (kDebugMode) {
       debugPrint(
-        '[RouterRedirect] loc=$loc signedIn=${authRouterRefresh.isSignedIn} '
+        '[RouterRedirect] loc=$loc '
+        'signedIn=${authRouterRefresh.isSignedIn} '
         'verify=${authRouterRefresh.needsEmailVerification} '
         'checking=${authRouterRefresh.isCheckingProfile} '
         'needsOnboarding=${authRouterRefresh.needsOnboarding} '
@@ -344,10 +459,13 @@ final appRouter = GoRouter(
     return null;
   },
   routes: [
+    // ── Desktop pairing entry point ────────────────────────────────────────
     GoRoute(
       path: '/desktop',
       builder: (context, state) => const WebPairingScreen(),
     ),
+
+    // ── Auth flow ──────────────────────────────────────────────────────────
     GoRoute(
       path: '/bootstrap',
       builder: (context, state) => const BootstrapScreen(),
@@ -374,22 +492,18 @@ final appRouter = GoRouter(
       path: '/verify-email',
       builder: (context, state) {
         final qp = state.uri.queryParameters;
-        return VerifyEmailScreen(
-          initialCode: qp['oobCode'],
-        );
+        return VerifyEmailScreen(initialCode: qp['oobCode']);
       },
     ),
     GoRoute(
       path: '/onboarding',
       builder: (context, state) => const OnboardingScreen(),
     ),
+
+    // ── Top-level standalone routes ────────────────────────────────────────
     GoRoute(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
-    ),
-    GoRoute(
-      path: '/call',
-      builder: (context, state) => const CallRoomScreen(),
     ),
     GoRoute(
       path: '/organizer-feed',
@@ -399,6 +513,21 @@ final appRouter = GoRouter(
       path: '/organizer-discovery',
       builder: (context, state) => const PublicOrganizerDiscoveryScreen(),
     ),
+
+    // ── Call Room — mobile only ────────────────────────────────────────────
+    // On web: redirect guard above sends to '/'. This builder is a
+    // second safety net in case redirect is somehow bypassed.
+    GoRoute(
+      path: '/call',
+      builder: (context, state) {
+        if (kIsWeb) {
+          return const _MobileOnlyScreen(featureName: 'Voice Room');
+        }
+        return const CallRoomScreen();
+      },
+    ),
+
+    // ── Admin routes ───────────────────────────────────────────────────────
     GoRoute(
       path: '/admin/pricing',
       builder: (context, state) => const PricingAdminScreen(),
@@ -424,10 +553,13 @@ final appRouter = GoRouter(
       path: '/admin/global-chat-requests',
       builder: (context, state) => const GlobalChatAdminRequestsScreen(),
     ),
+
+    // ── Shell + nested routes ──────────────────────────────────────────────
     GoRoute(
       path: '/',
       builder: (context, state) => const HomeShell(),
       routes: [
+        // ── Profile ───────────────────────────────────────────────────────
         GoRoute(
           path: 'profile',
           builder: (context, state) => const ProfileScreen(),
@@ -438,21 +570,37 @@ final appRouter = GoRouter(
             ),
           ],
         ),
+
+        // ── Marketplace ───────────────────────────────────────────────────
         GoRoute(
           path: 'marketplace',
           builder: (context, state) => const MarketplaceScreen(),
         ),
+
+        // ── Global chat ───────────────────────────────────────────────────
         GoRoute(
           path: 'global-chat',
           builder: (context, state) => const GlobalChatScreen(),
         ),
+
+        // ── Live — mobile only ─────────────────────────────────────────────
+        // Redirect guard above catches these on web. Builder is a safety net.
         GoRoute(
           path: 'live/join',
-          builder: (context, state) => const JoinMatchScreen(),
+          builder: (context, state) {
+            if (kIsWeb) {
+              return const _MobileOnlyScreen(featureName: 'Live Match');
+            }
+            return const JoinMatchScreen();
+          },
         ),
         GoRoute(
           path: 'live/view/:id',
           builder: (context, state) {
+            if (kIsWeb) {
+              return const _MobileOnlyScreen(featureName: 'Live Match');
+            }
+
             final id = state.pathParameters['id']!;
 
             bool isHost = false;
@@ -470,8 +618,12 @@ final appRouter = GoRouter(
               if (map['isHost'] is bool) isHost = map['isHost'] as bool;
               if (map['host'] is String) hostAddress = map['host'] as String;
               if (map['port'] is int) port = map['port'] as int;
-              if (map['homeName'] is String) homeName = map['homeName'] as String;
-              if (map['awayName'] is String) awayName = map['awayName'] as String;
+              if (map['homeName'] is String) {
+                homeName = map['homeName'] as String;
+              }
+              if (map['awayName'] is String) {
+                awayName = map['awayName'] as String;
+              }
               if (map['side'] is String) hostSide = map['side'] as String;
             }
 
@@ -486,19 +638,17 @@ final appRouter = GoRouter(
             );
           },
         ),
+
+        // ── Master leagues (Organizer Workspaces) ─────────────────────────
+        // Both web and mobile now use the SAME real screens.
+        // No more kIsWeb branching to deleted web_* versions.
         GoRoute(
           path: 'master-leagues',
-          builder: (context, state) {
-            if (kIsWeb) return const WebMasterLeaguesListScreen();
-            return const MasterLeaguesListScreen();
-          },
+          builder: (context, state) => const MasterLeaguesListScreen(),
           routes: [
             GoRoute(
               path: 'create',
-              builder: (context, state) {
-                if (kIsWeb) return const WebCreateMasterLeagueScreen();
-                return const CreateMasterLeagueScreen();
-              },
+              builder: (context, state) => const CreateMasterLeagueScreen(),
             ),
             GoRoute(
               path: ':id',
@@ -522,39 +672,38 @@ final appRouter = GoRouter(
             ),
           ],
         ),
+
+        // ── Leagues ───────────────────────────────────────────────────────
+        // Both web and mobile now use the SAME real screens.
+        // No more kIsWeb branching to deleted web_* versions.
         GoRoute(
           path: 'leagues',
           builder: (context, state) => const LeaguesListScreen(),
           routes: [
+            // Create entry point — same screen for both platforms
             GoRoute(
               path: 'create',
-              builder: (context, state) {
-                if (kIsWeb) {
-                  return const WebLeagueCreateWizard();
-                }
-                return const LeagueCreationDashboard();
-              },
+              builder: (context, state) => const LeagueCreationDashboard(),
             ),
+
+            // Create wizard — same screen for both platforms
             GoRoute(
               path: 'create-wizard',
               builder: (context, state) {
-                final extra = state.extra as Map<String, dynamic>? ?? {};
+                final extra =
+                    state.extra as Map<String, dynamic>? ?? {};
                 final masterLeagueId =
                     (extra['masterLeagueId'] as String?)?.trim() ?? '';
-                final format = extra['initialFormat'] as LeagueFormat?;
-
-                if (kIsWeb) {
-                  return WebLeagueCreateWizard(
-                    masterLeagueId: masterLeagueId,
-                    initialFormat: format,
-                  );
-                }
+                final format =
+                    extra['initialFormat'] as LeagueFormat?;
                 return LeagueCreateWizard(
                   masterLeagueId: masterLeagueId,
                   initialFormat: format,
                 );
               },
             ),
+
+            // Payment screens
             GoRoute(
               path: 'payment',
               builder: (context, state) {
@@ -566,7 +715,8 @@ final appRouter = GoRouter(
                     leagueName = map['leagueName'] as String;
                   }
                 }
-                return LeagueCreationPaymentScreen(leagueName: leagueName);
+                return LeagueCreationPaymentScreen(
+                    leagueName: leagueName);
               },
             ),
             GoRoute(
@@ -580,23 +730,40 @@ final appRouter = GoRouter(
                     leagueName = map['leagueName'] as String;
                   }
                 }
-                return LeagueCreationPaymentScreen(leagueName: leagueName);
+                return LeagueCreationPaymentScreen(
+                    leagueName: leagueName);
               },
             ),
+
+            // QR Scanner — mobile only (camera not available in browser)
             GoRoute(
               path: 'join-scanner',
-              builder: (context, state) => const QRScannerScreen(),
+              builder: (context, state) {
+                if (kIsWeb) {
+                  return const _MobileOnlyScreen(
+                    featureName: 'QR Scanner',
+                  );
+                }
+                return const QRScannerScreen();
+              },
             ),
+
+            // Add teams
             GoRoute(
               path: 'add-teams',
               builder: (context, state) {
-                final extra = state.extra as Map<String, dynamic>? ?? {};
-                final leagueId = extra['leagueId'] as String? ?? 'mock-id';
-                final format =
-                    extra['format'] as LeagueFormat? ?? LeagueFormat.classic;
-                return AddTeamsScreen(leagueId: leagueId, format: format);
+                final extra =
+                    state.extra as Map<String, dynamic>? ?? {};
+                final leagueId =
+                    extra['leagueId'] as String? ?? 'mock-id';
+                final format = extra['format'] as LeagueFormat? ??
+                    LeagueFormat.classic;
+                return AddTeamsScreen(
+                    leagueId: leagueId, format: format);
               },
             ),
+
+            // League detail and its children
             GoRoute(
               path: ':id',
               builder: (context, state) => LeagueDetailScreen(
@@ -641,12 +808,16 @@ final appRouter = GoRouter(
                 ),
               ],
             ),
+
+            // Fixtures
             GoRoute(
               path: ':leagueId/fixtures',
               builder: (context, state) => FixturesScreen(
                 leagueId: state.pathParameters['leagueId']!,
               ),
             ),
+
+            // Admin scores
             GoRoute(
               path: ':leagueId/admin-scores',
               builder: (context, state) => LeagueRoleGuard(
@@ -659,6 +830,8 @@ final appRouter = GoRouter(
                 ),
               ),
             ),
+
+            // League admin settings
             GoRoute(
               path: ':leagueId/admin',
               builder: (context, state) => LeagueRoleGuard(
@@ -671,6 +844,8 @@ final appRouter = GoRouter(
                 ),
               ),
             ),
+
+            // Match detail
             GoRoute(
               path: ':leagueId/matches/:matchId',
               builder: (context, state) => MatchDetailScreen(

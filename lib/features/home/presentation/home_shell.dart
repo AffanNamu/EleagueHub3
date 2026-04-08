@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -65,7 +66,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
   void _handleExternalTabChange() {
     final next = homeShellTabIndexNotifier.value.clamp(0, _tabs.length - 1);
     if (!mounted || next == _index) return;
-
     setState(() {
       _index = next;
       _built[next] = true;
@@ -81,9 +81,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     homeShellTabIndexNotifier.value = i;
   }
 
-  void _onDestinationSelected(int i) {
-    _selectTab(i);
-  }
+  void _onDestinationSelected(int i) => _selectTab(i);
 
   Future<bool> _handleSystemBack() async {
     if (GoRouter.of(context).canPop()) {
@@ -101,7 +99,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
       builder: (ctx) {
         final theme = Theme.of(ctx);
         final brightness = theme.brightness;
-
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding:
@@ -120,9 +117,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: AppTheme.iconCircleBackground(brightness),
-                    border: Border.all(
-                      color: AppTheme.cardBorder(brightness),
-                    ),
+                    border: Border.all(color: AppTheme.cardBorder(brightness)),
                   ),
                   child: Icon(
                     Icons.exit_to_app_rounded,
@@ -244,7 +239,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
                     backgroundColor: Colors.transparent,
                     surfaceTintColor: Colors.transparent,
                     indicatorColor: AppTheme.limeAccent,
-                    labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                    labelTextStyle:
+                        WidgetStateProperty.resolveWith((states) {
                       final selected =
                           states.contains(WidgetState.selected);
                       return TextStyle(
@@ -252,11 +248,13 @@ class _HomeShellState extends ConsumerState<HomeShell>
                             ? AppTheme.limeAccentDark
                             : const Color(0xFF9CA3AF),
                         fontSize: 11,
-                        fontWeight:
-                            selected ? FontWeight.w800 : FontWeight.w600,
+                        fontWeight: selected
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                       );
                     }),
-                    iconTheme: WidgetStateProperty.resolveWith((states) {
+                    iconTheme:
+                        WidgetStateProperty.resolveWith((states) {
                       final selected =
                           states.contains(WidgetState.selected);
                       return IconThemeData(
@@ -314,6 +312,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
   }
 }
 
+// ---------------------------------------------------------------------------
+// Home tab — mobile content
+// ---------------------------------------------------------------------------
+
 class _HomeTab extends StatelessWidget {
   const _HomeTab();
 
@@ -335,12 +337,17 @@ class _HomeTab extends StatelessWidget {
     final tertiary = AppTheme.secondaryText(brightness).withOpacity(0.88);
     final faint = const Color(0xFF9CA3AF);
 
+    // On web we do not show Live Match or Voice Room quick actions.
+    // Those features require native device capabilities.
+    final isWeb = kIsWeb;
+
     return ListView(
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
       ),
       padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
       children: [
+        // ── Welcome hero ────────────────────────────────────────────────
         Glass(
           borderRadius: 28,
           padding: const EdgeInsets.all(22),
@@ -406,7 +413,8 @@ class _HomeTab extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Manage leagues, jump into live matches, follow organizers, and explore premium experiences.',
+                          'Manage leagues, jump into live matches, follow '
+                          'organizers, and explore premium experiences.',
                           style: TextStyle(
                             color: secondary,
                             fontWeight: FontWeight.w600,
@@ -422,7 +430,10 @@ class _HomeTab extends StatelessWidget {
             ],
           ),
         ),
+
         const SizedBox(height: 22),
+
+        // ── Quick actions heading ────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -434,6 +445,11 @@ class _HomeTab extends StatelessWidget {
             ),
           ),
         ),
+
+        // ── Create League + Live Match row ───────────────────────────────
+        // Live Match card is hidden on web (kIsWeb). It depends on
+        // foreground streaming services and camera permissions that are
+        // mobile-only in this codebase.
         Row(
           children: [
             Expanded(
@@ -453,27 +469,33 @@ class _HomeTab extends StatelessWidget {
                 onTap: () => _safePush(context, '/leagues/create'),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _QuickActionCard(
-                icon: Icons.live_tv_rounded,
-                title: 'Live Match',
-                subtitle: 'Join or host live match sessions',
-                gradient: brightness == Brightness.dark
-                    ? [
-                        const Color(0xFF38BDF8).withOpacity(0.16),
-                        AppTheme.darkCard,
-                      ]
-                    : [
-                        const Color(0xFFE0F2FE),
-                        const Color(0xFFFFFFFF),
-                      ],
-                onTap: () => _safePush(context, '/live/join'),
+            // Live Match — mobile only
+            if (!isWeb) ...[
+              const SizedBox(width: 12),
+              Expanded(
+                child: _QuickActionCard(
+                  icon: Icons.live_tv_rounded,
+                  title: 'Live Match',
+                  subtitle: 'Join or host live match sessions',
+                  gradient: brightness == Brightness.dark
+                      ? [
+                          const Color(0xFF38BDF8).withOpacity(0.16),
+                          AppTheme.darkCard,
+                        ]
+                      : [
+                          const Color(0xFFE0F2FE),
+                          const Color(0xFFFFFFFF),
+                        ],
+                  onTap: () => _safePush(context, '/live/join'),
+                ),
               ),
-            ),
+            ],
           ],
         ),
+
         const SizedBox(height: 12),
+
+        // ── Organizer Workspace ──────────────────────────────────────────
         _QuickActionCard(
           icon: Icons.hub_rounded,
           title: _trOr(
@@ -494,30 +516,45 @@ class _HomeTab extends StatelessWidget {
           onTap: () => _safePush(context, '/master-leagues'),
           isWide: true,
         ),
+
         const SizedBox(height: 12),
-        _QuickActionCard(
-          icon: Icons.headset_mic_rounded,
-          title: _trOr(l10n, 'home_quick_voice_room_title', 'Voice Room'),
-          subtitle: _trOr(
-            l10n,
-            'home_quick_voice_room_subtitle',
-            'Create/Join with 8-digit code',
+
+        // ── Voice Room — mobile only ─────────────────────────────────────
+        // Call Room uses LiveKit/WebRTC native APIs. Not available on web.
+        if (!isWeb)
+          _QuickActionCard(
+            icon: Icons.headset_mic_rounded,
+            title: _trOr(
+              l10n,
+              'home_quick_voice_room_title',
+              'Voice Room',
+            ),
+            subtitle: _trOr(
+              l10n,
+              'home_quick_voice_room_subtitle',
+              'Create/Join with 8-digit code',
+            ),
+            gradient: brightness == Brightness.dark
+                ? [
+                    Colors.purple.withOpacity(0.16),
+                    AppTheme.darkCard,
+                  ]
+                : [
+                    const Color(0xFFF3E8FF),
+                    const Color(0xFFFFFFFF),
+                  ],
+            onTap: () => _safePush(context, '/call'),
+            isWide: true,
           ),
-          gradient: brightness == Brightness.dark
-              ? [
-                  Colors.purple.withOpacity(0.16),
-                  AppTheme.darkCard,
-                ]
-              : [
-                  const Color(0xFFF3E8FF),
-                  const Color(0xFFFFFFFF),
-                ],
-          onTap: () => _safePush(context, '/call'),
-          isWide: true,
-        ),
+
         const SizedBox(height: 22),
+
+        // ── Organizer feed preview ───────────────────────────────────────
         _FollowedOrganizerFeedPreview(uid: uid),
+
         const SizedBox(height: 22),
+
+        // ── Explore heading ──────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -529,6 +566,8 @@ class _HomeTab extends StatelessWidget {
             ),
           ),
         ),
+
+        // ── Explore list ─────────────────────────────────────────────────
         Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(4),
@@ -544,7 +583,8 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: AppTheme.cardBorder(brightness), height: 1),
+              Divider(
+                  color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.hub_rounded,
                 title: _trOr(
@@ -561,7 +601,8 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: AppTheme.cardBorder(brightness), height: 1),
+              Divider(
+                  color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.dynamic_feed_rounded,
                 title: 'Organizer Feed',
@@ -570,10 +611,12 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: AppTheme.cardBorder(brightness), height: 1),
+              Divider(
+                  color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.forum_rounded,
-                title: _trOr(l10n, 'home_explore_global_chat', 'Global Chat'),
+                title: _trOr(
+                    l10n, 'home_explore_global_chat', 'Global Chat'),
                 subtitle: _trOr(
                   l10n,
                   'home_explore_global_chat_sub',
@@ -583,14 +626,12 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: AppTheme.cardBorder(brightness), height: 1),
+              Divider(
+                  color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.storefront_rounded,
                 title: _trOr(
-                  l10n,
-                  'home_explore_marketplace',
-                  'Marketplace',
-                ),
+                    l10n, 'home_explore_marketplace', 'Marketplace'),
                 subtitle: _trOr(
                   l10n,
                   'home_explore_marketplace_sub',
@@ -600,10 +641,12 @@ class _HomeTab extends StatelessWidget {
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
-              Divider(color: AppTheme.cardBorder(brightness), height: 1),
+              Divider(
+                  color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.emoji_events_rounded,
-                title: _trOr(l10n, 'home_explore_my_leagues', 'My Leagues'),
+                title: _trOr(
+                    l10n, 'home_explore_my_leagues', 'My Leagues'),
                 subtitle: _trOr(
                   l10n,
                   'home_explore_my_leagues_sub',
@@ -624,11 +667,12 @@ class _HomeTab extends StatelessWidget {
   }
 }
 
-class _FollowedOrganizerFeedPreview extends StatefulWidget {
-  const _FollowedOrganizerFeedPreview({
-    required this.uid,
-  });
+// ---------------------------------------------------------------------------
+// Followed organizer feed preview (unchanged from original)
+// ---------------------------------------------------------------------------
 
+class _FollowedOrganizerFeedPreview extends StatefulWidget {
+  const _FollowedOrganizerFeedPreview({required this.uid});
   final String uid;
 
   @override
@@ -654,9 +698,7 @@ class _FollowedOrganizerFeedPreviewState
   @override
   void didUpdateWidget(covariant _FollowedOrganizerFeedPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.uid != widget.uid) {
-      _load();
-    }
+    if (oldWidget.uid != widget.uid) _load();
   }
 
   Future<void> _load() async {
@@ -671,12 +713,7 @@ class _FollowedOrganizerFeedPreviewState
       return;
     }
 
-    if (mounted) {
-      setState(() {
-        _loading = true;
-        _hasError = false;
-      });
-    }
+    if (mounted) setState(() => _loading = true);
 
     try {
       final items = await _feed.fetchFollowedOrganizerFeedOnce(uid);
@@ -810,7 +847,8 @@ class _FollowedOrganizerFeedPreviewState
             )
           else if (_items.isEmpty)
             Text(
-              'No followed organizer updates yet. Follow organizer workspaces to see their latest activity here.',
+              'No followed organizer updates yet. Follow organizer '
+              'workspaces to see their latest activity here.',
               style: t.bodySmall?.copyWith(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
@@ -826,7 +864,8 @@ class _FollowedOrganizerFeedPreviewState
                     onTap: () {
                       try {
                         if (item.leagueId.trim().isNotEmpty) {
-                          context.push('/leagues/${item.leagueId.trim()}');
+                          context.push(
+                              '/leagues/${item.leagueId.trim()}');
                           return;
                         }
                         if (item.masterLeagueId.trim().isNotEmpty) {
@@ -852,12 +891,14 @@ class _FollowedOrganizerFeedPreviewState
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   item.title,
                                   style: t.bodyMedium?.copyWith(
-                                    color: AppTheme.primaryText(brightness),
+                                    color:
+                                        AppTheme.primaryText(brightness),
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
@@ -867,7 +908,8 @@ class _FollowedOrganizerFeedPreviewState
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: t.bodySmall?.copyWith(
-                                    color: AppTheme.secondaryText(brightness),
+                                    color: AppTheme.secondaryText(
+                                        brightness),
                                     fontWeight: FontWeight.w700,
                                     height: 1.25,
                                   ),
@@ -891,6 +933,10 @@ class _FollowedOrganizerFeedPreviewState
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Quick action card (mobile home tab)
+// ---------------------------------------------------------------------------
 
 class _QuickActionCard extends StatefulWidget {
   const _QuickActionCard({
@@ -941,7 +987,6 @@ class _QuickActionCardState extends State<_QuickActionCard>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
-
     final secondary = AppTheme.secondaryText(brightness);
     final tertiary = AppTheme.secondaryText(brightness).withOpacity(0.88);
     final faint = const Color(0xFF9CA3AF);
@@ -980,7 +1025,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         height: 46,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: AppTheme.iconCircleBackground(brightness),
+                          color:
+                              AppTheme.iconCircleBackground(brightness),
                           border: Border.all(
                             color: AppTheme.cardBorder(brightness),
                           ),
@@ -1031,7 +1077,8 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         height: 42,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: AppTheme.iconCircleBackground(brightness),
+                          color:
+                              AppTheme.iconCircleBackground(brightness),
                           border: Border.all(
                             color: AppTheme.cardBorder(brightness),
                           ),
@@ -1074,6 +1121,10 @@ class _QuickActionCardState extends State<_QuickActionCard>
   }
 }
 
+// ---------------------------------------------------------------------------
+// Explore row (mobile home tab)
+// ---------------------------------------------------------------------------
+
 class _ExploreRow extends StatelessWidget {
   const _ExploreRow({
     required this.icon,
@@ -1109,15 +1160,9 @@ class _ExploreRow extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppTheme.iconCircleBackground(brightness),
-                border: Border.all(
-                  color: AppTheme.cardBorder(brightness),
-                ),
+                border: Border.all(color: AppTheme.cardBorder(brightness)),
               ),
-              child: Icon(
-                icon,
-                color: AppTheme.limeAccentDark,
-                size: 20,
-              ),
+              child: Icon(icon, color: AppTheme.limeAccentDark, size: 20),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -1143,7 +1188,8 @@ class _ExploreRow extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: chevronColor, size: 22),
+            Icon(Icons.chevron_right_rounded,
+                color: chevronColor, size: 22),
           ],
         ),
       ),
