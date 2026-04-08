@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -32,11 +33,25 @@ import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
 
+// ---------------------------------------------------------------------------
+// Breakpoints — single source of truth
+// ---------------------------------------------------------------------------
+
+class _BP {
+  static const double tablet = 760;
+  static const double desktop = 900;
+  static const double wide = 1200;
+}
+
 enum LeagueCreationType {
   series,
   group,
   classic,
 }
+
+// ---------------------------------------------------------------------------
+// LeagueCreationDashboard
+// ---------------------------------------------------------------------------
 
 class LeagueCreationDashboard extends ConsumerStatefulWidget {
   const LeagueCreationDashboard({super.key});
@@ -62,7 +77,6 @@ class _LeagueCreationDashboardState
 
   final TextEditingController _name = TextEditingController();
   final TextEditingController _description = TextEditingController();
-
   final TextEditingController _leagueImageUrl = TextEditingController();
   final TextEditingController _sponsorImageUrl = TextEditingController();
 
@@ -98,6 +112,8 @@ class _LeagueCreationDashboardState
     _draftLeagueId = _uuid.v4();
     _loadPlanLimitState();
   }
+
+  // ── Plan / access loading ──────────────────────────────────────────────────
 
   Future<void> _loadPlanLimitState() async {
     final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
@@ -150,7 +166,6 @@ class _LeagueCreationDashboardState
         .where('organizerUid', isEqualTo: uid)
         .get(const GetOptions(source: Source.server))
         .timeout(const Duration(seconds: 20));
-
     return snap.docs.length;
   }
 
@@ -160,7 +175,10 @@ class _LeagueCreationDashboardState
       _currentLeagueCardCount >= _freeLeagueListLimit;
 
   String get _freeLimitText =>
-      'Basic users can create up to $_freeLeagueListLimit leagues/competitions total. This total is shared across normal leagues and competitions created inside Organizer or Master League workspace. Upgrade to Pro or Elite to create more.';
+      'Basic users can create up to $_freeLeagueListLimit leagues/competitions '
+      'total. This total is shared across normal leagues and competitions '
+      'created inside Organizer or Master League workspace. '
+      'Upgrade to Pro or Elite to create more.';
 
   Future<void> _openPlanUpgradeFlow() async {
     final success = await LeaguePremiumUpgradeHelper.openUpgradeFlow(
@@ -168,17 +186,16 @@ class _LeagueCreationDashboardState
       leagueName:
           _name.text.trim().isEmpty ? 'Organizer Plan' : _name.text.trim(),
     );
-
     if (!mounted) return;
-
     if (success) {
       _showSnack('Plan purchase completed. Refreshing access...');
       await _loadPlanLimitState();
       return;
     }
-
     _showSnack('Plan purchase cancelled.');
   }
+
+  // ── Extras from route ──────────────────────────────────────────────────────
 
   @override
   void didChangeDependencies() {
@@ -198,13 +215,13 @@ class _LeagueCreationDashboardState
     if (extra == null) return;
 
     final ml = (extra['masterLeagueId'] as String?)?.trim() ?? '';
-    final LeagueFormat? initialFormat = extra['initialFormat'] is LeagueFormat
-        ? extra['initialFormat'] as LeagueFormat
-        : null;
+    final LeagueFormat? initialFormat =
+        extra['initialFormat'] is LeagueFormat
+            ? extra['initialFormat'] as LeagueFormat
+            : null;
 
     final String? typeString =
         (extra['type'] as String?)?.trim().toLowerCase();
-
     final String templateName =
         (extra['templateName'] as String?)?.trim() ?? '';
     final String templateDescription =
@@ -231,10 +248,7 @@ class _LeagueCreationDashboardState
     if (mounted) {
       setState(() {
         _masterLeagueId = ml;
-
-        if (templateName.isNotEmpty) {
-          _name.text = templateName;
-        }
+        if (templateName.isNotEmpty) _name.text = templateName;
         if (templateDescription.isNotEmpty) {
           _description.text = templateDescription;
         }
@@ -243,14 +257,11 @@ class _LeagueCreationDashboardState
         } else if (templatePrivacy == 'private') {
           _privacy = LeaguePrivacy.private;
         }
-
         _containsRewards = templateContainsRewards;
 
         if (inferredType != null) {
           _type = inferredType;
-
           final fmt = _format;
-
           if (templateMaxTeams != null &&
               _allowedMaxTeams.contains(templateMaxTeams)) {
             _selectedMaxTeams = templateMaxTeams;
@@ -261,13 +272,11 @@ class _LeagueCreationDashboardState
           } else {
             _selectedMaxTeams = 20;
           }
-
           if (_supportsHomeAwayMatches) {
             _homeAwayEnabled = templateHomeAwayEnabled;
           } else {
             _homeAwayEnabled = false;
           }
-
           _step = 1;
         }
       });
@@ -282,6 +291,8 @@ class _LeagueCreationDashboardState
     _sponsorImageUrl.dispose();
     super.dispose();
   }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
   bool get _inMasterLeagueMode => _masterLeagueId.trim().isNotEmpty;
 
@@ -304,19 +315,13 @@ class _LeagueCreationDashboardState
     return null;
   }
 
-  bool get _isLight => Theme.of(context).brightness == Brightness.light;
+  Color _panelFill(ThemeData theme) => AppTheme.cardColor(theme.brightness);
 
-  Color _panelFill(ThemeData theme) {
-    return AppTheme.cardColor(theme.brightness);
-  }
+  Color _panelBorder(ThemeData theme, {Color? accent}) =>
+      AppTheme.cardBorder(theme.brightness);
 
-  Color _panelBorder(ThemeData theme, {Color? accent}) {
-    return AppTheme.cardBorder(theme.brightness);
-  }
-
-  List<BoxShadow>? _panelShadow(ThemeData theme, {Color? tint}) {
-    return AppTheme.softCardShadow(theme.brightness);
-  }
+  List<BoxShadow>? _panelShadow(ThemeData theme, {Color? tint}) =>
+      AppTheme.softCardShadow(theme.brightness);
 
   void _showSnack(String message) {
     if (!mounted) return;
@@ -334,7 +339,6 @@ class _LeagueCreationDashboardState
   LeagueFormat get _format {
     final type = _type;
     if (type == null) return LeagueFormat.classic;
-
     switch (type) {
       case LeagueCreationType.series:
         return LeagueFormat.uclSwiss;
@@ -363,7 +367,6 @@ class _LeagueCreationDashboardState
   int get _maxTeams {
     final selected = _selectedMaxTeams;
     if (selected != null) return selected;
-
     switch (_format) {
       case LeagueFormat.classic:
         return 20;
@@ -378,7 +381,6 @@ class _LeagueCreationDashboardState
     final l10n = AppLocalizations.of(context);
     final type = _type;
     if (type == null) return l10n.tr('league_create_summary_not_selected');
-
     switch (type) {
       case LeagueCreationType.series:
         return l10n.tr('league_create_type_series_title');
@@ -407,15 +409,12 @@ class _LeagueCreationDashboardState
       _showSnack('You need to sign in to create leagues.');
       return;
     }
-
     if (_freeLimitReachedForNewLeague) {
       _showSnack(_freeLimitText);
       return;
     }
-
     setState(() {
       _type = t;
-
       final fmt = _format;
       if (fmt == LeagueFormat.uclGroup) {
         _selectedMaxTeams = 32;
@@ -424,16 +423,17 @@ class _LeagueCreationDashboardState
       } else {
         _selectedMaxTeams = 20;
       }
-
-      if (!_supportsHomeAwayMatches) {
-        _homeAwayEnabled = false;
-      }
+      if (!_supportsHomeAwayMatches) _homeAwayEnabled = false;
     });
   }
 
-  Future<void> _uploadImage({
-    required LeagueMediaKind kind,
-  }) async {
+  // ── Image upload ───────────────────────────────────────────────────────────
+  // On web, LeagueMediaService must internally use a web-compatible file
+  // picker (html.FileUploadInputElement or file_picker package).
+  // We guard the call here with a web check and show a clear message
+  // if the service is not yet web-ready.
+
+  Future<void> _uploadImage({required LeagueMediaKind kind}) async {
     final l10n = context.l10n;
     if (_submitting) return;
 
@@ -441,7 +441,6 @@ class _LeagueCreationDashboardState
       _showSnack('You need to sign in to create leagues.');
       return;
     }
-
     if (_freeLimitReachedForNewLeague) {
       _showSnack(_freeLimitText);
       return;
@@ -507,10 +506,13 @@ class _LeagueCreationDashboardState
     }
   }
 
+  // ── Join code generation ───────────────────────────────────────────────────
+
   String _generateJoinCode({int length = 6}) {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final rnd = Random.secure();
-    return List.generate(length, (_) => chars[rnd.nextInt(chars.length)]).join();
+    return List.generate(
+        length, (_) => chars[rnd.nextInt(chars.length)]).join();
   }
 
   Future<String> _generateUniqueJoinCode() async {
@@ -527,28 +529,52 @@ class _LeagueCreationDashboardState
     throw StateError("We couldn't create a join code. Please try again.");
   }
 
-  Future<League> _createLeagueOnline({
-    required League league,
-  }) async {
+  Future<League> _createLeagueOnline({required League league}) async {
     await ConnectivityService.instance.requireOnline(
       timeout: const Duration(seconds: 4),
     );
-
     final repo = LeaguesRepositoryFirebase();
     final savedId = await repo
         .saveLeague(league)
         .timeout(const Duration(seconds: 25));
 
-    if (_inMasterLeagueMode) {
-      return league.copyWith(id: savedId);
-    }
+    if (_inMasterLeagueMode) return league.copyWith(id: savedId);
 
     final fresh = await repo
         .getLeagueById(savedId)
         .timeout(const Duration(seconds: 20));
-
     return fresh ?? league.copyWith(id: savedId);
   }
+
+  // ── Safe navigation helpers ────────────────────────────────────────────────
+  // Using GoRouter.of(context) directly prevents failures when this screen
+  // is pushed from inside the web desktop shell (nested navigator context).
+
+  void _safePop() {
+    try {
+      if (GoRouter.of(context).canPop()) {
+        GoRouter.of(context).pop();
+      } else {
+        GoRouter.of(context).go('/');
+      }
+    } catch (_) {
+      GoRouter.of(context).go('/');
+    }
+  }
+
+  void _safeGo(String location) {
+    try {
+      GoRouter.of(context).go(location);
+    } catch (_) {}
+  }
+
+  void _safePush(String location, {Object? extra}) {
+    try {
+      GoRouter.of(context).push(location, extra: extra);
+    } catch (_) {}
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -556,10 +582,9 @@ class _LeagueCreationDashboardState
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isWide = screenWidth >= 900;
-
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+    // ── Not signed in ────────────────────────────────────────────────────────
     if (authUid.trim().isEmpty) {
       return GlassScaffold(
         appBar: AppBar(
@@ -574,22 +599,19 @@ class _LeagueCreationDashboardState
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 24),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
+                constraints: const BoxConstraints(maxWidth: 480),
                 child: Glass(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(24),
                   fill: AppTheme.cardColor(brightness),
                   borderColor: AppTheme.cardBorder(brightness),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.login,
-                        color: AppTheme.limeAccentDark,
-                        size: 44,
-                      ),
+                      Icon(Icons.login,
+                          color: AppTheme.limeAccentDark, size: 44),
                       const SizedBox(height: 10),
                       Text(
                         'Sign in required',
@@ -614,7 +636,7 @@ class _LeagueCreationDashboardState
                           backgroundColor: AppTheme.limeAccent,
                           foregroundColor: AppTheme.darkText,
                         ),
-                        onPressed: () => context.pop(),
+                        onPressed: _safePop,
                         child: const Text('Close'),
                       ),
                     ],
@@ -627,148 +649,12 @@ class _LeagueCreationDashboardState
       );
     }
 
+    // ── League created success screen ────────────────────────────────────────
     if (_createdLeague != null) {
-      final league = _createdLeague!;
-      final qrColor =
-          theme.brightness == Brightness.dark ? Colors.white : Colors.black;
-
-      return GlassScaffold(
-        appBar: AppBar(
-          title: Text(
-            _inMasterLeagueMode
-                ? 'Competition Created'
-                : l10n.tr('league_create_created_title'),
-          ),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
-        body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding:
-                  const EdgeInsetsDirectional.fromSTEB(16, 24, 16, 24),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: isWide ? 760 : 520),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    LeagueFlipCard(
-                      leagueId: league.id,
-                      leagueName: league.name,
-                      leagueCode: league.code,
-                      distribution:
-                          '${league.format.displayName} • ${league.season}',
-                      subtitle:
-                          '0 / ${league.maxTeams} ${l10n.tr('leagues_teams_word')}',
-                      onDoubleTap: () => context.push('/leagues/${league.id}'),
-                      qrWidget: QrImageView(
-                        data: league.qrPayload,
-                        version: QrVersions.auto,
-                        gapless: true,
-                        eyeStyle: QrEyeStyle(
-                          eyeShape: QrEyeShape.square,
-                          color: qrColor,
-                        ),
-                        dataModuleStyle: QrDataModuleStyle(
-                          dataModuleShape: QrDataModuleShape.square,
-                          color: qrColor,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Glass(
-                      padding: const EdgeInsets.all(16),
-                      fill: AppTheme.cardColor(brightness),
-                      borderColor: AppTheme.cardBorder(brightness),
-                      child: Column(
-                        children: [
-                          Text(
-                            l10n.tr('league_create_share_hint'),
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: AppTheme.secondaryText(brightness),
-                              height: 1.4,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (_inMasterLeagueMode) ...[
-                            const SizedBox(height: 10),
-                            Text(
-                              'League created successfully inside Master League container',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: const Color(0xFF16A34A),
-                                height: 1.35,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: FilledButton(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: AppTheme.limeAccent,
-                                    foregroundColor: AppTheme.darkText,
-                                  ),
-                                  onPressed: () {
-                                    if (_inMasterLeagueMode) {
-                                      context.go(
-                                        '/master-leagues/${_masterLeagueId.trim()}',
-                                      );
-                                      return;
-                                    }
-                                    openHomeShellTab(1);
-                                    context.go('/');
-                                  },
-                                  child: Text(
-                                    l10n.tr('league_create_done_upper'),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: () => context.push(
-                                    '/leagues/add-teams',
-                                    extra: {
-                                      'leagueId': league.id,
-                                      'format': league.format,
-                                    },
-                                  ),
-                                  child: Text(
-                                    l10n.tr('league_create_add_teams_upper'),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          TextButton(
-                            onPressed: () => context.push('/leagues/${league.id}'),
-                            child: Text(
-                              l10n.tr(
-                                'league_create_open_league_details_upper',
-                              ),
-                              style: TextStyle(
-                                color: AppTheme.limeAccentDark,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
+      return _buildSuccessScreen(context);
     }
 
+    // ── Main creation wizard ─────────────────────────────────────────────────
     return GlassScaffold(
       appBar: AppBar(
         title: Text(
@@ -780,44 +666,227 @@ class _LeagueCreationDashboardState
         elevation: 0,
       ),
       body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.maxWidth;
+
+            // ── Responsive content width ────────────────────────────────
+            // Mobile  < 760  → full width, single column
+            // Tablet  < 900  → centered, single column, max 680
+            // Desktop ≥ 900  → centered, two column (form + summary)
+            // Wide    ≥ 1200 → centered at 1100, two column
+
+            final isDesktop = w >= _BP.desktop;
+            final contentMax = w >= _BP.wide
+                ? 1100.0
+                : (w >= _BP.desktop ? 900.0 : 680.0);
+
+            return Center(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.symmetric(
+                  horizontal: w < _BP.tablet ? 16 : 24,
+                  vertical: 16,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: contentMax),
+                  child: isDesktop
+                      ? _buildDesktopLayout(context)
+                      : _buildMobileLayout(context),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // ── Desktop: two-column layout ─────────────────────────────────────────────
+
+  Widget _buildDesktopLayout(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Left: wizard form
+        Expanded(
+          flex: 3,
+          child: _buildMainCard(context),
+        ),
+        const SizedBox(width: 20),
+        // Right: summary panel — fixed width
+        SizedBox(
+          width: 320,
+          child: _buildSideSummary(context),
+        ),
+      ],
+    );
+  }
+
+  // ── Mobile / Tablet: single column ────────────────────────────────────────
+
+  Widget _buildMobileLayout(BuildContext context) {
+    return _buildMainCard(context);
+  }
+
+  // ── Success screen ─────────────────────────────────────────────────────────
+
+  Widget _buildSuccessScreen(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final league = _createdLeague!;
+
+    final qrColor =
+        brightness == Brightness.dark ? Colors.white : Colors.black;
+
+    return GlassScaffold(
+      appBar: AppBar(
+        title: Text(
+          _inMasterLeagueMode
+              ? 'Competition Created'
+              : l10n.tr('league_create_created_title'),
+        ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+      ),
+      body: SafeArea(
         child: Center(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final maxWidth = constraints.maxWidth;
-              final contentMax = maxWidth >= 1200
-                  ? 1180.0
-                  : (maxWidth >= 900 ? 900.0 : 560.0);
-
-              final left = ConstrainedBox(
-                constraints:
-                    BoxConstraints(maxWidth: isWide ? 720 : contentMax),
-                child: _buildMainCard(context),
-              );
-
-              if (!isWide) {
-                return SingleChildScrollView(
-                  padding:
-                      const EdgeInsetsDirectional.fromSTEB(16, 16, 16, 16),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: contentMax),
-                    child: left,
-                  ),
-                );
-              }
-
+              final isWide = constraints.maxWidth >= _BP.desktop;
               return SingleChildScrollView(
-                padding:
-                    const EdgeInsetsDirectional.fromSTEB(16, 16, 16, 16),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isWide ? 32 : 16,
+                  vertical: 24,
+                ),
                 child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: contentMax),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  // Cap success screen at 640 — it is a card, not a dashboard
+                  constraints: const BoxConstraints(maxWidth: 640),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(child: left),
-                      const SizedBox(width: 16),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 360),
-                        child: _buildSideSummary(context),
+                      // QR flip card
+                      LeagueFlipCard(
+                        leagueId: league.id,
+                        leagueName: league.name,
+                        leagueCode: league.code,
+                        distribution:
+                            '${league.format.displayName} • ${league.season}',
+                        subtitle:
+                            '0 / ${league.maxTeams} ${l10n.tr('leagues_teams_word')}',
+                        onDoubleTap: () =>
+                            _safePush('/leagues/${league.id}'),
+                        qrWidget: QrImageView(
+                          data: league.qrPayload,
+                          version: QrVersions.auto,
+                          gaplessPlayback: true,
+                          eyeStyle: QrEyeStyle(
+                            eyeShape: QrEyeShape.square,
+                            color: qrColor,
+                          ),
+                          dataModuleStyle: QrDataModuleStyle(
+                            dataModuleShape: QrDataModuleShape.square,
+                            color: qrColor,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      Glass(
+                        padding: const EdgeInsets.all(20),
+                        fill: AppTheme.cardColor(brightness),
+                        borderColor: AppTheme.cardBorder(brightness),
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              l10n.tr('league_create_share_hint'),
+                              textAlign: TextAlign.center,
+                              style:
+                                  theme.textTheme.bodyMedium?.copyWith(
+                                color:
+                                    AppTheme.secondaryText(brightness),
+                                height: 1.4,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (_inMasterLeagueMode) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                'League created successfully inside '
+                                'Master League container',
+                                textAlign: TextAlign.center,
+                                style:
+                                    theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF16A34A),
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor:
+                                          AppTheme.limeAccent,
+                                      foregroundColor: AppTheme.darkText,
+                                    ),
+                                    onPressed: () {
+                                      if (_inMasterLeagueMode) {
+                                        _safeGo(
+                                          '/master-leagues/'
+                                          '${_masterLeagueId.trim()}',
+                                        );
+                                        return;
+                                      }
+                                      openHomeShellTab(1);
+                                      _safeGo('/');
+                                    },
+                                    child: Text(
+                                      l10n.tr('league_create_done_upper'),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () => _safePush(
+                                      '/leagues/add-teams',
+                                      extra: {
+                                        'leagueId': league.id,
+                                        'format': league.format,
+                                      },
+                                    ),
+                                    child: Text(
+                                      l10n.tr(
+                                          'league_create_add_teams_upper'),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton(
+                              onPressed: () =>
+                                  _safePush('/leagues/${league.id}'),
+                              child: Text(
+                                l10n.tr(
+                                  'league_create_open_league_details_upper',
+                                ),
+                                style: TextStyle(
+                                  color: AppTheme.limeAccentDark,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -830,12 +899,14 @@ class _LeagueCreationDashboardState
     );
   }
 
+  // ── Main wizard card ───────────────────────────────────────────────────────
+
   Widget _buildMainCard(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     return Glass(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       borderRadius: 28,
       fill: AppTheme.cardColor(brightness),
       borderColor: AppTheme.cardBorder(brightness),
@@ -844,12 +915,14 @@ class _LeagueCreationDashboardState
         children: [
           _buildStepHeader(context),
           const SizedBox(height: 14),
+
+          // ── Access banners ─────────────────────────────────────────────
           if (_checkingAccess)
             _infoBanner(
               icon: Icons.hourglass_top_rounded,
               title: 'Checking your access...',
               subtitle:
-                  'Please wait while we load your Basic or paid entitlement.',
+                  'Please wait while we load your entitlement.',
               accent: AppTheme.limeAccentDark,
             )
           else if (_freeLimitReachedForNewLeague)
@@ -864,7 +937,7 @@ class _LeagueCreationDashboardState
               icon: Icons.verified_rounded,
               title: 'Paid plan active',
               subtitle:
-                  '$_activePlanLabel plan active. You can create more leagues and competitions.',
+                  '$_activePlanLabel plan active. You can create more leagues.',
               accent: AppTheme.limeAccentDark,
             )
           else
@@ -872,16 +945,20 @@ class _LeagueCreationDashboardState
               icon: Icons.layers_outlined,
               title: 'Basic/free access active',
               subtitle:
-                  'You have used $_currentLeagueCardCount / $_freeLeagueListLimit free league/competition slots.',
+                  'You have used $_currentLeagueCardCount / '
+                  '$_freeLeagueListLimit free league slots.',
               accent: AppTheme.limeAccentDark,
             ),
+
           const SizedBox(height: 14),
+
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
             switchInCurve: Curves.easeOut,
             switchOutCurve: Curves.easeIn,
             child: _stepBody(context, key: ValueKey<int>(_step)),
           ),
+
           const SizedBox(height: 16),
           _buildFooterActions(context),
         ],
@@ -889,13 +966,15 @@ class _LeagueCreationDashboardState
     );
   }
 
+  // ── Side summary (desktop only) ────────────────────────────────────────────
+
   Widget _buildSideSummary(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     return Glass(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       borderRadius: 28,
       fill: AppTheme.cardColor(brightness),
       borderColor: AppTheme.cardBorder(brightness),
@@ -918,7 +997,8 @@ class _LeagueCreationDashboardState
             'Access',
             _isPaidPlanUser
                 ? _activePlanLabel
-                : 'Basic • $_currentLeagueCardCount / $_freeLeagueListLimit used',
+                : 'Basic • $_currentLeagueCardCount / '
+                    '$_freeLeagueListLimit used',
             valueColor: _isPaidPlanUser
                 ? AppTheme.limeAccentDark
                 : (_freeLimitReachedForNewLeague
@@ -997,8 +1077,10 @@ class _LeagueCreationDashboardState
             _freeLimitReachedForNewLeague
                 ? _freeLimitText
                 : (_inMasterLeagueMode
-                    ? 'This competition will use the same shared Basic creation allowance as normal leagues.'
-                    : 'Normal leagues and Organizer/Master League competitions share the same Basic creation allowance.'),
+                    ? 'This competition will use the same shared '
+                        'Basic creation allowance as normal leagues.'
+                    : 'Normal leagues and Organizer/Master League '
+                        'competitions share the same Basic allowance.'),
             style: theme.textTheme.bodySmall?.copyWith(
               color: _freeLimitReachedForNewLeague
                   ? _premiumAmber
@@ -1048,7 +1130,7 @@ class _LeagueCreationDashboardState
           Icon(icon, size: 18, color: AppTheme.limeAccentDark),
           const SizedBox(width: 10),
           SizedBox(
-            width: 90,
+            width: 80,
             child: Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
@@ -1073,6 +1155,8 @@ class _LeagueCreationDashboardState
     );
   }
 
+  // ── Step header ────────────────────────────────────────────────────────────
+
   Widget _buildStepHeader(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
@@ -1082,36 +1166,31 @@ class _LeagueCreationDashboardState
       _StepMeta(l10n.tr('league_create_step_type'), Icons.auto_awesome),
       _StepMeta(l10n.tr('league_create_step_details'), Icons.edit_note),
       _StepMeta(l10n.tr('league_create_step_privacy'), Icons.lock),
-      _StepMeta(
-        l10n.tr('league_create_step_payment'),
-        Icons.payments_outlined,
-      ),
-      _StepMeta(
-        l10n.tr('league_create_step_confirm'),
-        Icons.check_circle_outline,
-      ),
+      _StepMeta(l10n.tr('league_create_step_payment'),
+          Icons.payments_outlined),
+      _StepMeta(l10n.tr('league_create_step_confirm'),
+          Icons.check_circle_outline),
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_inMasterLeagueMode)
+        if (_inMasterLeagueMode) ...[
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
               color: brightness == Brightness.dark
                   ? AppTheme.limeAccentDark.withOpacity(0.10)
                   : const Color(0xFFECFCCB),
-              border: Border.all(color: AppTheme.cardBorder(brightness)),
-              boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
+              border:
+                  Border.all(color: AppTheme.cardBorder(brightness)),
             ),
             child: Row(
               children: [
-                Icon(
-                  Icons.hub_rounded,
-                  color: AppTheme.limeAccentDark,
-                ),
+                Icon(Icons.hub_rounded,
+                    color: AppTheme.limeAccentDark),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -1125,7 +1204,8 @@ class _LeagueCreationDashboardState
               ],
             ),
           ),
-        if (_inMasterLeagueMode) const SizedBox(height: 12),
+          const SizedBox(height: 12),
+        ],
         Text(
           _inMasterLeagueMode
               ? 'Create Competition'
@@ -1137,20 +1217,44 @@ class _LeagueCreationDashboardState
           ),
         ),
         const SizedBox(height: 10),
-        Row(
-          children: [
-            for (int i = 0; i < steps.length; i++) ...[
-              Expanded(
-                child: _stepPill(
-                  title: steps[i].title,
-                  icon: steps[i].icon,
-                  index: i,
-                  current: _step,
-                ),
-              ),
-              if (i != steps.length - 1) const SizedBox(width: 10),
-            ],
-          ],
+        // Step pills — use Wrap so they never overflow on narrow screens
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // On wide screens use Row; on narrow use Wrap
+            if (constraints.maxWidth >= 500) {
+              return Row(
+                children: [
+                  for (int i = 0; i < steps.length; i++) ...[
+                    Expanded(
+                      child: _stepPill(
+                        title: steps[i].title,
+                        icon: steps[i].icon,
+                        index: i,
+                        current: _step,
+                      ),
+                    ),
+                    if (i != steps.length - 1)
+                      const SizedBox(width: 6),
+                  ],
+                ],
+              );
+            }
+            // Narrow: wrap pills
+            return Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (int i = 0; i < steps.length; i++)
+                  _stepPill(
+                    title: steps[i].title,
+                    icon: steps[i].icon,
+                    index: i,
+                    current: _step,
+                    flex: false,
+                  ),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 12),
         ClipRRect(
@@ -1171,6 +1275,7 @@ class _LeagueCreationDashboardState
     required IconData icon,
     required int index,
     required int current,
+    bool flex = true,
   }) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
@@ -1204,19 +1309,19 @@ class _LeagueCreationDashboardState
             ? AppTheme.primaryText(brightness)
             : AppTheme.secondaryText(brightness);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    final pill = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor),
-        boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: flex ? MainAxisSize.max : MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: iconColor),
-          const SizedBox(width: 8),
+          Icon(icon, size: 14, color: iconColor),
+          const SizedBox(width: 6),
           Flexible(
             child: Text(
               title.toUpperCase(),
@@ -1225,14 +1330,18 @@ class _LeagueCreationDashboardState
               style: TextStyle(
                 color: textColor,
                 fontWeight: FontWeight.w900,
-                fontSize: 11,
+                fontSize: 10,
               ),
             ),
           ),
         ],
       ),
     );
+
+    return pill;
   }
+
+  // ── Step body router ───────────────────────────────────────────────────────
 
   Widget _stepBody(BuildContext context, {Key? key}) {
     switch (_step) {
@@ -1250,6 +1359,8 @@ class _LeagueCreationDashboardState
         return const SizedBox.shrink();
     }
   }
+
+  // ── Step 0: League type ────────────────────────────────────────────────────
 
   Widget _stepLeagueType(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
@@ -1291,8 +1402,8 @@ class _LeagueCreationDashboardState
           subtitle: l10n.tr('league_create_type_classic_subtitle'),
           icon: Icons.table_chart,
         ),
-        const SizedBox(height: 14),
         if (_type != null && _allowedMaxTeams.length > 1) ...[
+          const SizedBox(height: 14),
           _sectionTitle(
             l10n.tr('league_create_competition_size_title'),
             Icons.groups,
@@ -1306,11 +1417,13 @@ class _LeagueCreationDashboardState
                 ChoiceChip(
                   label: Text(
                     '$n ${l10n.tr('league_create_teams_word')}',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
+                    style:
+                        const TextStyle(fontWeight: FontWeight.w800),
                   ),
                   selected: _maxTeams == n,
                   selectedColor: AppTheme.limeAccent,
-                  backgroundColor: AppTheme.tabInactiveBackground(brightness),
+                  backgroundColor:
+                      AppTheme.tabInactiveBackground(brightness),
                   side: BorderSide(
                     color: _maxTeams == n
                         ? AppTheme.limeAccentDark
@@ -1320,10 +1433,12 @@ class _LeagueCreationDashboardState
                     color: _maxTeams == n
                         ? AppTheme.darkText
                         : AppTheme.tabInactiveText(brightness),
-                    fontWeight:
-                        _maxTeams == n ? FontWeight.w900 : FontWeight.w800,
+                    fontWeight: _maxTeams == n
+                        ? FontWeight.w900
+                        : FontWeight.w800,
                   ),
-                  onSelected: (_freeLimitReachedForNewLeague || _checkingAccess)
+                  onSelected: (_freeLimitReachedForNewLeague ||
+                          _checkingAccess)
                       ? null
                       : (v) {
                           if (!v) return;
@@ -1345,7 +1460,6 @@ class _LeagueCreationDashboardState
   }) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
-
     final selected = _type == type;
 
     final fill = selected
@@ -1353,10 +1467,8 @@ class _LeagueCreationDashboardState
             ? AppTheme.limeAccentDark.withOpacity(0.10)
             : const Color(0xFFECFCCB))
         : _panelFill(theme);
-
-    final border = selected
-        ? AppTheme.limeAccentDark
-        : _panelBorder(theme);
+    final border =
+        selected ? AppTheme.limeAccentDark : _panelBorder(theme);
 
     return InkWell(
       onTap: (_freeLimitReachedForNewLeague || _checkingAccess)
@@ -1369,7 +1481,7 @@ class _LeagueCreationDashboardState
           borderRadius: BorderRadius.circular(20),
           color: fill,
           border: Border.all(color: border),
-          boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
+          boxShadow: _panelShadow(theme),
         ),
         child: Row(
           children: [
@@ -1380,8 +1492,7 @@ class _LeagueCreationDashboardState
                 borderRadius: BorderRadius.circular(14),
                 color: AppTheme.iconCircleBackground(brightness),
                 border: Border.all(
-                  color: AppTheme.cardBorder(brightness),
-                ),
+                    color: AppTheme.cardBorder(brightness)),
               ),
               child: Icon(
                 icon,
@@ -1418,8 +1529,8 @@ class _LeagueCreationDashboardState
             ),
             const SizedBox(width: 10),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
                 color: selected
                     ? AppTheme.limeAccent
@@ -1428,8 +1539,7 @@ class _LeagueCreationDashboardState
                 border: selected
                     ? null
                     : Border.all(
-                        color: AppTheme.cardBorder(brightness),
-                      ),
+                        color: AppTheme.cardBorder(brightness)),
               ),
               child: Text(
                 selected
@@ -1450,6 +1560,8 @@ class _LeagueCreationDashboardState
     );
   }
 
+  // ── Step 1: Details ────────────────────────────────────────────────────────
+
   Widget _stepLeagueDetails(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
@@ -1459,7 +1571,8 @@ class _LeagueCreationDashboardState
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _sectionTitle(l10n.tr('league_create_details_title'), Icons.edit_note),
+        _sectionTitle(
+            l10n.tr('league_create_details_title'), Icons.edit_note),
         const SizedBox(height: 10),
         TextField(
           controller: _name,
@@ -1469,7 +1582,8 @@ class _LeagueCreationDashboardState
             fontWeight: FontWeight.w700,
           ),
           decoration: InputDecoration(
-            labelText: l10n.tr('league_create_league_name_required_label'),
+            labelText:
+                l10n.tr('league_create_league_name_required_label'),
             prefixIcon: const Icon(Icons.edit_note),
           ),
           onChanged: (_) {
@@ -1487,8 +1601,8 @@ class _LeagueCreationDashboardState
             fontWeight: FontWeight.w600,
           ),
           decoration: InputDecoration(
-            labelText:
-                l10n.tr('league_create_league_description_recommended_label'),
+            labelText: l10n.tr(
+                'league_create_league_description_recommended_label'),
             alignLabelWithHint: true,
             prefixIcon: const Icon(Icons.subject),
           ),
@@ -1500,22 +1614,28 @@ class _LeagueCreationDashboardState
           controller: _leagueImageUrl,
           label: 'League image (optional)',
           uploading: _uploadingLeagueImage,
-          onUpload: () => _uploadImage(kind: LeagueMediaKind.leagueImage),
-          onClear:
-              locked ? () {} : () => setState(() => _leagueImageUrl.text = ''),
+          onUpload: () =>
+              _uploadImage(kind: LeagueMediaKind.leagueImage),
+          onClear: locked
+              ? () {}
+              : () => setState(() => _leagueImageUrl.text = ''),
         ),
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _sponsorImageUrl,
           label: 'Sponsor image (optional)',
           uploading: _uploadingSponsorImage,
-          onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
-          onClear:
-              locked ? () {} : () => setState(() => _sponsorImageUrl.text = ''),
+          onUpload: () =>
+              _uploadImage(kind: LeagueMediaKind.sponsorImage),
+          onClear: locked
+              ? () {}
+              : () => setState(() => _sponsorImageUrl.text = ''),
         ),
       ],
     );
   }
+
+  // ── Step 2: Privacy ────────────────────────────────────────────────────────
 
   Widget _stepPrivacy(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
@@ -1524,7 +1644,8 @@ class _LeagueCreationDashboardState
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _sectionTitle(l10n.tr('league_create_privacy_title'), Icons.lock),
+        _sectionTitle(
+            l10n.tr('league_create_privacy_title'), Icons.lock),
         const SizedBox(height: 10),
         _privacyTile(
           value: LeaguePrivacy.public,
@@ -1548,7 +1669,6 @@ class _LeagueCreationDashboardState
   }) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
-
     final selected = _privacy == value;
 
     final fill = selected
@@ -1556,10 +1676,8 @@ class _LeagueCreationDashboardState
             ? AppTheme.limeAccentDark.withOpacity(0.10)
             : const Color(0xFFECFCCB))
         : _panelFill(theme);
-
-    final border = selected
-        ? AppTheme.limeAccentDark
-        : _panelBorder(theme);
+    final border =
+        selected ? AppTheme.limeAccentDark : _panelBorder(theme);
 
     return InkWell(
       onTap: (_freeLimitReachedForNewLeague || _checkingAccess)
@@ -1577,7 +1695,9 @@ class _LeagueCreationDashboardState
         child: Row(
           children: [
             Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off,
               color: selected
                   ? AppTheme.limeAccentDark
                   : AppTheme.secondaryText(brightness),
@@ -1613,13 +1733,16 @@ class _LeagueCreationDashboardState
     );
   }
 
+  // ── Step 3: Payment ────────────────────────────────────────────────────────
+
   Widget _stepPayment(BuildContext context, {Key? key}) {
     if (_checkingAccess) {
       return Column(
         key: key,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _sectionTitle('Creation status', Icons.verified_rounded),
+          _sectionTitle(
+              'Creation status', Icons.verified_rounded),
           const SizedBox(height: 10),
           _infoBanner(
             icon: Icons.hourglass_top_rounded,
@@ -1636,7 +1759,8 @@ class _LeagueCreationDashboardState
         key: key,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _sectionTitle('Upgrade required', Icons.workspace_premium_rounded),
+          _sectionTitle(
+              'Upgrade required', Icons.workspace_premium_rounded),
           const SizedBox(height: 10),
           _infoBanner(
             icon: Icons.workspace_premium_rounded,
@@ -1673,13 +1797,17 @@ class _LeagueCreationDashboardState
               ? 'Included in your paid plan'
               : 'Included in your Basic allowance',
           subtitle: _isPaidPlanUser
-              ? 'Your paid plan includes additional league and competition creation.'
-              : 'Basic users can create up to $_freeLeagueListLimit leagues/competitions total across all creation flows.',
+              ? 'Your paid plan includes additional league and '
+                  'competition creation.'
+              : 'Basic users can create up to $_freeLeagueListLimit '
+                  'leagues/competitions total.',
           accent: AppTheme.limeAccentDark,
         ),
       ],
     );
   }
+
+  // ── Step 4: Confirm ────────────────────────────────────────────────────────
 
   Widget _stepConfirm(BuildContext context, {Key? key}) {
     final l10n = context.l10n;
@@ -1773,7 +1901,8 @@ class _LeagueCreationDashboardState
                 ? 'Included in your paid plan'
                 : 'Included in your Basic allowance',
             subtitle: _inMasterLeagueMode
-                ? 'This competition uses the same shared creation allowance as normal leagues.'
+                ? 'This competition uses the same shared creation '
+                    'allowance as normal leagues.'
                 : 'You can create this league now.',
             accent: AppTheme.limeAccentDark,
           ),
@@ -1781,7 +1910,8 @@ class _LeagueCreationDashboardState
         const SizedBox(height: 12),
         if (_supportsHomeAwayMatches) ...[
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
               color: _panelFill(theme),
@@ -1824,7 +1954,8 @@ class _LeagueCreationDashboardState
           const SizedBox(height: 12),
         ],
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             color: _panelFill(theme),
@@ -1833,10 +1964,11 @@ class _LeagueCreationDashboardState
           ),
           child: SwitchListTile.adaptive(
             value: _creatorWillParticipate,
-            onChanged:
-                (_submitting || _freeLimitReachedForNewLeague || _checkingAccess)
-                    ? null
-                    : (v) => setState(() => _creatorWillParticipate = v),
+            onChanged: (_submitting ||
+                    _freeLimitReachedForNewLeague ||
+                    _checkingAccess)
+                ? null
+                : (v) => setState(() => _creatorWillParticipate = v),
             activeColor: AppTheme.limeAccentDark,
             contentPadding: EdgeInsets.zero,
             title: Text(
@@ -1873,7 +2005,8 @@ class _LeagueCreationDashboardState
         ),
         const SizedBox(height: 12),
         FilledButton(
-          onPressed: (_submitting || !canCreate) ? null : () => _create(context),
+          onPressed:
+              (_submitting || !canCreate) ? null : () => _create(context),
           style: FilledButton.styleFrom(
             backgroundColor: AppTheme.limeAccent,
             foregroundColor: AppTheme.darkText,
@@ -1893,8 +2026,10 @@ class _LeagueCreationDashboardState
                       ? 'UPGRADE PLAN'
                       : (_inMasterLeagueMode
                           ? 'CREATE COMPETITION'
-                          : l10n.tr('league_create_create_league_button_upper')),
-                  style: const TextStyle(fontWeight: FontWeight.w900),
+                          : l10n.tr(
+                              'league_create_create_league_button_upper')),
+                  style:
+                      const TextStyle(fontWeight: FontWeight.w900),
                 ),
         ),
       ],
@@ -1950,7 +2085,6 @@ class _LeagueCreationDashboardState
             borderRadius: BorderRadius.circular(12),
             color: AppTheme.iconCircleBackground(brightness),
             border: Border.all(color: AppTheme.cardBorder(brightness)),
-            boxShadow: _panelShadow(theme, tint: AppTheme.limeAccentDark),
           ),
           child: Icon(icon, size: 18, color: AppTheme.limeAccentDark),
         ),
@@ -2019,19 +2153,18 @@ class _LeagueCreationDashboardState
     );
   }
 
+  // ── Footer actions ─────────────────────────────────────────────────────────
+
   Widget _buildFooterActions(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     final isLast = _step == 4;
-
     final backLabel =
         _step == 0 ? l10n.tr('common_cancel') : l10n.tr('common_back');
-
-    final outlineSide = BorderSide(
-      color: AppTheme.cardBorder(brightness),
-    );
+    final outlineSide =
+        BorderSide(color: AppTheme.cardBorder(brightness));
 
     if (isLast && _createdLeague == null) {
       return Row(
@@ -2040,9 +2173,7 @@ class _LeagueCreationDashboardState
             child: OutlinedButton(
               onPressed: _submitting
                   ? null
-                  : () {
-                      setState(() => _step = max(0, _step - 1));
-                    },
+                  : () => setState(() => _step = max(0, _step - 1)),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 side: outlineSide,
@@ -2058,8 +2189,6 @@ class _LeagueCreationDashboardState
       );
     }
 
-    final nextLabel = l10n.tr('common_next');
-
     return Row(
       children: [
         Expanded(
@@ -2068,7 +2197,7 @@ class _LeagueCreationDashboardState
                 ? null
                 : () {
                     if (_step == 0) {
-                      context.pop();
+                      _safePop();
                       return;
                     }
                     setState(() => _step--);
@@ -2087,20 +2216,22 @@ class _LeagueCreationDashboardState
         const SizedBox(width: 12),
         Expanded(
           child: FilledButton(
-            onPressed:
-                (_submitting || _checkingAccess || _freeLimitReachedForNewLeague)
-                    ? null
-                    : () async {
-                        final ok = await _validateAndAdvance(context);
-                        if (ok && mounted) setState(() => _step++);
-                      },
+            onPressed: (_submitting ||
+                    _checkingAccess ||
+                    _freeLimitReachedForNewLeague)
+                ? null
+                : () async {
+                    final ok =
+                        await _validateAndAdvance(context);
+                    if (ok && mounted) setState(() => _step++);
+                  },
             style: FilledButton.styleFrom(
               backgroundColor: AppTheme.limeAccent,
               foregroundColor: AppTheme.darkText,
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             child: Text(
-              nextLabel.toUpperCase(),
+              l10n.tr('common_next').toUpperCase(),
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           ),
@@ -2109,6 +2240,8 @@ class _LeagueCreationDashboardState
     );
   }
 
+  // ── Validation ─────────────────────────────────────────────────────────────
+
   Future<bool> _validateAndAdvance(BuildContext context) async {
     final l10n = context.l10n;
 
@@ -2116,17 +2249,14 @@ class _LeagueCreationDashboardState
       _showSnack('Checking your access. Please wait.');
       return false;
     }
-
     if (!_hasLeagueAccess) {
       _showSnack('You need to sign in to create leagues.');
       return false;
     }
-
     if (_freeLimitReachedForNewLeague) {
       _showSnack(_freeLimitText);
       return false;
     }
-
     if (_step == 0) {
       if (_type == null) {
         _showSnack(l10n.tr('league_create_error_select_type'));
@@ -2134,7 +2264,6 @@ class _LeagueCreationDashboardState
       }
       return true;
     }
-
     if (_step == 1) {
       if (_name.text.trim().isEmpty) {
         _showSnack(l10n.tr('league_create_error_name_required'));
@@ -2142,9 +2271,10 @@ class _LeagueCreationDashboardState
       }
       return true;
     }
-
     return true;
   }
+
+  // ── Create ─────────────────────────────────────────────────────────────────
 
   Future<void> _create(BuildContext context) async {
     final l10n = context.l10n;
@@ -2153,32 +2283,26 @@ class _LeagueCreationDashboardState
       _showSnack('Checking your access. Please wait.');
       return;
     }
-
     if (!_hasLeagueAccess) {
       _showSnack('You need to sign in to create leagues.');
       return;
     }
-
     if (_freeLimitReachedForNewLeague) {
       await _openPlanUpgradeFlow();
       return;
     }
-
     if (_type == null) {
       _showSnack(l10n.tr('league_create_error_select_type'));
       return;
     }
-
     if (_name.text.trim().isEmpty) {
       _showSnack(l10n.tr('league_create_error_name_required'));
       return;
     }
-
     if (!_allowedMaxTeams.contains(_maxTeams)) {
       _showSnack(l10n.tr('league_create_error_invalid_team_count'));
       return;
     }
-
     if (_submitting) return;
     setState(() => _submitting = true);
 
@@ -2186,7 +2310,7 @@ class _LeagueCreationDashboardState
       final organizerAuthUid =
           (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
       if (organizerAuthUid.isEmpty) {
-        if (mounted) context.go('/login');
+        if (mounted) _safeGo('/login');
         throw FirebaseAuthException(code: 'unauthenticated');
       }
 
@@ -2202,16 +2326,15 @@ class _LeagueCreationDashboardState
         final name = profile?.teamName.trim() ?? '';
         if (name.isEmpty) {
           throw StateError(
-            l10n.tr('league_create_error_profile_team_name_missing'),
+            l10n.tr(
+                'league_create_error_profile_team_name_missing'),
           );
         }
       }
 
       final effectiveHomeAwayEnabled =
           _supportsHomeAwayMatches ? _homeAwayEnabled : false;
-
       final now = DateTime.now().millisecondsSinceEpoch;
-
       final baseDefaults = LeagueSettings.defaultsFor(_format);
       final settings = baseDefaults.copyWith(
         doubleRoundRobin: _supportsHomeAwayMatches
@@ -2220,11 +2343,11 @@ class _LeagueCreationDashboardState
         lastPulledAtMs: 0,
       );
 
-      final joinCode = await _generateUniqueJoinCode().timeout(
-        const Duration(seconds: 12),
-      );
+      final joinCode = await _generateUniqueJoinCode()
+          .timeout(const Duration(seconds: 12));
 
-      final requestedLeagueId = _inMasterLeagueMode ? '' : _draftLeagueId;
+      final requestedLeagueId =
+          _inMasterLeagueMode ? '' : _draftLeagueId;
 
       final league = League(
         id: requestedLeagueId,
@@ -2252,18 +2375,17 @@ class _LeagueCreationDashboardState
         version: 1,
       );
 
-      final created = await _createLeagueOnline(
-        league: league,
-      ).timeout(const Duration(seconds: 35));
+      final created = await _createLeagueOnline(league: league)
+          .timeout(const Duration(seconds: 35));
 
       if (_inMasterLeagueMode) {
         try {
-          final ownerProfile =
-              await UserProfileRepository().fetchByUserId(organizerAuthUid);
-          final actorName = ownerProfile?.teamName.trim().isNotEmpty == true
-              ? ownerProfile!.teamName.trim()
-              : 'Organizer';
-
+          final ownerProfile = await UserProfileRepository()
+              .fetchByUserId(organizerAuthUid);
+          final actorName =
+              ownerProfile?.teamName.trim().isNotEmpty == true
+                  ? ownerProfile!.teamName.trim()
+                  : 'Organizer';
           await _organizerFeed.addCompetitionCreatedEvent(
             masterLeagueId: _masterLeagueId.trim(),
             leagueId: created.id,
@@ -2282,14 +2404,13 @@ class _LeagueCreationDashboardState
       });
 
       if (_inMasterLeagueMode) {
-        debugPrint('League created successfully inside Master League container');
-        if (!mounted) return;
-        _showSnack('League created successfully inside Master League container');
+        _showSnack(
+          'League created successfully inside Master League container',
+        );
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-
       final msg = UserFriendlyError.toMessage(
         e is Object ? e : Exception('unknown'),
       );
@@ -2299,6 +2420,10 @@ class _LeagueCreationDashboardState
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// _OptionalImageField — unchanged from original
+// ---------------------------------------------------------------------------
 
 class _OptionalImageField extends StatelessWidget {
   const _OptionalImageField({
@@ -2332,7 +2457,6 @@ class _OptionalImageField extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
-
     final previewFill = AppTheme.searchBackground(brightness);
     final previewBorder = AppTheme.searchOutline(brightness);
 
@@ -2355,7 +2479,8 @@ class _OptionalImageField extends StatelessWidget {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: bytes != null
-                ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
+                ? Image.memory(bytes,
+                    fit: BoxFit.cover, gaplessPlayback: true)
                 : (hasImage
                     ? Image.network(
                         raw,
@@ -2378,8 +2503,9 @@ class _OptionalImageField extends StatelessWidget {
                 ? 'Uploaded'
                 : 'No image selected';
 
-        final IconData tickIcon =
-            hasImage ? Icons.check_box : Icons.check_box_outline_blank;
+        final IconData tickIcon = hasImage
+            ? Icons.check_box
+            : Icons.check_box_outline_blank;
         final Color tickColor = hasImage
             ? AppTheme.limeAccentDark
             : AppTheme.secondaryText(brightness);
@@ -2415,7 +2541,8 @@ class _OptionalImageField extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: AppTheme.secondaryText(brightness),
+                              color:
+                                  AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w700,
                               height: 1.1,
                             ),
@@ -2435,8 +2562,8 @@ class _OptionalImageField extends StatelessWidget {
                   width: 40,
                   height: 40,
                   child: uploading
-                      ? Padding(
-                          padding: const EdgeInsets.all(10),
+                      ? const Padding(
+                          padding: EdgeInsets.all(10),
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             color: AppTheme.limeAccentDark,
@@ -2445,15 +2572,18 @@ class _OptionalImageField extends StatelessWidget {
                       : IconButton(
                           tooltip: 'Upload',
                           onPressed: onUpload,
-                          icon: const Icon(Icons.cloud_upload_outlined),
+                          icon: const Icon(
+                              Icons.cloud_upload_outlined),
                         ),
                 ),
                 SizedBox(
                   width: 40,
                   height: 40,
                   child: IconButton(
-                    tooltip: hasImage ? 'Clear' : 'Clear (disabled)',
-                    onPressed: (!uploading && hasImage) ? onClear : null,
+                    tooltip:
+                        hasImage ? 'Clear' : 'Clear (disabled)',
+                    onPressed:
+                        (!uploading && hasImage) ? onClear : null,
                     icon: const Icon(Icons.clear),
                   ),
                 ),
@@ -2466,9 +2596,12 @@ class _OptionalImageField extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// _StepMeta
+// ---------------------------------------------------------------------------
+
 class _StepMeta {
   final String title;
   final IconData icon;
-
   const _StepMeta(this.title, this.icon);
 }

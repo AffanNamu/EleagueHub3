@@ -28,6 +28,20 @@ import '../domain/master_league_plan.dart';
 import '../domain/organizer_feed_event.dart';
 import '../logic/master_leagues_providers.dart';
 
+// ---------------------------------------------------------------------------
+// Breakpoints — self-contained
+// ---------------------------------------------------------------------------
+
+class _BP {
+  static const double tablet  = 760;
+  static const double desktop = 900;
+  static const double wide    = 1200;
+}
+
+// ---------------------------------------------------------------------------
+// OrganizerProfileScreen
+// ---------------------------------------------------------------------------
+
 class OrganizerProfileScreen extends ConsumerStatefulWidget {
   const OrganizerProfileScreen({
     super.key,
@@ -45,28 +59,40 @@ class _OrganizerProfileScreenState
     extends ConsumerState<OrganizerProfileScreen> {
   static const int _maxBytes = 5 * 1024 * 1024;
 
-  bool _saving = false;
-  bool _followBusy = false;
-  bool _uploadingBanner = false;
-  bool _uploadingLogo = false;
-  String _hydratedForId = '';
+  bool    _saving          = false;
+  bool    _followBusy      = false;
+  bool    _uploadingBanner = false;
+  bool    _uploadingLogo   = false;
+  String  _hydratedForId   = '';
+
+  // Cached owner profile future — prevents repeated fetches on every
+  // master league stream emission that would otherwise call
+  // UserProfileRepository().fetchByUserId() on each rebuild.
+  Future<UserProfile?>? _ownerProfileFuture;
+  String                _ownerProfileCachedForId = '';
 
   final LeagueAnnouncementsFirebase _announcements =
       LeagueAnnouncementsFirebase();
-  final OrganizerFeedFirebase _organizerFeed = OrganizerFeedFirebase();
+  final OrganizerFeedFirebase _organizerFeed =
+      OrganizerFeedFirebase();
 
-  final _bannerCtrl = TextEditingController();
-  final _logoCtrl = TextEditingController();
-  final _bioCtrl = TextEditingController();
-  final _badgeCtrl = TextEditingController();
+  final _bannerCtrl   = TextEditingController();
+  final _logoCtrl     = TextEditingController();
+  final _bioCtrl      = TextEditingController();
+  final _badgeCtrl    = TextEditingController();
 
-  final _facebookCtrl = TextEditingController();
+  final _facebookCtrl  = TextEditingController();
   final _instagramCtrl = TextEditingController();
-  final _xCtrl = TextEditingController();
-  final _youtubeCtrl = TextEditingController();
-  final _tiktokCtrl = TextEditingController();
+  final _xCtrl         = TextEditingController();
+  final _youtubeCtrl   = TextEditingController();
+  final _tiktokCtrl    = TextEditingController();
 
-  String get _uid => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  // ── identity ───────────────────────────────────────────────────────────────
+
+  String get _uid =>
+      FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+  // ── lifecycle ──────────────────────────────────────────────────────────────
 
   @override
   void dispose() {
@@ -82,33 +108,90 @@ class _OrganizerProfileScreenState
     super.dispose();
   }
 
+  // ── safe navigation ────────────────────────────────────────────────────────
+  // This screen is pushed via Navigator.push(MaterialPageRoute(...)) from
+  // master_league_details_screen.dart. On mobile that means Navigator.pop
+  // is the correct back action.
+  // The smart pop tries Navigator first, then falls back to GoRouter.
+
+  void _safePush(String location) {
+    try {
+      GoRouter.of(context).push(location);
+    } catch (e) {
+      debugPrint('[OrganizerProfile] push($location) failed: $e');
+    }
+  }
+
+  void _smartPop() {
+    final nav = Navigator.of(context, rootNavigator: false);
+    if (nav.canPop()) {
+      nav.pop();
+    } else {
+      try {
+        if (GoRouter.of(context).canPop()) {
+          GoRouter.of(context).pop();
+        } else {
+          GoRouter.of(context).go('/');
+        }
+      } catch (_) {
+        GoRouter.of(context).go('/');
+      }
+    }
+  }
+
+  // ── snack ──────────────────────────────────────────────────────────────────
+
   void _snack(String msg, {bool error = false}) {
     if (!mounted) return;
     final text = msg.trim();
     if (text.isEmpty) return;
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text(text),
-        backgroundColor: error ? Theme.of(context).colorScheme.error : null,
+        behavior:        SnackBarBehavior.floating,
+        content:         Text(text),
+        backgroundColor: error
+            ? Theme.of(context).colorScheme.error
+            : null,
       ),
     );
   }
 
+  // ── owner profile cache ────────────────────────────────────────────────────
+
+  Future<UserProfile?> _getOwnerProfile(String ownerId) {
+    if (_ownerProfileCachedForId == ownerId &&
+        _ownerProfileFuture != null) {
+      return _ownerProfileFuture!;
+    }
+    _ownerProfileCachedForId = ownerId;
+    _ownerProfileFuture =
+        UserProfileRepository().fetchByUserId(ownerId);
+    return _ownerProfileFuture!;
+  }
+
+  String _ownerDisplayName(UserProfile? ownerProfile) {
+    if (ownerProfile != null &&
+        ownerProfile.displayName.trim().isNotEmpty) {
+      return ownerProfile.displayName.trim();
+    }
+    return 'Organizer';
+  }
+
+  // ── Cloudinary ─────────────────────────────────────────────────────────────
+
   String _cloudinaryOptimizedUrl(
     String url, {
-    int? width,
-    int? height,
+    int?   width,
+    int?   height,
     String crop = 'fill',
   }) {
     final u = url.trim();
     if (u.isEmpty) return u;
-    final isCloudinary =
-        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary = u.contains('res.cloudinary.com') &&
+        u.contains('/image/upload/');
     if (!isCloudinary) return u;
     final marker = '/image/upload/';
-    final idx = u.indexOf(marker);
+    final idx    = u.indexOf(marker);
     if (idx < 0) return u;
 
     final prefix = u.substring(0, idx + marker.length);
@@ -117,7 +200,7 @@ class _OrganizerProfileScreenState
     final transforms = <String>[
       'f_auto',
       'q_auto',
-      if (width != null && width > 0) 'w_$width',
+      if (width  != null && width  > 0) 'w_$width',
       if (height != null && height > 0) 'h_$height',
       (crop == 'fit') ? 'c_fit' : 'c_fill',
       if (crop != 'fit') 'g_auto',
@@ -127,11 +210,12 @@ class _OrganizerProfileScreenState
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly =
-        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly = first.startsWith('v') &&
+        int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
-      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      if (first.contains('f_auto') ||
+          first.contains('q_auto')) return u;
       parts[0] = 'f_auto,q_auto,$first';
       return prefix + parts.join('/');
     }
@@ -141,34 +225,36 @@ class _OrganizerProfileScreenState
 
   Future<String> _uploadToCloudinary({
     required PlatformFile picked,
-    required String folder,
-    required String publicPrefix,
+    required String       folder,
+    required String       publicPrefix,
   }) async {
-    final cloudName =
-        const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
-    final uploadPreset =
-        const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET')
-            .trim();
+    final cloudName = const String.fromEnvironment(
+            'CLOUDINARY_CLOUD_NAME')
+        .trim();
+    final uploadPreset = const String.fromEnvironment(
+            'CLOUDINARY_UNSIGNED_UPLOAD_PRESET')
+        .trim();
     if (cloudName.isEmpty || uploadPreset.isEmpty) {
       throw StateError('Cloudinary is not configured.');
     }
 
-    final uploadUrl =
-        Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+    final uploadUrl = Uri.parse(
+      'https://api.cloudinary.com/v1_1/$cloudName/image/upload',
+    );
     final ts = DateTime.now().millisecondsSinceEpoch;
 
     http.MultipartFile filePart;
-
     final bytes = picked.bytes;
-    final path = (picked.path ?? '').trim();
+    final path  = (picked.path ?? '').trim();
 
     if (bytes != null && bytes.isNotEmpty) {
-      filePart =
-          http.MultipartFile.fromBytes('file', bytes, filename: picked.name);
+      filePart = http.MultipartFile.fromBytes(
+        'file', bytes,
+        filename: picked.name,
+      );
     } else if (path.isNotEmpty) {
       filePart = await http.MultipartFile.fromPath(
-        'file',
-        path,
+        'file', path,
         filename: picked.name,
       );
     } else {
@@ -178,26 +264,32 @@ class _OrganizerProfileScreenState
     final req = http.MultipartRequest('POST', uploadUrl)
       ..fields['upload_preset'] = uploadPreset
       ..fields['resource_type'] = 'image'
-      ..fields['folder'] = folder
-      ..fields['public_id'] = '${publicPrefix}_$ts'
+      ..fields['folder']        = folder
+      ..fields['public_id']     = '${publicPrefix}_$ts'
       ..files.add(filePart);
 
     final client = http.Client();
     try {
-      final streamed =
-          await client.send(req).timeout(const Duration(seconds: 45));
+      final streamed = await client
+          .send(req)
+          .timeout(const Duration(seconds: 45));
       final resp = await http.Response.fromStream(streamed)
           .timeout(const Duration(seconds: 45));
 
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
-        String message = 'Upload failed (HTTP ${resp.statusCode}).';
+        String message =
+            'Upload failed (HTTP ${resp.statusCode}).';
         try {
           final decoded = jsonDecode(resp.body);
-          final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
+          final err = (decoded is Map<String, dynamic>)
+              ? decoded['error']
+              : null;
           final msg = (err is Map<String, dynamic>)
               ? (err['message']?.toString() ?? '')
               : '';
-          if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
+          if (msg.trim().isNotEmpty) {
+            message = 'Upload failed: ${msg.trim()}';
+          }
         } catch (_) {}
         throw StateError(message);
       }
@@ -207,7 +299,8 @@ class _OrganizerProfileScreenState
         throw StateError('Upload failed: invalid response.');
       }
 
-      final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
+      final secureUrl =
+          (decoded['secure_url']?.toString() ?? '').trim();
       if (secureUrl.isEmpty) {
         throw StateError('Upload failed: secure_url missing.');
       }
@@ -220,6 +313,8 @@ class _OrganizerProfileScreenState
     }
   }
 
+  // ── streams ────────────────────────────────────────────────────────────────
+
   Stream<MasterLeague?> _watchMasterLeague(String id) {
     return FirebaseFirestore.instance
         .collection('master_leagues')
@@ -229,7 +324,8 @@ class _OrganizerProfileScreenState
       if (!snap.exists) return null;
       return MasterLeague.fromMap(
         snap.id,
-        (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>(),
+        (snap.data() ?? <String, dynamic>{})
+            .cast<String, dynamic>(),
       );
     }).handleError((_) => null);
   }
@@ -242,71 +338,78 @@ class _OrganizerProfileScreenState
         .map((snap) {
       final list = snap.docs.map((d) {
         final map = <String, dynamic>{...d.data()};
-        map['id'] = (map['id'] as String?)?.trim().isNotEmpty == true
-            ? map['id']
-            : d.id;
+        map['id'] =
+            (map['id'] as String?)?.trim().isNotEmpty == true
+                ? map['id']
+                : d.id;
         return League.fromRemoteMap(map);
       }).toList(growable: false);
-
       final sorted = [...list];
-      sorted.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+      sorted.sort(
+          (a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
       return sorted;
     }).handleError((_) => <League>[]);
   }
 
-  Stream<LeagueAnnouncement?> _watchPinnedWorkspaceAnnouncement(
-    String masterLeagueId,
-  ) {
-    return _announcements.watchPinnedMasterLeagueAnnouncement(masterLeagueId);
-  }
+  Stream<LeagueAnnouncement?>
+      _watchPinnedWorkspaceAnnouncement(String masterLeagueId) =>
+          _announcements.watchPinnedMasterLeagueAnnouncement(
+              masterLeagueId);
+
+  // ── controller hydration ───────────────────────────────────────────────────
+  // Called in build path but guarded by _hydratedForId to run only once.
 
   void _loadControllersFrom(MasterLeague ml) {
     if (_hydratedForId == ml.id) return;
     _hydratedForId = ml.id;
 
     final op = ml.organizerProfile;
+    _bannerCtrl.text  = op.bannerUrl;
+    _logoCtrl.text    = op.logoUrl;
+    _bioCtrl.text     = op.bio;
+    _badgeCtrl.text   = op.badge;
 
-    _bannerCtrl.text = op.bannerUrl;
-    _logoCtrl.text = op.logoUrl;
-    _bioCtrl.text = op.bio;
-    _badgeCtrl.text = op.badge;
-
-    _facebookCtrl.text = op.socialLinks['facebook'] ?? '';
+    _facebookCtrl.text  = op.socialLinks['facebook'] ?? '';
     _instagramCtrl.text = op.socialLinks['instagram'] ?? '';
-    _xCtrl.text = op.socialLinks['x'] ?? op.socialLinks['twitter'] ?? '';
-    _youtubeCtrl.text = op.socialLinks['youtube'] ?? '';
-    _tiktokCtrl.text = op.socialLinks['tiktok'] ?? '';
+    _xCtrl.text         =
+        op.socialLinks['x'] ?? op.socialLinks['twitter'] ?? '';
+    _youtubeCtrl.text   = op.socialLinks['youtube'] ?? '';
+    _tiktokCtrl.text    = op.socialLinks['tiktok'] ?? '';
   }
+
+  // ── profile builders ───────────────────────────────────────────────────────
 
   OrganizerProfile _profileFromControllers() {
     final socials = <String, String>{
-      'facebook': _facebookCtrl.text.trim(),
+      'facebook':  _facebookCtrl.text.trim(),
       'instagram': _instagramCtrl.text.trim(),
-      'x': _xCtrl.text.trim(),
-      'youtube': _youtubeCtrl.text.trim(),
-      'tiktok': _tiktokCtrl.text.trim(),
+      'x':         _xCtrl.text.trim(),
+      'youtube':   _youtubeCtrl.text.trim(),
+      'tiktok':    _tiktokCtrl.text.trim(),
     }..removeWhere((k, v) => v.trim().isEmpty);
 
     return OrganizerProfile(
-      bannerUrl: _bannerCtrl.text.trim(),
-      logoUrl: _logoCtrl.text.trim(),
-      bio: _bioCtrl.text.trim(),
+      bannerUrl:   _bannerCtrl.text.trim(),
+      logoUrl:     _logoCtrl.text.trim(),
+      bio:         _bioCtrl.text.trim(),
       socialLinks: socials,
-      badge: _badgeCtrl.text.trim(),
+      badge:       _badgeCtrl.text.trim(),
     );
   }
 
   String? _validateProfile(OrganizerProfile p) {
     if (p.bannerUrl.length > 2000) return 'Banner URL is too long.';
-    if (p.logoUrl.length > 2000) return 'Logo URL is too long.';
-    if (p.bio.length > 2000) return 'Bio is too long.';
-    if (p.badge.length > 80) return 'Badge is too long.';
+    if (p.logoUrl.length  > 2000) return 'Logo URL is too long.';
+    if (p.bio.length      > 2000) return 'Bio is too long.';
+    if (p.badge.length    > 80)   return 'Badge is too long.';
     for (final e in p.socialLinks.entries) {
-      if (e.key.length > 30) return 'Invalid social link key.';
+      if (e.key.length   > 30)   return 'Invalid social link key.';
       if (e.value.length > 2000) return 'A social link is too long.';
     }
     return null;
   }
+
+  // ── save ───────────────────────────────────────────────────────────────────
 
   Future<void> _save(MasterLeague ml) async {
     if (_saving) return;
@@ -320,7 +423,7 @@ class _OrganizerProfileScreenState
     }
 
     final profile = _profileFromControllers();
-    final err = _validateProfile(profile);
+    final err     = _validateProfile(profile);
     if (err != null) {
       _snack(err, error: true);
       return;
@@ -331,9 +434,10 @@ class _OrganizerProfileScreenState
       final repo = ref.read(masterLeaguesRepositoryProvider);
       await repo.updateOrganizerProfile(
         masterLeagueId: ml.id,
-        profile: profile,
+        profile:        profile,
       );
-      ref.invalidate(masterLeagueByIdProvider(widget.masterLeagueId));
+      ref.invalidate(
+          masterLeagueByIdProvider(widget.masterLeagueId));
       ref.invalidate(myMasterLeaguesProvider);
       _snack('Organizer profile updated');
     } catch (e) {
@@ -343,12 +447,15 @@ class _OrganizerProfileScreenState
     }
   }
 
+  // ── image upload ───────────────────────────────────────────────────────────
+
   Future<void> _pickAndUploadOrganizerImage(
     MasterLeague ml, {
     required bool banner,
   }) async {
     if (!ml.isOwner(_uid)) {
-      _snack('Only the owner can update organizer images.', error: true);
+      _snack('Only the owner can update organizer images.',
+          error: true);
       return;
     }
     if (banner ? _uploadingBanner : _uploadingLogo) return;
@@ -370,7 +477,10 @@ class _OrganizerProfileScreenState
       if (pickResult.wasCancelled) return;
 
       if (!pickResult.isSuccess) {
-        _snack(pickResult.errorMessage ?? 'Could not pick image.', error: true);
+        _snack(
+          pickResult.errorMessage ?? 'Could not pick image.',
+          error: true,
+        );
         return;
       }
 
@@ -384,8 +494,8 @@ class _OrganizerProfileScreenState
       }
 
       final secureUrl = await _uploadToCloudinary(
-        picked: picked,
-        folder: 'eleaguehub/organizers',
+        picked:       picked,
+        folder:       'eleaguehub/organizers',
         publicPrefix: banner
             ? 'organizer_banner_${ml.id}'
             : 'organizer_logo_${ml.id}',
@@ -401,7 +511,8 @@ class _OrganizerProfileScreenState
       await _postProfileUpdateFeedEvent(ml);
     } catch (e) {
       _snack(
-        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+        UserFriendlyError.toMessage(
+            e is Object ? e : Exception('unknown')),
         error: true,
       );
     } finally {
@@ -416,14 +527,21 @@ class _OrganizerProfileScreenState
     }
   }
 
-  Future<void> _toggleFollow(MasterLeague ml, bool isFollowing) async {
+  // ── follow ─────────────────────────────────────────────────────────────────
+
+  Future<void> _toggleFollow(
+      MasterLeague ml, bool isFollowing) async {
     if (_followBusy) return;
     if (_uid.isEmpty) {
-      _snack('Please sign in to follow this organizer.', error: true);
+      _snack('Please sign in to follow this organizer.',
+          error: true);
       return;
     }
     if (ml.ownerId.trim() == _uid) {
-      _snack('You cannot follow your own organizer workspace.', error: true);
+      _snack(
+        'You cannot follow your own organizer workspace.',
+        error: true,
+      );
       return;
     }
 
@@ -444,22 +562,30 @@ class _OrganizerProfileScreenState
     }
   }
 
+  // ── verification ───────────────────────────────────────────────────────────
+
   Future<void> _renewVerification(MasterLeague ml) async {
     if (_uid.isEmpty) {
       _snack('Please sign in to continue.', error: true);
       return;
     }
     if (ml.ownerId.trim() != _uid) {
-      _snack('Only the owner can renew verification.', error: true);
+      _snack('Only the owner can renew verification.',
+          error: true);
       return;
     }
     if (!ml.canRenewVerification) {
-      _snack('This organizer cannot renew verification right now.', error: true);
+      _snack(
+        'This organizer cannot renew verification right now.',
+        error: true,
+      );
       return;
     }
     if (ml.isVerificationPending &&
-        ml.verificationRequestType.trim().toLowerCase() == 'renewal') {
-      _snack('A renewal request is already pending review.', error: true);
+        ml.verificationRequestType.trim().toLowerCase() ==
+            'renewal') {
+      _snack('A renewal request is already pending review.',
+          error: true);
       return;
     }
 
@@ -469,42 +595,49 @@ class _OrganizerProfileScreenState
       builder: (ctx) {
         final brightness = Theme.of(ctx).brightness;
         return AlertDialog(
-          backgroundColor: AppTheme.cardColor(brightness),
+          backgroundColor:  AppTheme.cardColor(brightness),
           surfaceTintColor: Colors.transparent,
           title: const Text('Renew Verification'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'A paid renewal request will be submitted for re-review. Approval is required before expiry is extended.',
+                'A paid renewal request will be submitted '
+                'for re-review. Approval is required before '
+                'expiry is extended.',
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: noteCtrl,
-                maxLines: 4,
+                maxLines:   4,
                 decoration: const InputDecoration(
-                  labelText: 'Renewal note for admin (optional)',
+                  labelText:
+                      'Renewal note for admin (optional)',
                   alignLabelWithHint: true,
-                  prefixIcon: Icon(Icons.refresh_rounded),
+                  prefixIcon:
+                      Icon(Icons.refresh_rounded),
                 ),
               ),
               const SizedBox(height: 12),
               Container(
-                width: double.infinity,
+                width:   double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: brightness == Brightness.dark
-                      ? AppTheme.limeAccentDark.withOpacity(0.10)
+                      ? AppTheme.limeAccentDark
+                          .withOpacity(0.10)
                       : const Color(0xFFECFCCB),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: brightness == Brightness.dark
-                        ? AppTheme.limeAccentDark.withOpacity(0.18)
+                        ? AppTheme.limeAccentDark
+                            .withOpacity(0.18)
                         : const Color(0xFFD9F99D),
                   ),
                 ),
                 child: Text(
-                  'Renewals keep organizer trust current and require another review cycle.',
+                  'Renewals keep organizer trust current '
+                  'and require another review cycle.',
                   style: TextStyle(
                     color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w700,
@@ -515,7 +648,8 @@ class _OrganizerProfileScreenState
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () =>
+                  Navigator.of(ctx).pop(false),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -523,7 +657,8 @@ class _OrganizerProfileScreenState
                 backgroundColor: AppTheme.limeAccent,
                 foregroundColor: AppTheme.darkText,
               ),
-              onPressed: () => Navigator.of(ctx).pop(true),
+              onPressed: () =>
+                  Navigator.of(ctx).pop(true),
               child: const Text('Proceed to Payment'),
             ),
           ],
@@ -538,14 +673,19 @@ class _OrganizerProfileScreenState
 
     setState(() => _saving = true);
     try {
-      final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
-      final repo = ref.read(masterLeaguesRepositoryProvider);
-      final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      final paymentSvc =
+          ref.read(masterLeaguePaymentServiceProvider);
+      final repo =
+          ref.read(masterLeaguesRepositoryProvider);
+      final userId =
+          FirebaseAuth.instance.currentUser?.uid.trim() ??
+              '';
 
-      final payment = await paymentSvc.payForOrganizerVerificationRenewal(
-        context: context,
-        userId: userId,
-        masterLeagueId: ml.id,
+      final payment =
+          await paymentSvc.payForOrganizerVerificationRenewal(
+        context:          context,
+        userId:           userId,
+        masterLeagueId:   ml.id,
         masterLeagueName: ml.name,
       );
 
@@ -553,7 +693,8 @@ class _OrganizerProfileScreenState
 
       if (!payment.success) {
         _snack(
-          payment.errorMessage ?? 'Verification renewal payment failed.',
+          payment.errorMessage ??
+              'Verification renewal payment failed.',
           error: true,
         );
         return;
@@ -561,14 +702,15 @@ class _OrganizerProfileScreenState
 
       await repo.submitVerificationRenewalRequest(
         masterLeagueId: ml.id,
-        attemptId: payment.attemptId,
-        paymentId: payment.paymentId,
-        receiptId: payment.receiptId ?? '',
-        note: noteCtrl.text.trim(),
+        attemptId:      payment.attemptId,
+        paymentId:      payment.paymentId,
+        receiptId:      payment.receiptId ?? '',
+        note:           noteCtrl.text.trim(),
       );
 
       if (!mounted) return;
-      _snack('Verification renewal request submitted for review.');
+      _snack(
+          'Verification renewal request submitted for review.');
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -577,21 +719,27 @@ class _OrganizerProfileScreenState
     }
   }
 
-  Future<void> _startInitialVerification(MasterLeague ml) async {
+  Future<void> _startInitialVerification(
+      MasterLeague ml) async {
     if (_uid.isEmpty) {
       _snack('Please sign in to continue.', error: true);
       return;
     }
     if (ml.ownerId.trim() != _uid) {
-      _snack('Only the owner can request verification.', error: true);
+      _snack('Only the owner can request verification.',
+          error: true);
       return;
     }
     if (ml.isVerifiedOrganizer) {
-      _snack('This organizer is already verified.', error: true);
+      _snack('This organizer is already verified.',
+          error: true);
       return;
     }
     if (ml.isVerificationPending) {
-      _snack('A verification request is already pending review.', error: true);
+      _snack(
+        'A verification request is already pending review.',
+        error: true,
+      );
       return;
     }
 
@@ -601,42 +749,49 @@ class _OrganizerProfileScreenState
       builder: (ctx) {
         final brightness = Theme.of(ctx).brightness;
         return AlertDialog(
-          backgroundColor: AppTheme.cardColor(brightness),
+          backgroundColor:  AppTheme.cardColor(brightness),
           surfaceTintColor: Colors.transparent,
           title: const Text('Get Verified'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'A paid verification request will be submitted for manual review. Approval is required before the verified badge appears.',
+                'A paid verification request will be '
+                'submitted for manual review. Approval is '
+                'required before the verified badge appears.',
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: noteCtrl,
-                maxLines: 4,
+                maxLines:   4,
                 decoration: const InputDecoration(
                   labelText: 'Note for admin (optional)',
                   alignLabelWithHint: true,
-                  prefixIcon: Icon(Icons.verified_user_outlined),
+                  prefixIcon:
+                      Icon(Icons.verified_user_outlined),
                 ),
               ),
               const SizedBox(height: 12),
               Container(
-                width: double.infinity,
+                width:   double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: brightness == Brightness.dark
-                      ? AppTheme.limeAccentDark.withOpacity(0.10)
+                      ? AppTheme.limeAccentDark
+                          .withOpacity(0.10)
                       : const Color(0xFFECFCCB),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: brightness == Brightness.dark
-                        ? AppTheme.limeAccentDark.withOpacity(0.18)
+                        ? AppTheme.limeAccentDark
+                            .withOpacity(0.18)
                         : const Color(0xFFD9F99D),
                   ),
                 ),
                 child: Text(
-                  'Verification is different from your organizer plan. It is a trust review badge for participants.',
+                  'Verification is different from your '
+                  'organizer plan. It is a trust review badge '
+                  'for participants.',
                   style: TextStyle(
                     color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w700,
@@ -647,7 +802,8 @@ class _OrganizerProfileScreenState
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () =>
+                  Navigator.of(ctx).pop(false),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -655,7 +811,8 @@ class _OrganizerProfileScreenState
                 backgroundColor: AppTheme.limeAccent,
                 foregroundColor: AppTheme.darkText,
               ),
-              onPressed: () => Navigator.of(ctx).pop(true),
+              onPressed: () =>
+                  Navigator.of(ctx).pop(true),
               child: const Text('Proceed to Payment'),
             ),
           ],
@@ -670,14 +827,19 @@ class _OrganizerProfileScreenState
 
     setState(() => _saving = true);
     try {
-      final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
-      final repo = ref.read(masterLeaguesRepositoryProvider);
-      final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      final paymentSvc =
+          ref.read(masterLeaguePaymentServiceProvider);
+      final repo =
+          ref.read(masterLeaguesRepositoryProvider);
+      final userId =
+          FirebaseAuth.instance.currentUser?.uid.trim() ??
+              '';
 
-      final payment = await paymentSvc.payForOrganizerVerification(
-        context: context,
-        userId: userId,
-        masterLeagueId: ml.id,
+      final payment =
+          await paymentSvc.payForOrganizerVerification(
+        context:          context,
+        userId:           userId,
+        masterLeagueId:   ml.id,
         masterLeagueName: ml.name,
       );
 
@@ -685,7 +847,8 @@ class _OrganizerProfileScreenState
 
       if (!payment.success) {
         _snack(
-          payment.errorMessage ?? 'Verification payment failed.',
+          payment.errorMessage ??
+              'Verification payment failed.',
           error: true,
         );
         return;
@@ -693,10 +856,10 @@ class _OrganizerProfileScreenState
 
       await repo.submitVerificationRequest(
         masterLeagueId: ml.id,
-        attemptId: payment.attemptId,
-        paymentId: payment.paymentId,
-        receiptId: payment.receiptId ?? '',
-        note: noteCtrl.text.trim(),
+        attemptId:      payment.attemptId,
+        paymentId:      payment.paymentId,
+        receiptId:      payment.receiptId ?? '',
+        note:           noteCtrl.text.trim(),
       );
 
       if (!mounted) return;
@@ -709,29 +872,37 @@ class _OrganizerProfileScreenState
     }
   }
 
-  Future<void> _postProfileUpdateFeedEvent(MasterLeague ml) async {
+  // ── feed event ─────────────────────────────────────────────────────────────
+
+  Future<void> _postProfileUpdateFeedEvent(
+      MasterLeague ml) async {
     try {
-      final profile = await UserProfileRepository().fetchByUserId(_uid);
-      final actorName = (profile?.displayName.trim().isNotEmpty == true)
-          ? profile!.displayName.trim()
-          : 'Organizer';
+      final profile =
+          await UserProfileRepository().fetchByUserId(_uid);
+      final actorName =
+          (profile?.displayName.trim().isNotEmpty == true)
+              ? profile!.displayName.trim()
+              : 'Organizer';
 
       await _organizerFeed.addEvent(
         OrganizerFeedEvent(
-          id: '',
+          id:             '',
           masterLeagueId: ml.id,
-          type: 'announcement',
-          title: 'Organizer profile updated',
+          type:           'announcement',
+          title:          'Organizer profile updated',
           message:
-              'Brand profile, links, or organizer identity details were updated.',
+              'Brand profile, links, or organizer identity '
+              'details were updated.',
           createdAtMs: DateTime.now().millisecondsSinceEpoch,
-          actorId: _uid,
-          actorName: actorName,
-          leagueId: '',
+          actorId:     _uid,
+          actorName:   actorName,
+          leagueId:    '',
         ),
       );
     } catch (_) {}
   }
+
+  // ── shared UI atoms ────────────────────────────────────────────────────────
 
   Widget _imageBox({
     required String url,
@@ -758,16 +929,17 @@ class _OrganizerProfileScreenState
                     const Color(0xFFFFFFFF),
                   ],
             begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            end:   Alignment.bottomRight,
           ),
-          border: Border.all(color: AppTheme.cardBorder(brightness)),
+          border: Border.all(
+              color: AppTheme.cardBorder(brightness)),
         ),
         child: fallback ??
             Center(
               child: Text(
                 'No image',
                 style: TextStyle(
-                  color: AppTheme.secondaryText(brightness),
+                  color:      AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w800,
                 ),
               ),
@@ -780,28 +952,34 @@ class _OrganizerProfileScreenState
       child: Image.network(
         _cloudinaryOptimizedUrl(
           url.trim(),
-          width: 1200,
+          width:  1200,
           height: 500,
-          crop: 'fill',
+          crop:   'fill',
         ),
         height: height,
-        width: double.infinity,
-        fit: BoxFit.cover,
+        width:  double.infinity,
+        fit:    BoxFit.cover,
         errorBuilder: (_, __, ___) {
           return Container(
             height: height,
             decoration: BoxDecoration(
               borderRadius: radius,
-              color: Theme.of(context).colorScheme.error.withOpacity(0.06),
+              color: Theme.of(context)
+                  .colorScheme
+                  .error
+                  .withOpacity(0.06),
               border: Border.all(
-                color: Theme.of(context).colorScheme.error.withOpacity(0.18),
+                color: Theme.of(context)
+                    .colorScheme
+                    .error
+                    .withOpacity(0.18),
               ),
             ),
             child: Center(
               child: Text(
                 'Image failed to load',
                 style: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
+                  color:      Theme.of(context).colorScheme.error,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -813,11 +991,11 @@ class _OrganizerProfileScreenState
   }
 
   Widget _metricRow({
-    required ThemeData theme,
-    required Brightness brightness,
     required String label,
     required String value,
   }) {
+    final theme      = Theme.of(context);
+    final brightness = theme.brightness;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -826,7 +1004,7 @@ class _OrganizerProfileScreenState
             child: Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: AppTheme.secondaryText(brightness),
+                color:      AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -834,7 +1012,7 @@ class _OrganizerProfileScreenState
           Text(
             value,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: AppTheme.primaryText(brightness),
+              color:      AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -843,62 +1021,50 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _socialEditor() {
-    return Column(
-      children: [
-        TextField(
-          controller: _facebookCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Facebook link (optional)',
-            prefixIcon: Icon(Icons.link),
+  Widget _metaChip(
+    Brightness brightness, {
+    required IconData icon,
+    required String   label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color:  AppTheme.searchBackground(brightness),
+        border: Border.all(
+            color: AppTheme.searchOutline(brightness)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14,
+              color: AppTheme.limeAccentDark),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color:      AppTheme.primaryText(brightness),
+              fontWeight: FontWeight.w800,
+              fontSize:   12,
+            ),
           ),
-        ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _instagramCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Instagram link (optional)',
-            prefixIcon: Icon(Icons.link),
-          ),
-        ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _xCtrl,
-          decoration: const InputDecoration(
-            labelText: 'X / Twitter link (optional)',
-            prefixIcon: Icon(Icons.link),
-          ),
-        ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _youtubeCtrl,
-          decoration: const InputDecoration(
-            labelText: 'YouTube link (optional)',
-            prefixIcon: Icon(Icons.link),
-          ),
-        ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _tiktokCtrl,
-          decoration: const InputDecoration(
-            labelText: 'TikTok link (optional)',
-            prefixIcon: Icon(Icons.link),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _pill({
-    required String text,
-    required Color color,
-    IconData? icon,
+    required String  text,
+    required Color   color,
+    IconData?        icon,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+          horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: color.withOpacity(0.12),
+        color:  color.withOpacity(0.12),
         border: Border.all(color: color.withOpacity(0.28)),
       ),
       child: Row(
@@ -911,9 +1077,9 @@ class _OrganizerProfileScreenState
           Text(
             text,
             style: TextStyle(
-              color: color,
+              color:      color,
               fontWeight: FontWeight.w900,
-              fontSize: 12,
+              fontSize:   12,
             ),
           ),
         ],
@@ -921,21 +1087,81 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _accessDenied() {
-    return const Center(
-      child: EmptyState(
-        title: 'Sign in required',
-        message: 'Please sign in to view organizer profiles.',
-        icon: Icons.lock_outline_rounded,
+  Widget _logoFallback(Brightness brightness) {
+    return Container(
+      color: AppTheme.iconCircleBackground(brightness),
+      child: Center(
+        child: Icon(
+          Icons.hub_rounded,
+          color: AppTheme.limeAccentDark,
+          size:  42,
+        ),
       ),
     );
   }
 
-  Widget _buildPinnedAnnouncementSection(
-    MasterLeague ml,
-    ThemeData theme,
-    Brightness brightness,
-  ) {
+  Widget _accessDenied() {
+    return const Center(
+      child: EmptyState(
+        title:   'Sign in required',
+        message: 'Please sign in to view organizer profiles.',
+        icon:    Icons.lock_outline_rounded,
+      ),
+    );
+  }
+
+  Widget _socialEditor() {
+    return Column(
+      children: [
+        TextField(
+          controller: _facebookCtrl,
+          decoration: const InputDecoration(
+            labelText:  'Facebook link (optional)',
+            prefixIcon: Icon(Icons.link),
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _instagramCtrl,
+          decoration: const InputDecoration(
+            labelText:  'Instagram link (optional)',
+            prefixIcon: Icon(Icons.link),
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _xCtrl,
+          decoration: const InputDecoration(
+            labelText:  'X / Twitter link (optional)',
+            prefixIcon: Icon(Icons.link),
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _youtubeCtrl,
+          decoration: const InputDecoration(
+            labelText:  'YouTube link (optional)',
+            prefixIcon: Icon(Icons.link),
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _tiktokCtrl,
+          decoration: const InputDecoration(
+            labelText:  'TikTok link (optional)',
+            prefixIcon: Icon(Icons.link),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Section: pinned announcement ───────────────────────────────────────────
+
+  Widget _buildPinnedAnnouncementSection(MasterLeague ml) {
+    final theme      = Theme.of(context);
+    final brightness = theme.brightness;
+
     return StreamBuilder<LeagueAnnouncement?>(
       stream: _watchPinnedWorkspaceAnnouncement(ml.id),
       builder: (context, snap) {
@@ -944,9 +1170,9 @@ class _OrganizerProfileScreenState
 
         return Glass(
           borderRadius: 24,
-          padding: const EdgeInsets.all(16),
-          fill: AppTheme.cardColor(brightness),
-          borderColor: AppTheme.cardBorder(brightness),
+          padding:      const EdgeInsets.all(16),
+          fill:         AppTheme.cardColor(brightness),
+          borderColor:  AppTheme.cardBorder(brightness),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -962,7 +1188,7 @@ class _OrganizerProfileScreenState
               Text(
                 pinned.title,
                 style: theme.textTheme.titleSmall?.copyWith(
-                  color: AppTheme.primaryText(brightness),
+                  color:      AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -970,14 +1196,14 @@ class _OrganizerProfileScreenState
               Text(
                 pinned.message,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: AppTheme.secondaryText(brightness),
+                  color:      AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w700,
-                  height: 1.35,
+                  height:     1.35,
                 ),
               ),
               const SizedBox(height: 10),
               Wrap(
-                spacing: 8,
+                spacing:    8,
                 runSpacing: 8,
                 children: [
                   _metaChip(
@@ -991,9 +1217,10 @@ class _OrganizerProfileScreenState
                     brightness,
                     icon: Icons.schedule_rounded,
                     label: pinned.pinnedAtMs > 0
-                        ? DateTime.fromMillisecondsSinceEpoch(
-                                pinned.pinnedAtMs,
-                              )
+                        ? DateTime
+                            .fromMillisecondsSinceEpoch(
+                              pinned.pinnedAtMs,
+                            )
                             .toLocal()
                             .toString()
                             .split('.')
@@ -1009,73 +1236,51 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _metaChip(
-    Brightness brightness, {
-    required IconData icon,
-    required String label,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: AppTheme.searchBackground(brightness),
-        border: Border.all(color: AppTheme.searchOutline(brightness)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: AppTheme.limeAccentDark),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: AppTheme.primaryText(brightness),
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // ── Section: verification status ───────────────────────────────────────────
 
-  Widget _verificationStatusCard(
-    MasterLeague ml,
-    ThemeData theme,
-    Brightness brightness,
-  ) {
-    Color statusColor;
+  Widget _verificationStatusCard(MasterLeague ml) {
+    final theme      = Theme.of(context);
+    final brightness = theme.brightness;
+
+    Color  statusColor;
     String statusTitle;
     String statusBody;
 
     if (ml.isVerifiedOrganizer) {
       statusColor = const Color(0xFF1D9BF0);
       statusTitle = 'Verified Organizer';
-      statusBody =
-          'This organizer has been manually reviewed and approved. This badge helps participants identify authentic organizers and avoid scams.';
+      statusBody  =
+          'This organizer has been manually reviewed and '
+          'approved. This badge helps participants identify '
+          'authentic organizers and avoid scams.';
     } else if (ml.isVerificationPending) {
       statusColor = const Color(0xFFF59E0B);
       statusTitle = ml.lastVerificationWasRenewal
           ? 'Renewal Pending Review'
           : 'Verification Pending';
       statusBody = ml.lastVerificationWasRenewal
-          ? 'A paid renewal request has been submitted and is waiting for admin review.'
-          : 'A paid verification request has been submitted and is waiting for admin review.';
+          ? 'A paid renewal request has been submitted '
+              'and is waiting for admin review.'
+          : 'A paid verification request has been submitted '
+              'and is waiting for admin review.';
     } else if (ml.isVerificationRejected) {
       statusColor = Theme.of(context).colorScheme.error;
       statusTitle = 'Verification Rejected';
-      statusBody =
-          'The verification request was reviewed and rejected. Please contact support or submit again later.';
+      statusBody  =
+          'The verification request was reviewed and rejected. '
+          'Please contact support or submit again later.';
     } else if (ml.verificationExpired) {
       statusColor = const Color(0xFFF59E0B);
       statusTitle = 'Verification Expired';
-      statusBody =
-          'This organizer was previously verified, but the verification period has expired and should be renewed.';
+      statusBody  =
+          'This organizer was previously verified, but the '
+          'verification period has expired and should be renewed.';
     } else {
       statusColor = AppTheme.secondaryText(brightness);
       statusTitle = 'Not Verified';
-      statusBody =
-          'This organizer is not yet verified. Verified badges help participants identify trusted organizer identities.';
+      statusBody  =
+          'This organizer is not yet verified. Verified badges '
+          'help participants identify trusted organizer identities.';
     }
 
     String expiryLabel = 'No expiry';
@@ -1090,14 +1295,15 @@ class _OrganizerProfileScreenState
         !ml.isVerificationPending &&
         !ml.verificationExpired;
 
-    final ownerCanRenew =
-        ml.isOwner(_uid) && ml.canRenewVerification && !ml.isVerificationPending;
+    final ownerCanRenew = ml.isOwner(_uid) &&
+        ml.canRenewVerification &&
+        !ml.isVerificationPending;
 
     return Glass(
       borderRadius: 24,
-      padding: const EdgeInsets.all(16),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+      padding:      const EdgeInsets.all(16),
+      fill:         AppTheme.cardColor(brightness),
+      borderColor:  AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1114,22 +1320,20 @@ class _OrganizerProfileScreenState
             statusTitle,
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w900,
-              color: statusColor,
+              color:      statusColor,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             statusBody,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: AppTheme.secondaryText(brightness),
+              color:      AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
-              height: 1.35,
+              height:     1.35,
             ),
           ),
           const SizedBox(height: 10),
           _metricRow(
-            theme: theme,
-            brightness: brightness,
             label: 'Verification expires',
             value: expiryLabel,
           ),
@@ -1138,7 +1342,7 @@ class _OrganizerProfileScreenState
             Text(
               'Review note: ${ml.verificationNote.trim()}',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: AppTheme.secondaryText(brightness),
+                color:      AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -1154,7 +1358,8 @@ class _OrganizerProfileScreenState
                       foregroundColor: AppTheme.darkText,
                     ),
                     onPressed: ownerCanStartInitial
-                        ? () => _startInitialVerification(ml)
+                        ? () =>
+                            _startInitialVerification(ml)
                         : () => _renewVerification(ml),
                     icon: Icon(
                       ownerCanStartInitial
@@ -1165,7 +1370,8 @@ class _OrganizerProfileScreenState
                       ownerCanStartInitial
                           ? 'Get Verified'
                           : 'Renew Verification',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w900),
                     ),
                   ),
                 ),
@@ -1173,11 +1379,13 @@ class _OrganizerProfileScreenState
             ),
             const SizedBox(height: 8),
             Text(
-              'Verification purchase is separate from your organizer plan. Plan controls capacity; verification adds trust review.',
+              'Verification purchase is separate from your '
+              'organizer plan. Plan controls capacity; '
+              'verification adds trust review.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: AppTheme.secondaryText(brightness),
+                color:      AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
-                height: 1.3,
+                height:     1.3,
               ),
             ),
           ],
@@ -1186,32 +1394,35 @@ class _OrganizerProfileScreenState
     );
   }
 
+  // ── Section: identity hero ─────────────────────────────────────────────────
+
   Widget _identityHero(
     MasterLeague ml,
-    ThemeData theme,
-    Brightness brightness,
-    String ownerName,
-    bool isFollowing,
-    int followersCount,
+    String        ownerName,
+    bool          isFollowing,
+    int           followersCount,
   ) {
+    final theme      = Theme.of(context);
+    final brightness = theme.brightness;
+
     final planColor = ml.plan == MasterLeaguePlan.elite
         ? const Color(0xFF8B5CF6)
         : (ml.plan == MasterLeaguePlan.pro
             ? const Color(0xFF22C55E)
             : AppTheme.limeAccentDark);
 
-    final planLabel = 'Plan: ${ml.plan.displayName}';
-    final canFollow = _uid.isNotEmpty && ml.ownerId.trim() != _uid;
-    final ownerCanEdit = ml.isOwner(_uid);
-
-    final bannerUrl = ml.organizerProfile.bannerUrl.trim();
-    final logoUrl = ml.organizerProfile.logoUrl.trim();
+    final planLabel     = 'Plan: ${ml.plan.displayName}';
+    final canFollow     =
+        _uid.isNotEmpty && ml.ownerId.trim() != _uid;
+    final ownerCanEdit  = ml.isOwner(_uid);
+    final bannerUrl     = ml.organizerProfile.bannerUrl.trim();
+    final logoUrl       = ml.organizerProfile.logoUrl.trim();
 
     return Glass(
       borderRadius: 30,
-      padding: const EdgeInsets.all(12),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+      padding:      const EdgeInsets.all(12),
+      fill:         AppTheme.cardColor(brightness),
+      borderColor:  AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1221,18 +1432,21 @@ class _OrganizerProfileScreenState
               InkWell(
                 borderRadius: BorderRadius.circular(24),
                 onTap: ownerCanEdit
-                    ? () => _pickAndUploadOrganizerImage(ml, banner: true)
+                    ? () => _pickAndUploadOrganizerImage(
+                        ml, banner: true)
                     : null,
                 child: Stack(
                   children: [
                     _imageBox(
-                      url: bannerUrl,
+                      url:    bannerUrl,
                       height: 220,
                       radius: BorderRadius.circular(24),
                       fallback: Container(
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(24),
-                          gradient: brightness == Brightness.dark
+                          borderRadius:
+                              BorderRadius.circular(24),
+                          gradient: brightness ==
+                                  Brightness.dark
                               ? const LinearGradient(
                                   colors: [
                                     Color(0xFF182230),
@@ -1240,7 +1454,8 @@ class _OrganizerProfileScreenState
                                     Color(0xFF0F172A),
                                   ],
                                   begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
+                                  end:
+                                      Alignment.bottomRight,
                                 )
                               : const LinearGradient(
                                   colors: [
@@ -1249,14 +1464,17 @@ class _OrganizerProfileScreenState
                                     Color(0xFFFFFFFF),
                                   ],
                                   begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
+                                  end:
+                                      Alignment.bottomRight,
                                 ),
                         ),
                         child: Center(
                           child: Icon(
-                            Icons.photo_size_select_actual_outlined,
-                            size: 48,
-                            color: AppTheme.secondaryText(brightness),
+                            Icons
+                                .photo_size_select_actual_outlined,
+                            size:  48,
+                            color: AppTheme.secondaryText(
+                                brightness),
                           ),
                         ),
                       ),
@@ -1265,14 +1483,17 @@ class _OrganizerProfileScreenState
                       Positioned.fill(
                         child: Container(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            color: Colors.black.withOpacity(0.18),
+                            borderRadius:
+                                BorderRadius.circular(24),
+                            color: Colors.black
+                                .withOpacity(0.18),
                           ),
                           child: const Center(
                             child: SizedBox(
-                              width: 26,
+                              width:  26,
                               height: 26,
-                              child: CircularProgressIndicator(
+                              child:
+                                  CircularProgressIndicator(
                                 strokeWidth: 2.4,
                                 color: Colors.white,
                               ),
@@ -1284,32 +1505,35 @@ class _OrganizerProfileScreenState
                 ),
               ),
               Positioned(
-                left: 20,
+                left:   20,
                 bottom: -42,
                 child: Stack(
                   children: [
                     InkWell(
                       onTap: ownerCanEdit
-                          ? () => _pickAndUploadOrganizerImage(
-                                ml,
-                                banner: false,
-                              )
+                          ? () =>
+                              _pickAndUploadOrganizerImage(
+                                ml, banner: false)
                           : null,
-                      borderRadius: BorderRadius.circular(999),
+                      borderRadius:
+                          BorderRadius.circular(999),
                       child: Container(
-                        width: 96,
+                        width:  96,
                         height: 96,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Theme.of(context).scaffoldBackgroundColor,
+                          color: Theme.of(context)
+                              .scaffoldBackgroundColor,
                           border: Border.all(
-                            color: Theme.of(context).scaffoldBackgroundColor,
+                            color: Theme.of(context)
+                                .scaffoldBackgroundColor,
                             width: 4,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.12),
-                              blurRadius: 18,
+                              color: Colors.black
+                                  .withOpacity(0.12),
+                              blurRadius:   18,
                               spreadRadius: 1,
                             ),
                           ],
@@ -1319,13 +1543,15 @@ class _OrganizerProfileScreenState
                               ? Image.network(
                                   _cloudinaryOptimizedUrl(
                                     logoUrl,
-                                    width: 300,
+                                    width:  300,
                                     height: 300,
-                                    crop: 'fill',
+                                    crop:   'fill',
                                   ),
                                   fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) =>
-                                      _logoFallback(brightness),
+                                  errorBuilder:
+                                      (_, __, ___) =>
+                                          _logoFallback(
+                                              brightness),
                                 )
                               : _logoFallback(brightness),
                         ),
@@ -1336,13 +1562,15 @@ class _OrganizerProfileScreenState
                         child: Container(
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Colors.black.withOpacity(0.22),
+                            color: Colors.black
+                                .withOpacity(0.22),
                           ),
                           child: const Center(
                             child: SizedBox(
-                              width: 24,
+                              width:  24,
                               height: 24,
-                              child: CircularProgressIndicator(
+                              child:
+                                  CircularProgressIndicator(
                                 strokeWidth: 2.2,
                                 color: Colors.white,
                               ),
@@ -1352,22 +1580,23 @@ class _OrganizerProfileScreenState
                       ),
                     if (ownerCanEdit && !_uploadingLogo)
                       Positioned(
-                        right: 0,
+                        right:  0,
                         bottom: 0,
                         child: Container(
-                          width: 32,
+                          width:  32,
                           height: 32,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: AppTheme.limeAccent,
                             border: Border.all(
-                              color: Theme.of(context).scaffoldBackgroundColor,
+                              color: Theme.of(context)
+                                  .scaffoldBackgroundColor,
                               width: 2,
                             ),
                           ),
                           child: const Icon(
                             Icons.camera_alt_rounded,
-                            size: 16,
+                            size:  16,
                             color: AppTheme.darkText,
                           ),
                         ),
@@ -1379,7 +1608,7 @@ class _OrganizerProfileScreenState
           ),
           const SizedBox(height: 54),
           Wrap(
-            spacing: 8,
+            spacing:    8,
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
@@ -1388,11 +1617,15 @@ class _OrganizerProfileScreenState
                 children: [
                   Flexible(
                     child: Text(
-                      ml.name.trim().isEmpty ? 'Organizer' : ml.name.trim(),
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
+                      ml.name.trim().isEmpty
+                          ? 'Organizer'
+                          : ml.name.trim(),
+                      style: theme.textTheme.titleLarge
+                          ?.copyWith(
+                        fontWeight:    FontWeight.w900,
                         letterSpacing: -0.3,
-                        color: AppTheme.primaryText(brightness),
+                        color: AppTheme.primaryText(
+                            brightness),
                       ),
                     ),
                   ),
@@ -1401,30 +1634,33 @@ class _OrganizerProfileScreenState
                     const Icon(
                       Icons.verified_rounded,
                       color: Color(0xFF1D9BF0),
-                      size: 20,
+                      size:  20,
                     )
                   else if (ml.isVerificationPending)
                     const Icon(
                       Icons.verified_outlined,
                       color: Color(0xFFF59E0B),
-                      size: 20,
+                      size:  20,
                     ),
                 ],
               ),
               _pill(
-                text: planLabel,
+                text:  planLabel,
                 color: planColor,
-                icon: Icons.workspace_premium_rounded,
+                icon:  Icons.workspace_premium_rounded,
               ),
-              if (ml.organizerProfile.badge.trim().isNotEmpty)
+              if (ml.organizerProfile.badge
+                  .trim()
+                  .isNotEmpty)
                 _pill(
-                  text: ml.organizerProfile.badge.trim(),
+                  text:  ml.organizerProfile.badge.trim(),
                   color: const Color(0xFFF59E0B),
                 ),
               _pill(
-                text: '$followersCount follower${followersCount == 1 ? '' : 's'}',
+                text: '$followersCount '
+                    'follower${followersCount == 1 ? '' : 's'}',
                 color: const Color(0xFF22C55E),
-                icon: Icons.favorite_border_rounded,
+                icon:  Icons.favorite_border_rounded,
               ),
             ],
           ),
@@ -1434,7 +1670,7 @@ class _OrganizerProfileScreenState
                 ? 'Managed by $ownerName'
                 : 'Managed by Organizer',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: AppTheme.secondaryText(brightness),
+              color:      AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1446,9 +1682,9 @@ class _OrganizerProfileScreenState
             maxLines: 4,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: AppTheme.secondaryText(brightness),
+              color:      AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w600,
-              height: 1.35,
+              height:     1.35,
             ),
           ),
           if (canFollow) ...[
@@ -1461,13 +1697,16 @@ class _OrganizerProfileScreenState
                       backgroundColor: AppTheme.limeAccent,
                       foregroundColor: AppTheme.darkText,
                     ),
-                    onPressed:
-                        _followBusy ? null : () => _toggleFollow(ml, isFollowing),
+                    onPressed: _followBusy
+                        ? null
+                        : () =>
+                            _toggleFollow(ml, isFollowing),
                     icon: _followBusy
                         ? const SizedBox(
-                            width: 16,
+                            width:  16,
                             height: 16,
-                            child: CircularProgressIndicator(
+                            child:
+                                CircularProgressIndicator(
                               strokeWidth: 2,
                               color: AppTheme.darkText,
                             ),
@@ -1475,11 +1714,15 @@ class _OrganizerProfileScreenState
                         : Icon(
                             isFollowing
                                 ? Icons.favorite_rounded
-                                : Icons.favorite_border_rounded,
+                                : Icons
+                                    .favorite_border_rounded,
                           ),
                     label: Text(
-                      isFollowing ? 'Following' : 'Follow Organizer',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+                      isFollowing
+                          ? 'Following'
+                          : 'Follow Organizer',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w900),
                     ),
                   ),
                 ),
@@ -1491,28 +1734,15 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _logoFallback(Brightness brightness) {
-    return Container(
-      color: AppTheme.iconCircleBackground(brightness),
-      child: Center(
-        child: Icon(
-          Icons.hub_rounded,
-          color: AppTheme.limeAccentDark,
-          size: 42,
-        ),
-      ),
-    );
-  }
+  // ── Section: trust metrics ─────────────────────────────────────────────────
 
-  Widget _trustMetrics(
-    MasterLeague ml,
-    ThemeData theme,
-    Brightness brightness,
-    int followersCount,
-  ) {
-    final cards = [
+  Widget _trustMetrics(MasterLeague ml, int followersCount) {
+    final theme      = Theme.of(context);
+    final brightness = theme.brightness;
+
+    final cards = <_TrustMetric>[
       _TrustMetric(
-        icon: Icons.workspace_premium_rounded,
+        icon:  Icons.workspace_premium_rounded,
         label: 'Organizer Plan',
         value: ml.plan.displayName,
         tint: ml.plan == MasterLeaguePlan.elite
@@ -1522,13 +1752,15 @@ class _OrganizerProfileScreenState
                 : AppTheme.limeAccentDark),
       ),
       _TrustMetric(
-        icon: Icons.verified_user_outlined,
+        icon:  Icons.verified_user_outlined,
         label: 'Trust Status',
         value: ml.isVerifiedOrganizer
             ? 'Verified'
             : (ml.isVerificationPending
                 ? 'Pending'
-                : (ml.verificationExpired ? 'Expired' : 'Unverified')),
+                : (ml.verificationExpired
+                    ? 'Expired'
+                    : 'Unverified')),
         tint: ml.isVerifiedOrganizer
             ? const Color(0xFF1D9BF0)
             : (ml.isVerificationPending
@@ -1536,38 +1768,39 @@ class _OrganizerProfileScreenState
                 : AppTheme.secondaryText(brightness)),
       ),
       _TrustMetric(
-        icon: Icons.emoji_events_outlined,
+        icon:  Icons.emoji_events_outlined,
         label: 'Competitions Hosted',
         value: '${ml.analytics.totalTournamentsCreated}',
-        tint: AppTheme.limeAccentDark,
+        tint:  AppTheme.limeAccentDark,
       ),
       _TrustMetric(
-        icon: Icons.groups_rounded,
+        icon:  Icons.groups_rounded,
         label: 'Teams Hosted',
         value: '${ml.analytics.totalParticipantsTeams}',
-        tint: const Color(0xFF22C55E),
+        tint:  const Color(0xFF22C55E),
       ),
       _TrustMetric(
-        icon: Icons.sports_score_rounded,
+        icon:  Icons.sports_score_rounded,
         label: 'Matches Managed',
         value: '${ml.analytics.totalMatches}',
-        tint: const Color(0xFF8B5CF6),
+        tint:  const Color(0xFF8B5CF6),
       ),
       _TrustMetric(
-        icon: Icons.favorite_border_rounded,
+        icon:  Icons.favorite_border_rounded,
         label: 'Followers',
         value: '$followersCount',
-        tint: const Color(0xFFEF4444),
+        tint:  const Color(0xFFEF4444),
       ),
     ];
 
     return GridView.builder(
       shrinkWrap: true,
-      itemCount: cards.length,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 12,
+      itemCount:  cards.length,
+      physics:    const NeverScrollableScrollPhysics(),
+      gridDelegate:
+          const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount:   2,
+        mainAxisSpacing:  12,
         crossAxisSpacing: 12,
         childAspectRatio: 1.7,
       ),
@@ -1575,39 +1808,47 @@ class _OrganizerProfileScreenState
         final item = cards[index];
         return Glass(
           borderRadius: 20,
-          padding: const EdgeInsets.all(14),
-          fill: AppTheme.cardColor(brightness),
-          borderColor: AppTheme.cardBorder(brightness),
+          padding:      const EdgeInsets.all(14),
+          fill:         AppTheme.cardColor(brightness),
+          borderColor:  AppTheme.cardBorder(brightness),
           child: Row(
             children: [
               Container(
-                width: 42,
+                width:  42,
                 height: 42,
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: item.tint.withOpacity(0.12),
-                  border: Border.all(color: item.tint.withOpacity(0.24)),
+                  shape:  BoxShape.circle,
+                  color:  item.tint.withOpacity(0.12),
+                  border: Border.all(
+                      color: item.tint.withOpacity(0.24)),
                 ),
-                child: Icon(item.icon, color: item.tint),
+                child:
+                    Icon(item.icon, color: item.tint),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment:
+                      MainAxisAlignment.center,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
                   children: [
                     Text(
                       item.value,
-                      style: theme.textTheme.titleMedium?.copyWith(
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(
                         fontWeight: FontWeight.w900,
-                        color: AppTheme.primaryText(brightness),
+                        color: AppTheme.primaryText(
+                            brightness),
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       item.label,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppTheme.secondaryText(brightness),
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(
+                        color: AppTheme.secondaryText(
+                            brightness),
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -1621,31 +1862,35 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _socialLinksSection(
-    MasterLeague ml,
-    ThemeData theme,
-    Brightness brightness,
-  ) {
-    final links = ml.organizerProfile.socialLinks;
+  // ── Section: social links ──────────────────────────────────────────────────
+
+  Widget _socialLinksSection(MasterLeague ml) {
+    final theme      = Theme.of(context);
+    final brightness = theme.brightness;
+    final links      = ml.organizerProfile.socialLinks;
 
     Widget socialTile(String key, String value) {
       return Glass(
         borderRadius: 18,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        fill: AppTheme.cardColor(brightness),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 14, vertical: 12),
+        fill:        AppTheme.cardColor(brightness),
         borderColor: AppTheme.cardBorder(brightness),
         child: Row(
           children: [
-            Icon(Icons.link_rounded, color: AppTheme.limeAccentDark, size: 18),
+            Icon(Icons.link_rounded,
+                color: AppTheme.limeAccentDark, size: 18),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
                     key,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppTheme.secondaryText(brightness),
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(
+                      color:      AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -1654,8 +1899,9 @@ class _OrganizerProfileScreenState
                     value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.primaryText(brightness),
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(
+                      color:      AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -1669,23 +1915,24 @@ class _OrganizerProfileScreenState
 
     return Glass(
       borderRadius: 24,
-      padding: const EdgeInsets.all(16),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+      padding:      const EdgeInsets.all(16),
+      fill:         AppTheme.cardColor(brightness),
+      borderColor:  AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
             'Official Links',
             padding: EdgeInsets.zero,
-            trailing: Icon(Icons.public_rounded, color: AppTheme.limeAccentDark),
+            trailing: Icon(Icons.public_rounded,
+                color: AppTheme.limeAccentDark),
           ),
           const SizedBox(height: 10),
           if (links.isEmpty)
             Text(
               'No official links published yet.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: AppTheme.secondaryText(brightness),
+                color:      AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
               ),
             )
@@ -1705,16 +1952,17 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _aboutSection(
-    MasterLeague ml,
-    ThemeData theme,
-    Brightness brightness,
-  ) {
+  // ── Section: about ─────────────────────────────────────────────────────────
+
+  Widget _aboutSection(MasterLeague ml) {
+    final theme      = Theme.of(context);
+    final brightness = theme.brightness;
+
     return Glass(
       borderRadius: 24,
-      padding: const EdgeInsets.all(16),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+      padding:      const EdgeInsets.all(16),
+      fill:         AppTheme.cardColor(brightness),
+      borderColor:  AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1732,8 +1980,8 @@ class _OrganizerProfileScreenState
                 ? 'No bio yet.'
                 : ml.organizerProfile.bio.trim(),
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: AppTheme.secondaryText(brightness),
-              height: 1.35,
+              color:      AppTheme.secondaryText(brightness),
+              height:     1.35,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -1741,10 +1989,10 @@ class _OrganizerProfileScreenState
             const SizedBox(height: 14),
             TextField(
               controller: _bioCtrl,
-              maxLines: 5,
+              maxLines:   5,
               decoration: const InputDecoration(
-                labelText: 'Organizer bio',
-                prefixIcon: Icon(Icons.subject_outlined),
+                labelText:        'Organizer bio',
+                prefixIcon:       Icon(Icons.subject_outlined),
                 alignLabelWithHint: true,
               ),
             ),
@@ -1754,36 +2002,39 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _competitionHistory(
-    MasterLeague ml,
-    ThemeData theme,
-    Brightness brightness,
-  ) {
+  // ── Section: competition history ───────────────────────────────────────────
+
+  Widget _competitionHistory(MasterLeague ml) {
+    final theme      = Theme.of(context);
+    final brightness = theme.brightness;
+
     return Glass(
       borderRadius: 24,
-      padding: const EdgeInsets.all(16),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+      padding:      const EdgeInsets.all(16),
+      fill:         AppTheme.cardColor(brightness),
+      borderColor:  AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
             'Competition History',
             padding: EdgeInsets.zero,
-            trailing: Icon(Icons.history_rounded, color: AppTheme.limeAccentDark),
+            trailing: Icon(Icons.history_rounded,
+                color: AppTheme.limeAccentDark),
           ),
           const SizedBox(height: 10),
           StreamBuilder<List<League>>(
             stream: _watchCompetitions(ml.id),
             builder: (context, leaguesSnap) {
-              final leagues = leaguesSnap.data ?? const <League>[];
-              if (leaguesSnap.connectionState == ConnectionState.waiting &&
+              final leagues =
+                  leaguesSnap.data ?? const <League>[];
+              if (leaguesSnap.connectionState ==
+                      ConnectionState.waiting &&
                   leagues.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.all(8),
                   child: Center(
-                    child: CircularProgressIndicator(),
-                  ),
+                      child: CircularProgressIndicator()),
                 );
               }
 
@@ -1791,7 +2042,7 @@ class _OrganizerProfileScreenState
                 return Text(
                   'No competitions yet.',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppTheme.secondaryText(brightness),
+                    color:      AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
                   ),
                 );
@@ -1800,41 +2051,54 @@ class _OrganizerProfileScreenState
               return Column(
                 children: leagues.take(20).map((l) {
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
+                    padding:
+                        const EdgeInsets.only(bottom: 10),
                     child: InkWell(
-                      onTap: () => context.push('/leagues/${l.id}'),
-                      borderRadius: BorderRadius.circular(18),
+                      onTap: () =>
+                          _safePush('/leagues/${l.id}'),
+                      borderRadius:
+                          BorderRadius.circular(18),
                       child: Glass(
                         borderRadius: 18,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 14,
-                          vertical: 12,
+                          vertical:   12,
                         ),
-                        fill: AppTheme.cardColor(brightness),
+                        fill:        AppTheme.cardColor(brightness),
                         borderColor: AppTheme.cardBorder(brightness),
                         child: Row(
                           children: [
                             Icon(
                               Icons.emoji_events_outlined,
                               color: AppTheme.limeAccentDark,
-                              size: 18,
+                              size:  18,
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
                                 l.name,
                                 maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.primaryText(brightness),
+                                overflow:
+                                    TextOverflow.ellipsis,
+                                style: theme.textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                  fontWeight:
+                                      FontWeight.w800,
+                                  color:
+                                      AppTheme.primaryText(
+                                          brightness),
                                 ),
                               ),
                             ),
                             Text(
                               l.format.displayName,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: AppTheme.secondaryText(brightness),
+                              style: theme.textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                color:
+                                    AppTheme.secondaryText(
+                                        brightness),
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
@@ -1852,18 +2116,19 @@ class _OrganizerProfileScreenState
     );
   }
 
-  Widget _ownerActions(
-    MasterLeague ml,
-    ThemeData theme,
-    Brightness brightness,
-  ) {
+  // ── Section: owner actions ─────────────────────────────────────────────────
+
+  Widget _ownerActions(MasterLeague ml) {
+    final theme      = Theme.of(context);
+    final brightness = theme.brightness;
+
     if (!ml.isOwner(_uid)) return const SizedBox.shrink();
 
     return Glass(
       borderRadius: 24,
-      padding: const EdgeInsets.all(16),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
+      padding:      const EdgeInsets.all(16),
+      fill:         AppTheme.cardColor(brightness),
+      borderColor:  AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1888,32 +2153,48 @@ class _OrganizerProfileScreenState
                       ? null
                       : () async {
                           await _save(ml);
-                          await _postProfileUpdateFeedEvent(ml);
+                          await _postProfileUpdateFeedEvent(
+                              ml);
                         },
                   icon: _saving
                       ? const SizedBox(
-                          width: 16,
+                          width:  16,
                           height: 16,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: AppTheme.darkText,
+                            color:       AppTheme.darkText,
                           ),
                         )
                       : const Icon(Icons.save_outlined),
                   label: const Text(
                     'Save Profile',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                        fontWeight: FontWeight.w900),
                   ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => context.push('/master-leagues/${ml.id}'),
-                  icon: const Icon(Icons.dashboard_customize_outlined),
+                  // Back to workspace — tries Navigator pop first
+                  // (this screen is usually pushed via MaterialPageRoute),
+                  // then falls back to GoRouter push as a safety net.
+                  onPressed: () {
+                    final nav = Navigator.of(context,
+                        rootNavigator: false);
+                    if (nav.canPop()) {
+                      nav.pop();
+                    } else {
+                      _safePush(
+                          '/master-leagues/${ml.id}');
+                    }
+                  },
+                  icon: const Icon(
+                      Icons.dashboard_customize_outlined),
                   label: const Text(
                     'Back to Workspace',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                        fontWeight: FontWeight.w900),
                   ),
                 ),
               ),
@@ -1924,52 +2205,67 @@ class _OrganizerProfileScreenState
     );
   }
 
-  String _ownerDisplayName(UserProfile? ownerProfile) {
-    if (ownerProfile != null && ownerProfile.displayName.trim().isNotEmpty) {
-      return ownerProfile.displayName.trim();
-    }
-    return 'Organizer';
-  }
+  // ── build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final brightness = theme.brightness;
-
     return StreamBuilder<MasterLeague?>(
       stream: _watchMasterLeague(widget.masterLeagueId),
       builder: (context, snap) {
         final ml = snap.data;
 
-        if (snap.connectionState == ConnectionState.waiting && ml == null) {
-          return const GlassScaffold(
-            body: Center(child: CircularProgressIndicator()),
+        // ── Loading ──────────────────────────────────────────────────────────
+        if (snap.connectionState == ConnectionState.waiting &&
+            ml == null) {
+          return GlassScaffold(
+            appBar: AppBar(
+              title:           const Text('Organizer Trust Page'),
+              backgroundColor: Colors.transparent,
+              elevation:       0,
+              leading: IconButton(
+                icon:     const Icon(Icons.arrow_back),
+                onPressed: _smartPop,
+              ),
+            ),
+            body: const Center(
+                child: CircularProgressIndicator()),
           );
         }
 
+        // ── Not found ────────────────────────────────────────────────────────
         if (ml == null) {
           return GlassScaffold(
             appBar: AppBar(
-              title: const Text('Organizer Trust Page'),
+              title:           const Text('Organizer Trust Page'),
               backgroundColor: Colors.transparent,
-              elevation: 0,
+              elevation:       0,
+              leading: IconButton(
+                icon:     const Icon(Icons.arrow_back),
+                onPressed: _smartPop,
+              ),
             ),
             body: const Center(
               child: EmptyState(
-                title: 'Not found',
-                message: 'This Master League may have been deleted.',
+                title:   'Not found',
+                message:
+                    'This Master League may have been deleted.',
                 icon: Icons.badge_outlined,
               ),
             ),
           );
         }
 
+        // ── Signed out ───────────────────────────────────────────────────────
         if (_uid.isEmpty) {
           return GlassScaffold(
             appBar: AppBar(
-              title: const Text('Organizer Trust Page'),
+              title:           const Text('Organizer Trust Page'),
               backgroundColor: Colors.transparent,
-              elevation: 0,
+              elevation:       0,
+              leading: IconButton(
+                icon:     const Icon(Icons.arrow_back),
+                onPressed: _smartPop,
+              ),
             ),
             body: _accessDenied(),
           );
@@ -1977,23 +2273,30 @@ class _OrganizerProfileScreenState
 
         _loadControllersFrom(ml);
 
-        final followAsync = ref.watch(masterLeagueFollowStateProvider(ml.id));
+        final followAsync =
+            ref.watch(masterLeagueFollowStateProvider(ml.id));
         final followersCountAsync =
             ref.watch(masterLeagueFollowersCountProvider(ml.id));
 
+        final isFollowing    = followAsync.valueOrNull ?? false;
+        final followersCount =
+            followersCountAsync.valueOrNull ?? 0;
+
         return FutureBuilder<UserProfile?>(
-          future: UserProfileRepository().fetchByUserId(ml.ownerId),
+          future: _getOwnerProfile(ml.ownerId),
           builder: (context, ownerSnap) {
-            final ownerProfile = ownerSnap.data;
-            final ownerName = _ownerDisplayName(ownerProfile);
-            final isFollowing = followAsync.valueOrNull ?? false;
-            final followersCount = followersCountAsync.valueOrNull ?? 0;
+            final ownerName =
+                _ownerDisplayName(ownerSnap.data);
 
             return GlassScaffold(
               appBar: AppBar(
                 title: const Text('Organizer Trust Page'),
                 backgroundColor: Colors.transparent,
-                elevation: 0,
+                elevation:       0,
+                leading: IconButton(
+                  icon:     const Icon(Icons.arrow_back),
+                  onPressed: _smartPop,
+                ),
                 actions: [
                   if (ml.isOwner(_uid))
                     TextButton(
@@ -2001,13 +2304,16 @@ class _OrganizerProfileScreenState
                           ? null
                           : () async {
                               await _save(ml);
-                              await _postProfileUpdateFeedEvent(ml);
+                              await _postProfileUpdateFeedEvent(
+                                  ml);
                             },
                       child: Text(
                         _saving ? 'Saving...' : 'Save',
                         style: TextStyle(
                           color: _saving
-                              ? AppTheme.secondaryText(brightness)
+                              ? AppTheme.secondaryText(
+                                  Theme.of(context)
+                                      .brightness)
                               : AppTheme.limeAccentDark,
                           fontWeight: FontWeight.w900,
                         ),
@@ -2016,38 +2322,31 @@ class _OrganizerProfileScreenState
                 ],
               ),
               body: SafeArea(
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 920),
-                    child: ListView(
-                      padding:
-                          const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 24),
-                      children: [
-                        _identityHero(
-                          ml,
-                          theme,
-                          brightness,
-                          ownerName,
-                          isFollowing,
-                          followersCount,
-                        ),
-                        const SizedBox(height: 16),
-                        _buildPinnedAnnouncementSection(ml, theme, brightness),
-                        const SizedBox(height: 16),
-                        _trustMetrics(ml, theme, brightness, followersCount),
-                        const SizedBox(height: 16),
-                        _verificationStatusCard(ml, theme, brightness),
-                        const SizedBox(height: 16),
-                        _aboutSection(ml, theme, brightness),
-                        const SizedBox(height: 16),
-                        _socialLinksSection(ml, theme, brightness),
-                        const SizedBox(height: 16),
-                        _competitionHistory(ml, theme, brightness),
-                        const SizedBox(height: 16),
-                        _ownerActions(ml, theme, brightness),
-                      ],
-                    ),
-                  ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final w         = constraints.maxWidth;
+                    final isDesktop = w >= _BP.desktop;
+                    final hPad =
+                        w < _BP.tablet ? 16.0 : 24.0;
+
+                    if (isDesktop) {
+                      return _buildDesktopLayout(
+                        ml:           ml,
+                        ownerName:    ownerName,
+                        isFollowing:  isFollowing,
+                        followersCount: followersCount,
+                        hPad:         hPad,
+                      );
+                    }
+
+                    return _buildMobileLayout(
+                      ml:             ml,
+                      ownerName:      ownerName,
+                      isFollowing:    isFollowing,
+                      followersCount: followersCount,
+                      hPad:           hPad,
+                    );
+                  },
                 ),
               ),
             );
@@ -2056,7 +2355,104 @@ class _OrganizerProfileScreenState
       },
     );
   }
+
+  // ── Desktop two-column layout ──────────────────────────────────────────────
+  //
+  // Left  (flex 3): Hero + Pinned notice + Trust metrics + Competition history
+  // Right (flex 2): Verification + About + Social links + Owner actions
+
+  Widget _buildDesktopLayout({
+    required MasterLeague ml,
+    required String        ownerName,
+    required bool          isFollowing,
+    required int           followersCount,
+    required double        hPad,
+  }) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1200),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 24),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  children: [
+                    _identityHero(ml, ownerName,
+                        isFollowing, followersCount),
+                    const SizedBox(height: 16),
+                    _buildPinnedAnnouncementSection(ml),
+                    const SizedBox(height: 16),
+                    _trustMetrics(ml, followersCount),
+                    const SizedBox(height: 16),
+                    _competitionHistory(ml),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                flex: 2,
+                child: Column(
+                  children: [
+                    _verificationStatusCard(ml),
+                    const SizedBox(height: 16),
+                    _aboutSection(ml),
+                    const SizedBox(height: 16),
+                    _socialLinksSection(ml),
+                    if (ml.isOwner(_uid)) ...[
+                      const SizedBox(height: 16),
+                      _ownerActions(ml),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Mobile single-column layout ────────────────────────────────────────────
+
+  Widget _buildMobileLayout({
+    required MasterLeague ml,
+    required String        ownerName,
+    required bool          isFollowing,
+    required int           followersCount,
+    required double        hPad,
+  }) {
+    return ListView(
+      padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 24),
+      children: [
+        _identityHero(ml, ownerName, isFollowing,
+            followersCount),
+        const SizedBox(height: 16),
+        _buildPinnedAnnouncementSection(ml),
+        const SizedBox(height: 16),
+        _trustMetrics(ml, followersCount),
+        const SizedBox(height: 16),
+        _verificationStatusCard(ml),
+        const SizedBox(height: 16),
+        _aboutSection(ml),
+        const SizedBox(height: 16),
+        _socialLinksSection(ml),
+        const SizedBox(height: 16),
+        _competitionHistory(ml),
+        if (ml.isOwner(_uid)) ...[
+          const SizedBox(height: 16),
+          _ownerActions(ml),
+        ],
+      ],
+    );
+  }
 }
+
+// ---------------------------------------------------------------------------
+// _TrustMetric
+// ---------------------------------------------------------------------------
 
 class _TrustMetric {
   const _TrustMetric({
@@ -2067,7 +2463,7 @@ class _TrustMetric {
   });
 
   final IconData icon;
-  final String label;
-  final String value;
-  final Color tint;
+  final String   label;
+  final String   value;
+  final Color    tint;
 }
