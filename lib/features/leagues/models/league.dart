@@ -48,7 +48,8 @@ class League {
   /// NEW: Whether this league uses home & away matches (each team plays twice).
   ///
   /// Stored at the root of the league document as `homeAwayEnabled`.
-  /// Backward compatible: if missing, defaults to false (with best-effort inference from settings).
+  /// Backward compatible: if missing, defaults to false (with best-effort
+  /// inference from settings).
   final bool homeAwayEnabled;
 
   final LeagueFormat format;
@@ -114,14 +115,55 @@ class League {
 
   /// Safer coupon detection:
   /// - New data: couponsEnabled && couponCount > 0
-  /// - Backward compat: some old records may not have couponCount but have discountPercent.
-  bool get hasCoupons => couponsEnabled && (couponCount > 0 || couponDiscountPercent > 0);
+  /// - Backward compat: some old records may not have couponCount but have
+  ///   discountPercent.
+  bool get hasCoupons =>
+      couponsEnabled && (couponCount > 0 || couponDiscountPercent > 0);
 
-  /// Backward compatible: if old leagues have no stored QR payload,
-  /// compute a stable payload from [id] + [code].
+  // ---------------------------------------------------------------------------
+  // qrPayload — FIXED for web + mobile compatibility
+  // ---------------------------------------------------------------------------
+  //
+  // OLD behaviour:
+  //   Returned 'eleaguehub://join?code=$code&id=$id'
+  //   This custom URI scheme only works on mobile devices that have the app
+  //   installed and have registered the scheme. Browsers cannot open it, and
+  //   web-generated share links were HTTPS URLs, which the old scanner parser
+  //   did not understand — causing the "permission denied / invalid QR" loop.
+  //
+  // NEW behaviour:
+  //   1. If qrPayloadOverride is stored (non-empty), return it as-is.
+  //      This preserves any QR codes already saved in Firestore.
+  //   2. Otherwise, generate an HTTPS URL using the production web domain
+  //      esportlyic.web.app with the join path and both code + id params.
+  //
+  //   The HTTPS URL works everywhere:
+  //     - On mobile: the scanner parser reads ?code= and extracts the code.
+  //     - On web: the browser opens the URL and the web app handles /join.
+  //     - As a share link: users can tap it on any device.
+  //
+  //   The mobile scanner (qr_scanner_screen.dart _parseJoinPayload) is already
+  //   updated to handle HTTPS URLs with a ?code= query parameter.
+  //
+  //   BACKWARD COMPATIBLE: existing leagues that already have a
+  //   qrPayloadOverride stored in Firestore (including old eleaguehub:// ones)
+  //   will continue to work because the scanner handles both schemes.
+  // ---------------------------------------------------------------------------
   String get qrPayload {
+    // 1. Stored override wins (backward compatible with old eleaguehub:// QRs).
     if (qrPayloadOverride.trim().isNotEmpty) return qrPayloadOverride;
-    return 'eleaguehub://join?code=$code&id=$id';
+
+    // 2. Generate HTTPS URL — works on web browsers AND is parsed by the
+    //    updated mobile scanner via the ?code= query parameter.
+    final trimmedCode = code.trim();
+    final trimmedId = id.trim();
+
+    if (trimmedCode.isEmpty) {
+      // Fallback: if no code yet (e.g. league not saved), use id only.
+      return 'https://esportlyic.web.app/join?id=$trimmedId';
+    }
+
+    return 'https://esportlyic.web.app/join?code=$trimmedCode&id=$trimmedId';
   }
 
   /// IMPORTANT (online-only + rules):
@@ -132,8 +174,10 @@ class League {
       'name': name,
 
       // Master League System
-      // Only include when present; standalone leagues omit the field (backward compatible).
-      if (masterLeagueId.trim().isNotEmpty) 'masterLeagueId': masterLeagueId.trim(),
+      // Only include when present; standalone leagues omit the field
+      // (backward compatible).
+      if (masterLeagueId.trim().isNotEmpty)
+        'masterLeagueId': masterLeagueId.trim(),
 
       'description': description,
 
@@ -172,7 +216,8 @@ class League {
     return map;
   }
 
-  /// Stored locally as a JSON string in SharedPreferences (legacy/offline-first).
+  /// Stored locally as a JSON string in SharedPreferences
+  /// (legacy/offline-first).
   /// Online-only migration: should not be used for domain persistence.
   String toJsonString() => jsonEncode(toJson());
 
@@ -208,22 +253,25 @@ class League {
   }
 
   static League fromRemoteMap(Map<String, dynamic> map) {
-    // Backward/forward compatible key resolution (some deployments may have used different keys).
-    final leagueImageUrl = _stringFromAny(map['leagueImageUrl']).trim().isNotEmpty
-        ? _stringFromAny(map['leagueImageUrl'])
-        : _stringFromAny(map['leagueImage']).trim().isNotEmpty
-            ? _stringFromAny(map['leagueImage'])
-            : _stringFromAny(map['imageUrl']).trim().isNotEmpty
-                ? _stringFromAny(map['imageUrl'])
-                : _stringFromAny(map['logoUrl']);
+    // Backward/forward compatible key resolution (some deployments may have
+    // used different keys).
+    final leagueImageUrl =
+        _stringFromAny(map['leagueImageUrl']).trim().isNotEmpty
+            ? _stringFromAny(map['leagueImageUrl'])
+            : _stringFromAny(map['leagueImage']).trim().isNotEmpty
+                ? _stringFromAny(map['leagueImage'])
+                : _stringFromAny(map['imageUrl']).trim().isNotEmpty
+                    ? _stringFromAny(map['imageUrl'])
+                    : _stringFromAny(map['logoUrl']);
 
-    final sponsorImageUrl = _stringFromAny(map['sponsorImageUrl']).trim().isNotEmpty
-        ? _stringFromAny(map['sponsorImageUrl'])
-        : _stringFromAny(map['sponsorImage']).trim().isNotEmpty
-            ? _stringFromAny(map['sponsorImage'])
-            : _stringFromAny(map['sponsorLogoUrl']).trim().isNotEmpty
-                ? _stringFromAny(map['sponsorLogoUrl'])
-                : _stringFromAny(map['sponsorUrl']);
+    final sponsorImageUrl =
+        _stringFromAny(map['sponsorImageUrl']).trim().isNotEmpty
+            ? _stringFromAny(map['sponsorImageUrl'])
+            : _stringFromAny(map['sponsorImage']).trim().isNotEmpty
+                ? _stringFromAny(map['sponsorImage'])
+                : _stringFromAny(map['sponsorLogoUrl']).trim().isNotEmpty
+                    ? _stringFromAny(map['sponsorLogoUrl'])
+                    : _stringFromAny(map['sponsorUrl']);
 
     final viewerCapacity = _intFromAny(
       map['viewerCapacity'] ?? map['viewerCount'],
@@ -231,23 +279,31 @@ class League {
     );
 
     final couponsEnabled = _boolFromAny(
-      map['couponsEnabled'] ?? map['hasCoupons'] ?? map['buyCouponsForParticipants'],
+      map['couponsEnabled'] ??
+          map['hasCoupons'] ??
+          map['buyCouponsForParticipants'],
       fallback: false,
     );
 
     final couponDiscountPercent = _intFromAny(
-      map['couponDiscountPercent'] ?? map['couponPercent'] ?? map['couponDiscount'],
+      map['couponDiscountPercent'] ??
+          map['couponPercent'] ??
+          map['couponDiscount'],
       fallback: 0,
     ).clamp(0, 100);
 
     final couponCount = _intFromAny(
-      map['couponCount'] ?? map['couponsPurchased'] ?? map['couponQty'],
+      map['couponCount'] ??
+          map['couponsPurchased'] ??
+          map['couponQty'],
       fallback: 0,
     );
     final safeCouponCount = couponCount < 0 ? 0 : couponCount;
 
-    final id = (map['id'] as String?) ?? (map['leagueId'] as String?) ?? '';
-    final name = (map['name'] as String?) ?? (map['leagueName'] as String?) ?? '';
+    final id =
+        (map['id'] as String?) ?? (map['leagueId'] as String?) ?? '';
+    final name =
+        (map['name'] as String?) ?? (map['leagueName'] as String?) ?? '';
 
     // Master League System (optional)
     final masterLeagueId = _stringFromAny(map['masterLeagueId']).trim();
@@ -261,21 +317,32 @@ class League {
         (map['organizerId'] as String?) ??
         '';
 
-    // If organizerUid missing but organizerUserId looks like a Firebase UID, treat it as organizerUid.
+    // If organizerUid missing but organizerUserId looks like a Firebase UID,
+    // treat it as organizerUid.
     if (organizerUid.isEmpty && organizerUserId.trim().length > 20) {
       organizerUid = organizerUserId.trim();
     }
 
     final isPrivate = _boolFromAny(map['isPrivate'], fallback: false);
 
-    final settingsMap = (map['settings'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final settingsMap =
+        (map['settings'] as Map?)?.cast<String, dynamic>() ??
+            <String, dynamic>{};
     final settings = LeagueSettings.fromMap(settingsMap);
 
-    final bool homeAwayEnabled = (map.containsKey('homeAwayEnabled') || map.containsKey('homeAndAwayEnabled'))
-        ? _boolFromAny(map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'], fallback: false)
-        : (settingsMap.containsKey('doubleRoundRobin')
-            ? _boolFromAny(settingsMap['doubleRoundRobin'], fallback: false)
-            : false);
+    final bool homeAwayEnabled =
+        (map.containsKey('homeAwayEnabled') ||
+                map.containsKey('homeAndAwayEnabled'))
+            ? _boolFromAny(
+                map['homeAwayEnabled'] ?? map['homeAndAwayEnabled'],
+                fallback: false,
+              )
+            : (settingsMap.containsKey('doubleRoundRobin')
+                ? _boolFromAny(
+                    settingsMap['doubleRoundRobin'],
+                    fallback: false,
+                  )
+                : false);
 
     return League(
       id: id,
@@ -338,7 +405,8 @@ class League {
       sponsorImageUrl: sponsorImageUrl ?? this.sponsorImageUrl,
       viewerCapacity: viewerCapacity ?? this.viewerCapacity,
       couponsEnabled: couponsEnabled ?? this.couponsEnabled,
-      couponDiscountPercent: couponDiscountPercent ?? this.couponDiscountPercent,
+      couponDiscountPercent:
+          couponDiscountPercent ?? this.couponDiscountPercent,
       couponCount: couponCount ?? this.couponCount,
       homeAwayEnabled: homeAwayEnabled ?? this.homeAwayEnabled,
       format: format ?? this.format,
