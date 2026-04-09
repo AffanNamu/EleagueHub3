@@ -342,7 +342,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: AppTheme.scaffoldBg(brightness),
+      backgroundColor: brightness == Brightness.dark ? AppTheme.navyBgSoft : AppTheme.lightBg,
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
