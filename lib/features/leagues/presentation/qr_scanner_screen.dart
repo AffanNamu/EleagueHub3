@@ -19,16 +19,40 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/rewarded_ad_manager.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
+import '../../auth/data/user_profile_repository.dart';
 import '../data/leagues_repository_local.dart';
 import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
 import '../models/membership.dart';
+
+// ---------------------------------------------------------------------------
+// # MONETIZATION GATE — HOW IT WORKS IN THIS FILE
+// ---------------------------------------------------------------------------
+// - On init, we load the user's plan from UserProfileRepository.
+// - _isPaidPlanUser = true  → user has an active paid plan → NO ad shown.
+// - _isPaidPlanUser = false → user is on free/basic plan  → MUST watch a
+//   rewarded video ad before joining via QR scan OR manual code entry.
+//
+// FLOW:
+//   _handleScan()
+//     → user selects join mode (_promptJoinMode)
+//     → IF free user:
+//         → show rewarded ad via RewardedAdManager.instance.showRewardedGate()
+//         → IF reward earned  → proceed with join
+//         → IF reward NOT earned → cancel join, reset scanner
+//     → IF paid user:
+//         → proceed with join immediately (no ad)
+//
+// Both entry points (QR scan + manual code) go through _handleScan(),
+// so a single gate covers both cases cleanly.
+// ---------------------------------------------------------------------------
 
 class QRScannerScreen extends ConsumerStatefulWidget {
   const QRScannerScreen({super.key});
@@ -70,6 +94,15 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
   bool _desktopPairingApproved = false;
   String? _desktopPairingMessage;
 
+  // ── Monetization state ─────────────────────────────────────────────────────
+  // Tracks whether the current user has an active paid plan.
+  // Loaded once on initState from UserProfileRepository.
+  // Free users must watch a rewarded ad before joining any league.
+  bool _isPaidPlanUser = false;
+  bool _loadingPlanState = true;
+  bool _rewardGateInProgress = false;
+  // ──────────────────────────────────────────────────────────────────────────
+
   @override
   void initState() {
     super.initState();
@@ -82,8 +115,65 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       autoStart: false,
     );
 
+    // Load plan state FIRST, then init scanner in parallel.
+    // Both run concurrently — scanner does not wait for plan check.
+    _loadPlanState();
     _initScanner();
   }
+
+  // ── Plan state loading ─────────────────────────────────────────────────────
+  // Fetches the user profile to determine if the user has a paid plan.
+  // If paid  → _isPaidPlanUser = true  (no ad gate)
+  // If free  → _isPaidPlanUser = false (ad gate applies)
+  //          → preload rewarded ad to reduce latency when gate triggers
+  // ──────────────────────────────────────────────────────────────────────────
+  Future<void> _loadPlanState() async {
+    final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+
+    if (uid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _isPaidPlanUser = false;
+        _loadingPlanState = false;
+      });
+      return;
+    }
+
+    try {
+      final profile = await UserProfileRepository()
+          .fetchByUserId(uid)
+          .timeout(const Duration(seconds: 12));
+
+      final activePlan = profile?.activePlan;
+      final isPaid = activePlan != null && !activePlan.isFree;
+
+      if (!mounted) return;
+      setState(() {
+        _isPaidPlanUser = isPaid;
+        _loadingPlanState = false;
+      });
+
+      // Preload rewarded ad for free users so it is ready when gate triggers.
+      // Paid users never see an ad — no need to preload.
+      if (!isPaid) {
+        unawaited(
+          RewardedAdManager.instance.preload(placement: 'join_league'),
+        );
+      }
+    } catch (_) {
+      // On error, default to free (safe fallback — ad gate will still show).
+      if (!mounted) return;
+      setState(() {
+        _isPaidPlanUser = false;
+        _loadingPlanState = false;
+      });
+      // Still preload since we defaulted to free.
+      unawaited(
+        RewardedAdManager.instance.preload(placement: 'join_league'),
+      );
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   Future<void> _initScanner() async {
     await _ensureCameraPermission(startScannerIfGranted: true);
@@ -235,10 +325,51 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                           ),
                           textAlign: TextAlign.center,
                         ),
+                        // ── Ad notice for free users ───────────────────────
+                        // Shown inside the join mode sheet so the user knows
+                        // an ad is coming before they pick a join mode.
+                        // Paid users never see this notice.
+                        if (!_isPaidPlanUser) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: Colors.amber.withOpacity(0.10),
+                              border: Border.all(
+                                color: Colors.amber.withOpacity(0.35),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.ondemand_video_rounded,
+                                  color: Colors.amber,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'A short rewarded video ad will play '
+                                    'before you join. Watch it fully to '
+                                    'unlock joining.',
+                                    style: TextStyle(
+                                      color: Colors.amber.shade700,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        // ─────────────────────────────────────────────────
                         const SizedBox(height: 12),
                         _JoinModeTile(
-                          title:
-                              l10n.tr('qr_scanner_join_mode_participant_title'),
+                          title: l10n.tr(
+                              'qr_scanner_join_mode_participant_title'),
                           subtitle: l10n.tr(
                               'qr_scanner_join_mode_participant_subtitle'),
                           icon: Icons.sports_esports,
@@ -250,8 +381,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                         _JoinModeTile(
                           title:
                               l10n.tr('qr_scanner_join_mode_viewer_title'),
-                          subtitle:
-                              l10n.tr('qr_scanner_join_mode_viewer_subtitle'),
+                          subtitle: l10n
+                              .tr('qr_scanner_join_mode_viewer_subtitle'),
                           icon: Icons.visibility,
                           accent: AppTheme.secondaryText(brightness),
                           onTap: () =>
@@ -520,7 +651,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                               height: 56,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: AppTheme.iconCircleBackground(brightness),
+                                color:
+                                    AppTheme.iconCircleBackground(brightness),
                               ),
                               child: Icon(
                                 Icons.lock_outline_rounded,
@@ -553,7 +685,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                             const SizedBox(height: 14),
                             if (_isClassicFullViewerUnlockScenario(league))
                               Text(
-                                'Classic league is full. You can unlock access as a viewer using payment or a coupon.',
+                                'Classic league is full. You can unlock '
+                                'access as a viewer using payment or a '
+                                'coupon.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: AppTheme.secondaryText(brightness),
@@ -619,8 +753,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                             SizedBox(
                               width: double.infinity,
                               child: OutlinedButton.icon(
-                                onPressed:
-                                    busy ? null : () => doCoupon(setSheet),
+                                onPressed: busy
+                                    ? null
+                                    : () => doCoupon(setSheet),
                                 icon: const Icon(Icons.verified_outlined),
                                 label: const Text(
                                   'Apply coupon',
@@ -650,7 +785,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                 child: Text(
                                   error!.trim(),
                                   style: TextStyle(
-                                    color: Theme.of(context).colorScheme.error,
+                                    color:
+                                        Theme.of(context).colorScheme.error,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
@@ -707,8 +843,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         return;
       }
 
-      final paidReceipt =
-          await _hasPaidChargesRemote(userId: authUid, leagueId: league.id);
+      final paidReceipt = await _hasPaidChargesRemote(
+          userId: authUid, leagueId: league.id);
       final paidCoupon = paidReceipt
           ? false
           : await _hasPaidCouponRemote(
@@ -790,7 +926,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         setState(() {
           _joining = false;
           _error =
-              'Firebase returned an empty ID token. Please sign out and sign in again.';
+              'Firebase returned an empty ID token. Please sign out and '
+              'sign in again.';
           _isScanned = false;
         });
         await _startScannerSafely();
@@ -826,7 +963,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         _desktopPairingApproved = true;
         _desktopPairingMessage = result.message.trim().isNotEmpty
             ? result.message.trim()
-            : 'Desktop linked successfully. Your eSportlyic Web page should update automatically.';
+            : 'Desktop linked successfully. Your eSportlyic Web page '
+              'should update automatically.';
       });
 
       return true;
@@ -835,7 +973,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       setState(() {
         _joining = false;
         _error =
-            'Desktop link timed out (25 s). Check your internet and try again.';
+            'Desktop link timed out (25 s). Check your internet and try '
+            'again.';
         _isScanned = false;
       });
       await _startScannerSafely();
@@ -871,6 +1010,17 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     _handleScan(raw);
   }
 
+  // ── _handleScan ────────────────────────────────────────────────────────────
+  // Central entry point for both QR scan and manual code entry.
+  //
+  // MONETIZATION GATE LOCATION:
+  //   After the user selects a join mode but BEFORE the actual join happens.
+  //
+  //   IF _isPaidPlanUser == true  → skip ad, join immediately.
+  //   IF _isPaidPlanUser == false → show rewarded ad gate.
+  //     IF reward earned  → proceed with join.
+  //     IF reward NOT earned → cancel, reset state, restart scanner.
+  // ──────────────────────────────────────────────────────────────────────────
   Future<void> _handleScan(String payload) async {
     if (_joining) return;
 
@@ -893,6 +1043,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
 
     final joinCode = parsed.code;
 
+    // Step 1: Prompt join mode (participant or viewer).
+    // The ad notice is already shown inside _promptJoinMode for free users.
     final selectedMode = await _promptJoinMode(context, joinCode: joinCode);
     if (selectedMode == null) {
       if (!mounted) return;
@@ -905,6 +1057,51 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       return;
     }
 
+    // ── MONETIZATION GATE ──────────────────────────────────────────────────
+    // Step 2: If user is NOT on a paid plan, they MUST watch a rewarded
+    // video ad before joining. The join only proceeds if the reward is
+    // earned (user watches the full ad).
+    //
+    // Paid users bypass this block entirely — no ad is shown to them.
+    // ──────────────────────────────────────────────────────────────────────
+    if (!_isPaidPlanUser) {
+      setState(() {
+        _rewardGateInProgress = true;
+        _joining = true;
+        _error = null;
+      });
+
+      bool rewardEarned = false;
+
+      try {
+        rewardEarned = await RewardedAdManager.instance.showRewardedGate(
+          placement: 'join_league',
+        );
+      } finally {
+        if (mounted) {
+          setState(() => _rewardGateInProgress = false);
+        }
+      }
+
+      if (!mounted) return;
+
+      if (!rewardEarned) {
+        // User did not earn the reward (closed ad early or ad failed).
+        // Cancel the join entirely and reset the scanner.
+        setState(() {
+          _joining = false;
+          _error = 'You need to watch the full ad to join this league. '
+              'Please try again.';
+          _isScanned = false;
+        });
+        await _startScannerSafely();
+        return;
+      }
+      // Reward earned — proceed with join below.
+    }
+    // ── END MONETIZATION GATE ──────────────────────────────────────────────
+
+    // Step 3: Proceed with the actual join logic.
     setState(() {
       _joining = true;
       _error = null;
@@ -943,7 +1140,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
               final now = DateTime.now().millisecondsSinceEpoch;
               return League(
                 id: generatedLeagueId,
-                name: l10n.tr('qr_scanner_joined_league_placeholder_name'),
+                name: l10n.tr(
+                    'qr_scanner_joined_league_placeholder_name'),
                 format: LeagueFormat.classic,
                 privacy: LeaguePrivacy.private,
                 region: 'Global',
@@ -1030,6 +1228,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       await _startScannerSafely();
     }
   }
+  // ── END _handleScan ────────────────────────────────────────────────────────
 
   Future<void> _maybeOfferUnlockAfterJoin(
     BuildContext context, {
@@ -1074,7 +1273,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
             ),
           ),
           content: Text(
-            '${l10n.tr('qr_scanner_unlock_dialog_content_prefix')}${joinedLeague.name}${l10n.tr('qr_scanner_unlock_dialog_content_suffix')}',
+            '${l10n.tr('qr_scanner_unlock_dialog_content_prefix')}'
+            '${joinedLeague.name}'
+            '${l10n.tr('qr_scanner_unlock_dialog_content_suffix')}',
             style: TextStyle(
               color: AppTheme.secondaryText(brightness),
               height: 1.35,
@@ -1154,6 +1355,46 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                             ),
                             textAlign: TextAlign.center,
                           ),
+                          // ── Ad notice for free users (manual entry) ────
+                          // Same notice shown here as in the QR mode sheet,
+                          // since both paths go through _handleScan().
+                          if (!_isPaidPlanUser) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: Colors.amber.withOpacity(0.10),
+                                border: Border.all(
+                                  color: Colors.amber.withOpacity(0.35),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.ondemand_video_rounded,
+                                    color: Colors.amber,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'A short rewarded video ad will play '
+                                      'before you join. Watch it fully to '
+                                      'unlock joining.',
+                                      style: TextStyle(
+                                        color: Colors.amber.shade700,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          // ─────────────────────────────────────────────
                           const SizedBox(height: 12),
                           TextField(
                             controller: controller,
@@ -1205,7 +1446,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                   onPressed: () => Navigator.of(ctx)
                                       .pop(controller.text.trim()),
                                   icon: const Icon(Icons.login),
-                                  label: Text(l10n.tr('common_continue')),
+                                  label:
+                                      Text(l10n.tr('common_continue')),
                                 ),
                               ),
                             ],
@@ -1248,6 +1490,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       _joinNotice = null;
       _desktopPairingApproved = false;
       _desktopPairingMessage = null;
+      _rewardGateInProgress = false;
     });
     await _ensureCameraPermission(startScannerIfGranted: true);
   }
@@ -1281,8 +1524,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
                 child: Glass(
@@ -1322,7 +1565,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                       Text(
                         (_desktopPairingMessage ?? '').trim().isNotEmpty
                             ? _desktopPairingMessage!.trim()
-                            : 'Your eSportlyic Web session has been approved. The desktop page should continue automatically.',
+                            : 'Your eSportlyic Web session has been '
+                              'approved. The desktop page should '
+                              'continue automatically.',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: AppTheme.secondaryText(brightness),
@@ -1392,8 +1637,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 24),
               child: ConstrainedBox(
                 constraints:
                     BoxConstraints(maxWidth: isWide ? 600 : 450),
@@ -1404,9 +1649,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                       leagueName: league.name,
                       leagueCode: league.code,
                       distribution:
-                          '${context.l10n.tr(league.format.l10nKey)} • ${league.season}',
-                      subtitle:
-                          '0 / ${league.maxTeams} ${l10n.tr('qr_scanner_teams_suffix')}',
+                          '${context.l10n.tr(league.format.l10nKey)} '
+                          '• ${league.season}',
+                      subtitle: '0 / ${league.maxTeams} '
+                          '${l10n.tr('qr_scanner_teams_suffix')}',
                       onDoubleTap: () =>
                           context.push('/leagues/${league.id}'),
                       qrWidget: QrImageView(
@@ -1492,7 +1738,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                       )
                                     : const Icon(Icons.lock_open),
                                 label: Text(
-                                  l10n.tr('qr_scanner_unlock_now').toUpperCase(),
+                                  l10n
+                                      .tr('qr_scanner_unlock_now')
+                                      .toUpperCase(),
                                 ),
                               ),
                             ),
@@ -1506,7 +1754,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     backgroundColor: AppTheme.limeAccent,
                                     foregroundColor: AppTheme.darkText,
                                   ),
-                                  onPressed: () => context.go('/leagues'),
+                                  onPressed: () =>
+                                      context.go('/leagues'),
                                   child: Text(
                                     l10n.tr('common_done').toUpperCase(),
                                   ),
@@ -1515,8 +1764,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                               const SizedBox(width: 12),
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: () =>
-                                      context.push('/leagues/${league.id}'),
+                                  onPressed: () => context
+                                      .push('/leagues/${league.id}'),
                                   child: Text(
                                     l10n.tr('common_open').toUpperCase(),
                                   ),
@@ -1530,7 +1779,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                               _error!,
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: Theme.of(context).colorScheme.error,
+                                color:
+                                    Theme.of(context).colorScheme.error,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
@@ -1589,7 +1839,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Please check your camera permission and try again.',
+                            'Please check your camera permission and '
+                            'try again.',
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: AppTheme.secondaryText(brightness),
@@ -1620,12 +1871,14 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                               const SizedBox(width: 10),
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: _joining
+                                  onPressed: (_joining ||
+                                          _rewardGateInProgress)
                                       ? null
                                       : _showManualEntrySheet,
                                   style: OutlinedButton.styleFrom(
                                     side: BorderSide(
-                                        color: AppTheme.cardBorder(brightness)),
+                                        color: AppTheme.cardBorder(
+                                            brightness)),
                                     foregroundColor:
                                         AppTheme.limeAccentDark,
                                   ),
@@ -1646,8 +1899,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
-                painter:
-                    _ScannerOverlayPainter(accent: AppTheme.limeAccentDark),
+                painter: _ScannerOverlayPainter(
+                    accent: AppTheme.limeAccentDark),
               ),
             ),
           ),
@@ -1665,7 +1918,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                         onPressed: () => context.pop(),
                       ),
                       const Spacer(),
-                      if (_joining)
+                      // Show loading indicator during ad gate OR join.
+                      if (_joining || _rewardGateInProgress)
                         const SizedBox(
                           width: 18,
                           height: 18,
@@ -1695,7 +1949,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                 padding: const EdgeInsets.all(14),
                                 borderRadius: 24,
                                 fill: AppTheme.cardColor(brightness),
-                                borderColor: AppTheme.cardBorder(brightness),
+                                borderColor:
+                                    AppTheme.cardBorder(brightness),
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -1704,8 +1959,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                           'qr_scanner_allow_camera_access_title'),
                                       style: theme.textTheme.titleSmall
                                           ?.copyWith(
-                                        color:
-                                            AppTheme.primaryText(brightness),
+                                        color: AppTheme.primaryText(
+                                            brightness),
                                         fontWeight: FontWeight.w900,
                                       ),
                                       textAlign: TextAlign.center,
@@ -1715,8 +1970,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                       l10n.tr(
                                           'qr_scanner_allow_camera_access_description'),
                                       textAlign: TextAlign.center,
-                                      style: theme.textTheme
-                                          .bodyMedium
+                                      style: theme.textTheme.bodyMedium
                                           ?.copyWith(
                                         color: AppTheme.secondaryText(
                                             brightness),
@@ -1737,8 +1991,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                             style:
                                                 OutlinedButton.styleFrom(
                                               side: BorderSide(
-                                                color: AppTheme.cardBorder(
-                                                    brightness),
+                                                color:
+                                                    AppTheme.cardBorder(
+                                                        brightness),
                                               ),
                                               foregroundColor:
                                                   AppTheme.primaryText(
@@ -1768,7 +2023,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                                     child:
                                                         CircularProgressIndicator(
                                                       strokeWidth: 2,
-                                                      color: AppTheme.darkText,
+                                                      color:
+                                                          AppTheme.darkText,
                                                     ),
                                                   )
                                                 : Text(l10n.tr(
@@ -1781,7 +2037,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     SizedBox(
                                       width: double.infinity,
                                       child: OutlinedButton(
-                                        onPressed: _joining
+                                        onPressed: (_joining ||
+                                                _rewardGateInProgress)
                                             ? null
                                             : _showManualEntrySheet,
                                         style: OutlinedButton.styleFrom(
@@ -1820,7 +2077,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                 padding: const EdgeInsets.all(14),
                                 borderRadius: 24,
                                 fill: AppTheme.cardColor(brightness),
-                                borderColor: AppTheme.cardBorder(brightness),
+                                borderColor:
+                                    AppTheme.cardBorder(brightness),
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -1828,8 +2086,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                       l10n.tr(
                                           'qr_scanner_center_qr_instruction'),
                                       textAlign: TextAlign.center,
-                                      style: theme.textTheme
-                                          .bodyMedium
+                                      style: theme.textTheme.bodyMedium
                                           ?.copyWith(
                                         color: AppTheme.secondaryText(
                                             brightness),
@@ -1840,7 +2097,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      'This scanner can join leagues or link eSportlyic Web.',
+                                      'This scanner can join leagues or '
+                                      'link eSportlyic Web.',
                                       textAlign: TextAlign.center,
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
@@ -1850,6 +2108,51 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                         height: 1.3,
                                       ),
                                     ),
+                                    // ── Ad notice on scanner screen ────────
+                                    // Always visible on the main scanner
+                                    // screen for free users so they know
+                                    // an ad is coming before they scan.
+                                    if (!_isPaidPlanUser &&
+                                        !_loadingPlanState) ...[
+                                      const SizedBox(height: 8),
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          color: Colors.amber
+                                              .withOpacity(0.10),
+                                          border: Border.all(
+                                            color: Colors.amber
+                                                .withOpacity(0.35),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.ondemand_video_rounded,
+                                              color: Colors.amber,
+                                              size: 14,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                'Free plan: a short ad plays '
+                                                'before joining.',
+                                                style: TextStyle(
+                                                  color:
+                                                      Colors.amber.shade700,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                  height: 1.3,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                    // ─────────────────────────────────────
                                     if (_error != null) ...[
                                       const SizedBox(height: 8),
                                       Container(
@@ -1893,7 +2196,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                               foregroundColor:
                                                   AppTheme.darkText,
                                             ),
-                                            onPressed: _joining
+                                            onPressed: (_joining ||
+                                                    _rewardGateInProgress)
                                                 ? null
                                                 : _showManualEntrySheet,
                                             icon: const Icon(Icons.key),
@@ -1905,14 +2209,16 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: OutlinedButton(
-                                            onPressed: _joining
+                                            onPressed: (_joining ||
+                                                    _rewardGateInProgress)
                                                 ? null
                                                 : _scanAgain,
                                             style:
                                                 OutlinedButton.styleFrom(
                                               side: BorderSide(
-                                                  color: AppTheme.cardBorder(
-                                                      brightness)),
+                                                  color:
+                                                      AppTheme.cardBorder(
+                                                          brightness)),
                                               foregroundColor:
                                                   AppTheme.limeAccentDark,
                                             ),
@@ -1942,15 +2248,18 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                             color: AppTheme.primaryText(
                                                 brightness),
                                           ),
-                                          onPressed: !_cameraPermissionGranted ||
-                                                  _joining
-                                              ? null
-                                              : () async {
-                                                  await _scannerController
-                                                      .toggleTorch();
-                                                  setState(() => _torchOn =
-                                                      !_torchOn);
-                                                },
+                                          onPressed:
+                                              !_cameraPermissionGranted ||
+                                                      _joining ||
+                                                      _rewardGateInProgress
+                                                  ? null
+                                                  : () async {
+                                                      await _scannerController
+                                                          .toggleTorch();
+                                                      setState(() =>
+                                                          _torchOn =
+                                                              !_torchOn);
+                                                    },
                                         ),
                                         const SizedBox(width: 8),
                                         IconButton(
@@ -1961,19 +2270,26 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                             color: AppTheme.primaryText(
                                                 brightness),
                                           ),
-                                          onPressed: !_cameraPermissionGranted ||
-                                                  _joining
-                                              ? null
-                                              : () async {
-                                                  final newFacing = _facing ==
-                                                          CameraFacing.back
-                                                      ? CameraFacing.front
-                                                      : CameraFacing.back;
-                                                  await _scannerController
-                                                      .switchCamera();
-                                                  setState(() =>
-                                                      _facing = newFacing);
-                                                },
+                                          onPressed:
+                                              !_cameraPermissionGranted ||
+                                                      _joining ||
+                                                      _rewardGateInProgress
+                                                  ? null
+                                                  : () async {
+                                                      final newFacing =
+                                                          _facing ==
+                                                                  CameraFacing
+                                                                      .back
+                                                              ? CameraFacing
+                                                                  .front
+                                                              : CameraFacing
+                                                                  .back;
+                                                      await _scannerController
+                                                          .switchCamera();
+                                                      setState(() =>
+                                                          _facing =
+                                                              newFacing);
+                                                    },
                                         ),
                                       ],
                                     ),
@@ -2084,8 +2400,7 @@ class _ScannerOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final overlayPaint = Paint()
-      ..color = Colors.black.withOpacity(0.55);
+    final overlayPaint = Paint()..color = Colors.black.withOpacity(0.55);
 
     final cutOutSize = size.shortestSide * 0.62;
     final cutOutRect = Rect.fromCenter(
