@@ -1,17 +1,17 @@
 // ---------------------------------------------------------------------------
-// STUB — used on Web and any platform that does NOT support
-// google_mobile_ads (e.g. desktop).
+// STUB — compiled by dart2js (Web) and on unsupported platforms.
 //
-// Both functions are no-ops / always-pass so that:
-//   • dart2js (web) compiles cleanly — no reference to google_mobile_ads
-//   • Free users on web are not blocked (ads simply don't exist on web)
+// Zero references to google_mobile_ads so dart2js never tries to
+// resolve the package and the web build succeeds cleanly.
+//
+// Free users on web are not blocked because ads don't exist on web.
 // ---------------------------------------------------------------------------
 
 Future<void> preload({String placement = 'preload'}) async {
-  // No-op on unsupported platforms.
+  // No-op on web / unsupported platforms.
 }
 
 Future<bool> showRewardedGate({required String placement}) async {
-  // On web/desktop there are no ads — allow the action to proceed.
+  // No ads on web — allow the action to proceed freely.
   return true;
 }
