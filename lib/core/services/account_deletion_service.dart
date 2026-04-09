@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -63,8 +63,9 @@ class AccountDeletionService {
   AccountDeletionService._();
   static final AccountDeletionService instance = AccountDeletionService._();
 
-  final FirebaseAuth    _auth    = FirebaseAuth.instance;
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  // Prefixed to avoid collision with supabase_flutter → gotrue User type.
+  final firebase_auth.FirebaseAuth _auth    = firebase_auth.FirebaseAuth.instance;
+  final FirebaseStorage            _storage = FirebaseStorage.instance;
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -72,7 +73,8 @@ class AccountDeletionService {
     String? feedbackReason,
     String? feedbackText,
   }) async {
-    final user = _auth.currentUser;
+    final firebase_auth.User? user = _auth.currentUser;
+
     if (user == null) {
       return const AccountDeletionResult.failure('No signed-in user found.');
     }
@@ -96,8 +98,6 @@ class AccountDeletionService {
       // Log the failure but do NOT abort.
       // The user still needs to be able to delete their auth account
       // even if the Firestore cleanup fails (e.g. network issue).
-      // Any un-deleted Firestore docs will be orphaned but harmless
-      // since the auth account (the identity) is gone.
       if (kDebugMode) {
         debugPrint(
           '[AccountDeletionService] Edge function Firestore cleanup '
@@ -118,7 +118,7 @@ class AccountDeletionService {
     // Do NOT call Firestore, Storage, or the Edge Function after this.
     try {
       await user.delete().timeout(const Duration(seconds: 20));
-    } on FirebaseAuthException catch (e) {
+    } on firebase_auth.FirebaseAuthException catch (e) {
       if (e.code == 'requires-recent-login') {
         return const AccountDeletionResult.needsReauth();
       }
@@ -140,12 +140,12 @@ class AccountDeletionService {
     return const AccountDeletionResult.success();
   }
 
-  // ── Step 1 + 2: Supabase Edge Function ────────────────────────────────────
+  // ── Step 1 + 2: Supabase Edge Function call ────────────────────────────────
 
   Future<bool> _callDeleteUserDataEdgeFunction({
-    required User user,
-    String?       feedbackReason,
-    String?       feedbackText,
+    required firebase_auth.User user,
+    String?                     feedbackReason,
+    String?                     feedbackText,
   }) async {
     try {
       // Force-refresh the ID token so it is guaranteed fresh.
@@ -260,7 +260,9 @@ class AccountDeletionService {
               .timeout(const Duration(seconds: 10));
           for (final item in sub.items) {
             try {
-              await item.delete().timeout(const Duration(seconds: 10));
+              await item
+                  .delete()
+                  .timeout(const Duration(seconds: 10));
             } catch (_) {}
           }
         } catch (_) {}
