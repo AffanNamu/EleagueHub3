@@ -52,16 +52,8 @@ class LocalLeaguesRepository {
   }
 
   // ── CONNECTIVITY CHECK ────────────────────────────────────────────────────
-  // FIXED: The original _requireOnline() was throwing a hard error if the
-  // device had no network. This was the PRIMARY cause of "permission denied"
-  // appearing in some network conditions because the connectivity check
-  // itself was timing out or returning a false negative on web/desktop,
-  // causing the app to throw before even reaching Firestore.
-  //
-  // FIX: Wrapped the connectivity check in a try/catch. If connectivity
-  // cannot be determined (web, desktop, or emulator), we allow the call
-  // to proceed and let Firestore return a real error if truly offline.
-  // This prevents false "permission denied" from connectivity misfires.
+  // FIXED: Wrapped in try/catch so web/desktop false-negatives do not
+  // abort the flow before Firestore is even called.
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _requireOnline() async {
     try {
@@ -69,12 +61,10 @@ class LocalLeaguesRepository {
         timeout: const Duration(seconds: 4),
       );
     } catch (_) {
-      // On web/desktop or when connectivity check is unreliable,
-      // allow the request to proceed. Firestore will surface a real
-      // network error if the device is truly offline.
+      // On web/desktop, connectivity detection is unreliable.
+      // Allow the request to proceed — Firestore surfaces real errors.
     }
   }
-  // ── END CONNECTIVITY FIX ──────────────────────────────────────────────────
 
   bool _isNetworkFirebaseException(FirebaseException e) {
     return e.code == 'unavailable' || e.code == 'deadline-exceeded';
@@ -104,7 +94,8 @@ class LocalLeaguesRepository {
         );
       }
       if (e.code == 'unauthenticated') {
-        throw const UserFriendlyException('Please sign in and try again.');
+        throw const UserFriendlyException(
+            'Please sign in and try again.');
       }
       throw const UserFriendlyException(
         "We couldn't complete this action. Please try again.",
@@ -119,24 +110,6 @@ class LocalLeaguesRepository {
         );
       }
       if (e.code == 'permission-denied') {
-        // ── PERMISSION DENIED DIAGNOSTIC FIX ─────────────────────────────
-        // FIXED: The original code showed a raw "permission denied" message
-        // which was confusing for users trying to join leagues via QR or
-        // invitation code. The real causes were:
-        //
-        // 1. _requireOnline() false-negatives on web/desktop causing the
-        //    flow to abort before reaching Firestore (fixed above).
-        //
-        // 2. The membership write in _joinLeagueCore() was using
-        //    SetOptions(merge: true) which requires read permission first
-        //    on some Firestore security rule configurations. Changed to
-        //    a conditional write path (fixed in _joinLeagueCore below).
-        //
-        // 3. On web, the Firestore security rules may require the user's
-        //    auth token to be fresh. Added token refresh before join.
-        //
-        // The error message is now more actionable.
-        // ─────────────────────────────────────────────────────────────────
         final trimmed = context.trim();
         if (trimmed.isNotEmpty) {
           throw UserFriendlyException(
@@ -152,7 +125,8 @@ class LocalLeaguesRepository {
         );
       }
       if (e.code == 'unauthenticated') {
-        throw const UserFriendlyException('Please sign in and try again.');
+        throw const UserFriendlyException(
+            'Please sign in and try again.');
       }
       throw const UserFriendlyException(
         "We couldn't complete this action. Please try again.",
@@ -270,8 +244,9 @@ class LocalLeaguesRepository {
     final total = await _countCurrentUserLeagueCards(authUid);
     if (total >= _freeLeagueListLimit) {
       throw UserFriendlyException(
-        'Free users can only have $_freeLeagueListLimit leagues total '
-        'on the leagues screen. Upgrade to Premium to $actionLabel.',
+        'Free users can only have $_freeLeagueListLimit leagues '
+        'total on the leagues screen. '
+        'Upgrade to Premium to $actionLabel.',
       );
     }
   }
@@ -288,7 +263,8 @@ class LocalLeaguesRepository {
 
     if (!snap.exists) {
       throw const UserFriendlyException(
-        "We couldn't find this league. Please refresh and try again.",
+        "We couldn't find this league. "
+        "Please refresh and try again.",
       );
     }
 
@@ -302,8 +278,8 @@ class LocalLeaguesRepository {
         ownerUid == authUid ||
         ownerId == authUid) {
       throw const UserFriendlyException(
-        'League owners cannot remove their own league from the list '
-        'here. Please use the owner/admin area.',
+        'League owners cannot remove their own league from the '
+        'list here. Please use the owner/admin area.',
       );
     }
   }
@@ -334,7 +310,8 @@ class LocalLeaguesRepository {
           .set(
             {
               'memberIds': FieldValue.arrayRemove([authUid]),
-              'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+              'updatedAtMs':
+                  DateTime.now().millisecondsSinceEpoch,
             },
             SetOptions(merge: true),
           )
@@ -365,7 +342,8 @@ class LocalLeaguesRepository {
 
     if (!snap.exists) {
       throw const UserFriendlyException(
-        "We couldn't find this league. Please refresh and try again.",
+        "We couldn't find this league. "
+        "Please refresh and try again.",
       );
     }
 
@@ -461,13 +439,15 @@ class LocalLeaguesRepository {
         (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
     final map = <String, dynamic>{...data};
     map['id'] =
-        (map['id'] is String && (map['id'] as String).trim().isNotEmpty)
+        (map['id'] is String &&
+                (map['id'] as String).trim().isNotEmpty)
             ? map['id']
             : doc.id;
     return League.fromRemoteMap(map);
   }
 
-  String _bestUserImageUrlFromUserDoc(Map<String, dynamic> data) {
+  String _bestUserImageUrlFromUserDoc(
+      Map<String, dynamic> data) {
     final teamImageUrl =
         (data['teamImageUrl'] as String?)?.trim() ?? '';
     if (teamImageUrl.isNotEmpty) return teamImageUrl;
@@ -476,7 +456,8 @@ class LocalLeaguesRepository {
         (data['profileImageUrl'] as String?)?.trim() ?? '';
     if (profileImageUrl.isNotEmpty) return profileImageUrl;
 
-    final photoUrl = (data['photoUrl'] as String?)?.trim() ?? '';
+    final photoUrl =
+        (data['photoUrl'] as String?)?.trim() ?? '';
     if (photoUrl.isNotEmpty) return photoUrl;
 
     return '';
@@ -518,29 +499,10 @@ class LocalLeaguesRepository {
   }
 
   // ── CORE JOIN METHOD ──────────────────────────────────────────────────────
-  // FIXED: Multiple permission-denied causes were here.
-  //
-  // FIX 1 — Token refresh before join:
-  //   Added FirebaseAuth token refresh (getIdToken(true)) before writing
-  //   to Firestore. On web/desktop, stale tokens cause Firestore security
-  //   rules to reject writes with "permission-denied" even for valid users.
-  //
-  // FIX 2 — Membership write strategy:
-  //   The original code used SetOptions(merge: true) for the membership
-  //   write. On some Firestore rule configs, merge requires a prior read
-  //   permission check. Changed to:
-  //     - If doc does NOT exist → set() without merge (clean create)
-  //     - If doc EXISTS → set() with merge (update existing)
-  //   This avoids the implicit read that merge triggers.
-  //
-  // FIX 3 — memberIds arrayUnion write:
-  //   Kept as-is. This is a merge write on an existing doc (the league
-  //   doc already exists since we just read it). This is safe.
-  //
-  // FIX 4 — Removed silent swallowing of permission-denied:
-  //   The original code had a broad catch(_) on membership write that
-  //   silently swallowed permission errors. Now we let it propagate so
-  //   the user sees a meaningful error instead of a confusing silent fail.
+  // KEY FIXES:
+  // 1. Token refresh before any Firestore write (stale token = permission-denied on web)
+  // 2. Membership read-then-write strategy to match security rule semantics
+  // 3. Removed the erroneous `_ = e;` line that caused the compile error
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _joinLeagueCore({
     required String leagueId,
@@ -550,17 +512,17 @@ class LocalLeaguesRepository {
     final trimmedLeagueId = leagueId.trim();
     if (trimmedLeagueId.isEmpty) {
       throw const UserFriendlyException(
-        "We couldn't find this league. Please refresh and try again.",
+        "We couldn't find this league. "
+        "Please refresh and try again.",
       );
     }
 
-    // FIX 1: Refresh auth token before any Firestore write.
-    // On web/desktop, tokens expire and cause permission-denied.
+    // Refresh auth token before any write to prevent stale-token
+    // permission-denied on web/desktop.
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
     } catch (_) {
-      // If refresh fails, proceed anyway — Firestore will tell us
-      // if the token is truly invalid.
+      // If refresh fails, proceed — Firestore will surface a real error.
     }
 
     final leagueRef =
@@ -571,7 +533,8 @@ class LocalLeaguesRepository {
 
     if (!leagueDoc.exists) {
       throw const UserFriendlyException(
-        "We couldn't find this league. Please refresh and try again.",
+        "We couldn't find this league. "
+        "Please refresh and try again.",
       );
     }
 
@@ -585,38 +548,29 @@ class LocalLeaguesRepository {
       final membershipRef =
           leagueRef.collection('memberships').doc(authUid);
 
-      // FIX 2: Read existing membership first to decide write strategy.
-      DocumentSnapshot<Map<String, dynamic>> existingSnap;
+      // Read existing membership to determine correct write strategy.
+      // Some Firestore rules allow CREATE but not UPDATE — we need to
+      // match the correct operation to the correct rule.
+      bool membershipExists = false;
+      int? existingRoleIdx;
+
       try {
-        existingSnap = await membershipRef
+        final existingSnap = await membershipRef
             .get(const GetOptions(source: Source.server))
             .timeout(const Duration(seconds: 12));
-      } catch (e) {
-        // If we cannot read membership (e.g. rules only allow
-        // write-if-not-exists), treat as non-existent and attempt
-        // the create write below.
-        existingSnap =
-            await membershipRef.get(const GetOptions(source: Source.cache)).timeout(
-          const Duration(seconds: 3),
-        ).catchError((_) => membershipRef.get(
-          const GetOptions(source: Source.cache),
-        ));
 
-        // Swallow — we will attempt the write regardless.
-        _ = e;
-      }
-
-      bool membershipExists = false;
-      try {
         membershipExists = existingSnap.exists;
+        if (membershipExists) {
+          existingRoleIdx =
+              (existingSnap.data()?['role'] as num?)?.toInt();
+        }
       } catch (_) {
+        // Cannot read membership — assume it does not exist and
+        // attempt a clean create write below.
         membershipExists = false;
+        existingRoleIdx = null;
       }
 
-      final existingRoleIdx =
-          membershipExists
-              ? (existingSnap.data()?['role'] as num?)?.toInt()
-              : null;
       final existingRole = (existingRoleIdx != null &&
               existingRoleIdx >= 0 &&
               existingRoleIdx < LeagueRole.values.length)
@@ -636,9 +590,9 @@ class LocalLeaguesRepository {
           version: 1,
         );
 
-        // FIX 2: Use set WITHOUT merge for new doc creation.
-        // Some Firestore rules only allow create (not update) for
-        // membership docs. merge:false maps to "create" semantics.
+        // Use merge: false for new doc — maps to CREATE semantics
+        // which matches "allow create if request.auth.uid == docId"
+        // type security rules without triggering UPDATE checks.
         await membershipRef
             .set(
               membership.toRemoteMap(),
@@ -648,7 +602,7 @@ class LocalLeaguesRepository {
       }
     }
 
-    // FIX 3: arrayUnion on league doc — safe merge write.
+    // arrayUnion on the league doc — safe merge write since the doc exists.
     await leagueRef
         .set(
           {
@@ -849,7 +803,9 @@ class LocalLeaguesRepository {
           if (snap.docs.isEmpty) return;
 
           const chunkSize = 8;
-          for (var i = 0; i < snap.docs.length; i += chunkSize) {
+          for (var i = 0;
+              i < snap.docs.length;
+              i += chunkSize) {
             final batch = _firestore.batch();
             final chunk = snap.docs.sublist(
               i,
@@ -877,7 +833,8 @@ class LocalLeaguesRepository {
       await deleteAllDocsIn('space', bestEffort: true);
       await deleteAllDocsIn('couponCodes', bestEffort: true);
       await deleteAllDocsIn('couponConfig', bestEffort: true);
-      await deleteAllDocsIn('pointAdjustments', bestEffort: true);
+      await deleteAllDocsIn(
+          'pointAdjustments', bestEffort: true);
 
       await leagueRef
           .delete()
@@ -967,12 +924,6 @@ class LocalLeaguesRepository {
     }
   }
 
-  // ── joinLeagueLocallyByCode ───────────────────────────────────────────────
-  // FIXED: Added token refresh before the join attempt.
-  // On web, the auth token can be stale when the user first opens the
-  // QR scanner or enters a code, causing Firestore rules to reject the
-  // write with permission-denied even though the user is signed in.
-  // ─────────────────────────────────────────────────────────────────────────
   Future<League> joinLeagueLocallyByCode({
     required String joinCode,
     required String userId,
@@ -984,7 +935,8 @@ class LocalLeaguesRepository {
       final authUid = _requireAuthUid();
       await _requireOnline();
 
-      // Refresh token before join to prevent stale-token permission-denied.
+      // Refresh token before join to prevent stale-token
+      // permission-denied on web/desktop.
       try {
         await FirebaseAuth.instance.currentUser?.getIdToken(true);
       } catch (_) {}
@@ -1031,7 +983,6 @@ class LocalLeaguesRepository {
       );
     }
   }
-  // ── END joinLeagueLocallyByCode ───────────────────────────────────────────
 
   Future<List<Membership>> listMemberships() async {
     try {
@@ -1118,8 +1069,8 @@ class LocalLeaguesRepository {
         map['leagueId'] =
             (map['leagueId'] as String?) ?? leagueId;
         map['userId'] = (map['userId'] as String?) ?? uid;
-        map['role'] =
-            (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+        map['role'] = (map['role'] as num?)?.toInt() ??
+            LeagueRole.member.index;
         map['updatedAtMs'] =
             (map['updatedAtMs'] as num?)?.toInt() ??
                 DateTime.now().millisecondsSinceEpoch;
@@ -1145,14 +1096,16 @@ class LocalLeaguesRepository {
               (map['id'] as String).trim().isNotEmpty)
           ? map['id']
           : doc.id;
-      map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+      map['leagueId'] =
+          (map['leagueId'] as String?) ?? leagueId;
       map['userId'] = (map['userId'] as String?) ?? uid;
-      map['role'] =
-          (map['role'] as num?)?.toInt() ?? LeagueRole.member.index;
+      map['role'] = (map['role'] as num?)?.toInt() ??
+          LeagueRole.member.index;
       map['updatedAtMs'] =
           (map['updatedAtMs'] as num?)?.toInt() ??
               DateTime.now().millisecondsSinceEpoch;
-      map['version'] = (map['version'] as num?)?.toInt() ?? 1;
+      map['version'] =
+          (map['version'] as num?)?.toInt() ?? 1;
       return Membership.fromRemoteMap(map);
     } catch (e) {
       _rethrowFriendly(
@@ -1199,7 +1152,8 @@ class LocalLeaguesRepository {
         );
 
         await membershipRef
-            .set(membership.toRemoteMap(), SetOptions(merge: true))
+            .set(membership.toRemoteMap(),
+                SetOptions(merge: true))
             .timeout(const Duration(seconds: 20));
         return;
       }
@@ -1320,7 +1274,9 @@ class LocalLeaguesRepository {
         q = q.limit(limit);
       }
 
-      return q.snapshots(includeMetadataChanges: true).map((snap) {
+      return q
+          .snapshots(includeMetadataChanges: true)
+          .map((snap) {
         return snap.docs
             .map((d) => PointAdjustment.fromDoc(d))
             .toList(growable: false);
@@ -1335,12 +1291,9 @@ class LocalLeaguesRepository {
       final s = rawStatus.trim().toLowerCase();
       return s == 'completed' || s == 'played';
     }
-
     if (rawStatus is num) {
-      final idx = rawStatus.toInt();
-      return idx > 0;
+      return rawStatus.toInt() > 0;
     }
-
     return false;
   }
 
@@ -1377,18 +1330,22 @@ class LocalLeaguesRepository {
       bool needsBackfill = false;
       for (final d in teamsSnap.docs) {
         final data = d.data();
-        final hasBase =
-            data['basePoints'] is int || data['basePoints'] is num;
+        final hasBase = data['basePoints'] is int ||
+            data['basePoints'] is num;
         final hasAdj = data['adminAdjustment'] is int ||
             data['adminAdjustment'] is num;
-        final hasFinal =
-            data['finalPoints'] is int || data['finalPoints'] is num;
+        final hasFinal = data['finalPoints'] is int ||
+            data['finalPoints'] is num;
         final hasGd = data['goalDifference'] is int ||
             data['goalDifference'] is num;
         final hasGf =
             data['goalsFor'] is int || data['goalsFor'] is num;
 
-        if (!hasBase || !hasAdj || !hasFinal || !hasGd || !hasGf) {
+        if (!hasBase ||
+            !hasAdj ||
+            !hasFinal ||
+            !hasGd ||
+            !hasGf) {
           needsBackfill = true;
           break;
         }
@@ -1451,12 +1408,10 @@ class LocalLeaguesRepository {
 
         for (final td in chunk) {
           final data = td.data();
-
           final teamId = td.id;
           final base = basePointsByTeam[teamId] ?? 0;
           final adj =
               (data['adminAdjustment'] as num?)?.toInt() ?? 0;
-
           final gd = gdByTeam[teamId] ?? 0;
           final gf = gfByTeam[teamId] ?? 0;
 
@@ -1548,28 +1503,22 @@ class LocalLeaguesRepository {
             oldPlayed ? _pointsFor(hsOld!, asOld!) : 0;
         final oldAwayPts =
             oldPlayed ? _pointsFor(asOld!, hsOld!) : 0;
-
         final oldHomeGf = oldPlayed ? hsOld : 0;
         final oldAwayGf = oldPlayed ? asOld! : 0;
-
         final oldHomeGd = oldPlayed ? (hsOld - asOld!) : 0;
         final oldAwayGd = oldPlayed ? (asOld! - hsOld) : 0;
 
         final newHomePts = _pointsFor(hsNew, asNew);
         final newAwayPts = _pointsFor(asNew, hsNew);
-
         final newHomeGf = hsNew;
         final newAwayGf = asNew;
-
         final newHomeGd = hsNew - asNew;
         final newAwayGd = asNew - hsNew;
 
         final deltaHomePts = newHomePts - oldHomePts;
         final deltaAwayPts = newAwayPts - oldAwayPts;
-
         final deltaHomeGf = newHomeGf - oldHomeGf;
         final deltaAwayGf = newAwayGf - oldAwayGf;
-
         final deltaHomeGd = newHomeGd - oldHomeGd;
         final deltaAwayGd = newAwayGd - oldAwayGd;
 
@@ -1605,19 +1554,16 @@ class LocalLeaguesRepository {
             (homeData['basePoints'] as num?)?.toInt() ?? 0;
         final awayBase =
             (awayData['basePoints'] as num?)?.toInt() ?? 0;
-
         final homeAdj =
             (homeData['adminAdjustment'] as num?)?.toInt() ??
                 0;
         final awayAdj =
             (awayData['adminAdjustment'] as num?)?.toInt() ??
                 0;
-
         final homeGd =
             (homeData['goalDifference'] as num?)?.toInt() ?? 0;
         final awayGd =
             (awayData['goalDifference'] as num?)?.toInt() ?? 0;
-
         final homeGf =
             (homeData['goalsFor'] as num?)?.toInt() ?? 0;
         final awayGf =
@@ -1625,10 +1571,8 @@ class LocalLeaguesRepository {
 
         final nextHomeBase = max(0, homeBase + deltaHomePts);
         final nextAwayBase = max(0, awayBase + deltaAwayPts);
-
         final nextHomeGf = max(0, homeGf + deltaHomeGf);
         final nextAwayGf = max(0, awayGf + deltaAwayGf);
-
         final nextHomeGd = homeGd + deltaHomeGd;
         final nextAwayGd = awayGd + deltaAwayGd;
 
@@ -1709,7 +1653,6 @@ class LocalLeaguesRepository {
 
       final userImages =
           await _loadUserImageUrlsByUids(uidTeamIds);
-
       if (userImages.isEmpty) return baseTeams;
 
       return baseTeams.map((t) {
@@ -1748,14 +1691,12 @@ class LocalLeaguesRepository {
       for (final d in existing.docs) {
         final data = d.data();
         final id = d.id;
-
         final base = (data['basePoints'] as num?)?.toInt();
         final adj =
             (data['adminAdjustment'] as num?)?.toInt();
         final gd =
             (data['goalDifference'] as num?)?.toInt();
         final gf = (data['goalsFor'] as num?)?.toInt();
-
         if (base != null ||
             adj != null ||
             gd != null ||
@@ -1804,12 +1745,10 @@ class LocalLeaguesRepository {
           final id = t.id.trim().isEmpty
               ? _uuid.v4()
               : t.id.trim();
-
           final inferredOwnerId =
               (t.ownerId.trim().isNotEmpty)
                   ? t.ownerId.trim()
                   : (_looksLikeFirebaseUid(id) ? id : authUid);
-
           final preserved = existingAgg[id];
           final preservedBase =
               preserved?['basePoints'] ?? 0;
@@ -1836,7 +1775,8 @@ class LocalLeaguesRepository {
                 DateTime.now().millisecondsSinceEpoch,
           };
 
-          batch.set(col.doc(id), data, SetOptions(merge: true));
+          batch.set(
+              col.doc(id), data, SetOptions(merge: true));
         }
 
         await batch
@@ -1875,8 +1815,8 @@ class LocalLeaguesRepository {
                     SetOptions(merge: true))
                 .timeout(const Duration(seconds: 20));
           } else {
-            final data =
-                existingMembership.data() ?? <String, dynamic>{};
+            final data = existingMembership.data() ??
+                <String, dynamic>{};
             final currentVersion =
                 (data['version'] as num?)?.toInt() ?? 1;
             await membershipRef
