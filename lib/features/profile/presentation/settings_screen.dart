@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/locale/locale_controller.dart';
@@ -17,6 +18,7 @@ import '../../live/logic/quick_message_policy.dart';
 import '../../live/logic/quick_messages_controller.dart';
 import '../../master_leagues/domain/master_league.dart';
 import '../../master_leagues/logic/master_leagues_providers.dart';
+import 'delete_account_flow.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
   final v = l10n.tr(key);
@@ -45,6 +47,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   final TextEditingController _quickInput = TextEditingController();
   bool _savingQuick = false;
   bool _verificationBusy = false;
+
+  // ── Delete account state ───────────────────────────────────────────────────
+  bool _deletingAccount = false;
 
   static const Map<String, String> _languageAutonyms = {
     'en': 'English',
@@ -190,7 +195,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(_trOr(l10n, 'common_open_settings', 'Open settings')),
+            child: Text(
+                _trOr(l10n, 'common_open_settings', 'Open settings')),
           ),
         ],
       ),
@@ -226,7 +232,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         SnackBar(
           behavior: SnackBarBehavior.floating,
           content: Text(
-            _trOr(l10n, 'quick_messages_empty_toast', 'Enter a message first.'),
+            _trOr(
+                l10n, 'quick_messages_empty_toast', 'Enter a message first.'),
           ),
         ),
       );
@@ -275,7 +282,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
   Future<void> _deleteCustomQuickMessage(int index) async {
     try {
-      await ref.read(quickMessagesControllerProvider).deleteCustomMessageAt(index);
+      await ref
+          .read(quickMessagesControllerProvider)
+          .deleteCustomMessageAt(index);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -314,7 +323,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     try {
       final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
       final repo = ref.read(masterLeaguesRepositoryProvider);
-      final userId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      final userId =
+          FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
       if (workspace.isVerifiedOrganizer) {
         _snack('This organizer is already verified.');
@@ -324,7 +334,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       if (workspace.canRenewVerification &&
           !workspace.isVerificationPending &&
           workspace.verificationExpired) {
-        final payment = await paymentSvc.payForOrganizerVerificationRenewal(
+        final payment =
+            await paymentSvc.payForOrganizerVerificationRenewal(
           context: context,
           userId: userId,
           masterLeagueId: workspace.id,
@@ -335,7 +346,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
         if (!payment.success) {
           _snack(
-            payment.errorMessage ?? 'Verification renewal payment failed.',
+            payment.errorMessage ??
+                'Verification renewal payment failed.',
             error: true,
           );
           return;
@@ -395,6 +407,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
+  // ── Delete account ─────────────────────────────────────────────────────────
+
+  Future<void> _handleDeleteAccount() async {
+    // Prevent multiple taps
+    if (_deletingAccount) return;
+
+    setState(() => _deletingAccount = true);
+    try {
+      final deleted = await showDeleteAccountFlow(context);
+
+      if (!mounted) return;
+
+      if (deleted) {
+        // Firebase Auth signs out automatically on delete.
+        // The authRouterRefresh listener will fire and GoRouter's redirect
+        // will send the user to /login automatically.
+        // We also push /login manually as a safety net in case the
+        // listener fires slightly late.
+        GoRouter.of(context).go('/login');
+      }
+    } finally {
+      if (mounted) setState(() => _deletingAccount = false);
+    }
+  }
+
+  // ── Theme helpers ──────────────────────────────────────────────────────────
+
   String _themeModeLabel(ThemeMode mode, AppLocalizations l10n) {
     switch (mode) {
       case ThemeMode.system:
@@ -442,7 +481,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
     final premium = ref.watch(isPremiumProvider).value ?? false;
     final customQuick = ref.watch(inAppCustomQuickMessagesProvider);
-    final createdMasterLeaguesAsync = ref.watch(createdMasterLeaguesProvider);
+    final createdMasterLeaguesAsync =
+        ref.watch(createdMasterLeaguesProvider);
 
     return GlassScaffold(
       appBar: AppBar(
@@ -471,8 +511,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               physics: const BouncingScrollPhysics(
                 parent: AlwaysScrollableScrollPhysics(),
               ),
-              padding: const EdgeInsetsDirectional.fromSTEB(16, 4, 16, 100),
+              padding: const EdgeInsetsDirectional.fromSTEB(
+                  16, 4, 16, 100),
               children: [
+                // ── Header ─────────────────────────────────────────────────
                 Glass(
                   borderRadius: 22,
                   padding: const EdgeInsets.symmetric(
@@ -533,6 +575,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
+                // ── Verification ────────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.verified_user_rounded,
                   label: 'Verification',
@@ -542,7 +585,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   loading: () => Glass(
                     borderRadius: 20,
                     padding: const EdgeInsets.all(16),
-                    child: const Center(child: CircularProgressIndicator()),
+                    child: const Center(
+                        child: CircularProgressIndicator()),
                   ),
                   error: (e, _) => Glass(
                     borderRadius: 20,
@@ -626,8 +670,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           actionLabel = 'Get Verified';
                         }
 
-                        final canPress = !workspace.isVerifiedOrganizer &&
-                            !workspace.isVerificationPending;
+                        final canPress =
+                            !workspace.isVerifiedOrganizer &&
+                                !workspace.isVerificationPending;
 
                         return Glass(
                           borderRadius: 20,
@@ -644,10 +689,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                       shape: BoxShape.circle,
                                       color: statusColor.withOpacity(0.12),
                                       border: Border.all(
-                                        color: statusColor.withOpacity(0.24),
+                                        color:
+                                            statusColor.withOpacity(0.24),
                                       ),
                                     ),
-                                    child: Icon(statusIcon, color: statusColor),
+                                    child: Icon(statusIcon,
+                                        color: statusColor),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
@@ -696,14 +743,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                   child: FilledButton.icon(
                                     onPressed: _verificationBusy
                                         ? null
-                                        : () => _handleVerificationAction(
+                                        : () =>
+                                            _handleVerificationAction(
                                               workspace,
                                             ),
                                     icon: _verificationBusy
                                         ? const SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child: CircularProgressIndicator(
+                                            child:
+                                                CircularProgressIndicator(
                                               strokeWidth: 2,
                                               color: Colors.white,
                                             ),
@@ -711,7 +760,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                         : Icon(
                                             workspace.verificationExpired
                                                 ? Icons.refresh_rounded
-                                                : Icons.verified_user_outlined,
+                                                : Icons
+                                                    .verified_user_outlined,
                                           ),
                                     label: Text(
                                       _verificationBusy
@@ -734,7 +784,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
-                _SectionLabel(icon: Icons.palette_rounded, label: l10n.themeTitle),
+                // ── Theme ───────────────────────────────────────────────────
+                _SectionLabel(
+                    icon: Icons.palette_rounded, label: l10n.themeTitle),
                 const SizedBox(height: 8),
                 Glass(
                   borderRadius: 20,
@@ -754,7 +806,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 selected: themeState.mode == mode,
                                 onTap: () async {
                                   await ref
-                                      .read(themeControllerProvider.notifier)
+                                      .read(themeControllerProvider
+                                          .notifier)
                                       .setThemeMode(mode);
                                 },
                               ),
@@ -777,6 +830,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
+                // ── Language ────────────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.language_rounded,
                   label: l10n.languageTitle,
@@ -826,8 +880,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Directionality(
-                                  textDirection:
-                                      _languageTextDirection(currentLangCode),
+                                  textDirection: _languageTextDirection(
+                                      currentLangCode),
                                   child: Text(
                                     _languageDisplayName(currentLangCode),
                                     style: TextStyle(
@@ -853,6 +907,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
+                // ── Notifications ───────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.notifications_rounded,
                   label: l10n.notificationsTitle,
@@ -876,22 +931,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             _SettingsToggle(
                               icon: Icons.notifications_active_rounded,
                               title: l10n.notificationsEnabledTitle,
-                              subtitle: l10n.notificationsEnabledSubtitle,
+                              subtitle:
+                                  l10n.notificationsEnabledSubtitle,
                               value: _enabled,
                               onChanged: (v) async {
                                 setState(() => _enabled = v);
                                 await _saveNotifications();
                                 if (v) {
-                                  await NotificationService().showTestNotification();
+                                  await NotificationService()
+                                      .showTestNotification();
                                 }
                               },
                             ),
-                            Divider(color: onSurface.withOpacity(0.08), height: 1),
+                            Divider(
+                                color: onSurface.withOpacity(0.08),
+                                height: 1),
                             _SettingsToggle(
                               icon: Icons.alarm_rounded,
-                              title: l10n.notificationsMatchRemindersTitle,
-                              subtitle:
-                                  l10n.notificationsMatchRemindersSubtitle,
+                              title:
+                                  l10n.notificationsMatchRemindersTitle,
+                              subtitle: l10n
+                                  .notificationsMatchRemindersSubtitle,
                               value: _matchReminders,
                               enabled: _enabled,
                               onChanged: (v) async {
@@ -899,11 +959,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 await _saveNotifications();
                               },
                             ),
-                            Divider(color: onSurface.withOpacity(0.08), height: 1),
+                            Divider(
+                                color: onSurface.withOpacity(0.08),
+                                height: 1),
                             _SettingsToggle(
                               icon: Icons.campaign_rounded,
                               title: l10n.notificationsMarketingTitle,
-                              subtitle: l10n.notificationsMarketingSubtitle,
+                              subtitle:
+                                  l10n.notificationsMarketingSubtitle,
                               value: _marketing,
                               enabled: _enabled,
                               onChanged: (v) async {
@@ -917,6 +980,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
+                // ── Live Overlay ────────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.picture_in_picture_alt_rounded,
                   label: l10n.liveOverlayTitle,
@@ -943,7 +1007,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         granted: _overlayPermissionGranted,
                         statusText: overlayStatusText,
                         onGrant: () async {
-                          await OverlayPlatform.requestOverlayPermission();
+                          await OverlayPlatform
+                              .requestOverlayPermission();
                         },
                       ),
                       const SizedBox(height: 10),
@@ -952,7 +1017,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         title: l10n.liveOverlaySwitchTitle,
                         subtitle: l10n.liveOverlaySwitchSubtitle,
                         value: _overlayEnabled,
-                        onChanged: (v) async => _setOverlayEnabled(v),
+                        onChanged: (v) async =>
+                            _setOverlayEnabled(v),
                       ),
                     ],
                   ),
@@ -960,9 +1026,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
+                // ── Quick Messages ──────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.chat_bubble_rounded,
-                  label: _trOr(l10n, 'quick_messages_title', 'Quick Messages'),
+                  label: _trOr(
+                      l10n, 'quick_messages_title', 'Quick Messages'),
                 ),
                 const SizedBox(height: 8),
                 Glass(
@@ -999,7 +1067,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           decoration: BoxDecoration(
                             color: onSurface.withOpacity(0.04),
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: onSurface.withOpacity(0.08)),
+                            border: Border.all(
+                                color: onSurface.withOpacity(0.08)),
                           ),
                           child: Row(
                             children: [
@@ -1036,9 +1105,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 color: Colors.transparent,
                                 child: InkWell(
                                   onTap: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(
                                       SnackBar(
-                                        behavior: SnackBarBehavior.floating,
+                                        behavior:
+                                            SnackBarBehavior.floating,
                                         content: Text(
                                           _trOr(
                                             l10n,
@@ -1049,21 +1120,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                       ),
                                     );
                                   },
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius:
+                                      BorderRadius.circular(10),
                                   child: Ink(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 12,
                                       vertical: 8,
                                     ),
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(10),
+                                      borderRadius:
+                                          BorderRadius.circular(10),
                                       color: cs.primary.withOpacity(0.12),
                                       border: Border.all(
-                                        color: cs.primary.withOpacity(0.25),
+                                        color:
+                                            cs.primary.withOpacity(0.25),
                                       ),
                                     ),
                                     child: Text(
-                                      _trOr(l10n, 'common_upgrade', 'Upgrade'),
+                                      _trOr(
+                                          l10n, 'common_upgrade', 'Upgrade'),
                                       style: TextStyle(
                                         color: cs.primary,
                                         fontWeight: FontWeight.w800,
@@ -1079,7 +1154,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       ] else ...[
                         if (customQuick.isEmpty)
                           Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 8),
                             child: Row(
                               children: [
                                 Icon(
@@ -1120,7 +1196,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                   SnackBar(
                                     behavior: SnackBarBehavior.floating,
                                     content: Text(
-                                      e.toString().replaceFirst('Exception: ', ''),
+                                      e
+                                          .toString()
+                                          .replaceFirst('Exception: ', ''),
                                     ),
                                   ),
                                 );
@@ -1129,9 +1207,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             itemBuilder: (ctx, i) {
                               final msg = customQuick[i];
                               return _QuickMessageTile(
-                                key: ValueKey('custom_quick_$i:$msg'),
+                                key: ValueKey(
+                                    'custom_quick_$i:$msg'),
                                 message: msg,
-                                onDelete: () => _deleteCustomQuickMessage(i),
+                                onDelete: () =>
+                                    _deleteCustomQuickMessage(i),
                               );
                             },
                           ),
@@ -1143,11 +1223,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 controller: _quickInput,
                                 maxLength: _quickMaxChars,
                                 inputFormatters: [
-                                  LengthLimitingTextInputFormatter(_quickMaxChars),
+                                  LengthLimitingTextInputFormatter(
+                                      _quickMaxChars),
                                 ],
                                 textInputAction: TextInputAction.done,
-                                onSubmitted: (_) =>
-                                    _savingQuick ? null : _addCustomQuickMessage(),
+                                onSubmitted: (_) => _savingQuick
+                                    ? null
+                                    : _addCustomQuickMessage(),
                                 style: TextStyle(
                                   color: onSurface,
                                   fontWeight: FontWeight.w700,
@@ -1160,8 +1242,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                     'Add custom message…',
                                   ),
                                   helperText: 'Max $_quickMaxChars chars',
-                                  hintStyle:
-                                      TextStyle(color: onSurface.withOpacity(0.45)),
+                                  hintStyle: TextStyle(
+                                      color:
+                                          onSurface.withOpacity(0.45)),
                                 ),
                               ),
                             ),
@@ -1169,13 +1252,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             Material(
                               color: Colors.transparent,
                               child: InkWell(
-                                onTap: _savingQuick ? null : _addCustomQuickMessage,
+                                onTap: _savingQuick
+                                    ? null
+                                    : _addCustomQuickMessage,
                                 borderRadius: BorderRadius.circular(12),
                                 child: Ink(
                                   width: 44,
                                   height: 44,
                                   decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius:
+                                        BorderRadius.circular(12),
                                     gradient: LinearGradient(
                                       colors: [
                                         cs.primary,
@@ -1188,7 +1274,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                         ? const SizedBox(
                                             width: 18,
                                             height: 18,
-                                            child: CircularProgressIndicator(
+                                            child:
+                                                CircularProgressIndicator(
                                               strokeWidth: 2,
                                               color: Colors.white,
                                             ),
@@ -1211,6 +1298,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
+                // ── App info ────────────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.info_outline_rounded,
                   label: l10n.appInfoTitle,
@@ -1270,6 +1358,161 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   ),
                 ),
 
+                const SizedBox(height: 16),
+
+                // ────────────────────────────────────────────────────────────
+                // ACCOUNT SECTION
+                // ────────────────────────────────────────────────────────────
+                _SectionLabel(
+                  icon: Icons.manage_accounts_rounded,
+                  label: 'Account',
+                ),
+                const SizedBox(height: 8),
+                Glass(
+                  borderRadius: 20,
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Account info row ──────────────────────────────────
+                      Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: cs.primary.withOpacity(0.10),
+                              border: Border.all(
+                                color: cs.primary.withOpacity(0.20),
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.person_rounded,
+                              color: cs.primary,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  FirebaseAuth.instance.currentUser
+                                          ?.displayName ??
+                                      'My Account',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 15,
+                                    color: onSurface,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  FirebaseAuth.instance.currentUser
+                                          ?.email ??
+                                      '',
+                                  style: TextStyle(
+                                    color: onSurface.withOpacity(0.50),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 18),
+                      Divider(
+                        color: onSurface.withOpacity(0.08),
+                        height: 1,
+                      ),
+                      const SizedBox(height: 18),
+
+                      // ── Delete account button ─────────────────────────────
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _deletingAccount
+                              ? null
+                              : _handleDeleteAccount,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.redAccent,
+                            side: BorderSide(
+                              color: Colors.redAccent.withOpacity(0.45),
+                              width: 1.5,
+                            ),
+                            backgroundColor:
+                                Colors.redAccent.withOpacity(0.05),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 14,
+                              horizontal: 18,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          icon: _deletingAccount
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.redAccent,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.delete_forever_rounded,
+                                  size: 20,
+                                ),
+                          label: Text(
+                            _deletingAccount
+                                ? 'Processing…'
+                                : 'Delete Account',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      // ── Danger disclaimer ─────────────────────────────────
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            size: 14,
+                            color: onSurface.withOpacity(0.40),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Permanently deletes your account and all associated data. This action cannot be undone.',
+                              style: TextStyle(
+                                color: onSurface.withOpacity(0.45),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
                 const SizedBox(height: 32),
               ],
             ),
@@ -1308,14 +1551,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       Container(
                         width: 40,
                         height: 4,
-                        margin: const EdgeInsets.only(top: 8, bottom: 14),
+                        margin: const EdgeInsets.only(
+                            top: 8, bottom: 14),
                         decoration: BoxDecoration(
                           color: onSurface.withOpacity(0.20),
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 16),
                         child: Text(
                           ctx.l10n.languageTitle,
                           style: theme.textTheme.titleMedium?.copyWith(
@@ -1327,7 +1572,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       ),
                       const SizedBox(height: 12),
                       ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 400),
+                        constraints:
+                            const BoxConstraints(maxHeight: 400),
                         child: ListView.builder(
                           shrinkWrap: true,
                           physics: const BouncingScrollPhysics(),
@@ -1340,7 +1586,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                               onTap: () async {
                                 Navigator.of(ctx).pop();
                                 await ref
-                                    .read(localeControllerProvider.notifier)
+                                    .read(localeControllerProvider
+                                        .notifier)
                                     .setLocale(code);
                               },
                               child: Container(
@@ -1365,7 +1612,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                                 : FontWeight.w600,
                                             color: selected
                                                 ? cs.primary
-                                                : onSurface.withOpacity(0.80),
+                                                : onSurface
+                                                    .withOpacity(0.80),
                                             fontSize: 15,
                                           ),
                                         ),
@@ -1396,6 +1644,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Private widgets — all unchanged from original
+// ---------------------------------------------------------------------------
 
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel({required this.icon, required this.label});
@@ -1444,7 +1696,8 @@ class _ThemeModeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final onSurface = cs.onSurface;
-    final color = selected ? cs.primary : onSurface.withOpacity(0.65);
+    final color =
+        selected ? cs.primary : onSurface.withOpacity(0.65);
 
     return InkWell(
       onTap: onTap,
@@ -1472,7 +1725,8 @@ class _ThemeModeCard extends StatelessWidget {
               style: TextStyle(
                 color: color,
                 fontSize: 12,
-                fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                fontWeight:
+                    selected ? FontWeight.w900 : FontWeight.w700,
               ),
             ),
           ],
@@ -1589,7 +1843,8 @@ class _OverlayStatusCard extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(14),
@@ -1614,7 +1869,8 @@ class _OverlayStatusCard extends StatelessWidget {
               onTap: onGrant,
               borderRadius: BorderRadius.circular(8),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 4),
                 child: Text(
                   'Grant',
                   style: TextStyle(
@@ -1638,11 +1894,13 @@ class _PremiumBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
-    final color =
-        isPremium ? const Color(0xFF00E676) : onSurface.withOpacity(0.55);
+    final color = isPremium
+        ? const Color(0xFF00E676)
+        : onSurface.withOpacity(0.55);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: color.withOpacity(0.12),
@@ -1676,7 +1934,8 @@ class _QuickMessageTile extends StatelessWidget {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: onSurface.withOpacity(0.04),
         borderRadius: BorderRadius.circular(12),
