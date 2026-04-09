@@ -36,9 +36,9 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
-    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any"       android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.flash"     android:required="false" />
 
     <application
         android:label="eSportlyic"
@@ -46,6 +46,16 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             ADMOB APP ID — required or app crashes instantly on launch.
+             This is the TEST App ID — safe for development.
+             Replace with your REAL AdMob App ID before publishing:
+               AdMob Console → Apps → [Your App] → App settings → App ID
+             ═══════════════════════════════════════════════════════════════ -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713"/>
 
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
@@ -98,5 +108,6 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
     </application>
 </manifest>

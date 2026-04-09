@@ -20,6 +20,14 @@ import 'core/services/push_messaging_service.dart';
 import 'firebase_options.dart';
 import 'web_app/web_app.dart';
 
+// ---------------------------------------------------------------------------
+// Conditional import for google_mobile_ads
+// Only imported on dart:io (Android/iOS) — never on Web.
+// This prevents dart2js from trying to resolve the package.
+// ---------------------------------------------------------------------------
+import 'core/services/admob_initializer_stub.dart'
+    if (dart.library.io) 'core/services/admob_initializer.dart' as _admob;
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
@@ -30,7 +38,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> main() async {
-  // 1. Initialize Flutter Bindings safely
+  // 1. Initialize Flutter Bindings
   try {
     WidgetsFlutterBinding.ensureInitialized();
   } catch (e) {
@@ -61,10 +69,25 @@ Future<void> main() async {
     debugPrintStack(stackTrace: st);
   }
 
-  // 4. Mobile-only configurations
+  // 4. Initialize Google Mobile Ads (Android / iOS only)
+  // ─────────────────────────────────────────────────────
+  // MUST be called after WidgetsFlutterBinding.ensureInitialized()
+  // and BEFORE runApp(). Skipped on Web via conditional import stub.
+  // Crashes on launch if skipped on Android when the SDK is present.
+  if (!kIsWeb) {
+    try {
+      await _admob.initializeMobileAds();
+    } catch (e, st) {
+      // Non-fatal — ads will not work but the app still runs.
+      debugPrint('MobileAds.initialize failed: $e');
+      debugPrintStack(stackTrace: st);
+    }
+  }
+
+  // 5. Mobile-only configurations
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    
+
     try {
       FirebaseFirestore.instance.settings =
           const Settings(persistenceEnabled: false);
@@ -88,13 +111,11 @@ Future<void> main() async {
     }
   }
 
-  // 5. Run the App inside a guarded zone
+  // 6. Run the App inside a guarded zone
   runZonedGuarded(() async {
     try {
       final prefs = await PreferencesService.create();
 
-      // FATAL WEB CRASH FIX: Connectivity service often crashes on web. 
-      // If it throws, we catch it here so it doesn't kill the boot sequence.
       try {
         await ConnectivityService.instance.initialize();
       } catch (e) {
@@ -115,12 +136,9 @@ Future<void> main() async {
         }
       }
 
-      // STRICT SEPARATION: Web stays Web, App stays App.
       final Widget app = kIsWeb
           ? const EleagueHubWebApp()
-          : DeepLinkGate(
-              child: const EleagueHubApp(),
-            );
+          : DeepLinkGate(child: const EleagueHubApp());
 
       runApp(
         ProviderScope(
@@ -130,11 +148,8 @@ Future<void> main() async {
           child: app,
         ),
       );
-      
     } catch (fatalError, stackTrace) {
-      // ANTI-WHITE-SCREEN GUARD
-      // If anything above failed completely, draw the error to the screen 
-      // instead of leaving a completely blank white screen.
+      // Anti-white-screen guard
       if (kIsWeb) {
         runApp(
           MaterialApp(
@@ -148,8 +163,8 @@ Future<void> main() async {
                     child: Text(
                       'CRITICAL BOOT ERROR:\n\n$fatalError\n\n$stackTrace',
                       style: const TextStyle(
-                        color: Colors.redAccent, 
-                        fontSize: 16,
+                        color:      Colors.redAccent,
+                        fontSize:   16,
                         fontWeight: FontWeight.bold,
                       ),
                       textDirection: TextDirection.ltr,
