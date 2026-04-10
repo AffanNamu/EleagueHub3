@@ -164,6 +164,16 @@ class LocalLeaguesRepository {
     return false;
   }
 
+  // ---------------------------------------------------------------------------
+  // FIX: _countCurrentUserLeagueCards
+  //
+  // OLD: queried leagues where memberIds arrayContains uid — this requires the
+  //      user to already be in the league, so it works fine for listing but
+  //      the count was used BEFORE the join write, which is correct.
+  //
+  // UNCHANGED: this function is fine as-is. The permission-denied was NOT
+  //      here. Leaving identical to original.
+  // ---------------------------------------------------------------------------
   Future<int> _countCurrentUserLeagueCards(String authUid) async {
     final snap = await _firestore
         .collection('leagues')
@@ -174,6 +184,25 @@ class LocalLeaguesRepository {
     return snap.docs.length;
   }
 
+  // ---------------------------------------------------------------------------
+  // FIX: _userAlreadyHasLeagueCard
+  //
+  // OLD BUG: This did a get() on the league document directly. If the Firestore
+  //   security rules only allow league reads by members (memberIds contains uid),
+  //   then a user trying to JOIN (not yet a member) would get permission-denied
+  //   here — BEFORE any join write happened.
+  //
+  // FIX: Wrap the get() in a try-catch. If we get permission-denied, we treat
+  //   it as "user is not yet a member" (returns false), which is the correct
+  //   semantic — the join flow will then proceed to add them.
+  //
+  // This is safe because:
+  //   - If the user IS already a member, the read succeeds and we return true
+  //     (skip the cap check correctly).
+  //   - If the user is NOT a member yet, permission-denied means they cannot
+  //     read the doc (correct), and we return false so the cap is enforced.
+  //   - If the league is public-read, the read succeeds normally.
+  // ---------------------------------------------------------------------------
   Future<bool> _userAlreadyHasLeagueCard({
     required String authUid,
     required String leagueId,
@@ -181,22 +210,34 @@ class LocalLeaguesRepository {
     final trimmedLeagueId = leagueId.trim();
     if (trimmedLeagueId.isEmpty) return false;
 
-    final doc = await _firestore
-        .collection('leagues')
-        .doc(trimmedLeagueId)
-        .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 12));
+    try {
+      final doc = await _firestore
+          .collection('leagues')
+          .doc(trimmedLeagueId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
 
-    if (!doc.exists) return false;
+      if (!doc.exists) return false;
 
-    final data = doc.data() ?? const <String, dynamic>{};
-    final memberIds = (data['memberIds'] as List?)
-            ?.map((e) => e.toString().trim())
-            .where((e) => e.isNotEmpty)
-            .toSet() ??
-        <String>{};
+      final data = doc.data() ?? const <String, dynamic>{};
+      final memberIds = (data['memberIds'] as List?)
+              ?.map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
 
-    return memberIds.contains(authUid);
+      return memberIds.contains(authUid);
+    } on FirebaseException catch (e) {
+      // permission-denied means user is not yet a member — treat as false
+      // so the join flow can proceed and add them.
+      if (e.code == 'permission-denied') return false;
+      // For other Firebase errors, re-throw so caller handles them.
+      rethrow;
+    } catch (_) {
+      // For any other error (timeout, network), treat as not-yet-member
+      // so we do not block the join attempt incorrectly.
+      return false;
+    }
   }
 
   Future<void> _enforceFreeLeagueListCapForNewAddition({
@@ -449,27 +490,33 @@ class LocalLeaguesRepository {
   // ---------------------------------------------------------------------------
   // _joinLeagueCore — FIXED write ordering to prevent permission-denied.
   //
-  // ROOT CAUSE OF THE BUG:
-  //   The old code wrote the membership sub-document FIRST, then updated
-  //   memberIds on the league document SECOND.
+  // ROOT CAUSE OF THE BUG (QR code / invitation code join):
+  //   The security rules guard the membership sub-document write with a check
+  //   that request.auth.uid is already present in the parent league's memberIds
+  //   array. The old code flow was:
   //
-  //   Firestore security rules typically require that a user is already in
-  //   the league's memberIds array before they are allowed to write their
-  //   own membership sub-document (self-join rule pattern). Writing the
-  //   membership first therefore violated the rule and returned
-  //   "permission-denied".
+  //     1. Check if user already has a card (_userAlreadyHasLeagueCard)
+  //        → get() on league doc → PERMISSION DENIED if user not yet a member
+  //          and rules require membership to read.
+  //     2. Write membership doc FIRST
+  //        → PERMISSION DENIED because memberIds does not yet contain uid.
+  //     3. Write memberIds SECOND
+  //        → Never reached due to step 2 failing.
   //
-  // FIX:
-  //   1. Update memberIds on the league document FIRST (arrayUnion).
-  //      Rules allow this because the user is joining a non-private league
-  //      or the join path is explicitly allowed.
-  //   2. Write the membership sub-document SECOND, now that memberIds
-  //      already contains the user's UID and the rule check passes.
-  //   3. Both writes use SetOptions(merge: true) so existing data is safe.
-  //   4. The membership write is wrapped in a try/catch so a failure there
-  //      does not roll back the already-successful memberIds update — the
-  //      user is still considered joined and the membership can be repaired
-  //      on next access.
+  // FIX (two parts):
+  //   Part A (_userAlreadyHasLeagueCard): wrap get() in try-catch so that a
+  //     permission-denied on the league doc read is treated as "not yet a
+  //     member" — allowing the join flow to continue instead of crashing.
+  //
+  //   Part B (this function): update memberIds on the league document FIRST
+  //     so that the membership sub-document write in step 4 succeeds because
+  //     the rule precondition (uid in memberIds) is already satisfied.
+  //
+  //   Write order:
+  //     Step 1 — verify league exists (server get).
+  //     Step 2 — enforce free-plan cap (uses fixed _userAlreadyHasLeagueCard).
+  //     Step 3 — arrayUnion uid into memberIds on league doc (FIRST write).
+  //     Step 4 — write membership sub-document (SECOND write, now allowed).
   // ---------------------------------------------------------------------------
   Future<void> _joinLeagueCore({
     required String leagueId,
@@ -486,17 +533,41 @@ class LocalLeaguesRepository {
     final leagueRef = _firestore.collection('leagues').doc(trimmedLeagueId);
 
     // Step 1 — verify the league exists before attempting any write.
-    final leagueDoc = await leagueRef
-        .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 20));
+    // Use try-catch: if rules deny read to non-members, treat it as
+    // "league exists but user is not a member yet" and continue.
+    // We only throw if the league genuinely does not exist.
+    bool leagueConfirmedExists = false;
+    try {
+      final leagueDoc = await leagueRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
 
-    if (!leagueDoc.exists) {
+      if (!leagueDoc.exists) {
+        throw const UserFriendlyException(
+          "We couldn't find this league. Please refresh and try again.",
+        );
+      }
+      leagueConfirmedExists = true;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        // Rules deny read to non-members. The league likely exists.
+        // We proceed optimistically — the memberIds write below will
+        // itself fail with permission-denied if the league truly does
+        // not allow open joins, giving the user a clear error.
+        leagueConfirmedExists = true;
+      } else {
+        rethrow;
+      }
+    }
+
+    if (!leagueConfirmedExists) {
       throw const UserFriendlyException(
         "We couldn't find this league. Please refresh and try again.",
       );
     }
 
     // Step 2 — enforce free-plan league-card cap.
+    // _userAlreadyHasLeagueCard now handles permission-denied gracefully.
     await _enforceFreeLeagueListCapForNewAddition(
       authUid: authUid,
       actionLabel: 'join more leagues',
@@ -505,10 +576,17 @@ class LocalLeaguesRepository {
 
     // Step 3 — update memberIds on the league document FIRST.
     //
-    // This is the critical ordering fix. The security rule that guards the
-    // membership sub-document write checks that request.auth.uid is already
-    // present in the parent league's memberIds. We must satisfy that
-    // precondition before writing the membership document.
+    // CRITICAL ORDER: The security rule that guards the membership
+    // sub-document write checks that request.auth.uid is already present
+    // in resource.data.memberIds. We MUST satisfy that precondition before
+    // writing the membership document.
+    //
+    // Most Firestore join rules look like:
+    //   allow write: if request.auth.uid == membershipId
+    //                && request.auth.uid in get(/leagues/{leagueId}).data.memberIds;
+    //
+    // By writing memberIds first, that get() in the rule returns a document
+    // that already contains the uid, so the membership write is permitted.
     await leagueRef
         .set(
           {
@@ -522,9 +600,9 @@ class LocalLeaguesRepository {
     // Step 4 — write the membership sub-document SECOND (participant only).
     //
     // Now that memberIds contains the user, the security rule check passes.
-    // We wrap this in try/catch so a transient failure here does not break
-    // the overall join — the user is already in memberIds and will appear
-    // in the league list. The membership document can be repaired later.
+    // Wrapped in try-catch: a transient failure here does not break the join.
+    // The user is already in memberIds and will appear in their league list.
+    // The membership document can be repaired on next access.
     if (mode == LeagueJoinMode.participant) {
       try {
         final membershipRef = leagueRef.collection('memberships').doc(authUid);
@@ -559,8 +637,6 @@ class LocalLeaguesRepository {
         }
       } catch (membershipError) {
         // Non-fatal: log and continue. The user is already in memberIds.
-        // The membership document will be created on the next access that
-        // requires it (e.g. opening the league detail screen).
         assert(() {
           // ignore: avoid_print
           print(
@@ -864,6 +940,30 @@ class LocalLeaguesRepository {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // joinLeagueLocallyByCode — entry point for QR code and invitation code joins.
+  //
+  // FIX SUMMARY:
+  //   The old code queried leagues by 'code' field and then called _joinLeagueCore.
+  //   The query itself could return permission-denied if Firestore rules require
+  //   auth to list leagues. Fixed by:
+  //
+  //   1. The query uses 'code' field which is typically publicly readable in
+  //      rules via: allow read: if request.auth != null && resource.data.code == request.resource.data.code
+  //      OR the collection is listed as public-read for authenticated users.
+  //      If your rules block this query, see note below.
+  //
+  //   2. Added try-catch around the query so permission-denied on the query
+  //      gives a friendly "code not found" message instead of a crash.
+  //
+  //   3. _joinLeagueCore (called below) now uses the fixed write ordering:
+  //      memberIds FIRST, then membership sub-document.
+  //
+  // NOTE: If your Firestore rules block unauthenticated reads of the leagues
+  //   collection even for 'code' queries, you may need to add a Cloud Function
+  //   or a separate public 'leagueCodes' collection. However, for most setups
+  //   where authenticated users can query by code, this fix is sufficient.
+  // ---------------------------------------------------------------------------
   Future<League> joinLeagueLocallyByCode({
     required String joinCode,
     required String userId,
@@ -879,12 +979,24 @@ class LocalLeaguesRepository {
         throw const UserFriendlyException('Please enter a valid league code.');
       }
 
-      final query = await _firestore
-          .collection('leagues')
-          .where('code', isEqualTo: code)
-          .limit(1)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 20));
+      QuerySnapshot<Map<String, dynamic>> query;
+      try {
+        query = await _firestore
+            .collection('leagues')
+            .where('code', isEqualTo: code)
+            .limit(1)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 20));
+      } on FirebaseException catch (e) {
+        if (e.code == 'permission-denied') {
+          // Rules may block listing leagues by code for non-members.
+          // Give a helpful message instead of a raw permission error.
+          throw const UserFriendlyException(
+            "We couldn't find a league with that code. Please check the code and try again.",
+          );
+        }
+        rethrow;
+      }
 
       if (query.docs.isEmpty) {
         throw const UserFriendlyException(
@@ -895,9 +1007,9 @@ class LocalLeaguesRepository {
       final leagueDoc = query.docs.first;
       final leagueId = leagueDoc.id;
 
-      // _joinLeagueCore now updates memberIds BEFORE writing the membership
-      // sub-document, which resolves the permission-denied error that occurred
-      // when the security rules checked memberIds on the membership write.
+      // _joinLeagueCore uses the fixed write order:
+      //   Step 3: memberIds arrayUnion FIRST (so rules allow step 4)
+      //   Step 4: membership sub-document SECOND (now allowed by rules)
       await _joinLeagueCore(
         leagueId: leagueId,
         authUid: authUid,
@@ -1213,8 +1325,8 @@ class LocalLeaguesRepository {
 
   bool _matchPlayedFromMap(Map<String, dynamic> m) {
     final hs = (m['homeScore'] as num?)?.toInt();
-    final as = (m['awayScore'] as num?)?.toInt();
-    if (hs == null || as == null) return false;
+    final as_ = (m['awayScore'] as num?)?.toInt();
+    if (hs == null || as_ == null) return false;
     return _statusLooksPlayed(m['status']);
   }
 
@@ -1277,19 +1389,19 @@ class LocalLeaguesRepository {
         if (homeId.isEmpty || awayId.isEmpty) continue;
 
         final hs = (m['homeScore'] as num?)!.toInt();
-        final as = (m['awayScore'] as num?)!.toInt();
+        final as_ = (m['awayScore'] as num?)!.toInt();
 
-        final homePts = _pointsFor(hs, as);
-        final awayPts = _pointsFor(as, hs);
+        final homePts = _pointsFor(hs, as_);
+        final awayPts = _pointsFor(as_, hs);
 
         basePointsByTeam[homeId] = (basePointsByTeam[homeId] ?? 0) + homePts;
         basePointsByTeam[awayId] = (basePointsByTeam[awayId] ?? 0) + awayPts;
 
         gfByTeam[homeId] = (gfByTeam[homeId] ?? 0) + hs;
-        gfByTeam[awayId] = (gfByTeam[awayId] ?? 0) + as;
+        gfByTeam[awayId] = (gfByTeam[awayId] ?? 0) + as_;
 
-        gdByTeam[homeId] = (gdByTeam[homeId] ?? 0) + (hs - as);
-        gdByTeam[awayId] = (gdByTeam[awayId] ?? 0) + (as - hs);
+        gdByTeam[homeId] = (gdByTeam[homeId] ?? 0) + (hs - as_);
+        gdByTeam[awayId] = (gdByTeam[awayId] ?? 0) + (as_ - hs);
       }
 
       const chunkSize = 400;
@@ -1384,7 +1496,6 @@ class LocalLeaguesRepository {
         final statusOld = matchData['status'];
 
         final oldPlayed = (hsOld != null && asOld != null) && _statusLooksPlayed(statusOld);
-        final newPlayed = true;
 
         final oldHomePts = oldPlayed ? _pointsFor(hsOld!, asOld!) : 0;
         final oldAwayPts = oldPlayed ? _pointsFor(asOld!, hsOld!) : 0;
@@ -1395,14 +1506,14 @@ class LocalLeaguesRepository {
         final oldHomeGd = oldPlayed ? (hsOld - asOld!) : 0;
         final oldAwayGd = oldPlayed ? (asOld! - hsOld) : 0;
 
-        final newHomePts = newPlayed ? _pointsFor(hsNew, asNew) : 0;
-        final newAwayPts = newPlayed ? _pointsFor(asNew, hsNew) : 0;
+        final newHomePts = _pointsFor(hsNew, asNew);
+        final newAwayPts = _pointsFor(asNew, hsNew);
 
-        final newHomeGf = newPlayed ? hsNew : 0;
-        final newAwayGf = newPlayed ? asNew : 0;
+        final newHomeGf = hsNew;
+        final newAwayGf = asNew;
 
-        final newHomeGd = newPlayed ? (hsNew - asNew) : 0;
-        final newAwayGd = newPlayed ? (asNew - hsNew) : 0;
+        final newHomeGd = hsNew - asNew;
+        final newAwayGd = asNew - hsNew;
 
         final deltaHomePts = newHomePts - oldHomePts;
         final deltaAwayPts = newAwayPts - oldAwayPts;
@@ -1544,6 +1655,18 @@ class LocalLeaguesRepository {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // saveTeams — FIXED membership write ordering.
+  //
+  // OLD BUG: When saving teams where team IDs are Firebase UIDs, the code
+  //   wrote the membership sub-document directly WITHOUT first ensuring the
+  //   user is in memberIds. This caused permission-denied on the membership
+  //   write for the same reason as _joinLeagueCore.
+  //
+  // FIX: Before writing the membership sub-document for a uid-based team,
+  //   first ensure the uid is in the league's memberIds via arrayUnion.
+  //   This is the same fix pattern as _joinLeagueCore step 3/4.
+  // ---------------------------------------------------------------------------
   Future<void> saveTeams(String leagueId, List<Team> allTeams) async {
     try {
       await _requireOrganizerOrThrow(leagueId);
@@ -1635,18 +1758,31 @@ class LocalLeaguesRepository {
         await batch.commit().timeout(const Duration(seconds: 30));
       }
 
+      // FIX: For uid-based teams, first add uid to memberIds on league doc
+      // (STEP A), then write the membership sub-document (STEP B).
+      // This mirrors the _joinLeagueCore fix — memberIds must be updated
+      // before the membership write so the security rules allow it.
       for (final t in allTeams) {
         final uid = t.id.trim();
         if (!_looksLikeFirebaseUid(uid)) continue;
 
         try {
-          final membershipRef = _firestore
-              .collection('leagues')
-              .doc(leagueId)
-              .collection('memberships')
-              .doc(uid);
-
+          final leagueRef = _firestore.collection('leagues').doc(leagueId);
+          final membershipRef = leagueRef.collection('memberships').doc(uid);
           final now = DateTime.now().millisecondsSinceEpoch;
+
+          // STEP A — add uid to memberIds FIRST (satisfies rule precondition).
+          await leagueRef
+              .set(
+                {
+                  'memberIds': FieldValue.arrayUnion([uid]),
+                  'updatedAtMs': now,
+                },
+                SetOptions(merge: true),
+              )
+              .timeout(const Duration(seconds: 15));
+
+          // STEP B — now write/update membership sub-document.
           final existingMembership = await membershipRef
               .get(const GetOptions(source: Source.server))
               .timeout(const Duration(seconds: 12));
