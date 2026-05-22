@@ -1,3 +1,4 @@
+// lib/features/master_leagues/logic/master_leagues_providers.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,7 +17,8 @@ final masterLeaguesRepositoryProvider =
   return MasterLeaguesRepositoryFirebase();
 });
 
-final organizerFeedFirebaseProvider = Provider<OrganizerFeedFirebase>((ref) {
+final organizerFeedFirebaseProvider =
+    Provider<OrganizerFeedFirebase>((ref) {
   return OrganizerFeedFirebase();
 });
 
@@ -30,7 +32,8 @@ final masterLeagueEntitlementServiceProvider =
   return MasterLeagueEntitlementService();
 });
 
-final userProfileRepositoryProvider = Provider<UserProfileRepository>((ref) {
+final userProfileRepositoryProvider =
+    Provider<UserProfileRepository>((ref) {
   return UserProfileRepository();
 });
 
@@ -53,25 +56,29 @@ final joinedMasterLeaguesProvider =
 });
 
 final masterLeagueByIdProvider =
-    FutureProvider.autoDispose.family<MasterLeague?, String>((ref, id) async {
+    FutureProvider.autoDispose.family<MasterLeague?, String>(
+        (ref, id) async {
   final repo = ref.watch(masterLeaguesRepositoryProvider);
   return repo.getById(id);
 });
 
 final masterLeagueFollowStateProvider =
-    StreamProvider.autoDispose.family<bool, String>((ref, masterLeagueId) {
+    StreamProvider.autoDispose.family<bool, String>(
+        (ref, masterLeagueId) {
   final repo = ref.watch(masterLeaguesRepositoryProvider);
   return repo.watchIsFollowing(masterLeagueId);
 });
 
 final masterLeagueFollowersCountProvider =
-    StreamProvider.autoDispose.family<int, String>((ref, masterLeagueId) {
+    StreamProvider.autoDispose.family<int, String>(
+        (ref, masterLeagueId) {
   final repo = ref.watch(masterLeaguesRepositoryProvider);
   return repo.watchFollowersCount(masterLeagueId);
 });
 
 final masterLeagueCompetitionTemplatesProvider =
-    StreamProvider.autoDispose.family<List<CompetitionTemplate>, String>((
+    StreamProvider.autoDispose
+        .family<List<CompetitionTemplate>, String>((
   ref,
   masterLeagueId,
 ) {
@@ -82,59 +89,70 @@ final masterLeagueCompetitionTemplatesProvider =
 /// The user's current entitlement (plan, expiry, limits).
 final organizerEntitlementProvider =
     FutureProvider.autoDispose<OrganizerProEntitlement>((ref) async {
-  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+  final entitlement =
+      ref.watch(masterLeagueEntitlementServiceProvider);
   return entitlement.getEntitlement(forceRefresh: false);
 });
 
 /// The active plan or null.
 final organizerProActivePlanProvider =
     FutureProvider.autoDispose<MasterLeaguePlan?>((ref) async {
-  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+  final entitlement =
+      ref.watch(masterLeagueEntitlementServiceProvider);
   return entitlement.getActivePlan(forceRefresh: false);
 });
 
 /// Whether user has any active plan.
 final masterLeagueUnlockedProvider =
     FutureProvider.autoDispose<bool>((ref) async {
-  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+  final entitlement =
+      ref.watch(masterLeagueEntitlementServiceProvider);
   return entitlement.isUnlocked(forceRefresh: false);
 });
 
 /// Watch the user's plan subscription from their profile.
 final userPlanSubscriptionProvider =
     StreamProvider.autoDispose<UserPlanSubscription?>((ref) {
-  final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  final uid =
+      FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
   if (uid.isEmpty) return Stream.value(null);
   final repo = ref.watch(userProfileRepositoryProvider);
   return repo.watchPlanSubscription(uid);
 });
 
 /// Watch whether user has an active plan.
-final userHasActivePlanProvider = StreamProvider.autoDispose<bool>((ref) {
-  final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+final userHasActivePlanProvider =
+    StreamProvider.autoDispose<bool>((ref) {
+  final uid =
+      FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
   if (uid.isEmpty) return Stream.value(false);
   final repo = ref.watch(userProfileRepositoryProvider);
   return repo.watchHasActivePlan(uid);
 });
 
 /// How many workspaces the user currently owns.
-final ownedWorkspaceCountProvider = FutureProvider.autoDispose<int>((ref) async {
-  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+final ownedWorkspaceCountProvider =
+    FutureProvider.autoDispose<int>((ref) async {
+  final entitlement =
+      ref.watch(masterLeagueEntitlementServiceProvider);
   return entitlement.countOwnedWorkspaces();
 });
 
 /// Whether user can create another workspace.
-final canCreateWorkspaceProvider = FutureProvider.autoDispose<bool>((ref) async {
-  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+final canCreateWorkspaceProvider =
+    FutureProvider.autoDispose<bool>((ref) async {
+  final entitlement =
+      ref.watch(masterLeagueEntitlementServiceProvider);
   return entitlement.canCreateWorkspace();
 });
 
 /// Whether the payment button should show for workspace creation.
 final shouldShowWorkspacePaymentProvider =
     FutureProvider.autoDispose<bool>((ref) async {
-  final entitlement = ref.watch(masterLeagueEntitlementServiceProvider);
+  final entitlement =
+      ref.watch(masterLeagueEntitlementServiceProvider);
   final ent = await entitlement.getEntitlement();
-  if (!ent.active || ent.plan == null) return true; // No plan = show payment
+  if (!ent.active || ent.plan == null) return true;
   final count = await entitlement.countOwnedWorkspaces();
   return ent.plan!.shouldShowPaymentForWorkspace(count);
 });
