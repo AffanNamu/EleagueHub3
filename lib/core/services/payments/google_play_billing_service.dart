@@ -109,14 +109,17 @@ class GooglePlayBillingService {
     if (response.error != null) {
       if (kDebugMode) {
         debugPrint(
-            '[GPB] queryProductDetails error: ${response.error}');
+          '[GPB] queryProductDetails error: ${response.error}',
+        );
       }
       return null;
     }
 
     if (response.productDetails.isEmpty) {
       if (kDebugMode) {
-        debugPrint('[GPB] No product found for id: $productId');
+        debugPrint(
+          '[GPB] No product found for id: $productId',
+        );
       }
       return null;
     }
@@ -152,19 +155,22 @@ class GooglePlayBillingService {
       );
     }
 
-    final product =
-        await _fetchProduct(productId, isSubscription: isSubscription);
+    final product = await _fetchProduct(
+      productId,
+      isSubscription: isSubscription,
+    );
     if (product == null) {
       return GooglePlayPurchaseResult.failed(
         errorMessage:
-            'This product is not available in the Play Store right now. '
-            'Please try again later.',
+            'This product is not available in the Play Store '
+            'right now. Please try again later.',
         productId: productId,
         attemptId: attemptId,
       );
     }
 
-    final PurchaseParam param = PurchaseParam(productDetails: product);
+    final PurchaseParam param =
+        PurchaseParam(productDetails: product);
 
     try {
       if (isSubscription) {
@@ -220,7 +226,9 @@ class GooglePlayBillingService {
               );
             } catch (e) {
               if (kDebugMode) {
-                debugPrint('[GPB] Firestore record error: $e');
+                debugPrint(
+                  '[GPB] Firestore record error: $e',
+                );
               }
             }
 
@@ -353,8 +361,9 @@ class GooglePlayBillingService {
     );
 
     if (attemptId.trim().isNotEmpty) {
-      final attRef =
-          _firestore.collection('payment_attempts').doc(attemptId);
+      final attRef = _firestore
+          .collection('payment_attempts')
+          .doc(attemptId);
       batch.set(
         attRef,
         <String, dynamic>{
@@ -450,7 +459,8 @@ class GooglePlayBillingService {
     required String userId,
     required String attemptId,
   }) {
-    final productId = GooglePlayBillingCatalog.subscriptionIdForPlan(
+    final productId =
+        GooglePlayBillingCatalog.subscriptionIdForPlan(
       plan: plan,
       duration: duration,
     );
@@ -470,7 +480,8 @@ class GooglePlayBillingService {
       productId: productId,
       attemptId: attemptId,
       flowLabel: 'plan_subscription',
-      leagueName: '${plan.displayName} ${duration.displayName}',
+      leagueName:
+          '${plan.displayName} ${duration.displayName}',
       productType: 'plan_subscription',
       productSubType: 'plan_${plan.id}_${duration.id}',
       isSubscription: true,
