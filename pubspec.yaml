@@ -1,3 +1,4 @@
+# pubspec.yaml
 name: eleaguehub3
 description: "A high-end professional league management app."
 publish_to: 'none'
@@ -54,6 +55,8 @@ dependencies:
   just_audio: ^0.9.38
   path: ^1.9.0
   google_mobile_ads: ^5.1.0
+  # ── Google Play Billing (Android in-app purchases) ──────────────────────
+  in_app_purchase: ^3.2.0
 
 dev_dependencies:
   flutter_test:
