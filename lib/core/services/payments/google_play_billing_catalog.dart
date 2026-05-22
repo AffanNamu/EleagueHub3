@@ -1,9 +1,11 @@
+// lib/core/services/payments/google_play_billing_catalog.dart
 import '../../../features/master_leagues/domain/master_league_plan.dart';
 
 class GooglePlayBillingCatalog {
   const GooglePlayBillingCatalog._();
 
-  // Subscriptions for organizer plans
+  // ── Subscriptions for organizer plans ─────────────────────────────────────
+
   static const String pro3MonthsSubscriptionId = String.fromEnvironment(
     'GPB_SUB_PRO_3MO_ID',
     defaultValue: 'pro_3mo',
@@ -34,7 +36,8 @@ class GooglePlayBillingCatalog {
     defaultValue: 'elite_yearly',
   );
 
-  // One-time / consumable scaffolds
+  // ── One-time / consumable products ────────────────────────────────────────
+
   static const String leagueCreationUnlockId = String.fromEnvironment(
     'GPB_LEAGUE_CREATION_UNLOCK_ID',
     defaultValue: 'league_creation_unlock',
@@ -59,6 +62,15 @@ class GooglePlayBillingCatalog {
     'GPB_ORGANIZER_VERIFICATION_RENEWAL_ID',
     defaultValue: 'organizer_verification_renewal',
   );
+
+  // ── Premium app subscription ──────────────────────────────────────────────
+
+  static const String premiumSubscriptionId = String.fromEnvironment(
+    'GPB_PREMIUM_SUB_ID',
+    defaultValue: 'premium_subscription',
+  );
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   static String subscriptionIdForPlan({
     required MasterLeaguePlan plan,
@@ -101,6 +113,7 @@ class GooglePlayBillingCatalog {
       'league_access_unlock': leagueAccessUnlockId,
       'organizer_verification': organizerVerificationId,
       'organizer_verification_renewal': organizerVerificationRenewalId,
+      'premium_subscription': premiumSubscriptionId,
     };
   }
 }
