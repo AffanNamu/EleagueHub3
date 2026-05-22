@@ -1,18 +1,4 @@
 // lib/core/services/payments/google_play_billing_service.dart
-//
-// Full Google Play Billing implementation using the `in_app_purchase` plugin.
-//
-// ── Design decisions ────────────────────────────────────────────────────────
-// • Only active on Android (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling).
-// • Web always falls through to Flutterwave – this class is never called there.
-// • All purchases are recorded to Firestore via PaymentsService so the backend
-//   can verify and activate them via the same webhook / Cloud Function pattern.
-// • Subscription products use ProductType.subs; one-time products use
-//   ProductType.inapp.  Both flow through the same purchase listener.
-// • The caller awaits a Future<GooglePlayPurchaseResult> that resolves when
-//   the purchase stream emits a terminal state (purchased / error / cancelled).
-// ────────────────────────────────────────────────────────────────────────────
-
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -27,7 +13,7 @@ import 'google_play_billing_catalog.dart';
 import 'payment_models.dart';
 import 'payments_service.dart';
 
-// ── Result type ──────────────────────────────────────────────────────────────
+// ── Result ────────────────────────────────────────────────────────────────────
 
 class GooglePlayPurchaseResult {
   final bool success;
@@ -88,7 +74,7 @@ class GooglePlayPurchaseResult {
       );
 }
 
-// ── Service ──────────────────────────────────────────────────────────────────
+// ── Service ───────────────────────────────────────────────────────────────────
 
 class GooglePlayBillingService {
   GooglePlayBillingService._();
@@ -102,15 +88,13 @@ class GooglePlayBillingService {
   bool get enabledForAndroid =>
       PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling;
 
-  // ── Internal helpers ────────────────────────────────────────────────────
+  // ── Internal helpers ──────────────────────────────────────────────────────
 
   String _uid() =>
       (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
 
   int _nowMs() => DateTime.now().millisecondsSinceEpoch;
 
-  /// Fetch a single product from the Play Store catalog.
-  /// Returns null when the product is not found or the store is unavailable.
   Future<ProductDetails?> _fetchProduct(
     String productId, {
     bool isSubscription = false,
@@ -132,8 +116,7 @@ class GooglePlayBillingService {
 
     if (response.productDetails.isEmpty) {
       if (kDebugMode) {
-        debugPrint(
-            '[GPB] No product found for id: $productId');
+        debugPrint('[GPB] No product found for id: $productId');
       }
       return null;
     }
@@ -141,8 +124,6 @@ class GooglePlayBillingService {
     return response.productDetails.first;
   }
 
-  /// Core purchase flow.
-  /// Initiates the Play Store UI and awaits the purchase stream result.
   Future<GooglePlayPurchaseResult> _purchase({
     required String productId,
     required String attemptId,
@@ -161,7 +142,6 @@ class GooglePlayBillingService {
       );
     }
 
-    // ── Check store availability ──────────────────────────────────────────
     final available = await _iap.isAvailable();
     if (!available) {
       return GooglePlayPurchaseResult.failed(
@@ -172,7 +152,6 @@ class GooglePlayBillingService {
       );
     }
 
-    // ── Fetch product ─────────────────────────────────────────────────────
     final product =
         await _fetchProduct(productId, isSubscription: isSubscription);
     if (product == null) {
@@ -185,14 +164,12 @@ class GooglePlayBillingService {
       );
     }
 
-    // ── Initiate purchase ─────────────────────────────────────────────────
     final PurchaseParam param = PurchaseParam(productDetails: product);
 
     try {
       if (isSubscription) {
         await _iap.buyNonConsumable(purchaseParam: param);
       } else {
-        // One-time products are consumable so they can be re-purchased.
         await _iap.buyConsumable(purchaseParam: param);
       }
     } catch (e) {
@@ -203,7 +180,6 @@ class GooglePlayBillingService {
       );
     }
 
-    // ── Wait for purchase stream result ───────────────────────────────────
     final completer = Completer<GooglePlayPurchaseResult>();
     late StreamSubscription<List<PurchaseDetails>> sub;
 
@@ -218,17 +194,17 @@ class GooglePlayBillingService {
 
           if (purchase.status == PurchaseStatus.purchased ||
               purchase.status == PurchaseStatus.restored) {
-            // ── Acknowledge / consume ─────────────────────────────────────
             if (purchase.pendingCompletePurchase) {
               await _iap.completePurchase(purchase);
             }
 
-            final token = purchase.verificationData.serverVerificationData;
+            final token =
+                purchase.verificationData.serverVerificationData;
             final orderId = purchase.purchaseID ?? '';
-            final paymentId = 'gpb_${orderId.isNotEmpty ? orderId : token}';
+            final paymentId =
+                'gpb_${orderId.isNotEmpty ? orderId : token}';
             final now = _nowMs();
 
-            // ── Record to Firestore ───────────────────────────────────────
             try {
               await _recordGooglePlayPurchase(
                 uid: uid,
@@ -248,7 +224,6 @@ class GooglePlayBillingService {
               }
             }
 
-            // ── Analytics ─────────────────────────────────────────────────
             try {
               await AppAnalyticsService.instance.logPaymentResult(
                 kind: flowLabel,
@@ -278,7 +253,8 @@ class GooglePlayBillingService {
           }
 
           if (purchase.status == PurchaseStatus.error) {
-            final msg = purchase.error?.message ?? 'Purchase failed.';
+            final msg =
+                purchase.error?.message ?? 'Purchase failed.';
             await sub.cancel();
             completer.complete(
               GooglePlayPurchaseResult.failed(
@@ -316,14 +292,12 @@ class GooglePlayBillingService {
       },
     );
 
-    // Safety timeout – 5 minutes is enough for the Play UI.
     return completer.future.timeout(
       const Duration(minutes: 5),
       onTimeout: () async {
         await sub.cancel();
         return GooglePlayPurchaseResult.failed(
-          errorMessage:
-              'Purchase timed out. Please try again.',
+          errorMessage: 'Purchase timed out. Please try again.',
           productId: productId,
           attemptId: attemptId,
         );
@@ -331,9 +305,6 @@ class GooglePlayBillingService {
     );
   }
 
-  /// Write purchase record to Firestore.
-  /// The backend Cloud Function / worker picks this up and activates
-  /// the entitlement (same pattern as Flutterwave webhook).
   Future<void> _recordGooglePlayPurchase({
     required String uid,
     required String productId,
@@ -348,7 +319,6 @@ class GooglePlayBillingService {
   }) async {
     final batch = _firestore.batch();
 
-    // payments/{paymentId}
     final payRef =
         _firestore.collection('payments').doc(paymentId);
     batch.set(
@@ -382,7 +352,6 @@ class GooglePlayBillingService {
       SetOptions(merge: false),
     );
 
-    // Mark the attempt as success if we have one.
     if (attemptId.trim().isNotEmpty) {
       final attRef =
           _firestore.collection('payment_attempts').doc(attemptId);
@@ -425,9 +394,9 @@ class GooglePlayBillingService {
     return raw;
   }
 
-  // ── Public API ──────────────────────────────────────────────────────────
+  // ── Public API ─────────────────────────────────────────────────────────────
 
-  /// Purchase a league creation unlock (one-time consumable).
+  /// League creation unlock — one-time consumable.
   Future<GooglePlayPurchaseResult> purchaseLeagueCreation({
     required String userId,
     required String leagueName,
@@ -443,7 +412,7 @@ class GooglePlayBillingService {
         isSubscription: false,
       );
 
-  /// Purchase a league addons pack (one-time consumable).
+  /// League addons pack — one-time consumable.
   Future<GooglePlayPurchaseResult> purchaseLeagueAddons({
     required String userId,
     required String leagueName,
@@ -459,7 +428,7 @@ class GooglePlayBillingService {
         isSubscription: false,
       );
 
-  /// Purchase a premium app subscription.
+  /// Premium app subscription.
   Future<GooglePlayPurchaseResult> purchasePremiumSubscription({
     required String userId,
     required String attemptId,
@@ -474,7 +443,7 @@ class GooglePlayBillingService {
         isSubscription: true,
       );
 
-  /// Purchase an organizer plan subscription.
+  /// Organizer plan subscription.
   Future<GooglePlayPurchaseResult> purchasePlanSubscription({
     required MasterLeaguePlan plan,
     required PlanDuration duration,
@@ -507,6 +476,42 @@ class GooglePlayBillingService {
       isSubscription: true,
     );
   }
+
+  /// Organizer verification — one-time consumable.
+  Future<GooglePlayPurchaseResult> purchaseOrganizerVerification({
+    required String userId,
+    required String masterLeagueName,
+    required String attemptId,
+  }) =>
+      _purchase(
+        productId:
+            GooglePlayBillingCatalog.organizerVerificationId,
+        attemptId: attemptId,
+        flowLabel: 'organizer_verification',
+        leagueName: masterLeagueName,
+        productType: 'organizer_verification',
+        productSubType: 'master_league_organizer_verification',
+        isSubscription: false,
+      );
+
+  /// Organizer verification renewal — one-time consumable.
+  Future<GooglePlayPurchaseResult>
+      purchaseOrganizerVerificationRenewal({
+    required String userId,
+    required String masterLeagueName,
+    required String attemptId,
+  }) =>
+          _purchase(
+            productId: GooglePlayBillingCatalog
+                .organizerVerificationRenewalId,
+            attemptId: attemptId,
+            flowLabel: 'organizer_verification_renewal',
+            leagueName: masterLeagueName,
+            productType: 'organizer_verification_renewal',
+            productSubType:
+                'master_league_organizer_verification_renewal',
+            isSubscription: false,
+          );
 
   /// Create a Firestore payment attempt and return the attempt id.
   Future<String> createAttempt({
