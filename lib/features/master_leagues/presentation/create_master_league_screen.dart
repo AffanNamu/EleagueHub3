@@ -1,3 +1,4 @@
+// lib/features/master_leagues/presentation/create_master_league_screen.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -11,19 +12,15 @@ import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
 import '../logic/master_leagues_providers.dart';
 
-// ---------------------------------------------------------------------------
-// Breakpoints — self-contained
-// ---------------------------------------------------------------------------
+// ── Breakpoints ───────────────────────────────────────────────────────────────
 
 class _BP {
-  static const double tablet  = 760;
+  static const double tablet = 760;
   static const double desktop = 900;
-  static const double wide    = 1200;
+  static const double wide = 1200;
 }
 
-// ---------------------------------------------------------------------------
-// CreateMasterLeagueScreen
-// ---------------------------------------------------------------------------
+// ── Screen ────────────────────────────────────────────────────────────────────
 
 class CreateMasterLeagueScreen extends ConsumerStatefulWidget {
   const CreateMasterLeagueScreen({super.key});
@@ -36,22 +33,22 @@ class CreateMasterLeagueScreen extends ConsumerStatefulWidget {
 class _CreateMasterLeagueScreenState
     extends ConsumerState<CreateMasterLeagueScreen> {
   final _masterLeagueNameCtrl = TextEditingController();
-  final _competitionNameCtrl  = TextEditingController();
+  final _competitionNameCtrl = TextEditingController();
 
-  bool _processing          = false;
-  bool _loadingEntitlement  = true;
-  bool _enableRewards       = false;
+  bool _processing = false;
+  bool _loadingEntitlement = true;
+  bool _enableRewards = false;
 
-  MasterLeaguePlan  _selectedPlan     = MasterLeaguePlan.basic;
-  PlanDuration      _selectedDuration = PlanDuration.threeMonths;
+  MasterLeaguePlan _selectedPlan = MasterLeaguePlan.basic;
+  PlanDuration _selectedDuration = PlanDuration.threeMonths;
   MasterLeaguePlan? _activePlan;
-  int               _ownedWorkspaceCount = 0;
+  int _ownedWorkspaceCount = 0;
 
-  String _lastVerifiedAttemptId  = '';
-  String _lastVerifiedPaymentId  = '';
-  String _lastVerifiedReceiptId  = '';
+  String _lastVerifiedAttemptId = '';
+  String _lastVerifiedPaymentId = '';
+  String _lastVerifiedReceiptId = '';
 
-  // ── lifecycle ──────────────────────────────────────────────────────────────
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -66,9 +63,7 @@ class _CreateMasterLeagueScreenState
     super.dispose();
   }
 
-  // ── safe navigation ────────────────────────────────────────────────────────
-  // Always call GoRouter.of(context) directly.
-  // context.go / context.push extensions can fail inside shell navigators.
+  // ── Safe navigation ───────────────────────────────────────────────────────
 
   void _safeGo(String location) {
     try {
@@ -90,13 +85,13 @@ class _CreateMasterLeagueScreenState
     }
   }
 
-  // ── plan helpers ───────────────────────────────────────────────────────────
+  // ── Plan helpers ──────────────────────────────────────────────────────────
 
   int _planOrder(MasterLeaguePlan? plan) {
-    if (plan == null)                          return 0;
-    if (plan == MasterLeaguePlan.basic)        return 1;
-    if (plan == MasterLeaguePlan.pro)          return 2;
-    if (plan == MasterLeaguePlan.elite)        return 3;
+    if (plan == null) return 0;
+    if (plan == MasterLeaguePlan.basic) return 1;
+    if (plan == MasterLeaguePlan.pro) return 2;
+    if (plan == MasterLeaguePlan.elite) return 3;
     return 0;
   }
 
@@ -106,20 +101,21 @@ class _CreateMasterLeagueScreenState
     return _planOrder(plan) >= _planOrder(active);
   }
 
-  // ── entitlement ────────────────────────────────────────────────────────────
+  // ── Entitlement ───────────────────────────────────────────────────────────
 
   Future<void> _loadEntitlement() async {
     try {
       final entitlementSvc =
           ref.read(masterLeagueEntitlementServiceProvider);
-      final ent   = await entitlementSvc.getEntitlement(forceRefresh: false);
+      final ent =
+          await entitlementSvc.getEntitlement(forceRefresh: false);
       final count = await entitlementSvc.countOwnedWorkspaces();
       if (!mounted) return;
 
       setState(() {
-        _activePlan           = ent.plan;
-        _ownedWorkspaceCount  = count;
-        _loadingEntitlement   = false;
+        _activePlan = ent.plan;
+        _ownedWorkspaceCount = count;
+        _loadingEntitlement = false;
         if (ent.plan != null &&
             _planOrder(_selectedPlan) < _planOrder(ent.plan!)) {
           _selectedPlan = ent.plan!;
@@ -128,14 +124,14 @@ class _CreateMasterLeagueScreenState
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _activePlan          = null;
+        _activePlan = null;
         _ownedWorkspaceCount = 0;
-        _loadingEntitlement  = false;
+        _loadingEntitlement = false;
       });
     }
   }
 
-  // ── snack ──────────────────────────────────────────────────────────────────
+  // ── Snack ─────────────────────────────────────────────────────────────────
 
   void _showMessage(String text, {bool error = false}) {
     if (!mounted) return;
@@ -149,12 +145,13 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  // ── competition draft ──────────────────────────────────────────────────────
+  // ── Competition draft ─────────────────────────────────────────────────────
 
   MasterLeagueCompetitionDraft? _buildCompetitionDraft() {
     final competitionName = _competitionNameCtrl.text.trim();
     if (competitionName.isEmpty) {
-      _showMessage('Please enter the competition name.', error: true);
+      _showMessage('Please enter the competition name.',
+          error: true);
       return null;
     }
     if (competitionName.length > 60) {
@@ -162,14 +159,14 @@ class _CreateMasterLeagueScreenState
       return null;
     }
     return MasterLeagueCompetitionDraft(
-      name:            competitionName,
-      entryFee:        0,
+      name: competitionName,
+      entryFee: 0,
       maxParticipants: 2,
-      currency:        _enableRewards ? 'REWARDS_ENABLED' : 'NONE',
+      currency: _enableRewards ? 'REWARDS_ENABLED' : 'NONE',
     );
   }
 
-  // ── payment guards ─────────────────────────────────────────────────────────
+  // ── Payment guards ────────────────────────────────────────────────────────
 
   bool get _selectedNeedsPayment => _selectedPlan.requiresPayment;
 
@@ -183,11 +180,13 @@ class _CreateMasterLeagueScreenState
     return true;
   }
 
-  // ── inline upgrade ─────────────────────────────────────────────────────────
+  // ── Inline upgrade ────────────────────────────────────────────────────────
 
   Future<bool> _openInlineUpgrade() async {
-    final paymentSvc     = ref.read(masterLeaguePaymentServiceProvider);
-    final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
+    final paymentSvc =
+        ref.read(masterLeaguePaymentServiceProvider);
+    final entitlementSvc =
+        ref.read(masterLeagueEntitlementServiceProvider);
     final uid =
         FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
@@ -197,9 +196,9 @@ class _CreateMasterLeagueScreenState
     }
 
     final result = await paymentSvc.payForPlanSubscription(
-      context:  context,
-      userId:   uid,
-      plan:     _selectedPlan,
+      context: context,
+      userId: uid,
+      plan: _selectedPlan,
       duration: _selectedDuration,
     );
 
@@ -214,10 +213,10 @@ class _CreateMasterLeagueScreenState
     }
 
     await entitlementSvc.activateAfterPayment(
-      plan:      _selectedPlan,
-      duration:  _selectedDuration,
+      plan: _selectedPlan,
+      duration: _selectedDuration,
       receiptId: result.receiptId ?? '',
-      provider:  result.provider,
+      provider: result.provider,
     );
 
     _lastVerifiedAttemptId = result.attemptId;
@@ -228,14 +227,15 @@ class _CreateMasterLeagueScreenState
     return true;
   }
 
-  // ── create ─────────────────────────────────────────────────────────────────
+  // ── Create ────────────────────────────────────────────────────────────────
 
   Future<void> _create() async {
     if (_processing) return;
 
     final masterLeagueName = _masterLeagueNameCtrl.text.trim();
     if (masterLeagueName.isEmpty) {
-      _showMessage('Please enter a Master League name.', error: true);
+      _showMessage('Please enter a Master League name.',
+          error: true);
       return;
     }
     if (masterLeagueName.length > 60) {
@@ -249,16 +249,19 @@ class _CreateMasterLeagueScreenState
     setState(() => _processing = true);
 
     try {
-      final repo           = ref.read(masterLeaguesRepositoryProvider);
-      final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
+      final repo =
+          ref.read(masterLeaguesRepositoryProvider);
+      final entitlementSvc =
+          ref.read(masterLeagueEntitlementServiceProvider);
 
       final currentEnt = await entitlementSvc.getEntitlement(
           forceRefresh: true);
-      final effectivePlan          = currentEnt.plan ?? _selectedPlan;
-      final currentWorkspaceCount  =
+      final effectivePlan = currentEnt.plan ?? _selectedPlan;
+      final currentWorkspaceCount =
           await entitlementSvc.countOwnedWorkspaces();
 
-      if (!effectivePlan.canCreateWorkspace(currentWorkspaceCount)) {
+      if (!effectivePlan
+          .canCreateWorkspace(currentWorkspaceCount)) {
         _showMessage(
           'You have reached the workspace limit for '
           '${effectivePlan.displayName} plan.',
@@ -275,8 +278,8 @@ class _CreateMasterLeagueScreenState
         }
 
         final created = await repo.create(
-          name:               masterLeagueName,
-          plan:               MasterLeaguePlan.basic,
+          name: masterLeagueName,
+          plan: MasterLeaguePlan.basic,
           initialCompetition: competition,
         );
 
@@ -296,7 +299,7 @@ class _CreateMasterLeagueScreenState
         }
       }
 
-      final refreshedEnt  =
+      final refreshedEnt =
           await entitlementSvc.getEntitlement(forceRefresh: true);
       final refreshedPlan = refreshedEnt.plan ?? _selectedPlan;
 
@@ -313,39 +316,40 @@ class _CreateMasterLeagueScreenState
 
       final created = await repo.createAfterVerifiedPayment(
         masterLeagueName: masterLeagueName,
-        plan:             refreshedPlan,
-        attemptId:        _lastVerifiedAttemptId,
-        paymentId:        _lastVerifiedPaymentId,
-        receiptId:        _lastVerifiedReceiptId,
-        competition:      competition,
+        plan: refreshedPlan,
+        attemptId: _lastVerifiedAttemptId,
+        paymentId: _lastVerifiedPaymentId,
+        receiptId: _lastVerifiedReceiptId,
+        competition: competition,
       );
 
       if (!mounted) return;
       _showMessage('Master League created successfully.');
       _safeGo('/master-leagues/${created.id}');
     } catch (e) {
-      if (kDebugMode) debugPrint('[CreateML] Create failed: $e');
+      if (kDebugMode) {
+        debugPrint('[CreateML] Create failed: $e');
+      }
       if (mounted) _showMessage('$e', error: true);
     } finally {
       if (mounted) setState(() => _processing = false);
     }
   }
 
-  // ── build ──────────────────────────────────────────────────────────────────
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return GlassScaffold(
       appBar: AppBar(
-        title:                    const Text('Create Master League'),
-        backgroundColor:          Colors.transparent,
-        surfaceTintColor:         Colors.transparent,
-        shadowColor:              Colors.transparent,
-        scrolledUnderElevation:   0,
-        elevation:                0,
-        // Explicit leading — prevents shell navigator from intercepting pop
+        title: const Text('Create Master League'),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        elevation: 0,
         leading: IconButton(
-          icon:    const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back),
           tooltip: 'Back',
           onPressed: _safePop,
         ),
@@ -353,9 +357,9 @@ class _CreateMasterLeagueScreenState
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final w          = constraints.maxWidth;
-            final isDesktop  = w >= _BP.desktop;
-            final hPad       = w < _BP.tablet ? 16.0 : 24.0;
+            final w = constraints.maxWidth;
+            final isDesktop = w >= _BP.desktop;
+            final hPad = w < _BP.tablet ? 16.0 : 24.0;
 
             if (isDesktop) {
               return _buildDesktopLayout(context, hPad);
@@ -367,24 +371,23 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  // ── Desktop: two-column ────────────────────────────────────────────────────
+  // ── Desktop two-column ────────────────────────────────────────────────────
 
   Widget _buildDesktopLayout(BuildContext context, double hPad) {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1100),
         child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 16),
+          padding: EdgeInsets.symmetric(
+              horizontal: hPad, vertical: 16),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Left: form
               Expanded(
                 flex: 3,
                 child: _buildFormCard(context),
               ),
               const SizedBox(width: 20),
-              // Right: plan selector + action
               Expanded(
                 flex: 2,
                 child: _buildPlanSidePanel(context),
@@ -396,14 +399,15 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  // ── Mobile/tablet: single column ───────────────────────────────────────────
+  // ── Mobile single column ──────────────────────────────────────────────────
 
   Widget _buildMobileLayout(BuildContext context, double hPad) {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
         child: ListView(
-          padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 24),
+          padding:
+              EdgeInsets.fromLTRB(hPad, 12, hPad, 24),
           children: [
             _buildFormCard(context),
             const SizedBox(height: 14),
@@ -414,35 +418,36 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  // ── Form card (left column on desktop, top on mobile) ─────────────────────
+  // ── Form card ─────────────────────────────────────────────────────────────
 
   Widget _buildFormCard(BuildContext context) {
-    final theme      = Theme.of(context);
+    final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     return Glass(
       borderRadius: 28,
-      padding:      const EdgeInsets.all(16),
-      fill:         AppTheme.cardColor(brightness),
-      borderColor:  AppTheme.cardBorder(brightness),
+      padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
           Row(
             children: [
               Container(
-                width:  44,
+                width: 44,
                 height: 44,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color:  AppTheme.iconCircleBackground(brightness),
-                  border: Border.all(color: AppTheme.cardBorder(brightness)),
+                  color:
+                      AppTheme.iconCircleBackground(brightness),
+                  border: Border.all(
+                      color: AppTheme.cardBorder(brightness)),
                 ),
                 child: Icon(
                   Icons.hub_rounded,
                   color: AppTheme.limeAccentDark,
-                  size:  22,
+                  size: 22,
                 ),
               ),
               const SizedBox(width: 12),
@@ -450,7 +455,7 @@ class _CreateMasterLeagueScreenState
                 child: Text(
                   'Create New Master League',
                   style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight:   FontWeight.w900,
+                    fontWeight: FontWeight.w900,
                     letterSpacing: -0.2,
                     color: AppTheme.primaryText(brightness),
                   ),
@@ -462,51 +467,42 @@ class _CreateMasterLeagueScreenState
           Text(
             'Enter a workspace name and first competition name.',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color:        AppTheme.secondaryText(brightness),
-              fontWeight:   FontWeight.w600,
-              height:       1.35,
+              color: AppTheme.secondaryText(brightness),
+              fontWeight: FontWeight.w600,
+              height: 1.35,
             ),
           ),
           const SizedBox(height: 12),
-
-          // Active plan status
           _buildPlanStatusRow(context),
-
           const SizedBox(height: 16),
-
-          // Master league name
           TextField(
-            controller:      _masterLeagueNameCtrl,
-            enabled:         !_processing,
+            controller: _masterLeagueNameCtrl,
+            enabled: !_processing,
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(
-              labelText:   'Master League Name',
-              prefixIcon:  Icon(Icons.edit_outlined),
+              labelText: 'Master League Name',
+              prefixIcon: Icon(Icons.edit_outlined),
             ),
           ),
           const SizedBox(height: 12),
-
-          // Competition name
           TextField(
-            controller:      _competitionNameCtrl,
-            enabled:         !_processing,
+            controller: _competitionNameCtrl,
+            enabled: !_processing,
             textInputAction: TextInputAction.done,
-            onSubmitted:     (_) => _create(),
+            onSubmitted: (_) => _create(),
             decoration: const InputDecoration(
-              labelText:  'Competition Name',
+              labelText: 'Competition Name',
               prefixIcon: Icon(Icons.emoji_events_outlined),
             ),
           ),
           const SizedBox(height: 14),
-
-          // Rewards toggle
           SwitchListTile.adaptive(
-            activeColor:     AppTheme.limeAccentDark,
-            value:           _enableRewards,
-            onChanged:       _processing
+            activeColor: AppTheme.limeAccentDark,
+            value: _enableRewards,
+            onChanged: _processing
                 ? null
                 : (v) => setState(() => _enableRewards = v),
-            contentPadding:  EdgeInsets.zero,
+            contentPadding: EdgeInsets.zero,
             title: Text(
               'Enable rewards for first competition',
               style: TextStyle(
@@ -526,17 +522,17 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  // ── Plan status row ────────────────────────────────────────────────────────
+  // ── Plan status row ───────────────────────────────────────────────────────
 
   Widget _buildPlanStatusRow(BuildContext context) {
-    final theme      = Theme.of(context);
+    final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     if (_loadingEntitlement) {
       return Text(
         'Checking active plan...',
         style: theme.textTheme.bodySmall?.copyWith(
-          color:      AppTheme.secondaryText(brightness),
+          color: AppTheme.secondaryText(brightness),
           fontWeight: FontWeight.w800,
         ),
       );
@@ -547,7 +543,7 @@ class _CreateMasterLeagueScreenState
         'Workspaces: $_ownedWorkspaceCount / '
         '${_activePlan!.unlimitedMasterLeagues ? '∞' : '${_activePlan!.maxMasterLeagues}'}',
         style: theme.textTheme.bodySmall?.copyWith(
-          color:      AppTheme.limeAccentDark,
+          color: AppTheme.limeAccentDark,
           fontWeight: FontWeight.w900,
         ),
       );
@@ -555,23 +551,23 @@ class _CreateMasterLeagueScreenState
     return Text(
       'No active plan. Select a plan below.',
       style: theme.textTheme.bodySmall?.copyWith(
-        color:      AppTheme.secondaryText(brightness),
+        color: AppTheme.secondaryText(brightness),
         fontWeight: FontWeight.w800,
       ),
     );
   }
 
-  // ── Plan side panel (right column on desktop, bottom on mobile) ────────────
+  // ── Plan side panel ───────────────────────────────────────────────────────
 
   Widget _buildPlanSidePanel(BuildContext context) {
-    final theme      = Theme.of(context);
+    final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     return Glass(
       borderRadius: 28,
-      padding:      const EdgeInsets.all(16),
-      fill:         AppTheme.cardColor(brightness),
-      borderColor:  AppTheme.cardBorder(brightness),
+      padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -580,29 +576,23 @@ class _CreateMasterLeagueScreenState
             child: Text(
               'Choose Plan',
               style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight:    FontWeight.w900,
+                fontWeight: FontWeight.w900,
                 letterSpacing: -0.2,
                 color: AppTheme.primaryText(brightness),
               ),
             ),
           ),
-
-          // Plan tiles
           ...MasterLeaguePlan.values.map(_buildPlanTile),
-
-          // Duration selector
           _buildDurationSelector(),
-
           const SizedBox(height: 8),
-
-          // Primary action button
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.limeAccent,
                 foregroundColor: AppTheme.darkText,
-                padding: const EdgeInsets.symmetric(vertical: 15),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 15),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(18),
                 ),
@@ -614,7 +604,7 @@ class _CreateMasterLeagueScreenState
                       : _create),
               icon: _processing
                   ? const SizedBox(
-                      width:  18,
+                      width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
@@ -632,26 +622,25 @@ class _CreateMasterLeagueScreenState
                     : (_shouldShowPaymentButton
                         ? 'Choose Plan & Pay'
                         : 'Create Workspace'),
-                style: const TextStyle(fontWeight: FontWeight.w900),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w900),
               ),
             ),
           ),
-
           const SizedBox(height: 10),
-
-          // Helper text
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 4),
             child: Text(
               _selectedPlan.isFree
                   ? 'Basic plan is free. Your workspace will be '
                     'created instantly.'
-                  : 'If you hit your limit, choose another plan and '
-                    'pay without leaving this screen.',
+                  : 'If you hit your limit, choose another plan '
+                    'and pay without leaving this screen.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color:      AppTheme.secondaryText(brightness),
+                color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
-                height:     1.3,
+                height: 1.3,
               ),
             ),
           ),
@@ -660,15 +649,14 @@ class _CreateMasterLeagueScreenState
     );
   }
 
-  // ── Plan tile ──────────────────────────────────────────────────────────────
-  // Reads context and theme internally — no parameter passing anti-pattern.
+  // ── Plan tile ─────────────────────────────────────────────────────────────
 
   Widget _buildPlanTile(MasterLeaguePlan plan) {
-    final theme            = Theme.of(context);
-    final brightness       = theme.brightness;
-    final isSelected       = _selectedPlan == plan;
-    final isCurrent        = _activePlan == plan;
-    final lockedLowerPlan  = !_canSelectPlan(plan);
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final isSelected = _selectedPlan == plan;
+    final isCurrent = _activePlan == plan;
+    final lockedLowerPlan = !_canSelectPlan(plan);
 
     final Color borderColor = isSelected
         ? AppTheme.limeAccentDark
@@ -687,14 +675,15 @@ class _CreateMasterLeagueScreenState
         child: InkWell(
           onTap: (_processing || lockedLowerPlan)
               ? null
-              : () => setState(() => _selectedPlan = plan),
+              : () =>
+                  setState(() => _selectedPlan = plan),
           borderRadius: BorderRadius.circular(20),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
-              color:        bgColor,
+              color: bgColor,
               border: Border.all(
                 color: borderColor,
                 width: isSelected ? 2 : 1,
@@ -702,9 +691,8 @@ class _CreateMasterLeagueScreenState
             ),
             child: Row(
               children: [
-                // Selection indicator
                 Container(
-                  width:  24,
+                  width: 24,
                   height: 24,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
@@ -724,22 +712,25 @@ class _CreateMasterLeagueScreenState
                       : null,
                 ),
                 const SizedBox(width: 12),
-
-                // Plan info
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
                     children: [
                       Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing:    8,
+                        crossAxisAlignment:
+                            WrapCrossAlignment.center,
+                        spacing: 8,
                         runSpacing: 6,
                         children: [
                           Text(
                             plan.displayName,
-                            style: theme.textTheme.titleSmall?.copyWith(
+                            style: theme
+                                .textTheme.titleSmall
+                                ?.copyWith(
                               fontWeight: FontWeight.w900,
-                              color: AppTheme.primaryText(brightness),
+                              color: AppTheme.primaryText(
+                                  brightness),
                             ),
                           ),
                           if (plan.isPopular)
@@ -748,17 +739,20 @@ class _CreateMasterLeagueScreenState
                           if (isCurrent)
                             _currentBadge(brightness),
                           if (plan.isFree)
-                            _planBadge('FREE',
+                            _planBadge(
+                                'FREE',
                                 const Color(0xFF22C55E)),
                         ],
                       ),
                       const SizedBox(height: 4),
                       Text(
                         plan.description,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color:      AppTheme.secondaryText(brightness),
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(
+                          color: AppTheme.secondaryText(
+                              brightness),
                           fontWeight: FontWeight.w700,
-                          height:     1.2,
+                          height: 1.2,
                         ),
                       ),
                     ],
@@ -774,19 +768,20 @@ class _CreateMasterLeagueScreenState
 
   Widget _planBadge(String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(
+          horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color:        color.withOpacity(0.12),
+        color: color.withOpacity(0.12),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withOpacity(0.28)),
       ),
       child: Text(
         label,
         style: TextStyle(
-          fontSize:      9,
-          fontWeight:    FontWeight.w900,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
           letterSpacing: 0.5,
-          color:         color,
+          color: color,
         ),
       ),
     );
@@ -804,31 +799,31 @@ class _CreateMasterLeagueScreenState
         : AppTheme.darkText;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(
+          horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color:        bg,
+        color: bg,
         borderRadius: BorderRadius.circular(8),
-        border:       Border.all(color: border),
+        border: Border.all(color: border),
       ),
       child: Text(
         'CURRENT',
         style: TextStyle(
-          fontSize:      9,
-          fontWeight:    FontWeight.w900,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
           letterSpacing: 0.5,
-          color:         textColor,
+          color: textColor,
         ),
       ),
     );
   }
 
-  // ── Duration selector ──────────────────────────────────────────────────────
-  // Reads theme internally — no ThemeData parameter anti-pattern.
+  // ── Duration selector ─────────────────────────────────────────────────────
 
   Widget _buildDurationSelector() {
     if (!_selectedNeedsPayment) return const SizedBox.shrink();
 
-    final theme      = Theme.of(context);
+    final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     return Column(
@@ -836,11 +831,12 @@ class _CreateMasterLeagueScreenState
       children: [
         const SizedBox(height: 14),
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 10),
+          padding:
+              const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
             'Choose Duration',
             style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight:    FontWeight.w900,
+              fontWeight: FontWeight.w900,
               letterSpacing: -0.2,
               color: AppTheme.primaryText(brightness),
             ),
@@ -853,16 +849,19 @@ class _CreateMasterLeagueScreenState
             child: InkWell(
               onTap: _processing
                   ? null
-                  : () => setState(() => _selectedDuration = dur),
+                  : () => setState(
+                      () => _selectedDuration = dur),
               borderRadius: BorderRadius.circular(16),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
+                duration:
+                    const Duration(milliseconds: 200),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
                   color: isSelected
                       ? (brightness == Brightness.dark
-                          ? AppTheme.limeAccentDark.withOpacity(0.10)
+                          ? AppTheme.limeAccentDark
+                              .withOpacity(0.10)
                           : const Color(0xFFECFCCB))
                       : Colors.transparent,
                   border: Border.all(
@@ -880,33 +879,38 @@ class _CreateMasterLeagueScreenState
                           : Icons.radio_button_off,
                       color: isSelected
                           ? AppTheme.limeAccentDark
-                          : AppTheme.secondaryText(brightness),
+                          : AppTheme.secondaryText(
+                              brightness),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         dur.displayName,
-                        style: theme.textTheme.bodyMedium?.copyWith(
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: AppTheme.primaryText(brightness),
+                          color: AppTheme.primaryText(
+                              brightness),
                         ),
                       ),
                     ),
                     if (dur.hasDiscount)
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                        padding:
+                            const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: const Color(0xFF22C55E)
                               .withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius:
+                              BorderRadius.circular(8),
                         ),
                         child: Text(
                           dur.discountLabel,
                           style: const TextStyle(
-                            fontSize:   10,
+                            fontSize: 10,
                             fontWeight: FontWeight.w900,
-                            color:      Color(0xFF22C55E),
+                            color: Color(0xFF22C55E),
                           ),
                         ),
                       ),
