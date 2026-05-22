@@ -1,3 +1,4 @@
+// lib/features/leagues/presentation/league_admin_screen.dart
 import 'dart:async';
 import 'dart:math';
 
@@ -12,18 +13,22 @@ import 'package:uuid/uuid.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
-import '../../../core/services/connectivity_service.dart' hide UserFriendlyException;
+import '../../../core/services/connectivity_service.dart'
+    hide UserFriendlyException;
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
-import '../../auth/data/user_profile_repository.dart' hide UserFriendlyException;
-import '../data/league_spaces_local.dart' hide UserFriendlyException;
+import '../../auth/data/user_profile_repository.dart'
+    hide UserFriendlyException;
+import '../data/league_spaces_local.dart'
+    hide UserFriendlyException;
 import '../data/leagues_repository_local.dart'
     show LocalLeaguesRepository, UserFriendlyException;
 import '../data/services/reward_firestore_service.dart';
 import '../logic/coupon_codes_service.dart';
-import '../logic/coupon_config_service.dart' hide UserFriendlyException;
+import '../logic/coupon_config_service.dart'
+    hide UserFriendlyException;
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
 import '../models/league.dart';
@@ -48,14 +53,17 @@ class LeagueAdminScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<LeagueAdminScreen> createState() => _LeagueAdminScreenState();
+  ConsumerState<LeagueAdminScreen> createState() =>
+      _LeagueAdminScreenState();
 }
 
-class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
+class _LeagueAdminScreenState
+    extends ConsumerState<LeagueAdminScreen> {
   late final LocalLeaguesRepository _repo;
   late final LeagueSpacesFirebase _spaceRepo;
 
-  final RewardFirestoreService _rewardsService = RewardFirestoreService();
+  final RewardFirestoreService _rewardsService =
+      RewardFirestoreService();
 
   League? _league;
   LeagueSpace? _space;
@@ -68,14 +76,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
   bool _processingUpgradePayment = false;
 
-  // UI state: shows a spinner under the delete icon in the list tile + disables taps.
   bool _deletingLeague = false;
 
   String _currentAuthUid = '';
   String _remoteOrganizerUid = '';
   String _remoteOwnerUid = '';
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore _firestore =
+      FirebaseFirestore.instance;
   final Uuid _uuid = const Uuid();
 
   static const List<String> _groupNames = <String>[
@@ -89,7 +97,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     'Group H',
   ];
 
-  bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+  bool _looksLikeFirebaseUid(String s) =>
+      s.trim().length > 20;
 
   void _snack(String msg) {
     if (!mounted) return;
@@ -97,12 +106,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     if (trimmed.isEmpty) return;
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(trimmed), behavior: SnackBarBehavior.floating),
+      SnackBar(
+        content: Text(trimmed),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
   String? _authUidOrRedirect() {
-    final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    final uid =
+        (FirebaseAuth.instance.currentUser?.uid ?? '')
+            .trim();
     if (uid.isEmpty) {
       if (mounted) context.go('/login');
       return null;
@@ -148,16 +162,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }
 
   bool _canAdjustPoints(League league) {
-    // SECURITY (client-side guard):
-    // - This screen only enables the action for the organizer/owner.
-    // - Production enforcement MUST be done using Firestore Security Rules so that
-    //   non-admins cannot write to /pointAdjustments nor modify team aggregates.
-    //
-    // NOTE:
-    // - Your requirement says "Only ADMIN role can create adjustments".
-    // - In this codebase, organizer/owner is treated as the admin authority.
-    // - When you paste your admin-role service/rules wiring, we’ll upgrade this
-    //   to check the real ADMIN role (membership role / app admins list).
     final authUid = _currentAuthUid.trim();
     if (authUid.isEmpty) return false;
     return _isRulesOwnerForLeague(
@@ -175,7 +179,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     return 'Discount $pct% • Purchased: $qty';
   }
 
-  String _groupDisplayName(AppLocalizations l10n, String groupId) {
+  String _groupDisplayName(
+      AppLocalizations l10n, String groupId) {
     final g = groupId.trim();
     if (g == 'Group A') return l10n.tr('add_teams_group_a');
     if (g == 'Group B') return l10n.tr('add_teams_group_b');
@@ -198,17 +203,24 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     required List<Team> teams,
     required List<String> allowedGroups,
   }) {
-    final counts = <String, int>{for (final g in allowedGroups) g: 0};
+    final counts = <String, int>{
+      for (final g in allowedGroups) g: 0,
+    };
     for (final t in teams) {
       final g = (t.groupId ?? '').trim();
-      if (counts.containsKey(g)) counts[g] = (counts[g] ?? 0) + 1;
+      if (counts.containsKey(g)) {
+        counts[g] = (counts[g] ?? 0) + 1;
+      }
     }
-    final available = counts.entries.where((e) => e.value < 4).toList();
+    final available =
+        counts.entries.where((e) => e.value < 4).toList();
     if (available.isEmpty) return null;
     available.sort((a, b) => a.value.compareTo(b.value));
     final min = available.first.value;
-    final minGroups =
-        available.where((e) => e.value == min).map((e) => e.key).toList();
+    final minGroups = available
+        .where((e) => e.value == min)
+        .map((e) => e.key)
+        .toList();
     final rnd = Random.secure();
     return minGroups[rnd.nextInt(minGroups.length)];
   }
@@ -216,7 +228,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   String _fmtYmdHm(DateTime dt) {
     String two(int v) => v.toString().padLeft(2, '0');
     final d = dt.toLocal();
-    return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
+    return '${d.year}-${two(d.month)}-${two(d.day)} '
+        '${two(d.hour)}:${two(d.minute)}';
   }
 
   @override
@@ -260,18 +273,27 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             .timeout(const Duration(seconds: 10));
         final data = snap.data();
         if (data != null) {
-          remoteOrganizerUid = (data['organizerUid'] as String?)?.trim() ?? '';
-          remoteOwnerUid = (data['ownerUid'] as String?)?.trim() ?? '';
+          remoteOrganizerUid =
+              (data['organizerUid'] as String?)?.trim() ??
+                  '';
+          remoteOwnerUid =
+              (data['ownerUid'] as String?)?.trim() ?? '';
 
           if (remoteOrganizerUid.isEmpty) {
-            final legacyOrg = (data['organizerUserId'] as String?)?.trim() ?? '';
-            if (legacyOrg.isNotEmpty && legacyOrg == currentAuthUid) {
+            final legacyOrg =
+                (data['organizerUserId'] as String?)
+                        ?.trim() ??
+                    '';
+            if (legacyOrg.isNotEmpty &&
+                legacyOrg == currentAuthUid) {
               remoteOrganizerUid = currentAuthUid;
             }
           }
           if (remoteOwnerUid.isEmpty) {
-            final legacyOwner = (data['ownerId'] as String?)?.trim() ?? '';
-            if (legacyOwner.isNotEmpty && legacyOwner == currentAuthUid) {
+            final legacyOwner =
+                (data['ownerId'] as String?)?.trim() ?? '';
+            if (legacyOwner.isNotEmpty &&
+                legacyOwner == currentAuthUid) {
               remoteOwnerUid = currentAuthUid;
             }
           }
@@ -289,16 +311,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         );
 
         if (isOrganizer) {
-          final teams =
-              await _repo.getTeams(widget.leagueId).timeout(const Duration(seconds: 20));
+          final teams = await _repo
+              .getTeams(widget.leagueId)
+              .timeout(const Duration(seconds: 20));
           final myTeamId = currentAuthUid;
-          final alreadyParticipant =
-              myTeamId.isNotEmpty && teams.any((t) => t.id == myTeamId);
+          final alreadyParticipant = myTeamId.isNotEmpty &&
+              teams.any((t) => t.id == myTeamId);
           showAddMe = !alreadyParticipant;
         }
       }
     } catch (e) {
-      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _snack(UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown')));
     }
 
     if (!mounted) return;
@@ -313,15 +337,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Rewards
-  // ---------------------------------------------------------------------------
+  // ── Rewards ───────────────────────────────────────────────────────────────
 
   Future<void> _openManageRewards() async {
     final l10n = context.l10n;
     final league = _league;
     if (league == null) {
-      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
+      _snack(
+          l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
 
@@ -342,7 +365,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => EditLeagueRewardsScreen(leagueId: league.id),
+        builder: (_) =>
+            EditLeagueRewardsScreen(leagueId: league.id),
       ),
     );
 
@@ -350,9 +374,17 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     setState(() {});
   }
 
-  // ---------------------------------------------------------------------------
-  // Purchase coupons / set discount
-  // ---------------------------------------------------------------------------
+  // ── Purchase coupons ──────────────────────────────────────────────────────
+  //
+  // FIX: Previously the screen would accept a result with
+  // buyCouponsForParticipants=false or couponCount=0 and
+  // silently write zero coupons while showing "Purchase successful".
+  //
+  // Now we:
+  //  1. Show a coupon quantity picker sheet BEFORE launching payment.
+  //  2. Validate quantity > 0 and discountPercent > 0 before payment.
+  //  3. After payment, guard again: couponCount must be > 0.
+  //  4. Only write to Firestore when the values are meaningful.
 
   Future<void> _purchaseCouponsOrAdjustSubsidy() async {
     final league = _league;
@@ -364,6 +396,29 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       return;
     }
 
+    // ── Step 1: collect coupon options from user FIRST ────────────────────
+    final couponOptions =
+        await _showCouponOptionsSheet(league);
+    if (couponOptions == null) {
+      // User cancelled the options sheet.
+      return;
+    }
+
+    final int wantedCount = couponOptions.$1;
+    final int wantedDiscount = couponOptions.$2;
+
+    // ── Step 2: validate before touching payment ──────────────────────────
+    if (wantedCount <= 0) {
+      _snack(
+          'Please enter a coupon count greater than 0.');
+      return;
+    }
+    if (wantedDiscount <= 0 || wantedDiscount > 100) {
+      _snack(
+          'Please enter a discount between 1% and 100%.');
+      return;
+    }
+
     setState(() => _processingUpgradePayment = true);
 
     try {
@@ -372,7 +427,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
       await _requireOnline();
 
-      final result = await context.push<LeagueCreationPaymentResult?>(
+      // ── Step 3: launch payment screen ─────────────────────────────────
+      final result =
+          await context.push<LeagueCreationPaymentResult?>(
         '/leagues/${league.id}/upgrade/payment',
         extra: <String, dynamic>{
           'leagueId': league.id,
@@ -380,36 +437,69 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           'addonsOnly': true,
           'existingCouponsEnabled': league.couponsEnabled,
           'existingCouponCount': league.couponCount,
-          'existingCouponDiscountPercent': league.couponDiscountPercent,
+          'existingCouponDiscountPercent':
+              league.couponDiscountPercent,
+          // Pass the values the user selected so the payment
+          // screen knows what they are buying.
+          'buyCouponsForParticipants': true,
+          'couponCount': wantedCount,
+          'couponDiscountPercent': wantedDiscount,
         },
       );
 
       if (!mounted) return;
 
+      // ── Step 4: handle null / cancelled ──────────────────────────────
       if (result == null) {
         _snack('Payment cancelled.');
         return;
       }
 
+      // ── Step 5: handle payment failure ────────────────────────────────
       if (!result.success) {
         _snack(
           result.errorMessage?.trim().isNotEmpty == true
               ? result.errorMessage!
-              : 'Payment failed',
+              : 'Payment failed.',
         );
         return;
       }
 
-      final addCoupons = result.buyCouponsForParticipants
-          ? (result.couponCount < 0 ? 0 : result.couponCount)
+      // ── Step 6: guard zero-coupon result ──────────────────────────────
+      // This is the key fix: even if the payment succeeded we must NOT
+      // write zero coupons. Use the values the user selected if the
+      // payment result did not carry them back correctly.
+      final bool buyingCoupons =
+          result.buyCouponsForParticipants ||
+              wantedCount > 0;
+
+      final int addCoupons = buyingCoupons
+          ? (result.couponCount > 0
+              ? result.couponCount
+              : wantedCount)
           : 0;
 
-      final nextCouponsEnabled =
-          league.couponsEnabled || result.buyCouponsForParticipants;
-      final nextDiscountPercent = result.buyCouponsForParticipants
-          ? result.couponDiscountPercent
-          : league.couponDiscountPercent;
-      final nextCouponCount = league.couponCount + addCoupons;
+      final int discountToApply =
+          result.couponDiscountPercent > 0
+              ? result.couponDiscountPercent
+              : wantedDiscount;
+
+      if (addCoupons <= 0) {
+        // Payment succeeded but we have nothing to credit —
+        // this should not happen after validation, but guard anyway.
+        _snack(
+          'Payment recorded but coupon count was 0. '
+          'Please contact support with your receipt: '
+          '${result.receiptId ?? result.transactionId}',
+        );
+        return;
+      }
+
+      // ── Step 7: update league model ───────────────────────────────────
+      final nextCouponsEnabled = true;
+      final nextDiscountPercent = discountToApply;
+      final nextCouponCount =
+          league.couponCount + addCoupons;
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -420,46 +510,252 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         updatedAtMs: now,
       );
 
-      await _repo.saveLeague(updated).timeout(const Duration(seconds: 25));
+      await _repo
+          .saveLeague(updated)
+          .timeout(const Duration(seconds: 25));
 
+      // ── Step 8: update coupon config ──────────────────────────────────
       try {
         final plan = await RemotePricingService.instance
-            .getPlanForLocale(Localizations.maybeLocaleOf(context))
+            .getPlanForLocale(
+                Localizations.maybeLocaleOf(context))
             .timeout(const Duration(seconds: 15));
 
-        if (result.buyCouponsForParticipants) {
-          await CouponConfigService()
-              .createOrIncrementOnPurchase(
-                leagueId: league.id,
-                organizerUserId: authUid,
-                qtyPurchased: addCoupons,
-                discountPercent: nextDiscountPercent,
-                plan: plan,
-              )
-              .timeout(const Duration(seconds: 20));
-        }
+        await CouponConfigService()
+            .createOrIncrementOnPurchase(
+              leagueId: league.id,
+              organizerUserId: authUid,
+              qtyPurchased: addCoupons,
+              discountPercent: nextDiscountPercent,
+              plan: plan,
+            )
+            .timeout(const Duration(seconds: 20));
       } catch (_) {
         if (mounted) {
           _snack(
-            "We saved your purchase, but couldn't update coupons right now. Please try again.",
+            "Purchase saved, but couldn't update coupon "
+            'config right now. Please refresh.',
           );
         }
       }
 
       await _loadLeague();
       if (!mounted) return;
-      _snack('Purchase successful.');
+      _snack(
+        'Purchase successful! '
+        'Added $addCoupons coupons at $discountToApply% discount.',
+      );
     } catch (e) {
       if (!mounted) return;
-      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _snack(UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown')));
     } finally {
-      if (mounted) setState(() => _processingUpgradePayment = false);
+      if (mounted) {
+        setState(() => _processingUpgradePayment = false);
+      }
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Admin Point Adjustments sheet (Add/Deduct + Audit history)
-  // ---------------------------------------------------------------------------
+  // ── Coupon options picker sheet ───────────────────────────────────────────
+  //
+  // Returns (couponCount, discountPercent) or null if cancelled.
+  // This runs BEFORE payment so we know exactly what is being purchased.
+
+  Future<(int, int)?> _showCouponOptionsSheet(
+      League league) async {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final countCtrl = TextEditingController(
+      text: league.couponCount > 0
+          ? league.couponCount.toString()
+          : '10',
+    );
+    final discountCtrl = TextEditingController(
+      text: league.couponDiscountPercent > 0
+          ? league.couponDiscountPercent.toString()
+          : '10',
+    );
+
+    final result = await showModalBottomSheet<(int, int)?>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        String? errorText;
+
+        return StatefulBuilder(
+          builder: (ctx, setS) {
+            final onSurface = cs.onSurface;
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom:
+                      MediaQuery.of(ctx).viewInsets.bottom,
+                ).add(const EdgeInsets.all(16)),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints:
+                        const BoxConstraints(maxWidth: 480),
+                    child: Glass(
+                      borderRadius: 28,
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Coupon Purchase Options',
+                              style: theme
+                                  .textTheme.titleMedium
+                                  ?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                color: onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Set how many coupons to buy and '
+                              'the discount % participants receive.',
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(
+                                color:
+                                    onSurface.withOpacity(0.65),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: countCtrl,
+                              keyboardType:
+                                  TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter
+                                    .digitsOnly,
+                              ],
+                              decoration:
+                                  const InputDecoration(
+                                labelText:
+                                    'Number of coupons',
+                                prefixIcon:
+                                    Icon(Icons.numbers),
+                                hintText: 'e.g. 20',
+                              ),
+                              onChanged: (_) =>
+                                  setS(() => errorText = null),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: discountCtrl,
+                              keyboardType:
+                                  TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter
+                                    .digitsOnly,
+                              ],
+                              decoration:
+                                  const InputDecoration(
+                                labelText:
+                                    'Discount % (1–100)',
+                                prefixIcon: Icon(
+                                    Icons.percent_rounded),
+                                hintText: 'e.g. 20',
+                              ),
+                              onChanged: (_) =>
+                                  setS(() => errorText = null),
+                            ),
+                            if (errorText != null) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                errorText!,
+                                style: theme
+                                    .textTheme.bodySmall
+                                    ?.copyWith(
+                                  color: cs.error,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () =>
+                                        Navigator.of(ctx)
+                                            .pop(null),
+                                    child: const Text(
+                                        'Cancel'),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: () {
+                                      final count =
+                                          int.tryParse(
+                                                countCtrl
+                                                    .text
+                                                    .trim(),
+                                              ) ??
+                                              0;
+                                      final discount =
+                                          int.tryParse(
+                                                discountCtrl
+                                                    .text
+                                                    .trim(),
+                                              ) ??
+                                              0;
+
+                                      if (count <= 0) {
+                                        setS(
+                                          () => errorText =
+                                              'Coupon count must be greater than 0.',
+                                        );
+                                        return;
+                                      }
+                                      if (discount <= 0 ||
+                                          discount > 100) {
+                                        setS(
+                                          () => errorText =
+                                              'Discount must be between 1% and 100%.',
+                                        );
+                                        return;
+                                      }
+
+                                      Navigator.of(ctx).pop(
+                                          (count, discount));
+                                    },
+                                    icon: const Icon(
+                                        Icons.payment_rounded),
+                                    label: const Text(
+                                        'Proceed to Pay'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    countCtrl.dispose();
+    discountCtrl.dispose();
+    return result;
+  }
+
+  // ── Point Adjustments sheet ───────────────────────────────────────────────
 
   void _showPointAdjustmentsSheet() {
     final league = _league;
@@ -480,7 +776,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       return;
     }
 
-    final teamsFuture = _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
+    final teamsFuture = _repo
+        .getTeams(league.id)
+        .timeout(const Duration(seconds: 20));
 
     final pointsCtrl = TextEditingController();
     final reasonCtrl = TextEditingController();
@@ -495,7 +793,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final onSurface = cs.onSurface;
 
         String? selectedTeamId;
-        PointAdjustmentType type = PointAdjustmentType.addition;
+        PointAdjustmentType type =
+            PointAdjustmentType.addition;
         bool submitting = false;
         String? errorText;
 
@@ -511,21 +810,31 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             Future<void> submit(List<Team> teams) async {
               if (submitting) return;
 
-              final teamId = (selectedTeamId ?? '').trim();
+              final teamId =
+                  (selectedTeamId ?? '').trim();
               if (teamId.isEmpty) {
-                setStateSheet(() => errorText = 'Please select a team.');
+                setStateSheet(
+                    () => errorText =
+                        'Please select a team.');
                 return;
               }
 
-              final p = int.tryParse(pointsCtrl.text.trim()) ?? 0;
+              final p =
+                  int.tryParse(pointsCtrl.text.trim()) ??
+                      0;
               if (p <= 0) {
-                setStateSheet(() => errorText = 'Points must be greater than 0.');
+                setStateSheet(
+                  () => errorText =
+                      'Points must be greater than 0.',
+                );
                 return;
               }
 
               final reason = reasonCtrl.text.trim();
               if (reason.isEmpty) {
-                setStateSheet(() => errorText = 'Reason is required.');
+                setStateSheet(
+                    () =>
+                        errorText = 'Reason is required.');
                 return;
               }
 
@@ -564,19 +873,34 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 pointsCtrl.clear();
                 reasonCtrl.clear();
 
-                final sign = type == PointAdjustmentType.addition ? '+' : '-';
+                final sign =
+                    type == PointAdjustmentType.addition
+                        ? '+'
+                        : '-';
                 _snack('Adjusted $teamName: $sign$p pts');
               } catch (e) {
-                setStateSheet(() => errorText = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                setStateSheet(
+                  () => errorText =
+                      UserFriendlyError.toMessage(
+                    e is Object
+                        ? e
+                        : Exception('unknown'),
+                  ),
+                );
               } finally {
                 setStateSheet(() => submitting = false);
               }
             }
 
-            Widget typeChip(PointAdjustmentType t, String label) {
+            Widget typeChip(
+                PointAdjustmentType t, String label) {
               final selected = type == t;
               return ChoiceChip(
-                label: Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
+                label: Text(
+                  label,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900),
+                ),
                 selected: selected,
                 onSelected: submitting
                     ? null
@@ -584,32 +908,48 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                           type = t;
                           errorText = null;
                         }),
-                selectedColor: cs.primary.withOpacity(0.18),
-                backgroundColor: cs.onSurface.withOpacity(0.06),
+                selectedColor:
+                    cs.primary.withOpacity(0.18),
+                backgroundColor:
+                    cs.onSurface.withOpacity(0.06),
                 labelStyle: TextStyle(
-                  color: selected ? cs.primary : cs.onSurface.withOpacity(0.72),
-                  fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+                  color: selected
+                      ? cs.primary
+                      : cs.onSurface.withOpacity(0.72),
+                  fontWeight: selected
+                      ? FontWeight.w900
+                      : FontWeight.w800,
                 ),
               );
             }
 
             return SafeArea(
               child: Padding(
-                padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
-                    .add(const EdgeInsets.all(16)),
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx)
+                      .viewInsets
+                      .bottom,
+                ).add(const EdgeInsets.all(16)),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 620),
+                    constraints:
+                        const BoxConstraints(maxWidth: 620),
                     child: Glass(
                       borderRadius: 28,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                        padding:
+                            const EdgeInsets.symmetric(
+                          vertical: 12,
+                          horizontal: 16,
+                        ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               'Admin Point Adjustments',
-                              style: theme.textTheme.titleMedium?.copyWith(
+                              style: theme.textTheme
+                                  .titleMedium
+                                  ?.copyWith(
                                 color: onSurface,
                                 fontSize: 16,
                                 fontWeight: FontWeight.w900,
@@ -618,257 +958,484 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             const SizedBox(height: 6),
                             Text(
                               league.name,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: onSurface.withOpacity(0.70),
+                              style: theme
+                                  .textTheme.bodySmall
+                                  ?.copyWith(
+                                color: onSurface
+                                    .withOpacity(0.70),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 12),
-
                             FutureBuilder<List<Team>>(
                               future: teamsFuture,
                               builder: (context, snap) {
                                 if (snap.hasError) {
                                   return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    padding: const EdgeInsets
+                                        .symmetric(
+                                        vertical: 12),
                                     child: Text(
-                                      UserFriendlyError.toMessage(snap.error as Object),
-                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                      UserFriendlyError
+                                          .toMessage(
+                                              snap.error
+                                                  as Object),
+                                      style: theme.textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
                                         color: cs.error,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight:
+                                            FontWeight.w800,
                                       ),
-                                      textAlign: TextAlign.center,
+                                      textAlign:
+                                          TextAlign.center,
                                     ),
                                   );
                                 }
 
                                 if (!snap.hasData) {
                                   return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
-                                    child: Center(child: CircularProgressIndicator(color: cs.primary)),
+                                    padding: const EdgeInsets
+                                        .symmetric(
+                                        vertical: 12),
+                                    child: Center(
+                                      child:
+                                          CircularProgressIndicator(
+                                        color: cs.primary,
+                                      ),
+                                    ),
                                   );
                                 }
 
                                 final teams = snap.data!;
                                 if (teams.isEmpty) {
                                   return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    padding: const EdgeInsets
+                                        .symmetric(
+                                        vertical: 12),
                                     child: Text(
                                       'No teams yet. Add teams first.',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: onSurface.withOpacity(0.70),
-                                        fontWeight: FontWeight.w700,
+                                      style: theme.textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                        color: onSurface
+                                            .withOpacity(
+                                                0.70),
+                                        fontWeight:
+                                            FontWeight.w700,
                                       ),
                                     ),
                                   );
                                 }
 
-                                selectedTeamId ??= teams.first.id;
+                                selectedTeamId ??=
+                                    teams.first.id;
 
-                                final teamNameById = <String, String>{
-                                  for (final t in teams) t.id: t.name,
+                                final teamNameById =
+                                    <String, String>{
+                                  for (final t in teams)
+                                    t.id: t.name,
                                 };
 
                                 return Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment
+                                          .stretch,
                                   children: [
                                     Row(
                                       children: [
-                                        typeChip(PointAdjustmentType.addition, 'Add'),
-                                        const SizedBox(width: 10),
-                                        typeChip(PointAdjustmentType.deduction, 'Deduct'),
+                                        typeChip(
+                                          PointAdjustmentType
+                                              .addition,
+                                          'Add',
+                                        ),
+                                        const SizedBox(
+                                            width: 10),
+                                        typeChip(
+                                          PointAdjustmentType
+                                              .deduction,
+                                          'Deduct',
+                                        ),
                                       ],
                                     ),
-                                    const SizedBox(height: 12),
-                                    DropdownButtonFormField<String>(
+                                    const SizedBox(
+                                        height: 12),
+                                    DropdownButtonFormField<
+                                        String>(
                                       value: selectedTeamId,
                                       items: teams
                                           .map(
-                                            (t) => DropdownMenuItem<String>(
+                                            (t) =>
+                                                DropdownMenuItem<
+                                                    String>(
                                               value: t.id,
                                               child: Text(
                                                 t.name,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
+                                                overflow:
+                                                    TextOverflow
+                                                        .ellipsis,
+                                                style:
+                                                    TextStyle(
+                                                  color:
+                                                      onSurface,
+                                                  fontWeight:
+                                                      FontWeight
+                                                          .w800,
+                                                ),
                                               ),
                                             ),
                                           )
-                                          .toList(growable: false),
+                                          .toList(
+                                              growable: false),
                                       onChanged: submitting
                                           ? null
-                                          : (v) => setStateSheet(() {
-                                                selectedTeamId = v;
-                                                errorText = null;
+                                          : (v) =>
+                                              setStateSheet(
+                                                  () {
+                                                selectedTeamId =
+                                                    v;
+                                                errorText =
+                                                    null;
                                               }),
-                                      decoration: const InputDecoration(
+                                      decoration:
+                                          const InputDecoration(
                                         labelText: 'Team',
-                                        prefixIcon: Icon(Icons.shield_outlined),
+                                        prefixIcon: Icon(Icons
+                                            .shield_outlined),
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
+                                    const SizedBox(
+                                        height: 10),
                                     TextField(
                                       controller: pointsCtrl,
-                                      keyboardType: TextInputType.number,
-                                      inputFormatters: <TextInputFormatter>[
-                                        FilteringTextInputFormatter.digitsOnly,
+                                      keyboardType:
+                                          TextInputType
+                                              .number,
+                                      inputFormatters: <
+                                          TextInputFormatter>[
+                                        FilteringTextInputFormatter
+                                            .digitsOnly,
                                       ],
-                                      decoration: const InputDecoration(
+                                      decoration:
+                                          const InputDecoration(
                                         labelText: 'Points',
-                                        prefixIcon: Icon(Icons.exposure_plus_1_outlined),
+                                        prefixIcon: Icon(Icons
+                                            .exposure_plus_1_outlined),
                                         hintText: 'e.g. 3',
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
+                                    const SizedBox(
+                                        height: 10),
                                     TextField(
                                       controller: reasonCtrl,
                                       maxLines: 3,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Reason (required)',
-                                        prefixIcon: Icon(Icons.notes_outlined),
-                                        hintText: 'Explain why this adjustment is being applied',
+                                      decoration:
+                                          const InputDecoration(
+                                        labelText:
+                                            'Reason (required)',
+                                        prefixIcon: Icon(
+                                            Icons
+                                                .notes_outlined),
+                                        hintText:
+                                            'Explain why this adjustment is being applied',
                                       ),
                                     ),
-                                    if (errorText != null) ...[
-                                      const SizedBox(height: 10),
+                                    if (errorText !=
+                                        null) ...[
+                                      const SizedBox(
+                                          height: 10),
                                       Text(
                                         errorText!,
-                                        style: theme.textTheme.bodySmall?.copyWith(
+                                        style: theme.textTheme
+                                            .bodySmall
+                                            ?.copyWith(
                                           color: cs.error,
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight:
+                                              FontWeight.w900,
                                         ),
-                                        textAlign: TextAlign.center,
+                                        textAlign:
+                                            TextAlign.center,
                                       ),
                                     ],
-                                    const SizedBox(height: 12),
+                                    const SizedBox(
+                                        height: 12),
                                     Row(
                                       children: [
                                         Expanded(
-                                          child: OutlinedButton(
-                                            onPressed: submitting ? null : () => Navigator.of(ctx).pop(),
-                                            child: const Text('Close'),
+                                          child:
+                                              OutlinedButton(
+                                            onPressed:
+                                                submitting
+                                                    ? null
+                                                    : () => Navigator.of(
+                                                            ctx)
+                                                        .pop(),
+                                            child: const Text(
+                                                'Close'),
                                           ),
                                         ),
-                                        const SizedBox(width: 10),
+                                        const SizedBox(
+                                            width: 10),
                                         Expanded(
-                                          child: FilledButton.icon(
-                                            onPressed: submitting ? null : () => submit(teams),
+                                          child:
+                                              FilledButton
+                                                  .icon(
+                                            onPressed:
+                                                submitting
+                                                    ? null
+                                                    : () =>
+                                                        submit(
+                                                            teams),
                                             icon: submitting
                                                 ? SizedBox(
-                                                    width: 16,
-                                                    height: 16,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      color: cs.onPrimary,
+                                                    width:
+                                                        16,
+                                                    height:
+                                                        16,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      strokeWidth:
+                                                          2,
+                                                      color: cs
+                                                          .onPrimary,
                                                     ),
                                                   )
-                                                : const Icon(Icons.check_circle_outline),
-                                            label: const Text('Apply'),
+                                                : const Icon(
+                                                    Icons
+                                                        .check_circle_outline),
+                                            label:
+                                                const Text(
+                                                    'Apply'),
                                           ),
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 12),
-                                    Divider(color: onSurface.withOpacity(0.12)),
+                                    const SizedBox(
+                                        height: 12),
+                                    Divider(
+                                        color: onSurface
+                                            .withOpacity(
+                                                0.12)),
                                     Text(
                                       'Adjustment History (Audit Log)',
-                                      style: theme.textTheme.titleSmall?.copyWith(
+                                      style: theme.textTheme
+                                          .titleSmall
+                                          ?.copyWith(
                                         color: onSurface,
-                                        fontWeight: FontWeight.w900,
+                                        fontWeight:
+                                            FontWeight.w900,
                                       ),
                                     ),
                                     const SizedBox(height: 8),
                                     ConstrainedBox(
-                                      constraints: const BoxConstraints(maxHeight: 320),
-                                      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                        stream: adjustmentsQuery.snapshots(includeMetadataChanges: true),
-                                        builder: (context, snap2) {
-                                          if (snap2.hasError) {
+                                      constraints:
+                                          const BoxConstraints(
+                                              maxHeight: 320),
+                                      child: StreamBuilder<
+                                          QuerySnapshot<
+                                              Map<String,
+                                                  dynamic>>>(
+                                        stream:
+                                            adjustmentsQuery
+                                                .snapshots(
+                                          includeMetadataChanges:
+                                              true,
+                                        ),
+                                        builder:
+                                            (context, snap2) {
+                                          if (snap2
+                                              .hasError) {
                                             return Center(
                                               child: Text(
-                                                UserFriendlyError.toMessage(snap2.error as Object),
-                                                style: theme.textTheme.bodyMedium?.copyWith(
-                                                  color: cs.error,
-                                                  fontWeight: FontWeight.w700,
+                                                UserFriendlyError
+                                                    .toMessage(
+                                                        snap2.error
+                                                            as Object),
+                                                style: theme
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                  color:
+                                                      cs.error,
+                                                  fontWeight:
+                                                      FontWeight
+                                                          .w700,
                                                 ),
-                                                textAlign: TextAlign.center,
+                                                textAlign:
+                                                    TextAlign
+                                                        .center,
                                               ),
                                             );
                                           }
-                                          if (!snap2.hasData) {
-                                            return Center(child: CircularProgressIndicator(color: cs.primary));
+                                          if (!snap2
+                                              .hasData) {
+                                            return Center(
+                                              child:
+                                                  CircularProgressIndicator(
+                                                color:
+                                                    cs.primary,
+                                              ),
+                                            );
                                           }
 
-                                          final docs = snap2.data!.docs;
+                                          final docs =
+                                              snap2
+                                                  .data!.docs;
                                           if (docs.isEmpty) {
                                             return Center(
                                               child: Text(
                                                 'No adjustments yet.',
-                                                style: theme.textTheme.bodySmall?.copyWith(
-                                                  color: onSurface.withOpacity(0.70),
-                                                  fontWeight: FontWeight.w700,
+                                                style: theme
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(
+                                                  color: onSurface
+                                                      .withOpacity(
+                                                          0.70),
+                                                  fontWeight:
+                                                      FontWeight
+                                                          .w700,
                                                 ),
                                               ),
                                             );
                                           }
 
-                                          return ListView.separated(
-                                            itemCount: docs.length,
-                                            separatorBuilder: (_, __) => Divider(color: onSurface.withOpacity(0.10)),
-                                            itemBuilder: (context, i) {
-                                              final d = docs[i].data();
+                                          return ListView
+                                              .separated(
+                                            itemCount:
+                                                docs.length,
+                                            separatorBuilder:
+                                                (_, __) =>
+                                                    Divider(
+                                              color: onSurface
+                                                  .withOpacity(
+                                                      0.10),
+                                            ),
+                                            itemBuilder:
+                                                (context, i) {
+                                              final d =
+                                                  docs[i]
+                                                      .data();
+                                              final teamId =
+                                                  (d['teamId']
+                                                              as String?)
+                                                          ?.trim() ??
+                                                      '';
+                                              final typeRaw =
+                                                  (d['type']
+                                                              as String?)
+                                                          ?.trim() ??
+                                                      '';
+                                              final points =
+                                                  (d['points']
+                                                              as num?)
+                                                          ?.toInt() ??
+                                                      0;
+                                              final reason =
+                                                  (d['reason']
+                                                              as String?)
+                                                          ?.trim() ??
+                                                      '';
+                                              final adjustedBy =
+                                                  (d['adjustedBy']
+                                                              as String?)
+                                                          ?.trim() ??
+                                                      '';
+                                              final createdAt =
+                                                  d['createdAt'];
 
-                                              final teamId = (d['teamId'] as String?)?.trim() ?? '';
-                                              final typeRaw = (d['type'] as String?)?.trim() ?? '';
-                                              final points = (d['points'] as num?)?.toInt() ?? 0;
-                                              final reason = (d['reason'] as String?)?.trim() ?? '';
-                                              final adjustedBy = (d['adjustedBy'] as String?)?.trim() ?? '';
-                                              final createdAt = d['createdAt'];
+                                              final adjType = PointAdjustmentType
+                                                      .fromFirestoreString(
+                                                          typeRaw) ??
+                                                  PointAdjustmentType
+                                                      .addition;
 
-                                              final adjType = PointAdjustmentType.fromFirestoreString(typeRaw) ??
-                                                  PointAdjustmentType.addition;
-
-                                              final sign = adjType == PointAdjustmentType.addition ? '+' : '-';
-                                              final color = adjType == PointAdjustmentType.addition
-                                                  ? const Color(0xFF22C55E)
+                                              final sign = adjType ==
+                                                      PointAdjustmentType
+                                                          .addition
+                                                  ? '+'
+                                                  : '-';
+                                              final color = adjType ==
+                                                      PointAdjustmentType
+                                                          .addition
+                                                  ? const Color(
+                                                      0xFF22C55E)
                                                   : cs.error;
 
                                               DateTime? when;
-                                              if (createdAt is Timestamp) {
-                                                when = createdAt.toDate();
+                                              if (createdAt
+                                                  is Timestamp) {
+                                                when =
+                                                    createdAt
+                                                        .toDate();
                                               }
 
-                                              final title = '${teamNameById[teamId] ?? teamId}  $sign$points';
-                                              final subtitleParts = <String>[
-                                                if (reason.isNotEmpty) reason,
-                                                if (when != null) _fmtYmdHm(when),
-                                                if (adjustedBy.isNotEmpty) 'by $adjustedBy',
+                                              final title =
+                                                  '${teamNameById[teamId] ?? teamId}  $sign$points';
+                                              final subtitleParts =
+                                                  <String>[
+                                                if (reason
+                                                    .isNotEmpty)
+                                                  reason,
+                                                if (when !=
+                                                    null)
+                                                  _fmtYmdHm(
+                                                      when),
+                                                if (adjustedBy
+                                                    .isNotEmpty)
+                                                  'by $adjustedBy',
                                               ];
 
                                               return ListTile(
                                                 dense: true,
-                                                contentPadding: EdgeInsets.zero,
+                                                contentPadding:
+                                                    EdgeInsets
+                                                        .zero,
                                                 leading: Icon(
-                                                  adjType == PointAdjustmentType.addition
-                                                      ? Icons.add_circle_outline
-                                                      : Icons.remove_circle_outline,
-                                                  color: color,
+                                                  adjType ==
+                                                          PointAdjustmentType
+                                                              .addition
+                                                      ? Icons
+                                                          .add_circle_outline
+                                                      : Icons
+                                                          .remove_circle_outline,
+                                                  color:
+                                                      color,
                                                 ),
                                                 title: Text(
                                                   title,
-                                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                                    color: onSurface,
-                                                    fontWeight: FontWeight.w900,
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodyMedium
+                                                      ?.copyWith(
+                                                    color:
+                                                        onSurface,
+                                                    fontWeight:
+                                                        FontWeight
+                                                            .w900,
                                                   ),
                                                 ),
-                                                subtitle: Text(
-                                                  subtitleParts.join(' • '),
+                                                subtitle:
+                                                    Text(
+                                                  subtitleParts
+                                                      .join(
+                                                          ' • '),
                                                   maxLines: 2,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: theme.textTheme.bodySmall?.copyWith(
-                                                    color: onSurface.withOpacity(0.65),
-                                                    fontWeight: FontWeight.w700,
+                                                  overflow:
+                                                      TextOverflow
+                                                          .ellipsis,
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                    color: onSurface
+                                                        .withOpacity(
+                                                            0.65),
+                                                    fontWeight:
+                                                        FontWeight
+                                                            .w700,
                                                   ),
                                                 ),
                                               );
@@ -898,9 +1465,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Coupon Config sheet
-  // ---------------------------------------------------------------------------
+  // ── Coupon Config sheet ───────────────────────────────────────────────────
 
   void _showCouponsConfigSheet() {
     final league = _league;
@@ -915,7 +1480,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
-        final configStream = CouponConfigService().watchConfig(league.id);
+        final configStream =
+            CouponConfigService().watchConfig(league.id);
 
         String money(double v) {
           final r = double.parse(v.toStringAsFixed(2));
@@ -929,7 +1495,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             padding: const EdgeInsets.all(16),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
+                constraints:
+                    const BoxConstraints(maxWidth: 560),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
@@ -942,7 +1509,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                       children: [
                         Text(
                           'Coupons',
-                          style: theme.textTheme.titleMedium?.copyWith(
+                          style: theme
+                              .textTheme.titleMedium
+                              ?.copyWith(
                             color: onSurface,
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
@@ -951,8 +1520,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 6),
                         Text(
                           league.name,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: onSurface.withOpacity(0.70),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(
+                            color:
+                                onSurface.withOpacity(0.70),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -964,23 +1535,35 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                           builder: (context, snap) {
                             if (snap.hasError) {
                               return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                padding:
+                                    const EdgeInsets.symmetric(
+                                        vertical: 16),
                                 child: Text(
-                                  UserFriendlyError.toMessage(snap.error as Object),
-                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                  UserFriendlyError.toMessage(
+                                      snap.error as Object),
+                                  style: theme
+                                      .textTheme.bodyMedium
+                                      ?.copyWith(
                                     color: cs.error,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight:
+                                        FontWeight.w700,
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
                               );
                             }
 
-                            if (snap.connectionState == ConnectionState.waiting) {
+                            if (snap.connectionState ==
+                                ConnectionState.waiting) {
                               return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                padding:
+                                    const EdgeInsets.symmetric(
+                                        vertical: 16),
                                 child: Center(
-                                  child: CircularProgressIndicator(color: cs.primary),
+                                  child:
+                                      CircularProgressIndicator(
+                                    color: cs.primary,
+                                  ),
                                 ),
                               );
                             }
@@ -988,16 +1571,27 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             final cfg = snap.data;
                             if (cfg == null) {
                               return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                crossAxisAlignment:
+                                    CrossAxisAlignment
+                                        .stretch,
                                 children: [
                                   Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    padding:
+                                        const EdgeInsets
+                                            .symmetric(
+                                                vertical: 8),
                                     child: Text(
                                       'No coupon configuration yet.',
-                                      textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: onSurface.withOpacity(0.70),
-                                        fontWeight: FontWeight.w700,
+                                      textAlign:
+                                          TextAlign.center,
+                                      style: theme.textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                        color: onSurface
+                                            .withOpacity(
+                                                0.70),
+                                        fontWeight:
+                                            FontWeight.w700,
                                       ),
                                     ),
                                   ),
@@ -1005,20 +1599,29 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   Row(
                                     children: [
                                       Expanded(
-                                        child: OutlinedButton(
-                                          onPressed: () => Navigator.of(ctx).pop(),
-                                          child: const Text('Close'),
+                                        child:
+                                            OutlinedButton(
+                                          onPressed: () =>
+                                              Navigator.of(ctx)
+                                                  .pop(),
+                                          child: const Text(
+                                              'Close'),
                                         ),
                                       ),
-                                      const SizedBox(width: 10),
+                                      const SizedBox(
+                                          width: 10),
                                       Expanded(
-                                        child: FilledButton.icon(
+                                        child:
+                                            FilledButton.icon(
                                           onPressed: () {
-                                            Navigator.of(ctx).pop();
+                                            Navigator.of(ctx)
+                                                .pop();
                                             _purchaseCouponsOrAdjustSubsidy();
                                           },
-                                          icon: const Icon(Icons.add_shopping_cart),
-                                          label: const Text('Buy / enable'),
+                                          icon: const Icon(Icons
+                                              .add_shopping_cart),
+                                          label: const Text(
+                                              'Buy / enable'),
                                         ),
                                       ),
                                     ],
@@ -1029,46 +1632,83 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                             final redeemed = cfg.qtyRedeemed;
                             final usersPay =
-                                (100 - cfg.discountPercent).clamp(0, 100);
+                                (100 - cfg.discountPercent)
+                                    .clamp(0, 100);
 
                             return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
-                                _kv('Currency', cfg.currency, theme, cs),
-                                _kv('Unit price', '${money(cfg.unitPrice)} ${cfg.currency}', theme, cs),
-                                _kv('Effective unit', '${money(cfg.effectiveUnit)} ${cfg.currency}', theme, cs),
+                                _kv('Currency',
+                                    cfg.currency, theme, cs),
+                                _kv(
+                                    'Unit price',
+                                    '${money(cfg.unitPrice)} ${cfg.currency}',
+                                    theme,
+                                    cs),
+                                _kv(
+                                    'Effective unit',
+                                    '${money(cfg.effectiveUnit)} ${cfg.currency}',
+                                    theme,
+                                    cs),
                                 _kv(
                                   'Threshold',
-                                  cfg.threshold == null ? '\u2014' : '${money(cfg.threshold!)} ${cfg.currency}',
+                                  cfg.threshold == null
+                                      ? '\u2014'
+                                      : '${money(cfg.threshold!)} ${cfg.currency}',
                                   theme,
                                   cs,
                                 ),
-                                _kv('Threshold discount', '${money(cfg.thresholdDiscountPercent)}%', theme, cs),
+                                _kv(
+                                    'Threshold discount',
+                                    '${money(cfg.thresholdDiscountPercent)}%',
+                                    theme,
+                                    cs),
                                 const Divider(),
-                                _kv('Discount', '${cfg.discountPercent}%', theme, cs),
-                                _kv('Users pay (at redemption)', '$usersPay%', theme, cs),
+                                _kv(
+                                    'Discount',
+                                    '${cfg.discountPercent}%',
+                                    theme,
+                                    cs),
+                                _kv(
+                                    'Users pay (at redemption)',
+                                    '$usersPay%',
+                                    theme,
+                                    cs),
                                 const Divider(),
-                                _kv('Purchased (total)', '${cfg.qtyTotal}', theme, cs),
-                                _kv('Remaining', '${cfg.qtyRemaining}', theme, cs),
-                                _kv('Redeemed', '$redeemed', theme, cs),
+                                _kv('Purchased (total)',
+                                    '${cfg.qtyTotal}', theme,
+                                    cs),
+                                _kv('Remaining',
+                                    '${cfg.qtyRemaining}',
+                                    theme, cs),
+                                _kv('Redeemed', '$redeemed',
+                                    theme, cs),
                                 const SizedBox(height: 16),
                                 Row(
                                   children: [
                                     Expanded(
                                       child: OutlinedButton(
-                                        onPressed: () => Navigator.of(ctx).pop(),
-                                        child: const Text('Close'),
+                                        onPressed: () =>
+                                            Navigator.of(ctx)
+                                                .pop(),
+                                        child: const Text(
+                                            'Close'),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
                                     Expanded(
-                                      child: FilledButton.icon(
+                                      child:
+                                          FilledButton.icon(
                                         onPressed: () {
-                                          Navigator.of(ctx).pop();
+                                          Navigator.of(ctx)
+                                              .pop();
                                           _purchaseCouponsOrAdjustSubsidy();
                                         },
-                                        icon: const Icon(Icons.add_shopping_cart),
-                                        label: const Text('Buy more / adjust'),
+                                        icon: const Icon(Icons
+                                            .add_shopping_cart),
+                                        label: const Text(
+                                            'Buy more / adjust'),
                                       ),
                                     ),
                                   ],
@@ -1079,8 +1719,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     Navigator.of(ctx).pop();
                                     _showCouponCodesSheet();
                                   },
-                                  icon: const Icon(Icons.confirmation_number_outlined),
-                                  label: const Text('Manage coupon codes'),
+                                  icon: const Icon(Icons
+                                      .confirmation_number_outlined),
+                                  label: const Text(
+                                      'Manage coupon codes'),
                                 ),
                               ],
                             );
@@ -1098,16 +1740,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Coupon Codes sheet
-  // ---------------------------------------------------------------------------
+  // ── Coupon Codes sheet ────────────────────────────────────────────────────
 
   void _showCouponCodesSheet() {
     final league = _league;
     if (league == null) return;
 
     if (!_canManageCoupons(league)) {
-      _snack('Only the organizer can manage coupon codes.');
+      _snack(
+          'Only the organizer can manage coupon codes.');
       return;
     }
 
@@ -1123,7 +1764,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
-        final cfgStream = CouponConfigService().watchConfig(league.id);
+        final cfgStream =
+            CouponConfigService().watchConfig(league.id);
 
         final codesQuery = FirebaseFirestore.instance
             .collection('leagues')
@@ -1144,14 +1786,18 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 if (authUid == null) return;
                 await _requireOnline();
                 await CouponConfigService()
-                    .ensureConfigInitializedFromLeague(league.id)
+                    .ensureConfigInitializedFromLeague(
+                        league.id)
                     .timeout(const Duration(seconds: 15));
                 if (!mounted) return;
                 _snack('Coupon config initialized.');
               } catch (e) {
                 setStateSheet(
-                  () => errorText = UserFriendlyError.toMessage(
-                    e is Object ? e : Exception('unknown'),
+                  () => errorText =
+                      UserFriendlyError.toMessage(
+                    e is Object
+                        ? e
+                        : Exception('unknown'),
                   ),
                 );
               }
@@ -1165,7 +1811,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               });
 
               try {
-                final organizerAuthUid = _authUidOrRedirect();
+                final organizerAuthUid =
+                    _authUidOrRedirect();
                 if (organizerAuthUid == null) return;
 
                 await _requireOnline();
@@ -1175,25 +1822,35 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 if (customMode) {
                   final raw = customCtrl.text.trim();
                   if (raw.isEmpty) {
-                    setStateSheet(() => errorText = 'Enter a custom code');
+                    setStateSheet(
+                        () => errorText =
+                            'Enter a custom code');
                     return;
                   }
                   final generated = await svc
                       .generateCodes(
                         leagueId: league.id,
-                        organizerAuthUid: organizerAuthUid,
+                        organizerAuthUid:
+                            organizerAuthUid,
                         count: 1,
                         customCode: raw,
                       )
-                      .timeout(const Duration(seconds: 20));
+                      .timeout(
+                          const Duration(seconds: 20));
                   if (!mounted) return;
-                  _snack(generated.isEmpty ? 'No code generated' : 'Generated: ${generated.first}');
+                  _snack(generated.isEmpty
+                      ? 'No code generated'
+                      : 'Generated: ${generated.first}');
                   return;
                 }
 
-                final cnt = int.tryParse(countCtrl.text.trim()) ?? 0;
+                final cnt =
+                    int.tryParse(countCtrl.text.trim()) ??
+                        0;
                 if (cnt <= 0) {
-                  setStateSheet(() => errorText = 'Enter a positive number');
+                  setStateSheet(
+                      () => errorText =
+                          'Enter a positive number');
                   return;
                 }
 
@@ -1204,12 +1861,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                       organizerAuthUid: organizerAuthUid,
                       count: requested,
                     )
-                    .timeout(const Duration(seconds: 25));
+                    .timeout(
+                        const Duration(seconds: 25));
                 if (!mounted) return;
-                _snack('Generated ${generated.length} codes');
+                _snack(
+                    'Generated ${generated.length} codes');
               } catch (e) {
                 setStateSheet(
-                  () => errorText = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+                  () => errorText =
+                      UserFriendlyError.toMessage(
+                    e is Object
+                        ? e
+                        : Exception('unknown'),
+                  ),
                 );
               } finally {
                 setStateSheet(() => generating = false);
@@ -1222,14 +1886,26 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               required VoidCallback onTap,
             }) {
               return ChoiceChip(
-                label: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+                label: Text(
+                  label,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w800),
+                ),
                 selected: selected,
-                onSelected: generating ? null : (_) => onTap(),
-                selectedColor: cs.primary.withOpacity(0.18),
-                backgroundColor: cs.onSurface.withOpacity(0.06),
+                onSelected: generating
+                    ? null
+                    : (_) => onTap(),
+                selectedColor:
+                    cs.primary.withOpacity(0.18),
+                backgroundColor:
+                    cs.onSurface.withOpacity(0.06),
                 labelStyle: TextStyle(
-                  color: selected ? cs.primary : cs.onSurface.withOpacity(0.72),
-                  fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+                  color: selected
+                      ? cs.primary
+                      : cs.onSurface.withOpacity(0.72),
+                  fontWeight: selected
+                      ? FontWeight.w900
+                      : FontWeight.w800,
                 ),
               );
             }
@@ -1239,17 +1915,24 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 620),
+                    constraints:
+                        const BoxConstraints(maxWidth: 620),
                     child: Glass(
                       borderRadius: 28,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                        padding:
+                            const EdgeInsets.symmetric(
+                          vertical: 12,
+                          horizontal: 16,
+                        ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               'Coupon Codes',
-                              style: theme.textTheme.titleMedium?.copyWith(
+                              style: theme.textTheme
+                                  .titleMedium
+                                  ?.copyWith(
                                 color: onSurface,
                                 fontSize: 16,
                                 fontWeight: FontWeight.w900,
@@ -1258,8 +1941,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             const SizedBox(height: 6),
                             Text(
                               league.name,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: onSurface.withOpacity(0.70),
+                              style: theme
+                                  .textTheme.bodySmall
+                                  ?.copyWith(
+                                color: onSurface
+                                    .withOpacity(0.70),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -1273,37 +1959,58 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
                                 if (snap.hasError) {
                                   return Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
+                                    padding:
+                                        const EdgeInsets.only(
+                                            bottom: 10),
                                     child: Text(
-                                      UserFriendlyError.toMessage(snap.error as Object),
-                                      style: theme.textTheme.bodySmall?.copyWith(
+                                      UserFriendlyError
+                                          .toMessage(
+                                              snap.error
+                                                  as Object),
+                                      style: theme.textTheme
+                                          .bodySmall
+                                          ?.copyWith(
                                         color: cs.error,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight:
+                                            FontWeight.w800,
                                       ),
-                                      textAlign: TextAlign.center,
+                                      textAlign:
+                                          TextAlign.center,
                                     ),
                                   );
                                 }
 
-                                if (snap.connectionState == ConnectionState.waiting) {
+                                if (snap.connectionState ==
+                                    ConnectionState.waiting) {
                                   return Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
+                                    padding:
+                                        const EdgeInsets.only(
+                                            bottom: 10),
                                     child: Row(
                                       children: [
                                         SizedBox(
                                           width: 16,
                                           height: 16,
-                                          child: CircularProgressIndicator(
+                                          child:
+                                              CircularProgressIndicator(
                                             strokeWidth: 2,
                                             color: cs.primary,
                                           ),
                                         ),
-                                        const SizedBox(width: 10),
+                                        const SizedBox(
+                                            width: 10),
                                         Text(
                                           'Loading coupon config...',
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            color: onSurface.withOpacity(0.70),
-                                            fontWeight: FontWeight.w700,
+                                          style: theme
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                            color: onSurface
+                                                .withOpacity(
+                                                    0.70),
+                                            fontWeight:
+                                                FontWeight
+                                                    .w700,
                                           ),
                                         ),
                                       ],
@@ -1314,39 +2021,75 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 if (cfg == null) {
                                   return Container(
                                     width: double.infinity,
-                                    margin: const EdgeInsets.only(bottom: 10),
-                                    padding: const EdgeInsets.all(12),
+                                    margin:
+                                        const EdgeInsets.only(
+                                            bottom: 10),
+                                    padding:
+                                        const EdgeInsets.all(
+                                            12),
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(14),
-                                      color: cs.onSurface.withOpacity(0.04),
-                                      border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                                      borderRadius:
+                                          BorderRadius.circular(
+                                              14),
+                                      color: cs.onSurface
+                                          .withOpacity(0.04),
+                                      border: Border.all(
+                                          color: cs.onSurface
+                                              .withOpacity(
+                                                  0.10)),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment
+                                              .start,
                                       children: [
                                         Text(
                                           'Coupon config missing',
-                                          style: theme.textTheme.bodyMedium?.copyWith(
+                                          style: theme
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
                                             color: onSurface,
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight:
+                                                FontWeight
+                                                    .w900,
                                           ),
                                         ),
-                                        const SizedBox(height: 6),
+                                        const SizedBox(
+                                            height: 6),
                                         Text(
                                           'Initialize config to enable code generation (organizer only).',
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            color: onSurface.withOpacity(0.65),
-                                            fontWeight: FontWeight.w600,
+                                          style: theme
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                            color: onSurface
+                                                .withOpacity(
+                                                    0.65),
+                                            fontWeight:
+                                                FontWeight
+                                                    .w600,
                                             height: 1.25,
                                           ),
                                         ),
-                                        const SizedBox(height: 10),
+                                        const SizedBox(
+                                            height: 10),
                                         Align(
-                                          alignment: Alignment.centerRight,
-                                          child: FilledButton.icon(
-                                            onPressed: generating ? null : initConfigIfMissing,
-                                            icon: const Icon(Icons.build_circle_outlined),
-                                            label: const Text('Initialize'),
+                                          alignment: Alignment
+                                              .centerRight,
+                                          child:
+                                              FilledButton
+                                                  .icon(
+                                            onPressed:
+                                                generating
+                                                    ? null
+                                                    : initConfigIfMissing,
+                                            icon: const Icon(
+                                                Icons
+                                                    .build_circle_outlined),
+                                            label:
+                                                const Text(
+                                                    'Initialize'),
                                           ),
                                         ),
                                       ],
@@ -1354,34 +2097,61 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   );
                                 }
 
-                                final remaining = cfg.qtyRemaining;
+                                final remaining =
+                                    cfg.qtyRemaining;
                                 final total = cfg.qtyTotal;
-                                final soldOut = remaining <= 0;
+                                final soldOut =
+                                    remaining <= 0;
 
                                 return Container(
                                   width: double.infinity,
-                                  margin: const EdgeInsets.only(bottom: 10),
-                                  padding: const EdgeInsets.all(12),
+                                  margin:
+                                      const EdgeInsets.only(
+                                          bottom: 10),
+                                  padding:
+                                      const EdgeInsets.all(
+                                          12),
                                   decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(14),
-                                    color: cs.onSurface.withOpacity(0.04),
-                                    border: Border.all(color: cs.onSurface.withOpacity(0.10)),
+                                    borderRadius:
+                                        BorderRadius.circular(
+                                            14),
+                                    color: cs.onSurface
+                                        .withOpacity(0.04),
+                                    border: Border.all(
+                                        color: cs.onSurface
+                                            .withOpacity(
+                                                0.10)),
                                   ),
                                   child: Row(
                                     children: [
                                       Icon(
-                                        soldOut ? Icons.block : Icons.confirmation_number_outlined,
-                                        color: soldOut ? cs.error : cs.primary,
+                                        soldOut
+                                            ? Icons.block
+                                            : Icons
+                                                .confirmation_number_outlined,
+                                        color: soldOut
+                                            ? cs.error
+                                            : cs.primary,
                                       ),
-                                      const SizedBox(width: 10),
+                                      const SizedBox(
+                                          width: 10),
                                       Expanded(
                                         child: Text(
                                           soldOut
                                               ? 'No coupons remaining (sold out)'
                                               : 'Remaining: $remaining (Total purchased: $total)',
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            color: soldOut ? cs.error : onSurface.withOpacity(0.80),
-                                            fontWeight: FontWeight.w800,
+                                          style: theme
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                            color: soldOut
+                                                ? cs.error
+                                                : onSurface
+                                                    .withOpacity(
+                                                        0.80),
+                                            fontWeight:
+                                                FontWeight
+                                                    .w800,
                                           ),
                                         ),
                                       ),
@@ -1395,7 +2165,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 modeChip(
                                   label: 'Random',
                                   selected: !customMode,
-                                  onTap: () => setStateSheet(() {
+                                  onTap: () =>
+                                      setStateSheet(() {
                                     customMode = false;
                                     errorText = null;
                                   }),
@@ -1404,7 +2175,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                 modeChip(
                                   label: 'Custom',
                                   selected: customMode,
-                                  onTap: () => setStateSheet(() {
+                                  onTap: () =>
+                                      setStateSheet(() {
                                     customMode = true;
                                     errorText = null;
                                   }),
@@ -1418,35 +2190,49 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   Expanded(
                                     child: TextField(
                                       controller: countCtrl,
-                                      keyboardType: TextInputType.number,
-                                      decoration: const InputDecoration(
-                                        labelText: 'How many random codes?',
-                                        prefixIcon: Icon(Icons.numbers),
+                                      keyboardType:
+                                          TextInputType
+                                              .number,
+                                      decoration:
+                                          const InputDecoration(
+                                        labelText:
+                                            'How many random codes?',
+                                        prefixIcon: Icon(
+                                            Icons.numbers),
                                       ),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
                                   FilledButton.icon(
-                                    onPressed: generating ? null : generate,
+                                    onPressed: generating
+                                        ? null
+                                        : generate,
                                     icon: generating
                                         ? SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child: CircularProgressIndicator(
+                                            child:
+                                                CircularProgressIndicator(
                                               strokeWidth: 2,
-                                              color: cs.onPrimary,
+                                              color:
+                                                  cs.onPrimary,
                                             ),
                                           )
-                                        : const Icon(Icons.add),
-                                    label: const Text('Generate'),
+                                        : const Icon(
+                                            Icons.add),
+                                    label: const Text(
+                                        'Generate'),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 6),
                               Text(
                                 'Random codes are one-time use and reduce qtyRemaining by 1 per code.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: onSurface.withOpacity(0.60),
+                                style: theme
+                                    .textTheme.bodySmall
+                                    ?.copyWith(
+                                  color: onSurface
+                                      .withOpacity(0.60),
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -1456,27 +2242,37 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                   Expanded(
                                     child: TextField(
                                       controller: customCtrl,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Custom code (single)',
-                                        prefixIcon: Icon(Icons.edit),
-                                        hintText: 'BARCA (creates: ESL_BARCA_<DISCOUNT>%)',
+                                      decoration:
+                                          const InputDecoration(
+                                        labelText:
+                                            'Custom code (single)',
+                                        prefixIcon:
+                                            Icon(Icons.edit),
+                                        hintText:
+                                            'BARCA (creates: ESL_BARCA_<DISCOUNT>%)',
                                       ),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
                                   FilledButton.icon(
-                                    onPressed: generating ? null : generate,
+                                    onPressed: generating
+                                        ? null
+                                        : generate,
                                     icon: generating
                                         ? SizedBox(
                                             width: 16,
                                             height: 16,
-                                            child: CircularProgressIndicator(
+                                            child:
+                                                CircularProgressIndicator(
                                               strokeWidth: 2,
-                                              color: cs.onPrimary,
+                                              color:
+                                                  cs.onPrimary,
                                             ),
                                           )
-                                        : const Icon(Icons.check),
-                                    label: const Text('Create'),
+                                        : const Icon(
+                                            Icons.check),
+                                    label: const Text(
+                                        'Create'),
                                   ),
                                 ],
                               ),
@@ -1485,85 +2281,158 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                               const SizedBox(height: 8),
                               Text(
                                 errorText!,
-                                style: theme.textTheme.bodySmall?.copyWith(
+                                style: theme
+                                    .textTheme.bodySmall
+                                    ?.copyWith(
                                   color: cs.error,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ],
                             const SizedBox(height: 12),
-                            Divider(color: onSurface.withOpacity(0.12)),
+                            Divider(
+                                color: onSurface
+                                    .withOpacity(0.12)),
                             ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 440),
-                              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                stream: codesQuery.snapshots(),
+                              constraints:
+                                  const BoxConstraints(
+                                      maxHeight: 440),
+                              child: StreamBuilder<
+                                  QuerySnapshot<
+                                      Map<String, dynamic>>>(
+                                stream:
+                                    codesQuery.snapshots(),
                                 builder: (context, snap) {
                                   if (snap.hasError) {
                                     return Center(
                                       child: Text(
-                                        UserFriendlyError.toMessage(snap.error as Object),
-                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                        UserFriendlyError
+                                            .toMessage(
+                                                snap.error
+                                                    as Object),
+                                        style: theme
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
                                           color: cs.error,
-                                          fontWeight: FontWeight.w700,
+                                          fontWeight:
+                                              FontWeight.w700,
                                         ),
-                                        textAlign: TextAlign.center,
+                                        textAlign:
+                                            TextAlign.center,
                                       ),
                                     );
                                   }
                                   if (!snap.hasData) {
                                     return Center(
-                                      child: CircularProgressIndicator(color: cs.primary),
+                                      child:
+                                          CircularProgressIndicator(
+                                        color: cs.primary,
+                                      ),
                                     );
                                   }
-                                  final docs = snap.data!.docs;
+                                  final docs =
+                                      snap.data!.docs;
                                   if (docs.isEmpty) {
                                     return Center(
                                       child: Text(
                                         'No codes yet.',
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: onSurface.withOpacity(0.70),
-                                          fontWeight: FontWeight.w700,
+                                        style: theme.textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                          color: onSurface
+                                              .withOpacity(
+                                                  0.70),
+                                          fontWeight:
+                                              FontWeight.w700,
                                         ),
                                       ),
                                     );
                                   }
                                   return ListView.separated(
                                     itemCount: docs.length,
-                                    separatorBuilder: (_, __) =>
-                                        Divider(color: onSurface.withOpacity(0.10)),
-                                    itemBuilder: (context, i) {
-                                      final d = docs[i].data();
-                                      final code = docs[i].id;
-                                      final usedBy = (d['usedBy'] as String?) ?? '';
-                                      final isUsed = usedBy.trim().isNotEmpty;
+                                    separatorBuilder:
+                                        (_, __) => Divider(
+                                      color: onSurface
+                                          .withOpacity(0.10),
+                                    ),
+                                    itemBuilder:
+                                        (context, i) {
+                                      final d =
+                                          docs[i].data();
+                                      final code =
+                                          docs[i].id;
+                                      final usedBy =
+                                          (d['usedBy']
+                                                  as String?) ??
+                                              '';
+                                      final isUsed = usedBy
+                                          .trim()
+                                          .isNotEmpty;
                                       return ListTile(
                                         dense: true,
-                                        contentPadding: EdgeInsets.zero,
+                                        contentPadding:
+                                            EdgeInsets.zero,
                                         leading: Icon(
-                                          isUsed ? Icons.verified : Icons.confirmation_number_outlined,
-                                          color: isUsed ? const Color(0xFF22C55E) : cs.primary,
+                                          isUsed
+                                              ? Icons.verified
+                                              : Icons
+                                                  .confirmation_number_outlined,
+                                          color: isUsed
+                                              ? const Color(
+                                                  0xFF22C55E)
+                                              : cs.primary,
                                         ),
                                         title: Text(
                                           code,
-                                          style: theme.textTheme.bodyMedium?.copyWith(
+                                          style: theme
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
                                             color: onSurface,
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight:
+                                                FontWeight
+                                                    .w900,
                                           ),
                                         ),
                                         subtitle: Text(
-                                          isUsed ? 'Used' : 'Unused',
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            color: onSurface.withOpacity(0.65),
-                                            fontWeight: FontWeight.w700,
+                                          isUsed
+                                              ? 'Used'
+                                              : 'Unused',
+                                          style: theme
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                            color: onSurface
+                                                .withOpacity(
+                                                    0.65),
+                                            fontWeight:
+                                                FontWeight
+                                                    .w700,
                                           ),
                                         ),
                                         trailing: IconButton(
                                           tooltip: 'Copy',
-                                          icon: Icon(Icons.copy, color: onSurface.withOpacity(0.72)),
-                                          onPressed: () async {
-                                            await Clipboard.setData(ClipboardData(text: code));
-                                            if (!context.mounted) return;
-                                            _snack('Copied: $code');
+                                          icon: Icon(
+                                            Icons.copy,
+                                            color: onSurface
+                                                .withOpacity(
+                                                    0.72),
+                                          ),
+                                          onPressed:
+                                              () async {
+                                            await Clipboard
+                                                .setData(
+                                              ClipboardData(
+                                                  text:
+                                                      code),
+                                            );
+                                            if (!context
+                                                .mounted) {
+                                              return;
+                                            }
+                                            _snack(
+                                                'Copied: $code');
                                           },
                                         ),
                                       );
@@ -1574,7 +2443,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             ),
                             const SizedBox(height: 10),
                             FilledButton(
-                              onPressed: () => Navigator.of(ctx).pop(),
+                              onPressed: () =>
+                                  Navigator.of(ctx).pop(),
                               child: const Text('Close'),
                             ),
                           ],
@@ -1594,7 +2464,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     });
   }
 
-  Widget _kv(String k, String v, ThemeData theme, ColorScheme cs) {
+  Widget _kv(
+      String k, String v, ThemeData theme, ColorScheme cs) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -1623,15 +2494,14 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Add me as participant
-  // ---------------------------------------------------------------------------
+  // ── Add me as participant ─────────────────────────────────────────────────
 
   Future<void> _addMeAsParticipant() async {
     final l10n = context.l10n;
     final league = _league;
     if (league == null) {
-      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
+      _snack(
+          l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
     if (_addingMeAsParticipant) return;
@@ -1652,30 +2522,41 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
 
       if (!isOwnerByRules) {
-        throw UserFriendlyException(l10n.tr('league_admin_only_organizer_action'));
+        throw UserFriendlyException(
+            l10n.tr('league_admin_only_organizer_action'));
       }
 
       if (league.format == LeagueFormat.uclGroup &&
-          !(league.maxTeams == 16 || league.maxTeams == 32)) {
-        throw UserFriendlyException(l10n.tr('league_admin_ucl_group_maxteams_error'));
+          !(league.maxTeams == 16 ||
+              league.maxTeams == 32)) {
+        throw UserFriendlyException(l10n
+            .tr('league_admin_ucl_group_maxteams_error'));
       }
       if (league.format == LeagueFormat.uclSwiss &&
-          !(league.maxTeams == 18 || league.maxTeams == 36)) {
-        throw UserFriendlyException(l10n.tr('league_admin_swiss_maxteams_error'));
+          !(league.maxTeams == 18 ||
+              league.maxTeams == 36)) {
+        throw UserFriendlyException(
+            l10n.tr('league_admin_swiss_maxteams_error'));
       }
 
-      final existingTeams =
-          await _repo.getTeams(league.id).timeout(const Duration(seconds: 20));
-      final alreadyHasTeam = existingTeams.any((t) => t.id == authUid);
+      final existingTeams = await _repo
+          .getTeams(league.id)
+          .timeout(const Duration(seconds: 20));
+      final alreadyHasTeam =
+          existingTeams.any((t) => t.id == authUid);
       if (alreadyHasTeam) {
-        _snack(l10n.tr('league_admin_already_added_participant_team_exists'));
+        _snack(l10n.tr(
+            'league_admin_already_added_participant_team_exists'));
         return;
       }
 
       if (existingTeams.length >= league.maxTeams) {
-        final prefix = l10n.tr('league_admin_league_full_prefix');
-        final suffix = l10n.tr('league_admin_league_full_suffix');
-        throw UserFriendlyException('$prefix${league.maxTeams}$suffix');
+        final prefix =
+            l10n.tr('league_admin_league_full_prefix');
+        final suffix =
+            l10n.tr('league_admin_league_full_suffix');
+        throw UserFriendlyException(
+            '$prefix${league.maxTeams}$suffix');
       }
 
       final profile = await UserProfileRepository()
@@ -1683,18 +2564,21 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           .timeout(const Duration(seconds: 12));
       final teamName = profile?.teamName.trim() ?? '';
       if (teamName.isEmpty) {
-        throw UserFriendlyException(l10n.tr('league_admin_profile_team_name_missing'));
+        throw UserFriendlyException(l10n
+            .tr('league_admin_profile_team_name_missing'));
       }
 
       String? groupId;
       if (league.format == LeagueFormat.uclGroup) {
-        final allowedGroups = _allowedGroupsForUclGroup(league);
+        final allowedGroups =
+            _allowedGroupsForUclGroup(league);
         final picked = _pickGroupWithSpace(
           teams: existingTeams,
           allowedGroups: allowedGroups,
         );
         if (picked == null) {
-          throw UserFriendlyException(l10n.tr('league_admin_all_groups_full'));
+          throw UserFriendlyException(
+              l10n.tr('league_admin_all_groups_full'));
         }
         groupId = picked;
       } else {
@@ -1713,7 +2597,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
 
       await _repo
-          .saveTeams(league.id, <Team>[...existingTeams, team])
+          .saveTeams(
+              league.id, <Team>[...existingTeams, team])
           .timeout(const Duration(seconds: 25));
 
       await _repo
@@ -1731,31 +2616,35 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       if (groupId == null) {
         msg = l10n.tr('league_admin_added_participant');
       } else {
-        final groupPrefix = l10n.tr('league_admin_added_participant_in_group_prefix');
-        final groupName = _groupDisplayName(l10n, groupId);
+        final groupPrefix = l10n.tr(
+            'league_admin_added_participant_in_group_prefix');
+        final groupName =
+            _groupDisplayName(l10n, groupId);
         msg = '$groupPrefix $groupName.';
       }
       _snack(msg);
     } catch (e) {
       if (!mounted) return;
-      final failPrefix = l10n.tr('league_admin_failed_add_participant_prefix');
+      final failPrefix = l10n
+          .tr('league_admin_failed_add_participant_prefix');
       _snack(
         '$failPrefix ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}',
       );
     } finally {
-      if (mounted) setState(() => _addingMeAsParticipant = false);
+      if (mounted) {
+        setState(() => _addingMeAsParticipant = false);
+      }
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Export roster CSV
-  // ---------------------------------------------------------------------------
+  // ── Export roster CSV ─────────────────────────────────────────────────────
 
   Future<void> _exportRosterCsv() async {
     final l10n = context.l10n;
     final league = _league;
     if (league == null) {
-      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
+      _snack(
+          l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
     if (_exportingRoster) return;
@@ -1765,10 +2654,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       final authUid = _authUidOrRedirect();
       if (authUid == null) return;
       await _requireOnline();
-      await RosterCsvExporter.shareRosterCsv(repo: _repo, league: league);
+      await RosterCsvExporter.shareRosterCsv(
+          repo: _repo, league: league);
     } catch (e) {
       if (!mounted) return;
-      final prefix = l10n.tr('league_admin_export_failed_prefix');
+      final prefix =
+          l10n.tr('league_admin_export_failed_prefix');
       _snack(
         '$prefix ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}',
       );
@@ -1777,16 +2668,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Space: start / open / end
-  // ---------------------------------------------------------------------------
+  // ── Space ─────────────────────────────────────────────────────────────────
 
   Future<void> _startSpace() async {
     final l10n = context.l10n;
     final league = _league;
 
     if (league == null) {
-      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
+      _snack(
+          l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
 
@@ -1803,11 +2693,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
 
       if (!isOwnerByRules) {
-        throw UserFriendlyException(l10n.tr('league_admin_only_organizer_start_space'));
+        throw UserFriendlyException(l10n
+            .tr('league_admin_only_organizer_start_space'));
       }
 
       final leagueName = league.name;
-      final suffix = l10n.tr('league_details_space_title_suffix');
+      final suffix =
+          l10n.tr('league_details_space_title_suffix');
       final spaceTitle = '$leagueName $suffix';
 
       final space = await _spaceRepo
@@ -1823,14 +2715,16 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       _snack(l10n.tr('league_details_space_started'));
     } catch (e) {
       if (!mounted) return;
-      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _snack(UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown')));
     }
   }
 
   void _onOpenSpace() {
     final l10n = context.l10n;
     if (_league == null) {
-      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
+      _snack(
+          l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
     context.push('/leagues/${_league!.id}/space');
@@ -1854,23 +2748,25 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       );
 
       if (!isOwnerByRules) {
-        throw UserFriendlyException(l10n.tr('league_admin_only_organizer_end_space'));
+        throw UserFriendlyException(
+            l10n.tr('league_admin_only_organizer_end_space'));
       }
 
-      final updated = await _spaceRepo.endSpace(league.id).timeout(const Duration(seconds: 20));
+      final updated = await _spaceRepo
+          .endSpace(league.id)
+          .timeout(const Duration(seconds: 20));
 
       if (!mounted) return;
       setState(() => _space = updated);
       _snack(l10n.tr('league_details_space_ended'));
     } catch (e) {
       if (!mounted) return;
-      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      _snack(UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown')));
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Build
-  // ---------------------------------------------------------------------------
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -1883,7 +2779,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         actions: [
           IconButton(
             tooltip: l10n.tr('common_refresh'),
-            onPressed: _isLeagueLoading ? null : _loadLeague,
+            onPressed:
+                _isLeagueLoading ? null : _loadLeague,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -1892,7 +2789,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
+            constraints:
+                const BoxConstraints(maxWidth: 640),
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
@@ -1901,7 +2799,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                   const SizedBox(height: 20),
                   Expanded(
                     child: _isLeagueLoading
-                        ? Center(child: CircularProgressIndicator(color: cs.primary))
+                        ? Center(
+                            child:
+                                CircularProgressIndicator(
+                              color: cs.primary,
+                            ),
+                          )
                         : _buildSettingsList(context),
                   ),
                 ],
@@ -1918,18 +2821,19 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    // Premium, theme-consistent semantic accents (soft, not neon).
     const success = Color(0xFF22C55E);
     const warning = Color(0xFFF59E0B);
 
     return ValueListenableBuilder<bool>(
-      valueListenable: ConnectivityService.instance.isConnected,
+      valueListenable:
+          ConnectivityService.instance.isConnected,
       builder: (context, online, _) {
         final title = online ? 'Online' : 'Offline';
         final subtitle = online
             ? 'All changes are saved to the server instantly.'
             : 'You appear to be offline. Some actions may not work.';
-        final statusIcon = online ? Icons.wifi : Icons.wifi_off;
+        final statusIcon =
+            online ? Icons.wifi : Icons.wifi_off;
         final statusColor = online ? success : warning;
 
         return Glass(
@@ -1938,23 +2842,29 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Icon(statusIcon, color: statusColor, size: 40),
+                Icon(statusIcon,
+                    color: statusColor, size: 40),
                 const SizedBox(width: 20),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
                     children: [
                       Text(
                         title,
-                        style: theme.textTheme.titleMedium?.copyWith(
+                        style: theme
+                            .textTheme.titleMedium
+                            ?.copyWith(
                           color: cs.onSurface,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
                       Text(
                         subtitle,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.70),
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(
+                          color:
+                              cs.onSurface.withOpacity(0.70),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -1965,7 +2875,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 IconButton(
                   tooltip: l10n.tr('common_refresh'),
                   onPressed: _loadLeague,
-                  icon: Icon(Icons.refresh, color: cs.onSurface.withOpacity(0.72)),
+                  icon: Icon(
+                    Icons.refresh,
+                    color: cs.onSurface.withOpacity(0.72),
+                  ),
                 ),
               ],
             ),
@@ -1985,16 +2898,22 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           _buildSettingsTile(
             context,
             Icons.payments_outlined,
-            _processingUpgradePayment ? 'Processing payment...' : 'Buy coupons / set discount',
+            _processingUpgradePayment
+                ? 'Processing payment...'
+                : 'Buy coupons / set discount',
             _couponSubtitleFromLeague(league),
-            onTap: _processingUpgradePayment ? null : _purchaseCouponsOrAdjustSubsidy,
+            onTap: _processingUpgradePayment
+                ? null
+                : _purchaseCouponsOrAdjustSubsidy,
           ),
         if (league != null)
           _buildSettingsTile(
             context,
             Icons.confirmation_number_outlined,
             'Coupons',
-            league.couponsEnabled ? _couponSubtitleFromLeague(league) : 'Not enabled',
+            league.couponsEnabled
+                ? _couponSubtitleFromLeague(league)
+                : 'Not enabled',
             onTap: _showCouponsConfigSheet,
           ),
         if (league != null && _canManageCoupons(league))
@@ -2005,8 +2924,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             'Generate and manage one-time codes',
             onTap: _showCouponCodesSheet,
           ),
-        if (league != null) _buildRewardsTile(context, league),
-
+        if (league != null)
+          _buildRewardsTile(context, league),
         if (league != null && _canAdjustPoints(league))
           _buildSettingsTile(
             context,
@@ -2015,7 +2934,6 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             'Add/deduct points with a required reason (audit logged)',
             onTap: _showPointAdjustmentsSheet,
           ),
-
         _buildSettingsTile(
           context,
           Icons.group_add,
@@ -2029,9 +2947,13 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             Icons.person_add_alt_1,
             _addingMeAsParticipant
                 ? l10n.tr('league_admin_adding_you')
-                : l10n.tr('league_admin_add_me_participant'),
-            l10n.tr('league_admin_add_me_participant_subtitle'),
-            onTap: _addingMeAsParticipant ? null : _addMeAsParticipant,
+                : l10n.tr(
+                    'league_admin_add_me_participant'),
+            l10n.tr(
+                'league_admin_add_me_participant_subtitle'),
+            onTap: _addingMeAsParticipant
+                ? null
+                : _addMeAsParticipant,
           ),
         _buildSettingsTile(
           context,
@@ -2040,18 +2962,22 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               ? l10n.tr('league_admin_exporting_roster')
               : l10n.tr('league_admin_export_roster'),
           l10n.tr('league_admin_export_roster_subtitle'),
-          onTap: _exportingRoster ? null : _exportRosterCsv,
+          onTap:
+              _exportingRoster ? null : _exportRosterCsv,
         ),
         _buildSettingsTile(
           context,
           Icons.people_outline,
           l10n.tr('league_admin_view_participants'),
-          l10n.tr('league_admin_view_participants_subtitle'),
+          l10n.tr(
+              'league_admin_view_participants_subtitle'),
           onTap: () {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => LeagueParticipantsScreen(leagueId: widget.leagueId),
+                builder: (_) => LeagueParticipantsScreen(
+                  leagueId: widget.leagueId,
+                ),
               ),
             );
           },
@@ -2060,25 +2986,31 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           context,
           Icons.mic,
           l10n.tr('league_admin_live_voice_settings'),
-          l10n.tr('league_admin_live_voice_settings_subtitle'),
+          l10n.tr(
+              'league_admin_live_voice_settings_subtitle'),
           onTap: _showLiveSettingsSheet,
         ),
         _buildSettingsTile(
           context,
           Icons.spatial_audio_off,
           _space?.isLive == true
-              ? l10n.tr('league_admin_league_space_live')
-              : l10n.tr('league_admin_league_space_voice_room'),
+              ? l10n.tr(
+                  'league_admin_league_space_live')
+              : l10n.tr(
+                  'league_admin_league_space_voice_room'),
           _space?.isLive == true
-              ? l10n.tr('league_admin_league_space_live_subtitle')
-              : l10n.tr('league_admin_league_space_voice_room_subtitle'),
+              ? l10n.tr(
+                  'league_admin_league_space_live_subtitle')
+              : l10n.tr(
+                  'league_admin_league_space_voice_room_subtitle'),
           onTap: _showLeagueSpaceAdminSheet,
         ),
         _buildSettingsTile(
           context,
           Icons.notifications_active,
           l10n.tr('league_admin_send_announcement'),
-          l10n.tr('league_admin_send_announcement_subtitle'),
+          l10n.tr(
+              'league_admin_send_announcement_subtitle'),
           onTap: _showSendAnnouncementSheet,
         ),
         _buildSettingsTile(
@@ -2091,19 +3023,25 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         _buildSettingsTile(
           context,
           Icons.delete_forever,
-          _deletingLeague ? 'Deleting…' : l10n.tr('league_admin_delete_league'),
+          _deletingLeague
+              ? 'Deleting…'
+              : l10n.tr('league_admin_delete_league'),
           _deletingLeague
               ? 'Please wait'
-              : l10n.tr('league_admin_delete_league_subtitle'),
+              : l10n.tr(
+                  'league_admin_delete_league_subtitle'),
           isDestructive: true,
           showLeadingSpinner: _deletingLeague,
-          onTap: _deletingLeague ? null : _confirmDeleteLeague,
+          onTap: _deletingLeague
+              ? null
+              : _confirmDeleteLeague,
         ),
       ],
     );
   }
 
-  Widget _buildRewardsTile(BuildContext context, League league) {
+  Widget _buildRewardsTile(
+      BuildContext context, League league) {
     final authUid = _currentAuthUid.trim();
     final isOwnerByRules = _isRulesOwnerForLeague(
       league,
@@ -2113,14 +3051,22 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     );
 
     return FutureBuilder<bool>(
-      future: _rewardsService.hasRewards(leagueId: league.id),
+      future:
+          _rewardsService.hasRewards(leagueId: league.id),
       builder: (context, snapshot) {
-        final done = snapshot.connectionState == ConnectionState.done;
+        final done = snapshot.connectionState ==
+            ConnectionState.done;
         final hasRewards = snapshot.data == true;
 
-        final title = done ? (hasRewards ? 'Manage Rewards' : 'Add Rewards') : 'Rewards';
+        final title = done
+            ? (hasRewards
+                ? 'Manage Rewards'
+                : 'Add Rewards')
+            : 'Rewards';
         final subtitle = done
-            ? (hasRewards ? '🏆 Rewards Available' : 'No rewards yet — create prizes for positions')
+            ? (hasRewards
+                ? '🏆 Rewards Available'
+                : 'No rewards yet — create prizes for positions')
             : 'Checking rewards...';
 
         return _buildSettingsTile(
@@ -2128,7 +3074,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
           Icons.card_giftcard_outlined,
           title,
           subtitle,
-          onTap: isOwnerByRules ? () async => _openManageRewards() : null,
+          onTap: isOwnerByRules
+              ? () async => _openManageRewards()
+              : null,
         );
       },
     );
@@ -2145,9 +3093,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   }) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
-    final chevronIcon = isRtl ? Icons.chevron_left : Icons.chevron_right;
-    final leadingColor = isDestructive ? cs.error : cs.primary;
+    final isRtl =
+        Directionality.of(context) == TextDirection.rtl;
+    final chevronIcon =
+        isRtl ? Icons.chevron_left : Icons.chevron_right;
+    final leadingColor =
+        isDestructive ? cs.error : cs.primary;
 
     final leading = showLeadingSpinner
         ? Column(
@@ -2172,7 +3123,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       child: Glass(
         borderRadius: 20,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 12, vertical: 4),
           child: ListTile(
             contentPadding: EdgeInsets.zero,
             leading: leading,
@@ -2191,7 +3143,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            trailing: Icon(chevronIcon, color: cs.onSurface.withOpacity(0.30)),
+            trailing: Icon(
+              chevronIcon,
+              color: cs.onSurface.withOpacity(0.30),
+            ),
             onTap: onTap,
           ),
         ),
@@ -2199,9 +3154,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Live settings sheet
-  // ---------------------------------------------------------------------------
+  // ── Live settings sheet ───────────────────────────────────────────────────
 
   void _showLiveSettingsSheet() {
     final l10n = context.l10n;
@@ -2209,7 +3162,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
     bool chatEnabled = prefs.liveViewerChatEnabled();
     bool voiceEnabled = prefs.liveViewerVoiceEnabled();
-    bool reactionsEnabled = prefs.liveViewerReactionsEnabled();
+    bool reactionsEnabled =
+        prefs.liveViewerReactionsEnabled();
 
     showModalBottomSheet(
       context: context,
@@ -2227,91 +3181,151 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 520),
+                    constraints:
+                        const BoxConstraints(maxWidth: 520),
                     child: Glass(
                       borderRadius: 28,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                        padding:
+                            const EdgeInsets.symmetric(
+                          vertical: 8,
+                          horizontal: 12,
+                        ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              padding:
+                                  const EdgeInsets.symmetric(
+                                      vertical: 12),
                               child: Text(
-                                l10n.tr('league_admin_live_voice_settings'),
-                                style: theme.textTheme.titleMedium?.copyWith(
+                                l10n.tr(
+                                    'league_admin_live_voice_settings'),
+                                style: theme.textTheme
+                                    .titleMedium
+                                    ?.copyWith(
                                   color: onSurface,
                                   fontSize: 16,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight:
+                                      FontWeight.w900,
                                 ),
                               ),
                             ),
-                            Divider(color: onSurface.withOpacity(0.12)),
+                            Divider(
+                                color: onSurface
+                                    .withOpacity(0.12)),
                             SwitchListTile.adaptive(
                               value: chatEnabled,
-                              onChanged: (v) => setModalState(() => chatEnabled = v),
+                              onChanged: (v) =>
+                                  setModalState(() =>
+                                      chatEnabled = v),
                               activeColor: cs.primary,
                               title: Text(
-                                l10n.tr('league_admin_viewer_text_chat'),
-                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
+                                l10n.tr(
+                                    'league_admin_viewer_text_chat'),
+                                style: TextStyle(
+                                  color: onSurface,
+                                  fontWeight:
+                                      FontWeight.w800,
+                                ),
                               ),
                               subtitle: Text(
-                                l10n.tr('league_admin_viewer_text_chat_subtitle'),
+                                l10n.tr(
+                                    'league_admin_viewer_text_chat_subtitle'),
                                 style: TextStyle(
-                                  color: onSurface.withOpacity(0.65),
+                                  color: onSurface
+                                      .withOpacity(0.65),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight:
+                                      FontWeight.w600,
                                 ),
                               ),
                             ),
                             SwitchListTile.adaptive(
                               value: voiceEnabled,
-                              onChanged: (v) => setModalState(() => voiceEnabled = v),
+                              onChanged: (v) =>
+                                  setModalState(() =>
+                                      voiceEnabled = v),
                               activeColor: cs.primary,
                               title: Text(
-                                l10n.tr('league_admin_viewer_audio'),
-                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
+                                l10n.tr(
+                                    'league_admin_viewer_audio'),
+                                style: TextStyle(
+                                  color: onSurface,
+                                  fontWeight:
+                                      FontWeight.w800,
+                                ),
                               ),
                               subtitle: Text(
-                                l10n.tr('league_admin_viewer_audio_subtitle'),
+                                l10n.tr(
+                                    'league_admin_viewer_audio_subtitle'),
                                 style: TextStyle(
-                                  color: onSurface.withOpacity(0.65),
+                                  color: onSurface
+                                      .withOpacity(0.65),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight:
+                                      FontWeight.w600,
                                 ),
                               ),
                             ),
                             SwitchListTile.adaptive(
                               value: reactionsEnabled,
-                              onChanged: (v) => setModalState(() => reactionsEnabled = v),
+                              onChanged: (v) =>
+                                  setModalState(
+                                () =>
+                                    reactionsEnabled = v,
+                              ),
                               activeColor: cs.primary,
                               title: Text(
-                                l10n.tr('league_admin_viewer_reactions'),
-                                style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
+                                l10n.tr(
+                                    'league_admin_viewer_reactions'),
+                                style: TextStyle(
+                                  color: onSurface,
+                                  fontWeight:
+                                      FontWeight.w800,
+                                ),
                               ),
                               subtitle: Text(
-                                l10n.tr('league_admin_viewer_reactions_subtitle'),
+                                l10n.tr(
+                                    'league_admin_viewer_reactions_subtitle'),
                                 style: TextStyle(
-                                  color: onSurface.withOpacity(0.65),
+                                  color: onSurface
+                                      .withOpacity(0.65),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight:
+                                      FontWeight.w600,
                                 ),
                               ),
                             ),
                             Align(
-                              alignment: Alignment.centerRight,
+                              alignment:
+                                  Alignment.centerRight,
                               child: Padding(
-                                padding: const EdgeInsets.only(top: 8, right: 4, bottom: 8),
+                                padding:
+                                    const EdgeInsets.only(
+                                  top: 8,
+                                  right: 4,
+                                  bottom: 8,
+                                ),
                                 child: FilledButton(
                                   onPressed: () async {
-                                    await prefs.setLiveViewerChatEnabled(chatEnabled);
-                                    await prefs.setLiveViewerVoiceEnabled(voiceEnabled);
-                                    await prefs.setLiveViewerReactionsEnabled(reactionsEnabled);
+                                    await prefs
+                                        .setLiveViewerChatEnabled(
+                                            chatEnabled);
+                                    await prefs
+                                        .setLiveViewerVoiceEnabled(
+                                            voiceEnabled);
+                                    await prefs
+                                        .setLiveViewerReactionsEnabled(
+                                            reactionsEnabled);
                                     if (!mounted) return;
-                                    Navigator.of(ctx).pop();
-                                    _snack(l10n.tr('league_admin_live_viewer_settings_updated'));
+                                    Navigator.of(ctx)
+                                        .pop();
+                                    _snack(l10n.tr(
+                                        'league_admin_live_viewer_settings_updated'));
                                   },
-                                  child: Text(l10n.tr('common_save')),
+                                  child: Text(l10n
+                                      .tr('common_save')),
                                 ),
                               ),
                             ),
@@ -2329,13 +3343,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // League space admin sheet
-  // ---------------------------------------------------------------------------
+  // ── League space admin sheet ──────────────────────────────────────────────
 
   void _showLeagueSpaceAdminSheet() {
     final l10n = context.l10n;
-    final leagueName = _league?.name ?? l10n.tr('common_league_placeholder');
+    final leagueName = _league?.name ??
+        l10n.tr('common_league_placeholder');
     final spaceLive = _space?.isLive == true;
 
     showModalBottomSheet(
@@ -2346,9 +3359,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
-        final runningPrefix = l10n.tr('league_admin_league_space_running_prefix');
-        final startPrefix = l10n.tr('league_admin_league_space_start_description_prefix');
-        final startSuffix = l10n.tr('league_admin_league_space_start_description_suffix');
+        final runningPrefix = l10n
+            .tr('league_admin_league_space_running_prefix');
+        final startPrefix = l10n.tr(
+            'league_admin_league_space_start_description_prefix');
+        final startSuffix = l10n.tr(
+            'league_admin_league_space_start_description_suffix');
 
         final descText = spaceLive
             ? '$runningPrefix $leagueName.'
@@ -2359,17 +3375,24 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             padding: const EdgeInsets.all(16),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
+                constraints:
+                    const BoxConstraints(maxWidth: 520),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          l10n.tr('league_admin_league_space_sheet_title'),
-                          style: theme.textTheme.titleMedium?.copyWith(
+                          l10n.tr(
+                              'league_admin_league_space_sheet_title'),
+                          style: theme
+                              .textTheme.titleMedium
+                              ?.copyWith(
                             color: onSurface,
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
@@ -2378,8 +3401,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 6),
                         Text(
                           descText,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: onSurface.withOpacity(0.70),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(
+                            color:
+                                onSurface.withOpacity(0.70),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -2391,8 +3416,11 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             children: [
                               Expanded(
                                 child: TextButton(
-                                  onPressed: () => Navigator.of(ctx).pop(),
-                                  child: Text(l10n.tr('profile_close_tooltip')),
+                                  onPressed: () =>
+                                      Navigator.of(ctx)
+                                          .pop(),
+                                  child: Text(l10n.tr(
+                                      'profile_close_tooltip')),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -2402,8 +3430,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     Navigator.of(ctx).pop();
                                     _startSpace();
                                   },
-                                  icon: const Icon(Icons.mic),
-                                  label: Text(l10n.tr('league_admin_start_space')),
+                                  icon: const Icon(
+                                      Icons.mic),
+                                  label: Text(l10n.tr(
+                                      'league_admin_start_space')),
                                 ),
                               ),
                             ],
@@ -2417,20 +3447,28 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     Navigator.of(ctx).pop();
                                     _onOpenSpace();
                                   },
-                                  icon: const Icon(Icons.headset),
-                                  label: Text(l10n.tr('league_admin_open_space')),
+                                  icon: const Icon(
+                                      Icons.headset),
+                                  label: Text(l10n.tr(
+                                      'league_admin_open_space')),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: FilledButton.icon(
-                                  style: FilledButton.styleFrom(backgroundColor: cs.error),
+                                  style:
+                                      FilledButton.styleFrom(
+                                    backgroundColor:
+                                        cs.error,
+                                  ),
                                   onPressed: () {
                                     Navigator.of(ctx).pop();
                                     _endSpace();
                                   },
-                                  icon: const Icon(Icons.stop_circle_outlined),
-                                  label: Text(l10n.tr('league_admin_end_space')),
+                                  icon: const Icon(Icons
+                                      .stop_circle_outlined),
+                                  label: Text(l10n.tr(
+                                      'league_admin_end_space')),
                                 ),
                               ),
                             ],
@@ -2448,16 +3486,15 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Send announcement sheet
-  // ---------------------------------------------------------------------------
+  // ── Send announcement sheet ───────────────────────────────────────────────
 
   void _showSendAnnouncementSheet() {
     final l10n = context.l10n;
 
     final league = _league;
     if (league == null) {
-      _snack(l10n.tr('league_admin_league_info_not_loaded_yet'));
+      _snack(
+          l10n.tr('league_admin_league_info_not_loaded_yet'));
       return;
     }
 
@@ -2471,7 +3508,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
       remoteOwnerUid: _remoteOwnerUid,
     );
     if (!isOwnerByRules) {
-      _snack('Only the organizer can send announcements.');
+      _snack(
+          'Only the organizer can send announcements.');
       return;
     }
 
@@ -2489,21 +3527,30 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
 
         return SafeArea(
           child: Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom)
-                .add(const EdgeInsets.all(16)),
+            padding: EdgeInsets.only(
+              bottom:
+                  MediaQuery.of(ctx).viewInsets.bottom,
+            ).add(const EdgeInsets.all(16)),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
+                constraints:
+                    const BoxConstraints(maxWidth: 520),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          l10n.tr('league_admin_send_announcement_sheet_title'),
-                          style: theme.textTheme.titleMedium?.copyWith(
+                          l10n.tr(
+                              'league_admin_send_announcement_sheet_title'),
+                          style: theme
+                              .textTheme.titleMedium
+                              ?.copyWith(
                             color: onSurface,
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
@@ -2511,9 +3558,12 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          l10n.tr('league_admin_send_announcement_sheet_subtitle'),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: onSurface.withOpacity(0.70),
+                          l10n.tr(
+                              'league_admin_send_announcement_sheet_subtitle'),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(
+                            color:
+                                onSurface.withOpacity(0.70),
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
@@ -2523,7 +3573,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         TextField(
                           controller: titleController,
                           decoration: InputDecoration(
-                            labelText: l10n.tr('league_admin_announcement_title_optional'),
+                            labelText: l10n.tr(
+                                'league_admin_announcement_title_optional'),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -2531,7 +3582,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                           controller: messageController,
                           maxLines: 3,
                           decoration: InputDecoration(
-                            labelText: l10n.tr('league_admin_announcement_message_label'),
+                            labelText: l10n.tr(
+                                'league_admin_announcement_message_label'),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -2539,27 +3591,40 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                           children: [
                             Expanded(
                               child: TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: Text(l10n.tr('common_cancel')),
+                                onPressed: () =>
+                                    Navigator.of(ctx).pop(),
+                                child: Text(
+                                    l10n.tr('common_cancel')),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: FilledButton(
                                 onPressed: () async {
-                                  final rawTitle = titleController.text.trim();
-                                  final msg = messageController.text.trim();
+                                  final rawTitle =
+                                      titleController.text
+                                          .trim();
+                                  final msg =
+                                      messageController
+                                          .text
+                                          .trim();
                                   if (msg.isEmpty) return;
 
-                                  final title = rawTitle.isEmpty
-                                      ? l10n.tr('league_admin_announcement_default_title')
-                                      : rawTitle;
+                                  final title =
+                                      rawTitle.isEmpty
+                                          ? l10n.tr(
+                                              'league_admin_announcement_default_title')
+                                          : rawTitle;
 
-                                  final now = DateTime.now().millisecondsSinceEpoch;
+                                  final now = DateTime
+                                          .now()
+                                      .millisecondsSinceEpoch;
 
-                                  final ann = LeagueAnnouncement(
+                                  final ann =
+                                      LeagueAnnouncement(
                                     id: _uuid.v4(),
-                                    leagueId: widget.leagueId,
+                                    leagueId:
+                                        widget.leagueId,
                                     title: title,
                                     message: msg,
                                     createdAtMs: now,
@@ -2569,32 +3634,48 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                                     await _requireOnline();
 
                                     await _firestore
-                                        .collection('leagues')
+                                        .collection(
+                                            'leagues')
                                         .doc(widget.leagueId)
-                                        .collection('announcements')
+                                        .collection(
+                                            'announcements')
                                         .doc(ann.id)
-                                        .set(ann.toMap(), SetOptions(merge: true))
-                                        .timeout(const Duration(seconds: 15));
+                                        .set(
+                                          ann.toMap(),
+                                          SetOptions(
+                                              merge: true),
+                                        )
+                                        .timeout(
+                                          const Duration(
+                                              seconds: 15),
+                                        );
 
                                     try {
-                                      await NotificationService().showLeagueAnnouncementNotification(
-                                        leagueName: league.name,
+                                      await NotificationService()
+                                          .showLeagueAnnouncementNotification(
+                                        leagueName:
+                                            league.name,
                                         title: title,
                                         message: msg,
                                       );
-                                    } catch (_) {
-                                      // Non-fatal.
-                                    }
+                                    } catch (_) {}
 
                                     if (!ctx.mounted) return;
                                     Navigator.of(ctx).pop();
-                                    _snack(l10n.tr('league_admin_announcement_sent'));
+                                    _snack(l10n.tr(
+                                        'league_admin_announcement_sent'));
                                   } catch (e) {
                                     if (!ctx.mounted) return;
-                                    _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+                                    _snack(UserFriendlyError
+                                        .toMessage(
+                                            e is Object
+                                                ? e
+                                                : Exception(
+                                                    'unknown')));
                                   }
                                 },
-                                child: Text(l10n.tr('league_admin_send')),
+                                child: Text(l10n
+                                    .tr('league_admin_send')),
                               ),
                             ),
                           ],
@@ -2614,9 +3695,7 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Participants options sheet
-  // ---------------------------------------------------------------------------
+  // ── Participants options sheet ─────────────────────────────────────────────
 
   void _showParticipantsOptionsSheet() {
     final l10n = context.l10n;
@@ -2634,39 +3713,57 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             padding: const EdgeInsets.all(16),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 500),
+                constraints:
+                    const BoxConstraints(maxWidth: 500),
                 child: Glass(
                   borderRadius: 28,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                      horizontal: 8,
+                    ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          padding:
+                              const EdgeInsets.symmetric(
+                                  vertical: 12),
                           child: Text(
-                            l10n.tr('league_admin_manage_teams_title'),
-                            style: theme.textTheme.titleMedium?.copyWith(
+                            l10n.tr(
+                                'league_admin_manage_teams_title'),
+                            style: theme
+                                .textTheme.titleMedium
+                                ?.copyWith(
                               color: onSurface,
                               fontSize: 16,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
                         ),
-                        Divider(color: onSurface.withOpacity(0.12)),
+                        Divider(
+                            color:
+                                onSurface.withOpacity(0.12)),
                         ListTile(
                           leading: CircleAvatar(
                             backgroundColor: cs.primary,
-                            child: Icon(Icons.group, color: cs.onPrimary),
+                            child: Icon(Icons.group,
+                                color: cs.onPrimary),
                           ),
                           title: Text(
-                            l10n.tr('league_admin_teams_add_edit_title'),
-                            style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
+                            l10n.tr(
+                                'league_admin_teams_add_edit_title'),
+                            style: TextStyle(
+                              color: onSurface,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                           subtitle: Text(
-                            l10n.tr('league_admin_teams_add_edit_subtitle'),
+                            l10n.tr(
+                                'league_admin_teams_add_edit_subtitle'),
                             style: TextStyle(
-                              color: onSurface.withOpacity(0.55),
+                              color:
+                                  onSurface.withOpacity(0.55),
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -2679,17 +3776,25 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         const SizedBox(height: 8),
                         ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: onSurface.withOpacity(0.08),
-                            child: Icon(Icons.people, color: onSurface),
+                            backgroundColor:
+                                onSurface.withOpacity(0.08),
+                            child: Icon(Icons.people,
+                                color: onSurface),
                           ),
                           title: Text(
-                            l10n.tr('league_admin_joined_participants_title'),
-                            style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
+                            l10n.tr(
+                                'league_admin_joined_participants_title'),
+                            style: TextStyle(
+                              color: onSurface,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                           subtitle: Text(
-                            l10n.tr('league_admin_joined_participants_subtitle'),
+                            l10n.tr(
+                                'league_admin_joined_participants_subtitle'),
                             style: TextStyle(
-                              color: onSurface.withOpacity(0.55),
+                              color:
+                                  onSurface.withOpacity(0.55),
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -2699,7 +3804,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => LeagueParticipantsScreen(leagueId: widget.leagueId),
+                                builder: (_) =>
+                                    LeagueParticipantsScreen(
+                                  leagueId: widget.leagueId,
+                                ),
                               ),
                             );
                           },
@@ -2720,7 +3828,8 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
   void _openAddTeams() {
     final l10n = context.l10n;
     if (_league == null) {
-      _snack(l10n.tr('league_admin_league_info_not_loaded_yet_try_again'));
+      _snack(l10n.tr(
+          'league_admin_league_info_not_loaded_yet_try_again'));
       return;
     }
     Navigator.push(
@@ -2749,9 +3858,10 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
         final cs = theme.colorScheme;
         final onSurface = cs.onSurface;
 
-        final dialogBg = theme.brightness == Brightness.light
-            ? Colors.white.withOpacity(0.92)
-            : cs.surface;
+        final dialogBg =
+            theme.brightness == Brightness.light
+                ? Colors.white.withOpacity(0.92)
+                : cs.surface;
 
         bool deleting = false;
 
@@ -2760,11 +3870,16 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
             return AlertDialog(
               backgroundColor: dialogBg,
               title: Text(
-                l10n.tr('league_admin_delete_league_confirm_title'),
-                style: TextStyle(color: onSurface, fontWeight: FontWeight.w900),
+                l10n.tr(
+                    'league_admin_delete_league_confirm_title'),
+                style: TextStyle(
+                  color: onSurface,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
               content: Text(
-                l10n.tr('league_admin_delete_league_confirm_message'),
+                l10n.tr(
+                    'league_admin_delete_league_confirm_message'),
                 style: TextStyle(
                   color: onSurface.withOpacity(0.72),
                   fontWeight: FontWeight.w600,
@@ -2772,43 +3887,67 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: deleting ? null : () => Navigator.of(ctx).pop(),
+                  onPressed: deleting
+                      ? null
+                      : () => Navigator.of(ctx).pop(),
                   child: Text(l10n.tr('common_cancel')),
                 ),
                 FilledButton.icon(
-                  style: FilledButton.styleFrom(backgroundColor: cs.error),
+                  style: FilledButton.styleFrom(
+                      backgroundColor: cs.error),
                   onPressed: deleting
                       ? null
                       : () async {
-                          setStateDialog(() => deleting = true);
-                          if (mounted) setState(() => _deletingLeague = true);
+                          setStateDialog(
+                              () => deleting = true);
+                          if (mounted) {
+                            setState(
+                              () => _deletingLeague = true,
+                            );
+                          }
 
                           try {
-                            final uid = _authUidOrRedirect();
+                            final uid =
+                                _authUidOrRedirect();
                             if (uid == null) return;
 
                             await _requireOnline();
 
                             await _repo
-                                .deleteLeagueCompletely(widget.leagueId)
-                                .timeout(const Duration(seconds: 30));
+                                .deleteLeagueCompletely(
+                                    widget.leagueId)
+                                .timeout(
+                                  const Duration(
+                                      seconds: 30),
+                                );
 
                             if (!mounted) return;
 
                             Navigator.of(ctx).pop();
-
-                            // Navigate away after the dialog closes.
-                            GoRouter.of(context).go('/leagues');
-                            _snack(l10n.tr('league_admin_league_deleted'));
+                            GoRouter.of(context)
+                                .go('/leagues');
+                            _snack(l10n.tr(
+                                'league_admin_league_deleted'));
                           } catch (e) {
                             if (!mounted) return;
                             Navigator.of(ctx).pop();
-                            _snack(UserFriendlyError.toMessage(
-                              e is Object ? e : Exception('unknown'),
+                            _snack(
+                                UserFriendlyError.toMessage(
+                              e is Object
+                                  ? e
+                                  : Exception('unknown'),
                             ));
                           } finally {
-                            if (mounted) setState(() => _deletingLeague = false);
-                            if (ctx.mounted) setStateDialog(() => deleting = false);
+                            if (mounted) {
+                              setState(
+                                () =>
+                                    _deletingLeague = false,
+                              );
+                            }
+                            if (ctx.mounted) {
+                              setStateDialog(
+                                  () => deleting = false);
+                            }
                           }
                         },
                   icon: deleting
@@ -2822,7 +3961,9 @@ class _LeagueAdminScreenState extends ConsumerState<LeagueAdminScreen> {
                         )
                       : const Icon(Icons.delete_forever),
                   label: Text(
-                    deleting ? 'Deleting…' : l10n.tr('league_admin_delete'),
+                    deleting
+                        ? 'Deleting…'
+                        : l10n.tr('league_admin_delete'),
                   ),
                 ),
               ],
