@@ -1,3 +1,4 @@
+// lib/features/leagues/presentation/leagues_list_screen.dart
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -16,17 +17,24 @@ import 'package:eleaguehub3/features/leagues/models/league_settings.dart';
 import 'package:eleaguehub3/features/leagues/models/membership.dart';
 import 'package:eleaguehub3/features/master_leagues/logic/master_leagues_providers.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/payments/google_play_billing_catalog.dart';
+import '../../../core/services/payments/google_play_billing_service.dart';
+import '../../../core/services/payments/payments_service.dart';
+import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/rewarded_ad_manager.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../data/leagues_repository_local.dart';
+import '../logic/league_creation_payment_service.dart';
 import '../logic/league_premium_upgrade_helper.dart';
 
 // ---------------------------------------------------------------------------
@@ -45,11 +53,12 @@ import '../logic/league_premium_upgrade_helper.dart';
 //         → IF reward earned  → navigate to /leagues/{id}
 //         → IF reward NOT earned → show snack, do NOT navigate
 //
-// _isPremiumUser is loaded once in _loadLeagues() from the existing
-// _detectPremiumUser() helper which was already in this file.
-// We reuse it — no new network call needed.
+// # PLAN UPGRADE PAYMENT ROUTING
+// ---------------------------------------------------------------------------
+// Android → Google Play Billing (in_app_purchase)
+// Web     → Flutterwave
 //
-// _rewardGateInProgress flag prevents double-taps while ad is loading/playing.
+// The gate is PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
 // ---------------------------------------------------------------------------
 
 enum _LeagueViewTab { leagues, master }
@@ -63,10 +72,12 @@ class LeaguesListScreen extends ConsumerStatefulWidget {
   final bool showAppBar;
 
   @override
-  ConsumerState<LeaguesListScreen> createState() => _LeaguesListScreenState();
+  ConsumerState<LeaguesListScreen> createState() =>
+      _LeaguesListScreenState();
 }
 
-class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
+class _LeaguesListScreenState
+    extends ConsumerState<LeaguesListScreen>
     with AutomaticKeepAliveClientMixin {
   static const Color _premiumAmber = Color(0xFFF59E0B);
   static const int _freeLeagueListLimit = 3;
@@ -96,10 +107,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   _LeagueViewTab _selectedTab = _LeagueViewTab.leagues;
 
   // ── Monetization gate state ────────────────────────────────────────────────
-  // Tracks whether a rewarded ad gate is currently in progress.
-  // Prevents double-tapping a card while the ad is loading or playing.
   bool _rewardGateInProgress = false;
-  // ──────────────────────────────────────────────────────────────────────────
+
+  // ── Plan upgrade payment state (Android Google Play) ─────────────────────
+  bool _planUpgradeInProgress = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -162,8 +173,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     if (trimmed.isEmpty) return false;
 
     try {
-      final token =
-          await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
+      final token = await FirebaseAuth.instance.currentUser
+          ?.getIdTokenResult(true);
       final claims = token?.claims ?? const <String, dynamic>{};
 
       final isPremium =
@@ -172,13 +183,31 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
       final premiumExpiresAtMs = claims['premiumExpiresAtMs'];
       if (premiumExpiresAtMs is int &&
-          premiumExpiresAtMs > DateTime.now().millisecondsSinceEpoch) {
+          premiumExpiresAtMs >
+              DateTime.now().millisecondsSinceEpoch) {
         return true;
       }
       if (premiumExpiresAtMs is num &&
           premiumExpiresAtMs.toInt() >
               DateTime.now().millisecondsSinceEpoch) {
         return true;
+      }
+
+      // Also check activePlanId from claims for plan-based premium.
+      final activePlanId =
+          (claims['activePlanId'] as String? ?? '').trim();
+      if (activePlanId == 'pro' || activePlanId == 'elite') {
+        final planExpiresAtMs = claims['planExpiresAtMs'];
+        if (planExpiresAtMs is int &&
+            planExpiresAtMs >
+                DateTime.now().millisecondsSinceEpoch) {
+          return true;
+        }
+        if (planExpiresAtMs is num &&
+            planExpiresAtMs.toInt() >
+                DateTime.now().millisecondsSinceEpoch) {
+          return true;
+        }
       }
     } catch (_) {}
 
@@ -198,8 +227,26 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         return true;
       }
       if (expires is num &&
-          expires.toInt() > DateTime.now().millisecondsSinceEpoch) {
+          expires.toInt() >
+              DateTime.now().millisecondsSinceEpoch) {
         return true;
+      }
+
+      // Check plan-based premium from Firestore user doc.
+      final activePlanId =
+          (data['activePlanId'] as String? ?? '').trim();
+      if (activePlanId == 'pro' || activePlanId == 'elite') {
+        final planExpiresAtMs = data['planExpiresAtMs'];
+        if (planExpiresAtMs is int &&
+            planExpiresAtMs >
+                DateTime.now().millisecondsSinceEpoch) {
+          return true;
+        }
+        if (planExpiresAtMs is num &&
+            planExpiresAtMs.toInt() >
+                DateTime.now().millisecondsSinceEpoch) {
+          return true;
+        }
       }
     } catch (_) {}
 
@@ -211,7 +258,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     return trimmed.isNotEmpty;
   }
 
-  Future<int> _countCreatedLeaguesAcrossAllFlows(String uid) async {
+  Future<int> _countCreatedLeaguesAcrossAllFlows(
+      String uid) async {
     final trimmed = uid.trim();
     if (trimmed.isEmpty) return 0;
 
@@ -252,21 +300,98 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     );
   }
 
+  // ── Plan upgrade routing ──────────────────────────────────────────────────
+  // Android → Google Play Billing
+  // Web     → Flutterwave via LeaguePremiumUpgradeHelper sheet
+
   Future<void> _openInlinePlanChooser() async {
-    final ok = await LeaguePremiumUpgradeHelper.openUpgradeFlow(
-      context,
-      leagueName: 'Organizer Plan',
-    );
+    if (_planUpgradeInProgress) return;
 
-    if (!mounted) return;
-
-    if (ok) {
-      _snack('Plan purchase completed. Refreshing access...');
-      await _refreshLeagues();
+    // Android → Google Play Billing
+    if (PaymentPlatformConfig
+        .routeAndroidPaymentsToGooglePlayBilling) {
+      await _openGooglePlayPlanUpgrade();
       return;
     }
 
-    _snack('Plan upgrade cancelled.');
+    // Web / non-Android → Flutterwave sheet
+    await _openFlutterwavePlanUpgrade();
+  }
+
+  /// Android: purchase plan subscription via Google Play Billing.
+  Future<void> _openGooglePlayPlanUpgrade() async {
+    if (_planUpgradeInProgress) return;
+
+    setState(() => _planUpgradeInProgress = true);
+
+    try {
+      final uid = _authUidOrEmpty();
+      if (uid.isEmpty) {
+        _snack('Please sign in to continue.');
+        return;
+      }
+
+      // Show a bottom sheet to let user pick plan + duration
+      // then trigger Google Play purchase.
+      final success =
+          await LeaguePremiumUpgradeHelper.openUpgradeFlow(
+        context,
+        leagueName: 'Organizer Plan',
+      );
+
+      if (!mounted) return;
+
+      if (success) {
+        _snack(
+            'Plan purchase completed. Refreshing access...');
+        await _refreshLeagues();
+        return;
+      }
+
+      _snack('Plan upgrade cancelled.');
+    } catch (e) {
+      if (!mounted) return;
+      _snack(UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown')));
+    } finally {
+      if (mounted) {
+        setState(() => _planUpgradeInProgress = false);
+      }
+    }
+  }
+
+  /// Web / non-Android: Flutterwave plan upgrade sheet.
+  Future<void> _openFlutterwavePlanUpgrade() async {
+    if (_planUpgradeInProgress) return;
+
+    setState(() => _planUpgradeInProgress = true);
+
+    try {
+      final ok =
+          await LeaguePremiumUpgradeHelper.openUpgradeFlow(
+        context,
+        leagueName: 'Organizer Plan',
+      );
+
+      if (!mounted) return;
+
+      if (ok) {
+        _snack(
+            'Plan purchase completed. Refreshing access...');
+        await _refreshLeagues();
+        return;
+      }
+
+      _snack('Plan upgrade cancelled.');
+    } catch (e) {
+      if (!mounted) return;
+      _snack(UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown')));
+    } finally {
+      if (mounted) {
+        setState(() => _planUpgradeInProgress = false);
+      }
+    }
   }
 
   Future<void> _loadLeagues({required bool showSpinner}) async {
@@ -280,14 +405,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         throw FirebaseAuthException(code: 'unauthenticated');
       }
 
-      final premium = await _detectPremiumUser(effectiveUserId);
+      final premium =
+          await _detectPremiumUser(effectiveUserId);
       final hasLeagueAccess =
           await _detectLeagueAccessFromPlan(effectiveUserId);
       final createdCount =
-          await _countCreatedLeaguesAcrossAllFlows(effectiveUserId);
+          await _countCreatedLeaguesAcrossAllFlows(
+              effectiveUserId);
 
-      final leagues =
-          await _repo.listLeagues().timeout(const Duration(seconds: 20));
+      final leagues = await _repo
+          .listLeagues()
+          .timeout(const Duration(seconds: 20));
       final memberships = await _repo
           .listMemberships()
           .timeout(const Duration(seconds: 25));
@@ -298,7 +426,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
       await Future.wait(
         leagues.map((league) async {
-          final registered = await _countParticipantsRemote(league.id);
+          final registered =
+              await _countParticipantsRemote(league.id);
           counts[league.id] = registered;
 
           final isParticipant = memberships.any(
@@ -310,17 +439,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           );
           viewerIsParticipant[league.id] = isParticipant;
 
-          final isOwner = _isOwnerForViewer(league, effectiveUserId);
+          final isOwner =
+              _isOwnerForViewer(league, effectiveUserId);
 
           final requiresPaidLeague =
               league.format == LeagueFormat.uclGroup ||
                   league.format == LeagueFormat.uclSwiss;
 
-          final isClassic = league.format == LeagueFormat.classic;
+          final isClassic =
+              league.format == LeagueFormat.classic;
           final isFull = registered >= league.maxTeams;
 
           final classicFullViewerRequiresUnlock =
-              isClassic && isFull && !isOwner && !isParticipant;
+              isClassic &&
+                  isFull &&
+                  !isOwner &&
+                  !isParticipant;
 
           if (isOwner) {
             viewerUnlocked[league.id] = true;
@@ -332,7 +466,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
             return;
           }
 
-          if (!requiresPaidLeague && !classicFullViewerRequiresUnlock) {
+          if (!requiresPaidLeague &&
+              !classicFullViewerRequiresUnlock) {
             viewerUnlocked[league.id] = true;
             return;
           }
@@ -349,7 +484,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                   leagueId: league.id,
                 ).timeout(const Duration(seconds: 12));
 
-          viewerUnlocked[league.id] = paidReceipt || paidCoupon;
+          viewerUnlocked[league.id] =
+              paidReceipt || paidCoupon;
         }),
       );
 
@@ -368,11 +504,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         _isLoading = false;
       });
 
-      // Preload rewarded ad for free users so it is ready when they
-      // double-tap a league card. Paid users never see an ad.
       if (!premium) {
         unawaited(
-          RewardedAdManager.instance.preload(placement: 'view_league'),
+          RewardedAdManager.instance
+              .preload(placement: 'view_league'),
         );
       }
 
@@ -390,7 +525,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     }
   }
 
-  Future<void> _loadLatestAnnouncements(List<League> leagues) async {
+  Future<void> _loadLatestAnnouncements(
+      List<League> leagues) async {
     if (_loadingAnnouncements) return;
     _loadingAnnouncements = true;
 
@@ -410,12 +546,14 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
           if (snap.docs.isEmpty) return;
           latestAnns[league.id] =
-              LeagueAnnouncement.fromMap(snap.docs.first.data());
+              LeagueAnnouncement.fromMap(
+                  snap.docs.first.data());
         } catch (_) {}
       }));
 
       if (!mounted) return;
-      setState(() => _latestAnnouncements = latestAnns);
+      setState(
+          () => _latestAnnouncements = latestAnns);
     } finally {
       _loadingAnnouncements = false;
     }
@@ -425,14 +563,16 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     await _loadLeagues(showSpinner: true);
   }
 
-  DocumentReference<Map<String, dynamic>> _leagueRef(String leagueId) =>
+  DocumentReference<Map<String, dynamic>> _leagueRef(
+          String leagueId) =>
       _firestore.collection('leagues').doc(leagueId);
 
-  CollectionReference<Map<String, dynamic>> _membershipsCol(
-          String leagueId) =>
-      _leagueRef(leagueId).collection('memberships');
+  CollectionReference<Map<String, dynamic>>
+      _membershipsCol(String leagueId) =>
+          _leagueRef(leagueId).collection('memberships');
 
-  Future<int> _countParticipantsRemote(String leagueId) async {
+  Future<int> _countParticipantsRemote(
+      String leagueId) async {
     final snap = await _membershipsCol(leagueId)
         .get(const GetOptions(source: Source.server))
         .timeout(const Duration(seconds: 12));
@@ -440,7 +580,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     var count = 0;
     for (final d in snap.docs) {
       final data = d.data();
-      final uid = (data['userId'] as String?)?.trim() ?? '';
+      final uid =
+          (data['userId'] as String?)?.trim() ?? '';
       final roleIdx = (data['role'] as num?)?.toInt();
       final isParticipantRole =
           roleIdx == LeagueRole.organizer.index ||
@@ -470,7 +611,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
     final data = doc.data() ?? <String, dynamic>{};
     final paidFlag = data['paid'] == true;
-    final receiptId = (data['receiptId'] ?? '').toString().trim();
+    final receiptId =
+        (data['receiptId'] ?? '').toString().trim();
     final paidAtMs = (data['paidAtMs'] is num)
         ? (data['paidAtMs'] as num).toInt()
         : 0;
@@ -508,33 +650,23 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     return false;
   }
 
-  // ── Monetization gate handler ──────────────────────────────────────────────
-  // Called by onDoubleTap on every LeagueFlipCard in the grid.
-  //
-  // IF user is paid → navigate instantly, no ad.
-  // IF user is free → show rewarded ad gate.
-  //   IF reward earned  → navigate to league details.
-  //   IF reward NOT earned → show snack, stay on list screen.
-  //
-  // _rewardGateInProgress prevents concurrent calls (double fast-tap).
-  // ──────────────────────────────────────────────────────────────────────────
-  Future<void> _handleLeagueCardDoubleTap(League league) async {
-    // Guard against concurrent taps while gate is running.
+  // ── Monetization gate handler ─────────────────────────────────────────────
+  Future<void> _handleLeagueCardDoubleTap(
+      League league) async {
     if (_rewardGateInProgress) return;
 
-    // Paid users bypass the ad gate completely.
     if (_isPremiumUser) {
       context.push('/leagues/${league.id}');
       return;
     }
 
-    // Free user — show rewarded ad before navigating.
     setState(() => _rewardGateInProgress = true);
 
     bool rewardEarned = false;
 
     try {
-      rewardEarned = await RewardedAdManager.instance.showRewardedGate(
+      rewardEarned =
+          await RewardedAdManager.instance.showRewardedGate(
         placement: 'view_league',
       );
     } finally {
@@ -546,18 +678,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     if (!mounted) return;
 
     if (!rewardEarned) {
-      // User closed the ad early or ad failed to load/show.
-      // Do NOT navigate — stay on list screen.
       _snack(
-        'Watch the full ad to open league details. Please try again.',
+        'Watch the full ad to open league details. '
+        'Please try again.',
       );
       return;
     }
 
-    // Reward earned — proceed to league details screen.
     context.push('/leagues/${league.id}');
   }
-  // ── END monetization gate handler ──────────────────────────────────────────
 
   Future<void> _showLeagueLongPressMenu(
     BuildContext context,
@@ -569,7 +698,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
     if (isOwner) {
       _snack(
-        'League owners should manage their league from the owner/admin area.',
+        'League owners should manage their league from '
+        'the owner/admin area.',
       );
       return;
     }
@@ -585,43 +715,54 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
             padding: const EdgeInsets.all(12),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 540),
+                constraints:
+                    const BoxConstraints(maxWidth: 540),
                 child: Glass(
                   borderRadius: 26,
                   padding: const EdgeInsets.all(16),
                   fill: AppTheme.cardColor(brightness),
-                  borderColor: AppTheme.cardBorder(brightness),
+                  borderColor:
+                      AppTheme.cardBorder(brightness),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
                         width: 40,
                         height: 4,
-                        margin: const EdgeInsets.only(bottom: 14),
+                        margin: const EdgeInsets.only(
+                            bottom: 14),
                         decoration: BoxDecoration(
-                          color: AppTheme.cardBorder(brightness),
-                          borderRadius: BorderRadius.circular(2),
+                          color:
+                              AppTheme.cardBorder(brightness),
+                          borderRadius:
+                              BorderRadius.circular(2),
                         ),
                       ),
                       Text(
                         league.name,
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.titleMedium?.copyWith(
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: AppTheme.primaryText(brightness),
+                          color: AppTheme.primaryText(
+                              brightness),
                         ),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         league.isInsideMasterLeague
-                            ? 'This competition belongs to a master league '
-                              'workspace. You can still remove it from your '
+                            ? 'This competition belongs to a '
+                              'master league workspace. You can '
+                              'still remove it from your '
                               'personal list.'
-                            : 'You can remove this league from your list if '
-                              'you no longer need it.',
+                            : 'You can remove this league from '
+                              'your list if you no longer need '
+                              'it.',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppTheme.secondaryText(brightness),
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(
+                          color: AppTheme.secondaryText(
+                              brightness),
                           fontWeight: FontWeight.w700,
                           height: 1.35,
                         ),
@@ -634,15 +775,19 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             Navigator.of(sheetCtx).pop();
                             await _leaveLeague(league);
                           },
-                          icon: const Icon(Icons.exit_to_app_rounded),
+                          icon: const Icon(
+                              Icons.exit_to_app_rounded),
                           label: const Text(
                             'Remove from My List',
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            style: TextStyle(
+                                fontWeight: FontWeight.w900),
                           ),
                         ),
                       ),
                       if (league.isInsideMasterLeague &&
-                          league.masterLeagueId.trim().isNotEmpty) ...[
+                          league.masterLeagueId
+                              .trim()
+                              .isNotEmpty) ...[
                         const SizedBox(height: 8),
                         SizedBox(
                           width: double.infinity,
@@ -650,13 +795,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             onPressed: () {
                               Navigator.of(sheetCtx).pop();
                               context.push(
-                                '/master-leagues/${league.masterLeagueId}',
+                                '/master-leagues/'
+                                '${league.masterLeagueId}',
                               );
                             },
-                            icon: const Icon(Icons.hub_rounded),
+                            icon: const Icon(
+                                Icons.hub_rounded),
                             label: const Text(
                               'Open Workspace',
-                              style: TextStyle(fontWeight: FontWeight.w900),
+                              style: TextStyle(
+                                  fontWeight:
+                                      FontWeight.w900),
                             ),
                           ),
                         ),
@@ -665,10 +814,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       SizedBox(
                         width: double.infinity,
                         child: TextButton(
-                          onPressed: () => Navigator.of(sheetCtx).pop(),
+                          onPressed: () =>
+                              Navigator.of(sheetCtx).pop(),
                           child: const Text(
                             'Cancel',
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            style: TextStyle(
+                                fontWeight: FontWeight.w900),
                           ),
                         ),
                       ),
@@ -710,18 +861,23 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     Text(
                       'Remove league from your list?',
                       textAlign: TextAlign.center,
-                      style: theme.textTheme.titleMedium?.copyWith(
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(
                         fontWeight: FontWeight.w900,
-                        color: AppTheme.primaryText(brightness),
+                        color:
+                            AppTheme.primaryText(brightness),
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'You will leave "${league.name}" and it will no '
-                      'longer appear on your leagues screen.',
+                      'You will leave "${league.name}" and it '
+                      'will no longer appear on your leagues '
+                      'screen.',
                       textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppTheme.secondaryText(brightness),
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(
+                        color: AppTheme.secondaryText(
+                            brightness),
                         fontWeight: FontWeight.w700,
                         height: 1.35,
                       ),
@@ -735,8 +891,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 Navigator.of(ctx).pop(false),
                             child: const Text(
                               'Cancel',
-                              style:
-                                  TextStyle(fontWeight: FontWeight.w900),
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w900),
                             ),
                           ),
                         ),
@@ -744,15 +900,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         Expanded(
                           child: FilledButton(
                             style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.limeAccent,
-                              foregroundColor: AppTheme.darkText,
+                              backgroundColor:
+                                  AppTheme.limeAccent,
+                              foregroundColor:
+                                  AppTheme.darkText,
                             ),
                             onPressed: () =>
                                 Navigator.of(ctx).pop(true),
                             child: const Text(
                               'Remove',
-                              style:
-                                  TextStyle(fontWeight: FontWeight.w900),
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w900),
                             ),
                           ),
                         ),
@@ -806,7 +964,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       return;
     }
 
-    final registered = _participantCounts[league.id] ?? 0;
+    final registered =
+        _participantCounts[league.id] ?? 0;
     final isFull = registered >= league.maxTeams;
 
     final isOwner = _isOwnerForViewer(league, authUid);
@@ -816,12 +975,14 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final requiresPaidLeague =
         league.format == LeagueFormat.uclGroup ||
             league.format == LeagueFormat.uclSwiss;
-    final isClassic = league.format == LeagueFormat.classic;
+    final isClassic =
+        league.format == LeagueFormat.classic;
 
     final classicFullViewerRequiresUnlock =
         isClassic && isFull && !isOwner && !viewerIsParticipant;
 
-    if (!requiresPaidLeague && !classicFullViewerRequiresUnlock) return;
+    if (!requiresPaidLeague &&
+        !classicFullViewerRequiresUnlock) return;
 
     if (isOwner) {
       _snack(l10n.tr('leagues_creator_unlocked'));
@@ -841,7 +1002,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
     if (alreadyPaid || alreadyCoupon) {
       if (!mounted) return;
-      setState(() => _viewerChargesPaid[league.id] = true);
+      setState(
+          () => _viewerChargesPaid[league.id] = true);
       return;
     }
 
@@ -858,7 +1020,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           .replaceAll(RegExp(r'[^A-Z0-9_%]'), '');
     }
 
-    Future<void> unlockByPay(StateSetter setModalState) async {
+    Future<void> unlockByPay(
+        StateSetter setModalState) async {
       if (busy) return;
 
       setModalState(() {
@@ -871,7 +1034,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         final paymentService =
             ref.read(leagueChargesPaymentServiceProvider);
 
-        final result = await paymentService.payLeagueCharges(
+        final result =
+            await paymentService.payLeagueCharges(
           context: context,
           userId: authUid,
           leagueId: league.id,
@@ -883,9 +1047,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         if (!result.success) {
           setModalState(() {
             busy = false;
-            error = result.errorMessage?.trim().isNotEmpty == true
-                ? result.errorMessage
-                : l10n.tr('leagues_payment_failed');
+            error =
+                result.errorMessage?.trim().isNotEmpty == true
+                    ? result.errorMessage
+                    : l10n.tr('leagues_payment_failed');
           });
           setState(() => _payingLeagueId = null);
           return;
@@ -895,7 +1060,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           LeagueChargesReceipt(
             leagueId: league.id,
             userId: authUid,
-            receiptId: result.receiptId ?? 'FLW-UNKNOWN',
+            receiptId:
+                result.receiptId ?? 'FLW-UNKNOWN',
             provider: result.provider,
             paidAtMs: result.paidAtMs,
           ),
@@ -927,12 +1093,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       }
     }
 
-    Future<void> unlockByCoupon(StateSetter setModalState) async {
+    Future<void> unlockByCoupon(
+        StateSetter setModalState) async {
       if (busy) return;
 
-      final code = normalizeCoupon(couponCtrl.text);
+      final code =
+          normalizeCoupon(couponCtrl.text);
       if (code.length < 6) {
-        setModalState(() => error = 'Enter a valid coupon code.');
+        setModalState(
+            () => error = 'Enter a valid coupon code.');
         return;
       }
 
@@ -943,7 +1112,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       setState(() => _payingLeagueId = league.id);
 
       try {
-        final res = await CouponCodesService().redeemWithCode(
+        final res =
+            await CouponCodesService().redeemWithCode(
           context: context,
           leagueId: league.id,
           leagueName: league.name,
@@ -956,9 +1126,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         if (!res.success) {
           setModalState(() {
             busy = false;
-            error = res.errorMessage?.trim().isNotEmpty == true
-                ? res.errorMessage
-                : 'Coupon redemption failed.';
+            error =
+                res.errorMessage?.trim().isNotEmpty == true
+                    ? res.errorMessage
+                    : 'Coupon redemption failed.';
           });
           setState(() => _payingLeagueId = null);
           return;
@@ -994,7 +1165,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (sheetCtx) {
-        final bottomInset = MediaQuery.of(sheetCtx).viewInsets.bottom;
+        final bottomInset =
+            MediaQuery.of(sheetCtx).viewInsets.bottom;
 
         return SafeArea(
           child: Padding(
@@ -1002,11 +1174,13 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 .add(const EdgeInsets.all(12)),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
+                constraints:
+                    const BoxConstraints(maxWidth: 560),
                 child: Glass(
                   borderRadius: 28,
                   fill: AppTheme.cardColor(brightness),
-                  borderColor: AppTheme.cardBorder(brightness),
+                  borderColor:
+                      AppTheme.cardBorder(brightness),
                   child: StatefulBuilder(
                     builder: (ctx, setModalState) {
                       return Padding(
@@ -1017,21 +1191,25 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             Container(
                               width: 40,
                               height: 4,
-                              margin:
-                                  const EdgeInsets.only(bottom: 16),
+                              margin: const EdgeInsets.only(
+                                  bottom: 16),
                               decoration: BoxDecoration(
-                                color: AppTheme.cardBorder(brightness),
-                                borderRadius: BorderRadius.circular(2),
+                                color: AppTheme.cardBorder(
+                                    brightness),
+                                borderRadius:
+                                    BorderRadius.circular(
+                                        2),
                               ),
                             ),
                             Text(
                               'Unlock access',
-                              style: theme.textTheme.titleMedium
+                              style: theme
+                                  .textTheme.titleMedium
                                   ?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 18,
-                                color:
-                                    AppTheme.primaryText(brightness),
+                                color: AppTheme.primaryText(
+                                    brightness),
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -1040,23 +1218,27 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color:
-                                    AppTheme.secondaryText(brightness),
+                                    AppTheme.secondaryText(
+                                        brightness),
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                             if (classicFullViewerRequiresUnlock) ...[
                               const SizedBox(height: 10),
                               Text(
-                                'This classic league is full. You can '
-                                'unlock access as a viewer by paying '
-                                'or using a coupon.',
+                                'This classic league is full. '
+                                'You can unlock access as a '
+                                'viewer by paying or using a '
+                                'coupon.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: AppTheme.secondaryText(
-                                      brightness),
+                                  color:
+                                      AppTheme.secondaryText(
+                                          brightness),
                                   fontSize: 12,
                                   height: 1.35,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight:
+                                      FontWeight.w600,
                                 ),
                               ),
                             ],
@@ -1064,14 +1246,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             SizedBox(
                               width: double.infinity,
                               child: FilledButton.icon(
-                                style: FilledButton.styleFrom(
+                                style:
+                                    FilledButton.styleFrom(
                                   backgroundColor:
                                       AppTheme.limeAccent,
-                                  foregroundColor: AppTheme.darkText,
+                                  foregroundColor:
+                                      AppTheme.darkText,
                                 ),
                                 onPressed: busy
                                     ? null
-                                    : () => unlockByPay(setModalState),
+                                    : () => unlockByPay(
+                                        setModalState),
                                 icon: busy
                                     ? const SizedBox(
                                         width: 18,
@@ -1079,17 +1264,19 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                         child:
                                             CircularProgressIndicator(
                                           strokeWidth: 2,
-                                          color: AppTheme.darkText,
+                                          color:
+                                              AppTheme.darkText,
                                         ),
                                       )
-                                    : const Icon(
-                                        Icons.payments_outlined),
+                                    : const Icon(Icons
+                                        .payments_outlined),
                                 label: busy
                                     ? const Text('')
                                     : const Text(
                                         'Pay to unlock',
                                         style: TextStyle(
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight:
+                                              FontWeight.w900,
                                         ),
                                       ),
                               ),
@@ -1097,12 +1284,14 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             const SizedBox(height: 14),
                             Align(
                               alignment:
-                                  AlignmentDirectional.centerStart,
+                                  AlignmentDirectional
+                                      .centerStart,
                               child: Text(
                                 'Or use a coupon',
                                 style: TextStyle(
                                   color:
-                                      AppTheme.primaryText(brightness),
+                                      AppTheme.primaryText(
+                                          brightness),
                                   fontWeight: FontWeight.w900,
                                   fontSize: 12,
                                 ),
@@ -1114,14 +1303,16 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               enabled: !busy,
                               textCapitalization:
                                   TextCapitalization.characters,
-                              decoration: const InputDecoration(
-                                prefixIcon: Icon(
-                                  Icons.confirmation_number_outlined,
-                                ),
-                                hintText: 'Enter coupon code',
+                              decoration:
+                                  const InputDecoration(
+                                prefixIcon: Icon(Icons
+                                    .confirmation_number_outlined),
+                                hintText:
+                                    'Enter coupon code',
                               ),
                               onSubmitted: (_) =>
-                                  unlockByCoupon(setModalState),
+                                  unlockByCoupon(
+                                      setModalState),
                             ),
                             const SizedBox(height: 10),
                             SizedBox(
@@ -1129,29 +1320,34 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               child: OutlinedButton.icon(
                                 onPressed: busy
                                     ? null
-                                    : () =>
-                                        unlockByCoupon(setModalState),
-                                icon: const Icon(
-                                    Icons.verified_outlined),
+                                    : () => unlockByCoupon(
+                                        setModalState),
+                                icon: const Icon(Icons
+                                    .verified_outlined),
                                 label: const Text(
                                   'Apply coupon',
                                   style: TextStyle(
-                                      fontWeight: FontWeight.w900),
+                                      fontWeight:
+                                          FontWeight.w900),
                                 ),
                               ),
                             ),
-                            if ((error ?? '').trim().isNotEmpty) ...[
+                            if ((error ?? '')
+                                .trim()
+                                .isNotEmpty) ...[
                               const SizedBox(height: 12),
                               Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.all(12),
+                                padding:
+                                    const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
                                   color: Theme.of(context)
                                       .colorScheme
                                       .error
                                       .withOpacity(0.10),
                                   borderRadius:
-                                      BorderRadius.circular(14),
+                                      BorderRadius.circular(
+                                          14),
                                   border: Border.all(
                                     color: Theme.of(context)
                                         .colorScheme
@@ -1165,7 +1361,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                     color: Theme.of(context)
                                         .colorScheme
                                         .error,
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight:
+                                        FontWeight.w800,
                                   ),
                                 ),
                               ),
@@ -1176,8 +1373,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               child: TextButton(
                                 onPressed: busy
                                     ? null
-                                    : () => Navigator.of(ctx).pop(),
-                                child: Text(l10n.tr('common_cancel')),
+                                    : () => Navigator.of(ctx)
+                                        .pop(),
+                                child: Text(
+                                    l10n.tr('common_cancel')),
                               ),
                             ),
                           ],
@@ -1197,7 +1396,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     if (mounted) setState(() => _payingLeagueId = null);
   }
 
-  Future<void> _handleCreateLeagueTap(BuildContext context) async {
+  Future<void> _handleCreateLeagueTap(
+      BuildContext context) async {
     if (_checkingPlan) {
       _snack('Checking your access. Please wait.');
       return;
@@ -1219,7 +1419,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     }
   }
 
-  Future<void> _handleJoinQrTap(BuildContext context) async {
+  Future<void> _handleJoinQrTap(
+      BuildContext context) async {
     if (_checkingPlan) {
       _snack('Checking your access. Please wait.');
       return;
@@ -1231,7 +1432,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     }
   }
 
-  Future<void> _handleJoinByIdTap(BuildContext context) async {
+  Future<void> _handleJoinByIdTap(
+      BuildContext context) async {
     if (_checkingPlan) {
       _snack('Checking your access. Please wait.');
       return;
@@ -1247,8 +1449,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final q = _searchQuery.trim().toLowerCase();
 
     final base = _selectedTab == _LeagueViewTab.leagues
-        ? _leagues.where((l) => !l.isInsideMasterLeague).toList()
-        : _leagues.where((l) => l.isInsideMasterLeague).toList();
+        ? _leagues
+            .where((l) => !l.isInsideMasterLeague)
+            .toList()
+        : _leagues
+            .where((l) => l.isInsideMasterLeague)
+            .toList();
 
     if (q.isEmpty) return base;
 
@@ -1277,7 +1483,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
   }) {
     final l10n = context.l10n;
     final pieces = <String>[
-      '$registered / ${league.maxTeams} ${l10n.tr('leagues_teams_word')}',
+      '$registered / ${league.maxTeams} '
+          '${l10n.tr('leagues_teams_word')}',
     ];
 
     if (league.viewerCapacity > 0) {
@@ -1289,7 +1496,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       pieces.add(desc);
     }
 
-    if (latestAnn != null && latestAnn.title.trim().isNotEmpty) {
+    if (latestAnn != null &&
+        latestAnn.title.trim().isNotEmpty) {
       pieces.add(latestAnn.title.trim());
     }
 
@@ -1316,6 +1524,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final masterCount =
         _leagues.where((l) => l.isInsideMasterLeague).length;
 
+    // Determine payment provider label for UI.
+    final bool isAndroidBilling = PaymentPlatformConfig
+        .routeAndroidPaymentsToGooglePlayBilling;
+
     return GlassScaffold(
       resizeToAvoidBottomInset: true,
       appBar: widget.showAppBar
@@ -1335,7 +1547,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
             )
           : null,
       floatingActionButton: Padding(
-        padding: EdgeInsets.only(bottom: fabBottomOffset),
+        padding:
+            EdgeInsets.only(bottom: fabBottomOffset),
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
@@ -1343,10 +1556,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           ),
           child: FloatingActionButton(
             onPressed: () => _showOptions(context),
-            backgroundColor:
-                _freeLimitReached ? _premiumAmber : AppTheme.limeAccent,
-            foregroundColor:
-                _freeLimitReached ? Colors.black : AppTheme.darkText,
+            backgroundColor: _freeLimitReached
+                ? _premiumAmber
+                : AppTheme.limeAccent,
+            foregroundColor: _freeLimitReached
+                ? Colors.black
+                : AppTheme.darkText,
             child: Icon(
               _freeLimitReached
                   ? Icons.workspace_premium_rounded
@@ -1355,15 +1570,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           ),
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButtonLocation:
+          FloatingActionButtonLocation.endFloat,
       body: SafeArea(
         top: false,
         child: Center(
           child: ConstrainedBox(
-            constraints:
-                BoxConstraints(maxWidth: isTablet ? 900 : 600),
+            constraints: BoxConstraints(
+                maxWidth: isTablet ? 900 : 600),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
               children: [
                 Padding(
                   padding: EdgeInsets.fromLTRB(
@@ -1379,24 +1596,29 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       vertical: 12,
                     ),
                     fill: AppTheme.cardColor(brightness),
-                    borderColor: AppTheme.cardBorder(brightness),
+                    borderColor:
+                        AppTheme.cardBorder(brightness),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
                       children: [
                         Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                          crossAxisAlignment:
+                              CrossAxisAlignment.center,
                           children: [
                             Container(
                               width: 38,
                               height: 38,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: AppTheme.iconCircleBackground(
-                                    brightness),
+                                color: AppTheme
+                                    .iconCircleBackground(
+                                        brightness),
                               ),
                               child: Icon(
                                 Icons.emoji_events_rounded,
-                                color: AppTheme.limeAccentDark,
+                                color:
+                                    AppTheme.limeAccentDark,
                                 size: 20,
                               ),
                             ),
@@ -1407,14 +1629,18 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                     CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    l10n.tr('leagues_my_leagues_title'),
-                                    style: theme.textTheme.titleMedium
+                                    l10n.tr(
+                                        'leagues_my_leagues_title'),
+                                    style: theme.textTheme
+                                        .titleMedium
                                         ?.copyWith(
-                                      fontWeight: FontWeight.w900,
+                                      fontWeight:
+                                          FontWeight.w900,
                                       fontSize: 17,
                                       letterSpacing: -0.3,
-                                      color: AppTheme.primaryText(
-                                          brightness),
+                                      color:
+                                          AppTheme.primaryText(
+                                              brightness),
                                     ),
                                   ),
                                   const SizedBox(height: 1),
@@ -1422,12 +1648,14 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                     _isLoading
                                         ? 'Loading...'
                                         : '${_leagues.length} league'
-                                          '${_leagues.length == 1 ? '' : 's'}',
+                                            '${_leagues.length == 1 ? '' : 's'}',
                                     style: TextStyle(
-                                      color: AppTheme.secondaryText(
-                                          brightness),
+                                      color: AppTheme
+                                          .secondaryText(
+                                              brightness),
                                       fontSize: 11.5,
-                                      fontWeight: FontWeight.w600,
+                                      fontWeight:
+                                          FontWeight.w600,
                                     ),
                                   ),
                                 ],
@@ -1435,11 +1663,13 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             ),
                             if (!widget.showAppBar)
                               IconButton(
-                                tooltip: l10n.tr('common_refresh'),
-                                visualDensity: VisualDensity.compact,
+                                tooltip:
+                                    l10n.tr('common_refresh'),
+                                visualDensity:
+                                    VisualDensity.compact,
                                 onPressed: _refreshLeagues,
-                                icon:
-                                    const Icon(Icons.refresh_rounded),
+                                icon: const Icon(
+                                    Icons.refresh_rounded),
                               ),
                           ],
                         ),
@@ -1449,8 +1679,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             Text(
                               'Checking your access...',
                               style: TextStyle(
-                                color:
-                                    AppTheme.secondaryText(brightness),
+                                color: AppTheme.secondaryText(
+                                    brightness),
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
                                 height: 1.28,
@@ -1458,11 +1688,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             )
                           else if (_isPremiumUser)
                             Text(
-                              'Paid plan active: you can create more '
-                              'than $_freeLeagueListLimit '
+                              'Paid plan active: you can create '
+                              'more than $_freeLeagueListLimit '
                               'leagues/competitions.',
                               style: TextStyle(
-                                color: AppTheme.limeAccentDark,
+                                color:
+                                    AppTheme.limeAccentDark,
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
                                 height: 1.28,
@@ -1470,11 +1701,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             )
                           else if (_freeLimitReached)
                             Text(
-                              'Basic/free creation limit reached: you '
-                              'already created $_createdLeagueCount / '
-                              '$_freeLeagueListLimit leagues or '
-                              'competitions across normal leagues and '
-                              'Organizer workspace.',
+                              'Basic/free creation limit '
+                              'reached: you already created '
+                              '$_createdLeagueCount / '
+                              '$_freeLeagueListLimit leagues '
+                              'or competitions across normal '
+                              'leagues and Organizer workspace.',
                               style: const TextStyle(
                                 color: _premiumAmber,
                                 fontSize: 11.5,
@@ -1484,43 +1716,70 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             )
                           else
                             Text(
-                              'Basic/free access active: you have used '
-                              '$_createdLeagueCount / '
-                              '$_freeLeagueListLimit shared creation '
-                              'slots across normal leagues and '
-                              'Organizer workspace.',
+                              'Basic/free access active: you '
+                              'have used $_createdLeagueCount '
+                              '/ $_freeLeagueListLimit shared '
+                              'creation slots across normal '
+                              'leagues and Organizer workspace.',
                               style: TextStyle(
-                                color:
-                                    AppTheme.secondaryText(brightness),
+                                color: AppTheme.secondaryText(
+                                    brightness),
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
                                 height: 1.28,
                               ),
                             ),
                           const SizedBox(height: 8),
+                          // ── Plan upgrade button ─────────────────────
+                          // Shows payment provider based on platform.
                           SizedBox(
                             width: double.infinity,
                             height: 42,
                             child: FilledButton.icon(
-                              onPressed: _openInlinePlanChooser,
+                              onPressed: _planUpgradeInProgress
+                                  ? null
+                                  : _openInlinePlanChooser,
                               style: FilledButton.styleFrom(
-                                backgroundColor: _freeLimitReached
-                                    ? _premiumAmber
-                                    : AppTheme.limeAccent,
-                                foregroundColor: AppTheme.darkText,
-                                padding: const EdgeInsets.symmetric(
+                                backgroundColor:
+                                    _freeLimitReached
+                                        ? _premiumAmber
+                                        : AppTheme.limeAccent,
+                                foregroundColor:
+                                    AppTheme.darkText,
+                                padding:
+                                    const EdgeInsets.symmetric(
                                   horizontal: 12,
                                   vertical: 10,
                                 ),
                               ),
-                              icon: const Icon(
-                                Icons.payments_outlined,
-                                size: 18,
-                              ),
+                              icon: _planUpgradeInProgress
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child:
+                                          CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: AppTheme.darkText,
+                                      ),
+                                    )
+                                  : Icon(
+                                      isAndroidBilling
+                                          ? Icons
+                                              .shopping_bag_outlined
+                                          : Icons
+                                              .payments_outlined,
+                                      size: 18,
+                                    ),
                               label: Text(
-                                _freeLimitReached
-                                    ? 'Upgrade Plan'
-                                    : 'View Plans',
+                                _planUpgradeInProgress
+                                    ? 'Processing...'
+                                    : (_freeLimitReached
+                                        ? (isAndroidBilling
+                                            ? 'Upgrade on Play'
+                                            : 'Upgrade Plan')
+                                        : (isAndroidBilling
+                                            ? 'View Plans (Play)'
+                                            : 'View Plans')),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w900,
                                 ),
@@ -1534,28 +1793,32 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 ),
                 const SizedBox(height: 6),
                 Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16),
                   child: Glass(
                     borderRadius: 18,
                     padding: EdgeInsets.zero,
                     fill: AppTheme.searchBackground(brightness),
-                    borderColor: AppTheme.searchOutline(brightness),
+                    borderColor:
+                        AppTheme.searchOutline(brightness),
                     child: Row(
                       children: [
                         const SizedBox(width: 12),
                         Icon(
                           Icons.search_rounded,
                           size: 19,
-                          color: AppTheme.secondaryText(brightness),
+                          color: AppTheme.secondaryText(
+                              brightness),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
                             controller: _searchController,
-                            decoration: const InputDecoration(
+                            decoration:
+                                const InputDecoration(
                               hintText:
-                                  'Search leagues, codes, announcements...',
+                                  'Search leagues, codes, '
+                                  'announcements...',
                               border: InputBorder.none,
                               isDense: true,
                             ),
@@ -1564,11 +1827,13 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         if (_searchQuery.trim().isNotEmpty)
                           IconButton(
                             tooltip: 'Clear',
-                            visualDensity: VisualDensity.compact,
+                            visualDensity:
+                                VisualDensity.compact,
                             onPressed: () {
                               _searchController.clear();
                             },
-                            icon: const Icon(Icons.close_rounded),
+                            icon: const Icon(
+                                Icons.close_rounded),
                           ),
                       ],
                     ),
@@ -1576,8 +1841,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 ),
                 const SizedBox(height: 8),
                 Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16),
                   child: _TopLeagueSwitcher(
                     selectedTab: _selectedTab,
                     normalCount: normalCount,
@@ -1591,22 +1856,27 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 const SizedBox(height: 6),
                 Expanded(
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 200),
+                    duration:
+                        const Duration(milliseconds: 200),
                     child: _isLoading
                         ? Center(
                             child: Column(
-                              mainAxisSize: MainAxisSize.min,
+                              mainAxisSize:
+                                  MainAxisSize.min,
                               children: [
                                 CircularProgressIndicator(
-                                  color: AppTheme.limeAccentDark,
+                                  color:
+                                      AppTheme.limeAccentDark,
                                 ),
                                 const SizedBox(height: 14),
                                 Text(
                                   'Loading leagues...',
                                   style: TextStyle(
-                                    color: AppTheme.secondaryText(
-                                        brightness),
-                                    fontWeight: FontWeight.w600,
+                                    color:
+                                        AppTheme.secondaryText(
+                                            brightness),
+                                    fontWeight:
+                                        FontWeight.w600,
                                   ),
                                 ),
                               ],
@@ -1615,7 +1885,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         : filtered.isEmpty
                             ? _buildEmptyState(context)
                             : _buildLeagueGrid(
-                                context, filtered, isTablet),
+                                context,
+                                filtered,
+                                isTablet,
+                              ),
                   ),
                 ),
               ],
@@ -1641,7 +1914,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final cardHeight = isTablet ? 250.0 : 250.0;
     final showWorkspaceAction =
         _selectedTab == _LeagueViewTab.master;
-    final extraActionHeight = showWorkspaceAction ? 52.0 : 0.0;
+    final extraActionHeight =
+        showWorkspaceAction ? 52.0 : 0.0;
     final mainAxisExtent = cardHeight + extraActionHeight;
 
     return GridView.builder(
@@ -1675,14 +1949,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           authUid.isNotEmpty ? authUid : viewerUid,
         );
         final bool viewerIsParticipant =
-            _viewerIsParticipantByLeagueId[league.id] ?? false;
+            _viewerIsParticipantByLeagueId[league.id] ??
+                false;
         final bool viewerIsViewerOnly =
             !isOwner && !viewerIsParticipant;
 
-        final registered = _participantCounts[league.id] ?? 0;
+        final registered =
+            _participantCounts[league.id] ?? 0;
         final isFull = registered >= league.maxTeams;
 
-        final latestAnn = _latestAnnouncements[league.id];
+        final latestAnn =
+            _latestAnnouncements[league.id];
         final subtitle = _buildCardSubtitle(
           context: context,
           league: league,
@@ -1690,10 +1967,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
           latestAnn: latestAnn,
         );
 
-        final removingThis = _removingLeagueId == league.id;
+        final removingThis =
+            _removingLeagueId == league.id;
 
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment:
+              CrossAxisAlignment.stretch,
           children: [
             Expanded(
               child: Opacity(
@@ -1703,46 +1982,39 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     GestureDetector(
                       onLongPress: removingThis
                           ? null
-                          : () => _showLeagueLongPressMenu(
-                              context, league),
+                          : () =>
+                              _showLeagueLongPressMenu(
+                                  context, league),
                       child: LeagueFlipCard(
                         league: league,
                         leagueId: league.id,
                         leagueName: league.name,
-                        leagueCode: league.code.isNotEmpty
+                        leagueCode: league.code
+                                .isNotEmpty
                             ? league.code
                             : (league.id.length >= 8
-                                ? league.id.substring(0, 8)
+                                ? league.id
+                                    .substring(0, 8)
                                 : league.id),
                         distribution:
                             '${l10n.tr(league.format.l10nKey)} '
                             '• ${league.season}',
                         subtitle: subtitle,
-                        imageUrl: league.leagueImageUrl,
-                        showMasterBadge:
-                            _selectedTab != _LeagueViewTab.master,
+                        imageUrl:
+                            league.leagueImageUrl,
+                        showMasterBadge: _selectedTab !=
+                            _LeagueViewTab.master,
                         isLocked: false,
                         onPay: null,
                         isOwner: isOwner,
                         isViewer: viewerIsViewerOnly,
                         isFull: isFull,
-                        // ── MONETIZATION GATE ─────────────────────────
-                        // onDoubleTap now routes through
-                        // _handleLeagueCardDoubleTap() instead of
-                        // calling context.push() directly.
-                        //
-                        // Free users → rewarded ad plays first.
-                        // Paid users → navigate instantly.
-                        //
-                        // _rewardGateInProgress disables the card
-                        // during ad playback to prevent double-tap.
-                        // ─────────────────────────────────────────────
                         onDoubleTap: (_rewardGateInProgress ||
                                 removingThis)
                             ? null
                             : () =>
-                                _handleLeagueCardDoubleTap(league),
-                        // ── END MONETIZATION GATE ─────────────────────
+                                _handleLeagueCardDoubleTap(
+                                    league),
                         qrWidget: QrImageView(
                           data: league.qrPayload,
                           version: QrVersions.auto,
@@ -1751,8 +2023,10 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             eyeShape: QrEyeShape.square,
                             color: Colors.black,
                           ),
-                          dataModuleStyle: const QrDataModuleStyle(
-                            dataModuleShape: QrDataModuleShape.square,
+                          dataModuleStyle:
+                              const QrDataModuleStyle(
+                            dataModuleShape:
+                                QrDataModuleShape.square,
                             color: Colors.black,
                           ),
                         ),
@@ -1763,10 +2037,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         top: 12,
                         start: 12,
                         child: _CardBadge(
-                          label: l10n.tr('leagues_badge_full'),
+                          label: l10n
+                              .tr('leagues_badge_full'),
                           icon: Icons.block_rounded,
-                          color:
-                              Theme.of(context).colorScheme.error,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .error,
                           bg: Theme.of(context)
                               .colorScheme
                               .error
@@ -1781,43 +2057,54 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                       top: 12,
                       end: 12,
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                        crossAxisAlignment:
+                            CrossAxisAlignment.end,
                         children: [
-                          if (_selectedTab == _LeagueViewTab.master)
+                          if (_selectedTab ==
+                              _LeagueViewTab.master)
                             Padding(
                               padding:
-                                  const EdgeInsets.only(bottom: 6),
+                                  const EdgeInsets.only(
+                                      bottom: 6),
                               child: _CardBadge(
                                 label: 'MASTER',
                                 icon: Icons.hub_rounded,
                                 color: _premiumAmber,
-                                bg: _premiumAmber.withOpacity(0.14),
-                                border:
-                                    _premiumAmber.withOpacity(0.40),
+                                bg: _premiumAmber
+                                    .withOpacity(0.14),
+                                border: _premiumAmber
+                                    .withOpacity(0.40),
                               ),
                             ),
                           if (isOwner)
                             _CardBadge(
-                              label: l10n.tr('leagues_badge_owner'),
+                              label: l10n.tr(
+                                  'leagues_badge_owner'),
                               icon: Icons
                                   .admin_panel_settings_rounded,
-                              color: const Color(0xFFEF4444),
+                              color:
+                                  const Color(0xFFEF4444),
                               bg: const Color(0xFFEF4444)
                                   .withOpacity(0.14),
-                              border: const Color(0xFFEF4444)
-                                  .withOpacity(0.40),
+                              border:
+                                  const Color(0xFFEF4444)
+                                      .withOpacity(0.40),
                             ),
-                          if (!isOwner && viewerIsViewerOnly)
+                          if (!isOwner &&
+                              viewerIsViewerOnly)
                             _CardBadge(
-                              label:
-                                  l10n.tr('leagues_badge_viewer'),
-                              icon: Icons.visibility_rounded,
+                              label: l10n.tr(
+                                  'leagues_badge_viewer'),
+                              icon: Icons
+                                  .visibility_rounded,
                               color: AppTheme.secondaryText(
                                   brightness),
-                              bg: AppTheme.searchBackground(
-                                  brightness),
+                              bg: AppTheme
+                                  .searchBackground(
+                                      brightness),
                               border:
-                                  AppTheme.searchOutline(brightness),
+                                  AppTheme.searchOutline(
+                                      brightness),
                             ),
                         ],
                       ),
@@ -1829,21 +2116,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         child: _CardBadge(
                           label: 'LONG PRESS',
                           icon: Icons.touch_app_rounded,
-                          color:
-                              AppTheme.secondaryText(brightness),
-                          bg: AppTheme.searchBackground(brightness),
-                          border:
-                              AppTheme.searchOutline(brightness),
+                          color: AppTheme.secondaryText(
+                              brightness),
+                          bg: AppTheme.searchBackground(
+                              brightness),
+                          border: AppTheme.searchOutline(
+                              brightness),
                         ),
                       ),
-                    // Ad gate loading overlay — shown while rewarded
-                    // ad is loading/playing for free users.
                     if (_rewardGateInProgress)
                       Positioned.fill(
                         child: Container(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(22),
-                            color: Colors.black.withOpacity(0.18),
+                            borderRadius:
+                                BorderRadius.circular(22),
+                            color: Colors.black
+                                .withOpacity(0.18),
                           ),
                           child: Column(
                             mainAxisAlignment:
@@ -1852,29 +2140,34 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               const SizedBox(
                                 width: 26,
                                 height: 26,
-                                child: CircularProgressIndicator(
+                                child:
+                                    CircularProgressIndicator(
                                   strokeWidth: 2.4,
-                                  color: AppTheme.limeAccentDark,
+                                  color: AppTheme
+                                      .limeAccentDark,
                                 ),
                               ),
                               const SizedBox(height: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(
+                                padding:
+                                    const EdgeInsets.symmetric(
                                   horizontal: 10,
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
                                   borderRadius:
-                                      BorderRadius.circular(8),
-                                  color:
-                                      Colors.black.withOpacity(0.55),
+                                      BorderRadius.circular(
+                                          8),
+                                  color: Colors.black
+                                      .withOpacity(0.55),
                                 ),
                                 child: const Text(
                                   'Loading ad...',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 11,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight:
+                                        FontWeight.w700,
                                   ),
                                 ),
                               ),
@@ -1882,18 +2175,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                           ),
                         ),
                       ),
-                    if (removingThis && !_rewardGateInProgress)
+                    if (removingThis &&
+                        !_rewardGateInProgress)
                       Positioned.fill(
                         child: Container(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(22),
-                            color: Colors.black.withOpacity(0.12),
+                            borderRadius:
+                                BorderRadius.circular(22),
+                            color: Colors.black
+                                .withOpacity(0.12),
                           ),
                           child: const Center(
                             child: SizedBox(
                               width: 26,
                               height: 26,
-                              child: CircularProgressIndicator(
+                              child:
+                                  CircularProgressIndicator(
                                 strokeWidth: 2.4,
                               ),
                             ),
@@ -1905,20 +2202,24 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
               ),
             ),
             if (showWorkspaceAction &&
-                league.masterLeagueId.trim().isNotEmpty) ...[
+                league.masterLeagueId
+                    .trim()
+                    .isNotEmpty) ...[
               const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () => context.push(
-                        '/master-leagues/${league.masterLeagueId}',
+                        '/master-leagues/'
+                        '${league.masterLeagueId}',
                       ),
-                      icon: const Icon(Icons.hub_rounded),
+                      icon:
+                          const Icon(Icons.hub_rounded),
                       label: const Text(
                         'Open Workspace',
-                        style:
-                            TextStyle(fontWeight: FontWeight.w900),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w900),
                       ),
                     ),
                   ),
@@ -1944,6 +2245,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final bool hasSearch = _searchQuery.trim().isNotEmpty;
     final bool isMasterTab =
         _selectedTab == _LeagueViewTab.master;
+    final bool isAndroidBilling = PaymentPlatformConfig
+        .routeAndroidPaymentsToGooglePlayBilling;
 
     return Center(
       child: SingleChildScrollView(
@@ -1967,7 +2270,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                 height: 72,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppTheme.iconCircleBackground(brightness),
+                  color: AppTheme.iconCircleBackground(
+                      brightness),
                 ),
                 child: Icon(
                   hasSearch
@@ -1997,15 +2301,17 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
               const SizedBox(height: 10),
               Text(
                 hasSearch
-                    ? 'Try another search term for league name, '
-                      'code, region, or announcement.'
+                    ? 'Try another search term for league '
+                      'name, code, region, or announcement.'
                     : (isMasterTab
-                        ? 'Competitions you joined from a master '
-                          'league container will appear here.'
+                        ? 'Competitions you joined from a '
+                          'master league container will '
+                          'appear here.'
                         : l10n.tr('leagues_empty_subtitle')),
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: AppTheme.secondaryText(brightness),
+                  color:
+                      AppTheme.secondaryText(brightness),
                   fontSize: 14,
                   height: 1.5,
                   fontWeight: FontWeight.w600,
@@ -2023,10 +2329,12 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         : (_freeLimitReached
                             ? _openInlinePlanChooser
                             : () => _showOptions(context)),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius:
+                        BorderRadius.circular(16),
                     child: Ink(
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius:
+                            BorderRadius.circular(16),
                         color: hasSearch
                             ? AppTheme.limeAccent
                             : (_freeLimitReached
@@ -2041,7 +2349,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               hasSearch
                                   ? Icons.restart_alt_rounded
                                   : (_freeLimitReached
-                                      ? Icons.payments_rounded
+                                      ? (isAndroidBilling
+                                          ? Icons
+                                              .shopping_bag_outlined
+                                          : Icons
+                                              .payments_rounded)
                                       : Icons.add_rounded),
                               color: AppTheme.darkText,
                               size: 20,
@@ -2051,8 +2363,11 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               hasSearch
                                   ? 'Clear Search'
                                   : (_freeLimitReached
-                                      ? 'Upgrade Plan'
-                                      : l10n.tr('leagues_empty_cta')),
+                                      ? (isAndroidBilling
+                                          ? 'Upgrade on Play'
+                                          : 'Upgrade Plan')
+                                      : l10n.tr(
+                                          'leagues_empty_cta')),
                               style: const TextStyle(
                                 color: AppTheme.darkText,
                                 fontWeight: FontWeight.w800,
@@ -2091,6 +2406,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final media = MediaQuery.of(context);
+    final bool isAndroidBilling = PaymentPlatformConfig
+        .routeAndroidPaymentsToGooglePlayBilling;
 
     showModalBottomSheet(
       context: context,
@@ -2100,17 +2417,19 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         padding: const EdgeInsets.all(16),
         child: SafeArea(
           minimum: EdgeInsets.only(
-            bottom:
-                media.padding.bottom + kBottomNavigationBarHeight,
+            bottom: media.padding.bottom +
+                kBottomNavigationBarHeight,
           ),
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 500),
+              constraints:
+                  const BoxConstraints(maxWidth: 500),
               child: Glass(
                 borderRadius: 28,
                 padding: const EdgeInsets.all(6),
                 fill: AppTheme.cardColor(brightness),
-                borderColor: AppTheme.cardBorder(brightness),
+                borderColor:
+                    AppTheme.cardBorder(brightness),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2122,29 +2441,35 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                         bottom: 14,
                       ),
                       decoration: BoxDecoration(
-                        color: AppTheme.cardBorder(brightness),
-                        borderRadius: BorderRadius.circular(2),
+                        color:
+                            AppTheme.cardBorder(brightness),
+                        borderRadius:
+                            BorderRadius.circular(2),
                       ),
                     ),
                     Padding(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 14),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14),
                       child: Column(
                         children: [
                           Text(
-                            l10n.tr('leagues_options_title'),
-                            style:
-                                theme.textTheme.titleMedium?.copyWith(
+                            l10n.tr(
+                                'leagues_options_title'),
+                            style: theme
+                                .textTheme.titleMedium
+                                ?.copyWith(
                               fontWeight: FontWeight.w900,
                               fontSize: 18,
-                              color: AppTheme.primaryText(brightness),
+                              color: AppTheme.primaryText(
+                                  brightness),
                             ),
                           ),
                           if (_freeLimitReached) ...[
                             const SizedBox(height: 8),
                             Text(
                               _freeLimitMessage(
-                                'create more leagues or competitions',
+                                'create more leagues or '
+                                'competitions',
                               ),
                               textAlign: TextAlign.center,
                               style: const TextStyle(
@@ -2158,13 +2483,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                             const SizedBox(height: 8),
                             Text(
                               'Basic users can create up to '
-                              '$_freeLeagueListLimit total leagues or '
-                              'competitions. Joining leagues remains '
+                              '$_freeLeagueListLimit total '
+                              'leagues or competitions. '
+                              'Joining leagues remains '
                               'available.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color:
-                                    AppTheme.secondaryText(brightness),
+                                    AppTheme.secondaryText(
+                                        brightness),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
                                 height: 1.35,
@@ -2177,23 +2504,32 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     const SizedBox(height: 14),
                     _OptionTile(
                       icon: _freeLimitReached
-                          ? Icons.workspace_premium_rounded
+                          ? (isAndroidBilling
+                              ? Icons.shopping_bag_outlined
+                              : Icons
+                                  .workspace_premium_rounded)
                           : Icons.add_rounded,
                       iconBg: _freeLimitReached
                           ? _premiumAmber
                           : AppTheme.limeAccentDark,
                       title: _freeLimitReached
-                          ? 'Upgrade Plan'
+                          ? (isAndroidBilling
+                              ? 'Upgrade on Google Play'
+                              : 'Upgrade Plan')
                           : l10n.tr(
                               'leagues_options_create_title'),
                       subtitle: _freeLimitReached
-                          ? 'You used all free creation slots. '
-                            'Upgrade to create more.'
+                          ? (isAndroidBilling
+                              ? 'Purchase a plan via Google '
+                                'Play Billing to create more.'
+                              : 'You used all free creation '
+                                'slots. Upgrade to create more.')
                           : l10n.tr(
                               'leagues_options_create_subtitle'),
                       onTap: () async {
                         context.pop();
-                        await _handleCreateLeagueTap(context);
+                        await _handleCreateLeagueTap(
+                            context);
                       },
                     ),
                     Divider(
@@ -2243,7 +2579,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
     );
   }
 
-  Future<void> _showJoinByIdSheet(BuildContext context) async {
+  Future<void> _showJoinByIdSheet(
+      BuildContext context) async {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
@@ -2265,11 +2602,13 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
     final repo = _repo;
 
-    Future<void> doJoin(StateSetter setModalState) async {
-      final code = controller.text.trim().toUpperCase();
+    Future<void> doJoin(
+        StateSetter setModalState) async {
+      final code =
+          controller.text.trim().toUpperCase();
       if (code.isEmpty) {
-        setModalState(
-            () => error = l10n.tr('leagues_join_id_required'));
+        setModalState(() =>
+            error = l10n.tr('leagues_join_id_required'));
         return;
       }
 
@@ -2279,19 +2618,22 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
       });
 
       try {
-        final league = await repo.joinLeagueLocallyByCode(
+        final league =
+            await repo.joinLeagueLocallyByCode(
           joinCode: code,
           userId: authUid,
           mode: mode,
           placeholderBuilder: (generatedLeagueId) {
-            final now = DateTime.now().millisecondsSinceEpoch;
+            final now =
+                DateTime.now().millisecondsSinceEpoch;
             return League(
               id: generatedLeagueId,
               name: l10n.tr(
                   'leagues_joined_league_placeholder_name'),
               format: LeagueFormat.classic,
               privacy: LeaguePrivacy.private,
-              region: l10n.tr('common_region_global'),
+              region:
+                  l10n.tr('common_region_global'),
               maxTeams: 20,
               season: '2026',
               organizerUid: '',
@@ -2323,32 +2665,39 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
         if (!context.mounted) return;
 
         String message;
-        final bool adminAlreadyAdded = membership != null &&
-            (membership.teamId?.trim().isNotEmpty == true);
+        final bool adminAlreadyAdded =
+            membership != null &&
+                (membership.teamId?.trim().isNotEmpty ==
+                    true);
 
         if (adminAlreadyAdded) {
           message = (mode == LeagueJoinMode.viewer)
               ? l10n.tr(
-                  'leagues_join_snackbar_viewer_but_already_added')
+                  'leagues_join_snackbar_viewer_but_'
+                  'already_added')
               : l10n.tr(
                   'leagues_join_snackbar_already_added');
         } else if (membership != null) {
           message = (mode == LeagueJoinMode.viewer)
               ? l10n.tr(
-                  'leagues_join_snackbar_viewer_but_already_registered',
+                  'leagues_join_snackbar_viewer_but_'
+                  'already_registered',
                 )
               : l10n.tr(
-                  'leagues_join_snackbar_already_registered');
-        } else if (mode == LeagueJoinMode.participant &&
+                  'leagues_join_snackbar_already_'
+                  'registered');
+        } else if (mode ==
+                LeagueJoinMode.participant &&
             effectiveMode == LeagueJoinMode.viewer) {
           message = l10n.tr(
-              'leagues_join_snackbar_league_full_joined_viewer');
+              'leagues_join_snackbar_league_full_'
+              'joined_viewer');
         } else if (mode == LeagueJoinMode.viewer) {
-          message =
-              l10n.tr('leagues_join_snackbar_joined_viewer');
-        } else {
           message = l10n
-              .tr('leagues_join_snackbar_joined_participant');
+              .tr('leagues_join_snackbar_joined_viewer');
+        } else {
+          message = l10n.tr(
+              'leagues_join_snackbar_joined_participant');
         }
 
         _snack(message);
@@ -2375,7 +2724,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 
           return SafeArea(
             child: Padding(
-              padding: EdgeInsets.only(bottom: bottomInset)
+              padding: EdgeInsets.only(
+                      bottom: bottomInset)
                   .add(const EdgeInsets.all(12)),
               child: Center(
                 child: ConstrainedBox(
@@ -2389,20 +2739,25 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                     child: StatefulBuilder(
                       builder: (ctx, setModalState) {
                         return Padding(
-                          padding: const EdgeInsets.all(18),
+                          padding:
+                              const EdgeInsets.all(18),
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                            mainAxisSize:
+                                MainAxisSize.min,
                             children: [
                               Container(
                                 width: 40,
                                 height: 4,
-                                margin: const EdgeInsets.only(
-                                    bottom: 16),
+                                margin:
+                                    const EdgeInsets.only(
+                                        bottom: 16),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.cardBorder(
-                                      brightness),
+                                  color:
+                                      AppTheme.cardBorder(
+                                          brightness),
                                   borderRadius:
-                                      BorderRadius.circular(2),
+                                      BorderRadius.circular(
+                                          2),
                                 ),
                               ),
                               Container(
@@ -2410,14 +2765,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 height: 48,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: AppTheme
-                                      .iconCircleBackground(
-                                          brightness),
+                                  color:
+                                      AppTheme
+                                          .iconCircleBackground(
+                                              brightness),
                                 ),
                                 child: Icon(
                                   Icons.key_rounded,
-                                  color:
-                                      AppTheme.limeAccentDark,
+                                  color: AppTheme
+                                      .limeAccentDark,
                                   size: 24,
                                 ),
                               ),
@@ -2425,13 +2781,15 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               Text(
                                 l10n.tr(
                                     'leagues_join_sheet_title'),
-                                style: theme
-                                    .textTheme.titleMedium
+                                style: theme.textTheme
+                                    .titleMedium
                                     ?.copyWith(
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight:
+                                      FontWeight.w900,
                                   fontSize: 18,
-                                  color: AppTheme.primaryText(
-                                      brightness),
+                                  color:
+                                      AppTheme.primaryText(
+                                          brightness),
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -2439,27 +2797,34 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                 l10n.tr(
                                     'leagues_join_sheet_subtitle'),
                                 style: TextStyle(
-                                  color: AppTheme.secondaryText(
-                                      brightness),
+                                  color:
+                                      AppTheme.secondaryText(
+                                          brightness),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight:
+                                      FontWeight.w600,
                                 ),
-                                textAlign: TextAlign.center,
+                                textAlign:
+                                    TextAlign.center,
                               ),
                               const SizedBox(height: 16),
                               TextField(
                                 controller: controller,
                                 autofocus: true,
                                 textCapitalization:
-                                    TextCapitalization.characters,
+                                    TextCapitalization
+                                        .characters,
                                 style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.primaryText(
-                                      brightness),
+                                  fontWeight:
+                                      FontWeight.w800,
+                                  color:
+                                      AppTheme.primaryText(
+                                          brightness),
                                 ),
-                                decoration: InputDecoration(
-                                  hintText: l10n
-                                      .tr('leagues_join_hint'),
+                                decoration:
+                                    InputDecoration(
+                                  hintText: l10n.tr(
+                                      'leagues_join_hint'),
                                   prefixIcon: const Icon(
                                       Icons.key_rounded),
                                   errorText: error,
@@ -2475,29 +2840,35 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                               Glass(
                                 borderRadius: 18,
                                 padding:
-                                    const EdgeInsets.all(14),
-                                fill: AppTheme.searchBackground(
-                                    brightness),
+                                    const EdgeInsets.all(
+                                        14),
+                                fill:
+                                    AppTheme.searchBackground(
+                                        brightness),
                                 borderColor:
                                     AppTheme.searchOutline(
                                         brightness),
                                 child: Column(
                                   crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                      CrossAxisAlignment
+                                          .start,
                                   children: [
                                     Text(
                                       l10n.tr(
                                           'leagues_join_as_title'),
-                                      style: theme.textTheme
+                                      style: theme
+                                          .textTheme
                                           .bodyMedium
                                           ?.copyWith(
                                         fontWeight:
                                             FontWeight.w900,
-                                        color: AppTheme.primaryText(
-                                            brightness),
+                                        color: AppTheme
+                                            .primaryText(
+                                                brightness),
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
+                                    const SizedBox(
+                                        height: 10),
                                     Row(
                                       children: [
                                         Expanded(
@@ -2520,7 +2891,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                                     ),
                                           ),
                                         ),
-                                        const SizedBox(width: 10),
+                                        const SizedBox(
+                                            width: 10),
                                         Expanded(
                                           child: _ModeChip(
                                             label: l10n.tr(
@@ -2543,7 +2915,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 8),
+                                    const SizedBox(
+                                        height: 8),
                                     Text(
                                       mode ==
                                               LeagueJoinMode
@@ -2555,8 +2928,8 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                               'leagues_join_as_participant_description',
                                             ),
                                       style: TextStyle(
-                                        color:
-                                            AppTheme.secondaryText(
+                                        color: AppTheme
+                                            .secondaryText(
                                                 brightness),
                                         fontSize: 11,
                                         height: 1.3,
@@ -2574,20 +2947,23 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                     child: OutlinedButton(
                                       onPressed: joining
                                           ? null
-                                          : () => Navigator.of(
-                                                  ctx)
-                                              .pop(),
+                                          : () =>
+                                              Navigator.of(
+                                                      ctx)
+                                                  .pop(),
                                       child: Text(l10n.tr(
                                           'common_cancel')),
                                     ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
-                                    child: FilledButton.icon(
-                                      style:
-                                          FilledButton.styleFrom(
-                                        backgroundColor: AppTheme
-                                            .limeAccent,
+                                    child:
+                                        FilledButton.icon(
+                                      style: FilledButton
+                                          .styleFrom(
+                                        backgroundColor:
+                                            AppTheme
+                                                .limeAccent,
                                         foregroundColor:
                                             AppTheme.darkText,
                                       ),
@@ -2601,16 +2977,16 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
                                               height: 18,
                                               child:
                                                   CircularProgressIndicator(
-                                                strokeWidth: 2,
+                                                strokeWidth:
+                                                    2,
                                                 color: AppTheme
                                                     .darkText,
                                               ),
                                             )
-                                          : const Icon(
-                                              Icons.login_rounded,
-                                            ),
-                                      label: Text(
-                                          l10n.tr('common_join')),
+                                          : const Icon(Icons
+                                              .login_rounded),
+                                      label: Text(l10n.tr(
+                                          'common_join')),
                                     ),
                                   ),
                                 ],
@@ -2634,7 +3010,7 @@ class _LeaguesListScreenState extends ConsumerState<LeaguesListScreen>
 }
 
 // ---------------------------------------------------------------------------
-// Supporting widgets — unchanged from original
+// Supporting widgets
 // ---------------------------------------------------------------------------
 
 class _TopLeagueSwitcher extends StatelessWidget {
@@ -2675,28 +3051,35 @@ class _TopLeagueSwitcher extends StatelessWidget {
               borderRadius: BorderRadius.circular(999),
               color: selected
                   ? AppTheme.limeAccent
-                  : AppTheme.tabInactiveBackground(brightness),
+                  : AppTheme.tabInactiveBackground(
+                      brightness),
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment:
+                  MainAxisAlignment.center,
               children: [
                 Icon(
                   icon,
                   size: 17,
                   color: selected
                       ? AppTheme.darkText
-                      : AppTheme.tabInactiveText(brightness),
+                      : AppTheme.tabInactiveText(
+                          brightness),
                 ),
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text(
-                    count > 0 ? '$label ($count)' : label,
+                    count > 0
+                        ? '$label ($count)'
+                        : label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(
+                    style: theme.textTheme.labelLarge
+                        ?.copyWith(
                       color: selected
                           ? AppTheme.darkText
-                          : AppTheme.tabInactiveText(brightness),
+                          : AppTheme.tabInactiveText(
+                              brightness),
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -2775,21 +3158,26 @@ class _OptionTile extends StatelessWidget {
             const SizedBox(width: 14),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style:
-                        Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              color: AppTheme.primaryText(brightness),
-                            ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.primaryText(
+                              brightness),
+                        ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: AppTheme.secondaryText(brightness),
+                      color: AppTheme.secondaryText(
+                          brightness),
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -2799,7 +3187,8 @@ class _OptionTile extends StatelessWidget {
             ),
             Icon(
               Icons.chevron_right_rounded,
-              color: AppTheme.secondaryText(brightness),
+              color:
+                  AppTheme.secondaryText(brightness),
               size: 20,
             ),
           ],
@@ -2833,7 +3222,8 @@ class _ModeChip extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding:
+            const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           color: selected
@@ -2912,4 +3302,5 @@ class _CardBadge extends StatelessWidget {
   }
 }
 
-bool auth_routerRefreshNeedsOnboardingFix(Object _) => false;
+bool auth_routerRefreshNeedsOnboardingFix(Object _) =>
+    false;
