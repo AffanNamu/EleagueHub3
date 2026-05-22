@@ -1,3 +1,4 @@
+// lib/core/services/payments/payments_service.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -16,13 +17,12 @@ class PaymentsService {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String _authUidOrEmpty() => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  String _authUidOrEmpty() =>
+      FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
   String _requireAuthUid() {
     final uid = _authUidOrEmpty();
-    if (uid.isEmpty) {
-      throw StateError('Not signed in.');
-    }
+    if (uid.isEmpty) throw StateError('Not signed in.');
     return uid;
   }
 
@@ -39,9 +39,7 @@ class PaymentsService {
     if (uid.isEmpty) return '';
 
     try {
-      if (attempt.userId.trim() != uid) {
-        return '';
-      }
+      if (attempt.userId.trim() != uid) return '';
 
       final ref = _attempts.doc();
       final now = _nowMs();
@@ -160,9 +158,9 @@ class PaymentsService {
   Uri _verifyFlutterwaveUri() {
     final uri = BackendConfig.workerFlutterwaveVerifyUrl();
     if (uri != null) return uri;
-
     throw StateError(
-      'Payment verification service is not configured. Missing EH_WORKER_BASE_URL.',
+      'Payment verification service is not configured. '
+      'Missing EH_WORKER_BASE_URL.',
     );
   }
 
@@ -177,15 +175,18 @@ class PaymentsService {
 
     try {
       final req = await client.postUrl(uri).timeout(timeout);
-      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $idToken');
-      req.headers.set(HttpHeaders.contentTypeHeader, ContentType.json.mimeType);
+      req.headers.set(
+          HttpHeaders.authorizationHeader, 'Bearer $idToken');
+      req.headers.set(
+          HttpHeaders.contentTypeHeader, ContentType.json.mimeType);
       req.add(utf8.encode(jsonEncode(body)));
 
       final res = await req.close().timeout(timeout);
       final raw = await res.transform(utf8.decoder).join();
 
       if (kDebugMode) {
-        debugPrint('[PaymentsService] POST $uri -> ${res.statusCode} $raw');
+        debugPrint(
+            '[PaymentsService] POST $uri -> ${res.statusCode} $raw');
       }
 
       Map<String, dynamic> parsed = <String, dynamic>{};
@@ -204,7 +205,8 @@ class PaymentsService {
         if (res.statusCode == 404) {
           throw StateError(
             'Payment verification endpoint was not found (404). '
-            'Please confirm EH_WORKER_BASE_URL points to the deployed worker with /flutterwave/verify.',
+            'Please confirm EH_WORKER_BASE_URL points to the deployed '
+            'worker with /flutterwave/verify.',
           );
         }
 
@@ -276,9 +278,11 @@ class PaymentsService {
       final verifyUri = _verifyFlutterwaveUri();
 
       if (kDebugMode) {
-        debugPrint('[PaymentsService] verifyFlutterwavePayment uri=$verifyUri');
         debugPrint(
-          '[PaymentsService] attemptId=$safeAttemptId txId=$safeTransactionId txRef=$safeTxRef uid=$uid',
+            '[PaymentsService] verifyFlutterwavePayment uri=$verifyUri');
+        debugPrint(
+          '[PaymentsService] attemptId=$safeAttemptId '
+          'txId=$safeTransactionId txRef=$safeTxRef uid=$uid',
         );
       }
 
@@ -294,7 +298,8 @@ class PaymentsService {
       );
 
       final success = parsed['success'] == true;
-      final provider = (parsed['provider'] as String? ?? 'flutterwave').trim();
+      final provider =
+          (parsed['provider'] as String? ?? 'flutterwave').trim();
       final paymentId = (parsed['paymentId'] as String? ?? '').trim();
       final receiptId = (parsed['receiptId'] as String? ?? '').trim();
       final paidAtMs = ((parsed['paidAtMs'] as num?) ?? 0).toInt();
@@ -303,8 +308,10 @@ class PaymentsService {
       final amount = ((parsed['amount'] as num?) ?? 0).toDouble();
       final amountStr = (parsed['amountStr'] as String? ?? '').trim();
       final verifiedTxId =
-          (parsed['transactionId'] as String? ?? safeTransactionId).trim();
-      final verifiedTxRef = (parsed['txRef'] as String? ?? safeTxRef).trim();
+          (parsed['transactionId'] as String? ?? safeTransactionId)
+              .trim();
+      final verifiedTxRef =
+          (parsed['txRef'] as String? ?? safeTxRef).trim();
       final errorMessage = (parsed['error'] as String?)?.trim();
 
       if (!success) {
@@ -371,7 +378,8 @@ class PaymentsService {
     final receiptId = 'FLW-$txId';
 
     final hasAttempt = attemptId.trim().isNotEmpty;
-    final attemptRef = hasAttempt ? _attempts.doc(attemptId.trim()) : null;
+    final attemptRef =
+        hasAttempt ? _attempts.doc(attemptId.trim()) : null;
     final paymentRef = _payments.doc(paymentId);
 
     try {
@@ -381,9 +389,11 @@ class PaymentsService {
         if (attemptRef != null) {
           final attemptSnap = await t.get(attemptRef);
           if (attemptSnap.exists) {
-            attemptData = (attemptSnap.data() ?? <String, dynamic>{})
-                .cast<String, dynamic>();
-            final attemptUid = (attemptData['userId'] ?? '').toString().trim();
+            attemptData =
+                (attemptSnap.data() ?? <String, dynamic>{})
+                    .cast<String, dynamic>();
+            final attemptUid =
+                (attemptData['userId'] ?? '').toString().trim();
             if (attemptUid != uid) {
               attemptData = <String, dynamic>{};
             }
@@ -403,17 +413,27 @@ class PaymentsService {
               'txRef': txRef.trim(),
               'receiptId': receiptId,
               'userId': uid,
-              'leagueId': (attemptData['leagueId'] ?? '').toString(),
-              'leagueName': (attemptData['leagueName'] ?? '').toString(),
-              'masterLeagueId': (attemptData['masterLeagueId'] ?? '').toString(),
-              'couponCode': (attemptData['couponCode'] ?? '').toString(),
-              'currency': (attemptData['currency'] ?? '').toString(),
+              'leagueId':
+                  (attemptData['leagueId'] ?? '').toString(),
+              'leagueName':
+                  (attemptData['leagueName'] ?? '').toString(),
+              'masterLeagueId':
+                  (attemptData['masterLeagueId'] ?? '').toString(),
+              'couponCode':
+                  (attemptData['couponCode'] ?? '').toString(),
+              'currency':
+                  (attemptData['currency'] ?? '').toString(),
               'amount': attemptData['amount'] ?? 0,
-              'amountStr': (attemptData['amountStr'] ?? '').toString(),
-              'items': attemptData['items'] ?? <Map<String, dynamic>>[],
-              'productType': (attemptData['productType'] ?? '').toString(),
-              'productSubType': (attemptData['productSubType'] ?? '').toString(),
-              'metadata': attemptData['metadata'] ?? <String, dynamic>{},
+              'amountStr':
+                  (attemptData['amountStr'] ?? '').toString(),
+              'items': attemptData['items'] ??
+                  <Map<String, dynamic>>[],
+              'productType':
+                  (attemptData['productType'] ?? '').toString(),
+              'productSubType':
+                  (attemptData['productSubType'] ?? '').toString(),
+              'metadata':
+                  attemptData['metadata'] ?? <String, dynamic>{},
               'paidAtMs': now,
               'createdAtMs': now,
               'updatedAtMs': now,
