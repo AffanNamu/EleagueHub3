@@ -1,3 +1,4 @@
+// lib/features/leagues/logic/premium_payment_service.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -12,14 +13,19 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/config/backend_config.dart';
 import '../../../core/config/flutterwave_config.dart';
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/services/app_analytics_service.dart';
+import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 
-final premiumPaymentServiceProvider = Provider<PremiumPaymentService>((ref) {
+final premiumPaymentServiceProvider =
+    Provider<PremiumPaymentService>((ref) {
   return PremiumPaymentService();
 });
+
+// ── Result ────────────────────────────────────────────────────────────────────
 
 class PremiumPurchaseResult {
   final bool success;
@@ -91,6 +97,8 @@ class PremiumPurchaseResult {
       );
 }
 
+// ── Exception ─────────────────────────────────────────────────────────────────
+
 class PremiumActivationException implements Exception {
   final String message;
   const PremiumActivationException(this.message);
@@ -99,38 +107,29 @@ class PremiumActivationException implements Exception {
   String toString() => message;
 }
 
+// ── Service ───────────────────────────────────────────────────────────────────
+
 class PremiumPaymentService {
   final Uuid _uuid = const Uuid();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String get _providerName => 'flutterwave';
-
-  String _toFlutterwaveAmount(double v) {
-    final rounded = double.parse(v.toStringAsFixed(2));
-    final intVal = rounded.toInt();
-    if ((rounded - intVal).abs() < 0.000001) return '$intVal';
-    return rounded.toStringAsFixed(2);
-  }
-
-  bool _isChargeSuccessful(ChargeResponse response) {
-    final status = (response.status ?? '').toString().trim().toLowerCase();
-    return response.success == true || status == 'successful';
-  }
-
   String _cleanErrorMessage(Object error) {
     final raw = error.toString().trim();
-
-    if (raw.contains('Payment verification endpoint was not found (404)')) {
-      return 'Payment verification service is not available right now. Please contact support or try again later.';
+    if (raw.contains(
+        'Payment verification endpoint was not found (404)')) {
+      return 'Payment verification service is not available right now. '
+          'Please contact support or try again later.';
     }
     if (raw.contains('Payment verification failed (404)')) {
-      return 'Payment verification service is not available right now. Please contact support or try again later.';
+      return 'Payment verification service is not available right now. '
+          'Please contact support or try again later.';
     }
     if (raw.contains('Bad state:')) {
       return raw.replaceFirst('Bad state:', '').trim();
     }
     if (raw.contains('SocketException')) {
-      return 'Network error while verifying payment. Please check your internet and try again.';
+      return 'Network error while verifying payment. '
+          'Please check your internet and try again.';
     }
     if (raw.contains('timed out')) {
       return 'Payment verification timed out. Please try again.';
@@ -138,7 +137,84 @@ class PremiumPaymentService {
     return raw;
   }
 
-  Future<PremiumPurchaseResult> purchasePremium({
+  // ── Google Play Billing path ─────────────────────────────────────────────
+
+  Future<PremiumPurchaseResult> _purchaseViaGooglePlay({
+    required String userId,
+  }) async {
+    final uid =
+        (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (uid.isEmpty) {
+      return PremiumPurchaseResult.failed(
+        provider: 'google_play_billing',
+        errorMessage: 'Please sign in to continue.',
+      );
+    }
+
+    final attemptId =
+        await GooglePlayBillingService.instance.createAttempt(
+      userId: uid,
+      productId:
+          GooglePlayBillingCatalog.premiumSubscriptionId,
+      productType: 'premium_subscription',
+      productSubType: 'premium_app_access',
+      leagueName: 'Premium',
+      metadata: <String, dynamic>{
+        'premiumDurationDays': 0,
+        // Duration controlled server-side by subscription period.
+      },
+    );
+
+    final gpResult = await GooglePlayBillingService.instance
+        .purchasePremiumSubscription(
+      userId: uid,
+      attemptId: attemptId,
+    );
+
+    if (!gpResult.success) {
+      final msg = gpResult.errorMessage ?? 'Purchase failed.';
+      if (msg.toLowerCase().contains('cancel') &&
+          attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: msg,
+        );
+      } else if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientFailed(
+          attemptId: attemptId,
+          errorMessage: msg,
+        );
+      }
+      return PremiumPurchaseResult.failed(
+        provider: 'google_play_billing',
+        errorMessage: msg,
+        attemptId: attemptId,
+        paymentId: gpResult.paymentId,
+      );
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Google Play manages subscription duration server-side.
+    // We use 365 as a local placeholder; the backend should
+    // read the actual subscription period from the purchase token.
+    return PremiumPurchaseResult.paid(
+      receiptId: gpResult.orderId.isNotEmpty
+          ? gpResult.orderId
+          : gpResult.purchaseToken,
+      paidAtMs: now,
+      provider: 'google_play_billing',
+      premiumDurationDays: 365,
+      attemptId: attemptId,
+      paymentId: gpResult.paymentId,
+      transactionId: gpResult.orderId,
+      txRef: gpResult.purchaseToken,
+    );
+  }
+
+  // ── Flutterwave path ─────────────────────────────────────────────────────
+
+  Future<PremiumPurchaseResult> _purchaseViaFlutterwave({
     required BuildContext context,
     required String userId,
   }) async {
@@ -148,18 +224,19 @@ class PremiumPaymentService {
       final authUser = FirebaseAuth.instance.currentUser;
       if (authUser == null || authUser.uid.trim().isEmpty) {
         return PremiumPurchaseResult.failed(
-          provider: _providerName,
+          provider: 'flutterwave',
           errorMessage: 'Please sign in to continue.',
         );
       }
 
-      final plan = await RemotePricingService.instance.getPlanForLocale(
+      final plan =
+          await RemotePricingService.instance.getPlanForLocale(
         Localizations.maybeLocaleOf(context),
       );
 
       if (!plan.paymentsEnabled) {
         return PremiumPurchaseResult.failed(
-          provider: _providerName,
+          provider: 'flutterwave',
           errorMessage:
               'Payments are temporarily disabled by the administrator.',
         );
@@ -167,14 +244,15 @@ class PremiumPaymentService {
 
       if (!plan.premiumEnabled) {
         return PremiumPurchaseResult.failed(
-          provider: _providerName,
-          errorMessage: 'Premium is currently disabled by the administrator.',
+          provider: 'flutterwave',
+          errorMessage:
+              'Premium is currently disabled by the administrator.',
         );
       }
 
       if (!plan.flutterwaveEnabled) {
         return PremiumPurchaseResult.failed(
-          provider: _providerName,
+          provider: 'flutterwave',
           errorMessage:
               'Flutterwave payments are currently unavailable.',
         );
@@ -186,7 +264,7 @@ class PremiumPaymentService {
 
       attemptId = await PaymentsService.instance.createAttempt(
         PaymentAttemptCreate(
-          provider: _providerName,
+          provider: 'flutterwave',
           currency: plan.currency,
           amount: plan.premiumFee,
           amountStr: totalAmount,
@@ -214,7 +292,7 @@ class PremiumPaymentService {
           kind: 'premium_subscription',
           leagueId: '',
           leagueName: 'Premium',
-          provider: _providerName,
+          provider: 'flutterwave',
           currency: plan.currency,
           amount: totalAmount,
           userId: userId,
@@ -222,17 +300,21 @@ class PremiumPaymentService {
       } catch (_) {}
 
       final txRef =
-          'EH-PRM-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+          'EH-PRM-${DateTime.now().millisecondsSinceEpoch}'
+          '-${_uuid.v4()}';
 
-      final email = (authUser.email?.trim().isNotEmpty ?? false)
-          ? authUser.email!.trim()
-          : 'user_$userId@eleaguehub.app';
-      final phone = (authUser.phoneNumber?.trim().isNotEmpty ?? false)
-          ? authUser.phoneNumber!.trim()
-          : '0000000000';
-      final name = (authUser.displayName?.trim().isNotEmpty ?? false)
-          ? authUser.displayName!.trim()
-          : 'EleagueHub User';
+      final email =
+          (authUser.email?.trim().isNotEmpty ?? false)
+              ? authUser.email!.trim()
+              : 'user_$userId@eleaguehub.app';
+      final phone =
+          (authUser.phoneNumber?.trim().isNotEmpty ?? false)
+              ? authUser.phoneNumber!.trim()
+              : '0000000000';
+      final name =
+          (authUser.displayName?.trim().isNotEmpty ?? false)
+              ? authUser.displayName!.trim()
+              : 'EleagueHub User';
 
       final customer = Customer(
         name: name,
@@ -247,19 +329,23 @@ class PremiumPaymentService {
         txRef: txRef,
         amount: totalAmount,
         customer: customer,
-        paymentOptions:
-            plan.currency.toUpperCase() == 'NGN' ? 'card,ussd,banktransfer' : 'card',
+        paymentOptions: plan.currency.toUpperCase() == 'NGN'
+            ? 'card,ussd,banktransfer'
+            : 'card',
         customization: Customization(
           title: 'EleagueHub',
-          description: 'Premium subscription — ${plan.premiumDurationDays} days',
+          description:
+              'Premium subscription — ${plan.premiumDurationDays} days',
         ),
         isTestMode: FlutterwaveConfig.isTestMode,
       );
 
-      final ChargeResponse response = await flutterwave.charge(context);
+      final ChargeResponse response =
+          await flutterwave.charge(context);
 
       if (_isChargeSuccessful(response)) {
-        final txId = (response.transactionId ?? '').toString().trim();
+        final txId =
+            (response.transactionId ?? '').toString().trim();
         if (txId.isEmpty) {
           if (attemptId.isNotEmpty) {
             await PaymentsService.instance.markClientFailed(
@@ -268,7 +354,7 @@ class PremiumPaymentService {
             );
           }
           return PremiumPurchaseResult.failed(
-            provider: _providerName,
+            provider: 'flutterwave',
             errorMessage: 'Missing transaction id.',
             attemptId: attemptId,
           );
@@ -288,9 +374,10 @@ class PremiumPaymentService {
 
         if (!verification.success) {
           return PremiumPurchaseResult.failed(
-            provider: _providerName,
+            provider: 'flutterwave',
             errorMessage: _cleanErrorMessage(
-              verification.errorMessage ?? 'Payment verification failed.',
+              verification.errorMessage ??
+                  'Payment verification failed.',
             ),
             attemptId: attemptId,
             paymentId: verification.paymentId,
@@ -307,12 +394,15 @@ class PremiumPaymentService {
             );
           } catch (e) {
             if (kDebugMode) {
-              debugPrint('[PremiumPayment] Worker activation failed: $e');
+              debugPrint(
+                  '[PremiumPayment] Worker activation failed: $e');
             }
             return PremiumPurchaseResult.failed(
-              provider: _providerName,
+              provider: 'flutterwave',
               errorMessage:
-                  'Payment verified but activation failed. Please contact support with receipt: ${verification.receiptId}',
+                  'Payment verified but activation failed. '
+                  'Please contact support with receipt: '
+                  '${verification.receiptId}',
               attemptId: attemptId,
               paymentId: verification.paymentId,
               transactionId: verification.transactionId,
@@ -330,14 +420,14 @@ class PremiumPaymentService {
             userId: userId,
             durationDays: plan.premiumDurationDays,
             receiptId: verification.receiptId,
-            provider: _providerName,
+            provider: 'flutterwave',
           );
         }
 
         return PremiumPurchaseResult.paid(
           receiptId: verification.receiptId,
           paidAtMs: verification.paidAtMs,
-          provider: _providerName,
+          provider: 'flutterwave',
           premiumDurationDays: plan.premiumDurationDays,
           attemptId: attemptId,
           paymentId: verification.paymentId,
@@ -354,7 +444,7 @@ class PremiumPaymentService {
       }
 
       return PremiumPurchaseResult.failed(
-        provider: _providerName,
+        provider: 'flutterwave',
         errorMessage: 'Payment cancelled or not successful',
         attemptId: attemptId,
       );
@@ -369,11 +459,48 @@ class PremiumPaymentService {
       }
 
       return PremiumPurchaseResult.failed(
-        provider: _providerName,
+        provider: 'flutterwave',
         errorMessage: _cleanErrorMessage(e),
         attemptId: attemptId,
       );
     }
+  }
+
+  // ── Public entry point ────────────────────────────────────────────────────
+
+  Future<PremiumPurchaseResult> purchasePremium({
+    required BuildContext context,
+    required String userId,
+  }) async {
+    // Android → Google Play Billing
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      if (kDebugMode) {
+        debugPrint('[PremiumPayment] Using Google Play Billing');
+      }
+      return _purchaseViaGooglePlay(userId: userId);
+    }
+
+    // Web / other → Flutterwave
+    if (kDebugMode) {
+      debugPrint('[PremiumPayment] Using Flutterwave');
+    }
+    return _purchaseViaFlutterwave(
+        context: context, userId: userId);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  String _toFlutterwaveAmount(double v) {
+    final rounded = double.parse(v.toStringAsFixed(2));
+    final intVal = rounded.toInt();
+    if ((rounded - intVal).abs() < 0.000001) return '$intVal';
+    return rounded.toStringAsFixed(2);
+  }
+
+  bool _isChargeSuccessful(ChargeResponse response) {
+    final status =
+        (response.status ?? '').toString().trim().toLowerCase();
+    return response.success == true || status == 'successful';
   }
 
   Future<void> _activatePremiumViaWorker({
@@ -413,18 +540,21 @@ class PremiumPaymentService {
     client.connectionTimeout = const Duration(seconds: 12);
 
     try {
-      final req =
-          await client.postUrl(activateUrl).timeout(const Duration(seconds: 25));
-      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $safeIdToken');
-      req.headers
-          .set(HttpHeaders.contentTypeHeader, ContentType.json.mimeType);
+      final req = await client
+          .postUrl(activateUrl)
+          .timeout(const Duration(seconds: 25));
+      req.headers.set(
+          HttpHeaders.authorizationHeader, 'Bearer $safeIdToken');
+      req.headers.set(
+          HttpHeaders.contentTypeHeader, ContentType.json.mimeType);
       req.add(utf8.encode(jsonEncode(<String, dynamic>{
         'provider': 'flutterwave',
         'receiptId': receiptId,
         'transactionId': transactionId,
       })));
 
-      final res = await req.close().timeout(const Duration(seconds: 25));
+      final res =
+          await req.close().timeout(const Duration(seconds: 25));
       final raw = await res.transform(utf8.decoder).join();
 
       Map<String, dynamic> parsed = <String, dynamic>{};
@@ -442,18 +572,21 @@ class PremiumPaymentService {
         throw PremiumActivationException(
           msg?.isNotEmpty == true
               ? msg!
-              : 'Premium activation failed (${res.statusCode}). Please try again.',
+              : 'Premium activation failed (${res.statusCode}). '
+                  'Please try again.',
         );
       }
 
       if (kDebugMode) {
-        debugPrint('[PremiumPayment] Worker activation success: $parsed');
+        debugPrint(
+            '[PremiumPayment] Worker activation success: $parsed');
       }
     } on PremiumActivationException {
       rethrow;
     } on SocketException {
       throw const PremiumActivationException(
-        'Your network appears to be offline. Please check your connection and try again.',
+        'Your network appears to be offline. '
+        'Please check your connection and try again.',
       );
     } on HandshakeException {
       throw const PremiumActivationException(
@@ -465,7 +598,8 @@ class PremiumPaymentService {
       );
     } catch (e) {
       throw PremiumActivationException(
-        "We couldn't activate premium right now. Please try again. ($e)",
+        "We couldn't activate premium right now. "
+        'Please try again. ($e)',
       );
     } finally {
       client.close(force: true);
@@ -482,10 +616,14 @@ class PremiumPaymentService {
         .add(Duration(days: durationDays))
         .millisecondsSinceEpoch;
 
-    await _firestore.collection('users').doc(userId).set({
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .set({
       'isPremium': true,
       'premiumExpiresAtMs': expiresAt,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
-    }, SetOptions(merge: true)).timeout(const Duration(seconds: 20));
+    }, SetOptions(merge: true))
+        .timeout(const Duration(seconds: 20));
   }
 }
