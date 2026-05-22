@@ -1,7 +1,10 @@
+// lib/features/leagues/logic/league_premium_upgrade_helper.dart
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/widgets/glass.dart';
 import '../../master_leagues/domain/master_league_plan.dart';
 import '../../master_leagues/logic/master_leagues_providers.dart';
@@ -18,16 +21,15 @@ class LeaguePremiumUpgradeHelper {
           isScrollControlled: true,
           useSafeArea: true,
           backgroundColor: Colors.transparent,
-          builder: (_) => _InlinePlanPurchaseSheet(leagueName: leagueName),
+          builder: (_) =>
+              _InlinePlanPurchaseSheet(leagueName: leagueName),
         ) ??
         false;
   }
 }
 
 class _InlinePlanPurchaseSheet extends ConsumerStatefulWidget {
-  const _InlinePlanPurchaseSheet({
-    required this.leagueName,
-  });
+  const _InlinePlanPurchaseSheet({required this.leagueName});
 
   final String leagueName;
 
@@ -44,6 +46,9 @@ class _InlinePlanPurchaseSheetState
   PlanDuration _selectedDuration = PlanDuration.threeMonths;
   bool _processing = false;
   String? _error;
+
+  bool get _useGooglePlay =>
+      PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling;
 
   Color _panelFill(ThemeData theme) {
     if (theme.brightness == Brightness.light) {
@@ -101,7 +106,8 @@ class _InlinePlanPurchaseSheetState
   Future<void> _pay() async {
     if (_processing) return;
 
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final uid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
       setState(() {
         _error = 'Please sign in before purchasing a plan.';
@@ -115,8 +121,17 @@ class _InlinePlanPurchaseSheetState
     });
 
     try {
-      final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
-      final entitlementSvc = ref.read(masterLeagueEntitlementServiceProvider);
+      final paymentSvc =
+          ref.read(masterLeaguePaymentServiceProvider);
+      final entitlementSvc =
+          ref.read(masterLeagueEntitlementServiceProvider);
+
+      if (kDebugMode) {
+        debugPrint(
+          '[PlanPurchase] useGooglePlay=$_useGooglePlay '
+          'plan=${_selectedPlan.id} duration=${_selectedDuration.id}',
+        );
+      }
 
       final result = await paymentSvc.payForPlanSubscription(
         context: context,
@@ -150,7 +165,10 @@ class _InlinePlanPurchaseSheetState
       if (!mounted) return;
       setState(() {
         _processing = false;
-        _error = e.toString().replaceFirst('Exception: ', '').trim();
+        _error = e
+            .toString()
+            .replaceFirst('Exception: ', '')
+            .trim();
       });
     }
   }
@@ -198,9 +216,9 @@ class _InlinePlanPurchaseSheetState
   }) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-
-    final Color accent =
-        plan == MasterLeaguePlan.elite ? _premiumAmber : cs.primary;
+    final Color accent = plan == MasterLeaguePlan.elite
+        ? _premiumAmber
+        : cs.primary;
 
     final fill = selected
         ? accent.withOpacity(0.14)
@@ -231,8 +249,12 @@ class _InlinePlanPurchaseSheetState
         child: Row(
           children: [
             Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? accent : cs.onSurface.withOpacity(0.55),
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off,
+              color: selected
+                  ? accent
+                  : cs.onSurface.withOpacity(0.55),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -244,7 +266,8 @@ class _InlinePlanPurchaseSheetState
                       Flexible(
                         child: Text(
                           plan.displayName,
-                          style: theme.textTheme.bodyMedium?.copyWith(
+                          style:
+                              theme.textTheme.bodyMedium?.copyWith(
                             color: cs.onSurface,
                             fontWeight: FontWeight.w900,
                           ),
@@ -258,10 +281,13 @@ class _InlinePlanPurchaseSheetState
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF22C55E).withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(999),
+                            color: const Color(0xFF22C55E)
+                                .withOpacity(0.12),
+                            borderRadius:
+                                BorderRadius.circular(999),
                             border: Border.all(
-                              color: const Color(0xFF22C55E).withOpacity(0.28),
+                              color: const Color(0xFF22C55E)
+                                  .withOpacity(0.28),
                             ),
                           ),
                           child: const Text(
@@ -332,8 +358,12 @@ class _InlinePlanPurchaseSheetState
         child: Row(
           children: [
             Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? cs.primary : cs.onSurface.withOpacity(0.55),
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off,
+              color: selected
+                  ? cs.primary
+                  : cs.onSurface.withOpacity(0.55),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -342,7 +372,8 @@ class _InlinePlanPurchaseSheetState
                 children: [
                   Text(
                     duration.displayName,
-                    style: theme.textTheme.bodyMedium?.copyWith(
+                    style:
+                        theme.textTheme.bodyMedium?.copyWith(
                       color: cs.onSurface,
                       fontWeight: FontWeight.w900,
                     ),
@@ -366,10 +397,12 @@ class _InlinePlanPurchaseSheetState
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF22C55E).withOpacity(0.12),
+                  color: const Color(0xFF22C55E)
+                      .withOpacity(0.12),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
-                    color: const Color(0xFF22C55E).withOpacity(0.26),
+                    color: const Color(0xFF22C55E)
+                        .withOpacity(0.26),
                   ),
                 ),
                 child: Text(
@@ -451,6 +484,39 @@ class _InlinePlanPurchaseSheetState
               fontWeight: FontWeight.w700,
             ),
           ),
+          // Google Play notice inside sheet
+          if (_useGooglePlay) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: cs.primary.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: cs.primary.withOpacity(0.20)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 16, color: cs.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Purchase managed by Google Play Billing. '
+                      'Manage subscriptions in the Play Store.',
+                      style:
+                          theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(0.74),
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -462,11 +528,13 @@ class _InlinePlanPurchaseSheetState
     final cs = theme.colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
-    final Color accent =
-        _selectedPlan == MasterLeaguePlan.elite ? _premiumAmber : cs.primary;
+    final Color accent = _selectedPlan == MasterLeaguePlan.elite
+        ? _premiumAmber
+        : cs.primary;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(12, 12, 12, bottomInset + 12),
+      padding:
+          EdgeInsets.fromLTRB(12, 12, 12, bottomInset + 12),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
@@ -493,8 +561,10 @@ class _InlinePlanPurchaseSheetState
                         width: 42,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: cs.onSurface.withOpacity(0.20),
-                          borderRadius: BorderRadius.circular(999),
+                          color:
+                              cs.onSurface.withOpacity(0.20),
+                          borderRadius:
+                              BorderRadius.circular(999),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -504,7 +574,8 @@ class _InlinePlanPurchaseSheetState
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: accent.withOpacity(0.14),
-                          border: Border.all(color: accent.withOpacity(0.26)),
+                          border: Border.all(
+                              color: accent.withOpacity(0.26)),
                         ),
                         child: Icon(
                           Icons.workspace_premium_rounded,
@@ -516,7 +587,8 @@ class _InlinePlanPurchaseSheetState
                       Text(
                         'Choose a Plan',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.titleLarge?.copyWith(
+                        style:
+                            theme.textTheme.titleLarge?.copyWith(
                           color: cs.onSurface,
                           fontWeight: FontWeight.w900,
                           fontSize: 22,
@@ -524,9 +596,12 @@ class _InlinePlanPurchaseSheetState
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Upgrade organizer access for "${widget.leagueName}" without leaving this screen.',
+                        'Upgrade organizer access for '
+                        '"${widget.leagueName}" '
+                        'without leaving this screen.',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
+                        style:
+                            theme.textTheme.bodyMedium?.copyWith(
                           color: cs.onSurface.withOpacity(0.74),
                           height: 1.4,
                           fontWeight: FontWeight.w700,
@@ -538,13 +613,17 @@ class _InlinePlanPurchaseSheetState
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: accent.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: accent.withOpacity(0.22)),
+                          borderRadius:
+                              BorderRadius.circular(18),
+                          border: Border.all(
+                              color: accent.withOpacity(0.22)),
                         ),
                         child: Text(
-                          'You reached your free limit. Upgrade here with a thicker glass purchase panel for clearer reading.',
+                          'You reached your free limit. '
+                          'Upgrade here to continue.',
                           textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall?.copyWith(
+                          style:
+                              theme.textTheme.bodySmall?.copyWith(
                             color: cs.onSurface.withOpacity(0.80),
                             fontWeight: FontWeight.w800,
                             height: 1.35,
@@ -553,7 +632,8 @@ class _InlinePlanPurchaseSheetState
                       ),
                       const SizedBox(height: 18),
                       Align(
-                        alignment: AlignmentDirectional.centerStart,
+                        alignment:
+                            AlignmentDirectional.centerStart,
                         child: _sectionTitle(
                           context,
                           'Choose plan',
@@ -565,22 +645,28 @@ class _InlinePlanPurchaseSheetState
                       _planTile(
                         context,
                         plan: MasterLeaguePlan.pro,
-                        selected: _selectedPlan == MasterLeaguePlan.pro,
-                        onTap: () =>
-                            setState(() => _selectedPlan = MasterLeaguePlan.pro),
+                        selected:
+                            _selectedPlan == MasterLeaguePlan.pro,
+                        onTap: () => setState(
+                          () =>
+                              _selectedPlan = MasterLeaguePlan.pro,
+                        ),
                       ),
                       const SizedBox(height: 10),
                       _planTile(
                         context,
                         plan: MasterLeaguePlan.elite,
-                        selected: _selectedPlan == MasterLeaguePlan.elite,
+                        selected: _selectedPlan ==
+                            MasterLeaguePlan.elite,
                         onTap: () => setState(
-                          () => _selectedPlan = MasterLeaguePlan.elite,
+                          () => _selectedPlan =
+                              MasterLeaguePlan.elite,
                         ),
                       ),
                       const SizedBox(height: 16),
                       Align(
-                        alignment: AlignmentDirectional.centerStart,
+                        alignment:
+                            AlignmentDirectional.centerStart,
                         child: _sectionTitle(
                           context,
                           'Choose duration',
@@ -591,27 +677,33 @@ class _InlinePlanPurchaseSheetState
                       _durationTile(
                         context,
                         duration: PlanDuration.threeMonths,
-                        selected: _selectedDuration == PlanDuration.threeMonths,
+                        selected: _selectedDuration ==
+                            PlanDuration.threeMonths,
                         onTap: () => setState(
-                          () => _selectedDuration = PlanDuration.threeMonths,
+                          () => _selectedDuration =
+                              PlanDuration.threeMonths,
                         ),
                       ),
                       const SizedBox(height: 10),
                       _durationTile(
                         context,
                         duration: PlanDuration.sixMonths,
-                        selected: _selectedDuration == PlanDuration.sixMonths,
+                        selected: _selectedDuration ==
+                            PlanDuration.sixMonths,
                         onTap: () => setState(
-                          () => _selectedDuration = PlanDuration.sixMonths,
+                          () => _selectedDuration =
+                              PlanDuration.sixMonths,
                         ),
                       ),
                       const SizedBox(height: 10),
                       _durationTile(
                         context,
                         duration: PlanDuration.yearly,
-                        selected: _selectedDuration == PlanDuration.yearly,
+                        selected: _selectedDuration ==
+                            PlanDuration.yearly,
                         onTap: () => setState(
-                          () => _selectedDuration = PlanDuration.yearly,
+                          () => _selectedDuration =
+                              PlanDuration.yearly,
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -623,13 +715,17 @@ class _InlinePlanPurchaseSheetState
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
                             color: cs.error.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: cs.error.withOpacity(0.24)),
+                            borderRadius:
+                                BorderRadius.circular(18),
+                            border: Border.all(
+                                color:
+                                    cs.error.withOpacity(0.24)),
                           ),
                           child: Text(
                             _error!.trim(),
                             textAlign: TextAlign.center,
-                            style: theme.textTheme.bodySmall?.copyWith(
+                            style:
+                                theme.textTheme.bodySmall?.copyWith(
                               color: cs.error,
                               fontWeight: FontWeight.w900,
                               height: 1.35,
@@ -644,30 +740,39 @@ class _InlinePlanPurchaseSheetState
                             child: OutlinedButton(
                               onPressed: _processing
                                   ? null
-                                  : () => Navigator.of(context).pop(false),
+                                  : () => Navigator.of(context)
+                                      .pop(false),
                               style: OutlinedButton.styleFrom(
                                 padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
+                                    const EdgeInsets.symmetric(
+                                        vertical: 14),
                                 side: BorderSide(
-                                  color: theme.brightness == Brightness.light
-                                      ? Colors.white.withOpacity(0.74)
-                                      : cs.onSurface.withOpacity(0.18),
+                                  color: theme.brightness ==
+                                          Brightness.light
+                                      ? Colors.white
+                                          .withOpacity(0.74)
+                                      : cs.onSurface
+                                          .withOpacity(0.18),
                                 ),
-                                foregroundColor: cs.onSurface.withOpacity(0.84),
+                                foregroundColor:
+                                    cs.onSurface.withOpacity(0.84),
                               ),
                               child: const Text(
                                 'Cancel',
-                                style: TextStyle(fontWeight: FontWeight.w900),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w900),
                               ),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: FilledButton(
-                              onPressed: _processing ? null : _pay,
+                              onPressed:
+                                  _processing ? null : _pay,
                               style: FilledButton.styleFrom(
                                 padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
+                                    const EdgeInsets.symmetric(
+                                        vertical: 14),
                                 backgroundColor: accent,
                                 foregroundColor: _selectedPlan ==
                                         MasterLeaguePlan.elite
@@ -678,18 +783,23 @@ class _InlinePlanPurchaseSheetState
                                   ? SizedBox(
                                       width: 18,
                                       height: 18,
-                                      child: CircularProgressIndicator(
+                                      child:
+                                          CircularProgressIndicator(
                                         strokeWidth: 2,
                                         color: _selectedPlan ==
-                                                MasterLeaguePlan.elite
+                                                MasterLeaguePlan
+                                                    .elite
                                             ? Colors.black
                                             : cs.onPrimary,
                                       ),
                                     )
-                                  : const Text(
-                                      'Pay Now',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w900,
+                                  : Text(
+                                      _useGooglePlay
+                                          ? 'Buy on Play'
+                                          : 'Pay Now',
+                                      style: const TextStyle(
+                                        fontWeight:
+                                            FontWeight.w900,
                                       ),
                                     ),
                             ),
