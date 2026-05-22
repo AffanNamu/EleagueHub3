@@ -1,3 +1,4 @@
+// lib/features/master_leagues/logic/master_league_payment_service.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,12 +8,16 @@ import 'package:uuid/uuid.dart';
 import '../../../core/config/flutterwave_config.dart';
 import '../../../core/config/payment_platform_config.dart';
 import '../../../core/services/app_analytics_service.dart';
+import '../../../core/services/payments/google_play_billing_catalog.dart';
+import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
 import 'master_league_pricing_service.dart';
+
+// ── Result ────────────────────────────────────────────────────────────────────
 
 class MasterLeaguePaymentResult {
   final bool success;
@@ -93,6 +98,8 @@ class MasterLeaguePaymentResult {
   }
 }
 
+// ── Abstract contract ─────────────────────────────────────────────────────────
+
 abstract class MasterLeaguePaymentService {
   Future<MasterLeaguePaymentResult> payForPlanSubscription({
     required BuildContext context,
@@ -118,6 +125,8 @@ abstract class MasterLeaguePaymentService {
   String get providerName;
 }
 
+// ── Implementation ────────────────────────────────────────────────────────────
+
 class FlutterwaveMasterLeaguePaymentService
     implements MasterLeaguePaymentService {
   final Uuid _uuid = const Uuid();
@@ -128,18 +137,13 @@ class FlutterwaveMasterLeaguePaymentService
           ? 'google_play_billing'
           : 'flutterwave';
 
-  MasterLeaguePaymentResult _playBillingNotReady(String flowLabel) {
-    return MasterLeaguePaymentResult.failed(
-      provider: providerName,
-      errorMessage:
-          PaymentPlatformConfig.pendingGooglePlayBillingMessage(flowLabel),
-    );
-  }
+  // ── Shared helpers ────────────────────────────────────────────────────────
 
   Locale _effectiveLocale(BuildContext context) {
     final base = Localizations.maybeLocaleOf(context) ??
         WidgetsBinding.instance.platformDispatcher.locale;
-    final forced = FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
+    final forced =
+        FlutterwaveConfig.forcedCountryCode.trim().toUpperCase();
     if (forced.isNotEmpty) {
       return Locale(
         base.languageCode.isNotEmpty ? base.languageCode : 'en',
@@ -171,30 +175,35 @@ class FlutterwaveMasterLeaguePaymentService
   String _resolveEffectiveUserId(String userId) {
     final u = userId.trim();
     if (u.isNotEmpty) return u;
-    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final authUid =
+        FirebaseAuth.instance.currentUser?.uid ?? '';
     if (authUid.trim().isNotEmpty) return authUid.trim();
     return 'anonymous';
   }
 
   bool _isChargeSuccessful(ChargeResponse response) {
-    final status = (response.status ?? '').toString().trim().toLowerCase();
+    final status =
+        (response.status ?? '').toString().trim().toLowerCase();
     return response.success == true || status == 'successful';
   }
 
   String _cleanErrorMessage(Object error) {
     final raw = error.toString().trim();
-
-    if (raw.contains('Payment verification endpoint was not found (404)')) {
-      return 'Payment verification service is not available right now. Please contact support or try again later.';
+    if (raw.contains(
+        'Payment verification endpoint was not found (404)')) {
+      return 'Payment verification service is not available right now. '
+          'Please contact support or try again later.';
     }
     if (raw.contains('Payment verification failed (404)')) {
-      return 'Payment verification service is not available right now. Please contact support or try again later.';
+      return 'Payment verification service is not available right now. '
+          'Please contact support or try again later.';
     }
     if (raw.contains('Bad state:')) {
       return raw.replaceFirst('Bad state:', '').trim();
     }
     if (raw.contains('SocketException')) {
-      return 'Network error while verifying payment. Please check your internet and try again.';
+      return 'Network error while verifying payment. '
+          'Please check your internet and try again.';
     }
     if (raw.contains('timed out')) {
       return 'Payment verification timed out. Please try again.';
@@ -202,7 +211,254 @@ class FlutterwaveMasterLeaguePaymentService
     return raw;
   }
 
-  Future<MasterLeaguePaymentResult> _runPayment({
+  // ── Google Play Billing paths ─────────────────────────────────────────────
+
+  Future<MasterLeaguePaymentResult> _purchasePlanViaGooglePlay({
+    required String userId,
+    required MasterLeaguePlan plan,
+    required PlanDuration duration,
+  }) async {
+    final uid =
+        (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (uid.isEmpty) {
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: 'Please sign in to continue.',
+      );
+    }
+
+    final productId =
+        GooglePlayBillingCatalog.subscriptionIdForPlan(
+      plan: plan,
+      duration: duration,
+    );
+
+    if (productId.isEmpty) {
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage:
+            'No Play Store product is configured for '
+            '${plan.displayName} ${duration.displayName}.',
+      );
+    }
+
+    final attemptId =
+        await GooglePlayBillingService.instance.createAttempt(
+      userId: uid,
+      productId: productId,
+      productType: 'plan_subscription',
+      productSubType: 'plan_${plan.id}_${duration.id}',
+      leagueName:
+          '${plan.displayName} Plan - ${duration.displayName}',
+      planId: plan.id,
+      planDurationId: duration.id,
+      metadata: <String, dynamic>{
+        'plan': plan.id,
+        'duration': duration.id,
+        'durationMonths': duration.months,
+      },
+    );
+
+    final gpResult = await GooglePlayBillingService.instance
+        .purchasePlanSubscription(
+      plan: plan,
+      duration: duration,
+      userId: uid,
+      attemptId: attemptId,
+    );
+
+    if (!gpResult.success) {
+      final msg = gpResult.errorMessage ?? 'Purchase failed.';
+      if (msg.toLowerCase().contains('cancel') &&
+          attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: msg,
+        );
+      } else if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientFailed(
+          attemptId: attemptId,
+          errorMessage: msg,
+        );
+      }
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: msg,
+        attemptId: attemptId,
+        paymentId: gpResult.paymentId,
+      );
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return MasterLeaguePaymentResult.paid(
+      receiptId: gpResult.orderId.isNotEmpty
+          ? gpResult.orderId
+          : gpResult.purchaseToken,
+      paidAtMs: now,
+      provider: providerName,
+      currency: 'PLAY',
+      totalAmount: '',
+      attemptId: attemptId,
+      paymentId: gpResult.paymentId,
+      transactionId: gpResult.orderId,
+      txRef: gpResult.purchaseToken,
+    );
+  }
+
+  Future<MasterLeaguePaymentResult>
+      _purchaseVerificationViaGooglePlay({
+    required String userId,
+    required String masterLeagueId,
+    required String masterLeagueName,
+  }) async {
+    final uid =
+        (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (uid.isEmpty) {
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: 'Please sign in to continue.',
+      );
+    }
+
+    final attemptId =
+        await GooglePlayBillingService.instance.createAttempt(
+      userId: uid,
+      productId:
+          GooglePlayBillingCatalog.organizerVerificationId,
+      productType: 'organizer_verification',
+      productSubType: 'master_league_organizer_verification',
+      leagueName: masterLeagueName,
+      metadata: <String, dynamic>{
+        'masterLeagueId': masterLeagueId,
+        'masterLeagueName': masterLeagueName,
+        'verificationMode': 'initial',
+      },
+    );
+
+    final gpResult = await GooglePlayBillingService.instance
+        .purchaseOrganizerVerification(
+      userId: uid,
+      masterLeagueName: masterLeagueName,
+      attemptId: attemptId,
+    );
+
+    if (!gpResult.success) {
+      final msg = gpResult.errorMessage ?? 'Purchase failed.';
+      if (msg.toLowerCase().contains('cancel') &&
+          attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: msg,
+        );
+      } else if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientFailed(
+          attemptId: attemptId,
+          errorMessage: msg,
+        );
+      }
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: msg,
+        attemptId: attemptId,
+        paymentId: gpResult.paymentId,
+      );
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return MasterLeaguePaymentResult.paid(
+      receiptId: gpResult.orderId.isNotEmpty
+          ? gpResult.orderId
+          : gpResult.purchaseToken,
+      paidAtMs: now,
+      provider: providerName,
+      currency: 'PLAY',
+      totalAmount: '',
+      attemptId: attemptId,
+      paymentId: gpResult.paymentId,
+      transactionId: gpResult.orderId,
+      txRef: gpResult.purchaseToken,
+    );
+  }
+
+  Future<MasterLeaguePaymentResult>
+      _purchaseVerificationRenewalViaGooglePlay({
+    required String userId,
+    required String masterLeagueId,
+    required String masterLeagueName,
+  }) async {
+    final uid =
+        (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (uid.isEmpty) {
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: 'Please sign in to continue.',
+      );
+    }
+
+    final attemptId =
+        await GooglePlayBillingService.instance.createAttempt(
+      userId: uid,
+      productId:
+          GooglePlayBillingCatalog.organizerVerificationRenewalId,
+      productType: 'organizer_verification_renewal',
+      productSubType:
+          'master_league_organizer_verification_renewal',
+      leagueName: masterLeagueName,
+      metadata: <String, dynamic>{
+        'masterLeagueId': masterLeagueId,
+        'masterLeagueName': masterLeagueName,
+        'verificationMode': 'renewal',
+      },
+    );
+
+    final gpResult = await GooglePlayBillingService.instance
+        .purchaseOrganizerVerificationRenewal(
+      userId: uid,
+      masterLeagueName: masterLeagueName,
+      attemptId: attemptId,
+    );
+
+    if (!gpResult.success) {
+      final msg = gpResult.errorMessage ?? 'Purchase failed.';
+      if (msg.toLowerCase().contains('cancel') &&
+          attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: msg,
+        );
+      } else if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientFailed(
+          attemptId: attemptId,
+          errorMessage: msg,
+        );
+      }
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: msg,
+        attemptId: attemptId,
+        paymentId: gpResult.paymentId,
+      );
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return MasterLeaguePaymentResult.paid(
+      receiptId: gpResult.orderId.isNotEmpty
+          ? gpResult.orderId
+          : gpResult.purchaseToken,
+      paidAtMs: now,
+      provider: providerName,
+      currency: 'PLAY',
+      totalAmount: '',
+      attemptId: attemptId,
+      paymentId: gpResult.paymentId,
+      transactionId: gpResult.orderId,
+      txRef: gpResult.purchaseToken,
+    );
+  }
+
+  // ── Flutterwave path ──────────────────────────────────────────────────────
+
+  Future<MasterLeaguePaymentResult> _runFlutterwavePayment({
     required BuildContext context,
     required String userId,
     required String leagueId,
@@ -275,7 +531,8 @@ class FlutterwaveMasterLeaguePaymentService
       if (attemptId.trim().isEmpty) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Unable to start payment. Please try again.',
+          errorMessage:
+              'Unable to start payment. Please try again.',
           currency: currency,
           totalAmount: totalAmount,
         );
@@ -291,15 +548,18 @@ class FlutterwaveMasterLeaguePaymentService
         userId: effectiveUserId,
       );
 
-      final String email = (currentUser.email?.trim().isNotEmpty ?? false)
-          ? currentUser.email!.trim()
-          : 'user_$effectiveUserId@eleaguehub.app';
-      final String phone = (currentUser.phoneNumber?.trim().isNotEmpty ?? false)
-          ? currentUser.phoneNumber!.trim()
-          : '0000000000';
-      final String name = (currentUser.displayName?.trim().isNotEmpty ?? false)
-          ? currentUser.displayName!.trim()
-          : 'EleagueHub User';
+      final String email =
+          (currentUser.email?.trim().isNotEmpty ?? false)
+              ? currentUser.email!.trim()
+              : 'user_$effectiveUserId@eleaguehub.app';
+      final String phone =
+          (currentUser.phoneNumber?.trim().isNotEmpty ?? false)
+              ? currentUser.phoneNumber!.trim()
+              : '0000000000';
+      final String name =
+          (currentUser.displayName?.trim().isNotEmpty ?? false)
+              ? currentUser.displayName!.trim()
+              : 'EleagueHub User';
 
       final customer = Customer(
         name: name,
@@ -308,7 +568,8 @@ class FlutterwaveMasterLeaguePaymentService
       );
 
       final txRef =
-          '$txRefPrefix-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}';
+          '$txRefPrefix-${DateTime.now().millisecondsSinceEpoch}'
+          '-${_uuid.v4()}';
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -325,18 +586,22 @@ class FlutterwaveMasterLeaguePaymentService
         isTestMode: FlutterwaveConfig.isTestMode,
       );
 
-      final ChargeResponse response = await flutterwave.charge(context);
+      final ChargeResponse response =
+          await flutterwave.charge(context);
 
       if (kDebugMode) {
         debugPrint(
-          '[MasterLeaguePayment] charge result: success=${response.success} '
-          'status=${response.status} txRef=${response.txRef} '
+          '[MasterLeaguePayment] charge result: '
+          'success=${response.success} '
+          'status=${response.status} '
+          'txRef=${response.txRef} '
           'transactionId=${response.transactionId}',
         );
       }
 
       if (_isChargeSuccessful(response)) {
-        final txId = (response.transactionId ?? '').toString().trim();
+        final txId =
+            (response.transactionId ?? '').toString().trim();
         if (txId.isEmpty) {
           await PaymentsService.instance.markClientFailed(
             attemptId: attemptId,
@@ -344,7 +609,8 @@ class FlutterwaveMasterLeaguePaymentService
           );
           return MasterLeaguePaymentResult.failed(
             provider: providerName,
-            errorMessage: 'Payment success returned without transaction id.',
+            errorMessage:
+                'Payment success returned without transaction id.',
             currency: currency,
             totalAmount: totalAmount,
             attemptId: attemptId,
@@ -365,7 +631,8 @@ class FlutterwaveMasterLeaguePaymentService
 
         if (!verification.success) {
           final cleanError = _cleanErrorMessage(
-            verification.errorMessage ?? 'Payment verification failed.',
+            verification.errorMessage ??
+                'Payment verification failed.',
           );
 
           await AppAnalyticsService.instance.logPaymentResult(
@@ -427,7 +694,8 @@ class FlutterwaveMasterLeaguePaymentService
         );
       }
 
-      final status = (response.status ?? '').toString().trim().toLowerCase();
+      final status =
+          (response.status ?? '').toString().trim().toLowerCase();
       final msg = status == 'cancelled' || status == 'cancel'
           ? 'Payment was cancelled.'
           : status.isNotEmpty
@@ -480,6 +748,8 @@ class FlutterwaveMasterLeaguePaymentService
     }
   }
 
+  // ── Public API ────────────────────────────────────────────────────────────
+
   @override
   Future<MasterLeaguePaymentResult> payForPlanSubscription({
     required BuildContext context,
@@ -487,12 +757,33 @@ class FlutterwaveMasterLeaguePaymentService
     required MasterLeaguePlan plan,
     required PlanDuration duration,
   }) async {
-    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
-      return _playBillingNotReady('Master League plan purchase');
+    // ── Android → Google Play Billing ─────────────────────────────────────
+    if (PaymentPlatformConfig
+        .routeAndroidPaymentsToGooglePlayBilling) {
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeaguePayment] payForPlanSubscription '
+          '→ Google Play Billing',
+        );
+      }
+      return _purchasePlanViaGooglePlay(
+        userId: userId,
+        plan: plan,
+        duration: duration,
+      );
+    }
+
+    // ── Web / other → Flutterwave ─────────────────────────────────────────
+    if (kDebugMode) {
+      debugPrint(
+        '[MasterLeaguePayment] payForPlanSubscription '
+        '→ Flutterwave',
+      );
     }
 
     try {
-      final remotePlan = await RemotePricingService.instance.getPlanForLocale(
+      final remotePlan =
+          await RemotePricingService.instance.getPlanForLocale(
         _effectiveLocale(context),
       );
 
@@ -507,34 +798,35 @@ class FlutterwaveMasterLeaguePaymentService
       if (!remotePlan.flutterwaveEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Flutterwave payments are currently unavailable.',
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
         );
       }
 
       final pricing = MasterLeaguePricingService();
-      final loc = _effectiveLocale(context);
-
       final price = await pricing.getPlanPrice(
         plan: plan,
         duration: duration,
-        locale: loc,
+        locale: _effectiveLocale(context),
       );
 
       if (price == null) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
           errorMessage:
-              "${plan.displayName} ${duration.displayName} price isn't configured yet. Please try again later.",
+              "${plan.displayName} ${duration.displayName} price "
+              "isn't configured yet. Please try again later.",
         );
       }
 
       final currencyUsed = price.currency.trim().toUpperCase();
 
-      return _runPayment(
+      return _runFlutterwavePayment(
         context: context,
         userId: userId,
         leagueId: '',
-        leagueName: '${plan.displayName} Plan - ${duration.displayName}',
+        leagueName:
+            '${plan.displayName} Plan - ${duration.displayName}',
         productType: 'plan_subscription',
         productSubType: 'plan_${plan.id}_${duration.id}',
         planId: plan.id,
@@ -553,9 +845,11 @@ class FlutterwaveMasterLeaguePaymentService
           ),
         ],
         txRefPrefix:
-            'EH-PLAN-${plan.id.toUpperCase()}-${duration.id.toUpperCase()}',
+            'EH-PLAN-${plan.id.toUpperCase()}'
+            '-${duration.id.toUpperCase()}',
         description:
-            '${plan.displayName} Plan (${duration.displayName}) subscription',
+            '${plan.displayName} Plan (${duration.displayName}) '
+            'subscription',
         amount: price.amount,
         currency: currencyUsed,
         analyticsKind: 'plan_subscription',
@@ -575,22 +869,44 @@ class FlutterwaveMasterLeaguePaymentService
     required String masterLeagueId,
     required String masterLeagueName,
   }) async {
-    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
-      return _playBillingNotReady('Organizer verification payment');
+    // ── Android → Google Play Billing ─────────────────────────────────────
+    if (PaymentPlatformConfig
+        .routeAndroidPaymentsToGooglePlayBilling) {
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeaguePayment] payForOrganizerVerification '
+          '→ Google Play Billing',
+        );
+      }
+      return _purchaseVerificationViaGooglePlay(
+        userId: userId,
+        masterLeagueId: masterLeagueId,
+        masterLeagueName: masterLeagueName,
+      );
+    }
+
+    // ── Web / other → Flutterwave ─────────────────────────────────────────
+    if (kDebugMode) {
+      debugPrint(
+        '[MasterLeaguePayment] payForOrganizerVerification '
+        '→ Flutterwave',
+      );
     }
 
     try {
       final safeMasterLeagueId = masterLeagueId.trim();
       final safeMasterLeagueName = masterLeagueName.trim();
 
-      if (safeMasterLeagueId.isEmpty || safeMasterLeagueName.isEmpty) {
+      if (safeMasterLeagueId.isEmpty ||
+          safeMasterLeagueName.isEmpty) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
           errorMessage: 'Master League information is missing.',
         );
       }
 
-      final remotePlan = await RemotePricingService.instance.getPlanForLocale(
+      final remotePlan =
+          await RemotePricingService.instance.getPlanForLocale(
         _effectiveLocale(context),
       );
 
@@ -605,14 +921,16 @@ class FlutterwaveMasterLeaguePaymentService
       if (!remotePlan.flutterwaveEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Flutterwave payments are currently unavailable.',
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
         );
       }
 
       if (!remotePlan.organizerVerificationEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Organizer verification is currently disabled.',
+          errorMessage:
+              'Organizer verification is currently disabled.',
         );
       }
 
@@ -621,19 +939,22 @@ class FlutterwaveMasterLeaguePaymentService
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
           errorMessage:
-              'Organizer verification price is not configured correctly.',
+              'Organizer verification price is not configured '
+              'correctly.',
         );
       }
 
-      final currencyUsed = remotePlan.currency.trim().toUpperCase();
+      final currencyUsed =
+          remotePlan.currency.trim().toUpperCase();
 
-      return _runPayment(
+      return _runFlutterwavePayment(
         context: context,
         userId: userId,
         leagueId: safeMasterLeagueId,
         leagueName: safeMasterLeagueName,
         productType: 'organizer_verification',
-        productSubType: 'master_league_organizer_verification',
+        productSubType:
+            'master_league_organizer_verification',
         metadata: <String, dynamic>{
           'masterLeagueId': safeMasterLeagueId,
           'masterLeagueName': safeMasterLeagueName,
@@ -642,13 +963,15 @@ class FlutterwaveMasterLeaguePaymentService
         items: <PaymentLineItem>[
           PaymentLineItem(
             productType: 'organizer_verification',
-            productSubType: 'master_league_organizer_verification',
+            productSubType:
+                'master_league_organizer_verification',
             quantity: 1,
             amount: fee,
           ),
         ],
         txRefPrefix: 'EH-ORGV',
-        description: 'Organizer verification: $safeMasterLeagueName',
+        description:
+            'Organizer verification: $safeMasterLeagueName',
         amount: fee,
         currency: currencyUsed,
         analyticsKind: 'organizer_verification',
@@ -662,28 +985,51 @@ class FlutterwaveMasterLeaguePaymentService
   }
 
   @override
-  Future<MasterLeaguePaymentResult> payForOrganizerVerificationRenewal({
+  Future<MasterLeaguePaymentResult>
+      payForOrganizerVerificationRenewal({
     required BuildContext context,
     required String userId,
     required String masterLeagueId,
     required String masterLeagueName,
   }) async {
-    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
-      return _playBillingNotReady('Organizer verification renewal payment');
+    // ── Android → Google Play Billing ─────────────────────────────────────
+    if (PaymentPlatformConfig
+        .routeAndroidPaymentsToGooglePlayBilling) {
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeaguePayment] payForOrganizerVerificationRenewal '
+          '→ Google Play Billing',
+        );
+      }
+      return _purchaseVerificationRenewalViaGooglePlay(
+        userId: userId,
+        masterLeagueId: masterLeagueId,
+        masterLeagueName: masterLeagueName,
+      );
+    }
+
+    // ── Web / other → Flutterwave ─────────────────────────────────────────
+    if (kDebugMode) {
+      debugPrint(
+        '[MasterLeaguePayment] payForOrganizerVerificationRenewal '
+        '→ Flutterwave',
+      );
     }
 
     try {
       final safeMasterLeagueId = masterLeagueId.trim();
       final safeMasterLeagueName = masterLeagueName.trim();
 
-      if (safeMasterLeagueId.isEmpty || safeMasterLeagueName.isEmpty) {
+      if (safeMasterLeagueId.isEmpty ||
+          safeMasterLeagueName.isEmpty) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
           errorMessage: 'Master League information is missing.',
         );
       }
 
-      final remotePlan = await RemotePricingService.instance.getPlanForLocale(
+      final remotePlan =
+          await RemotePricingService.instance.getPlanForLocale(
         _effectiveLocale(context),
       );
 
@@ -698,14 +1044,16 @@ class FlutterwaveMasterLeaguePaymentService
       if (!remotePlan.flutterwaveEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Flutterwave payments are currently unavailable.',
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
         );
       }
 
       if (!remotePlan.organizerVerificationRenewalEnabled) {
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
-          errorMessage: 'Verification renewal is currently disabled.',
+          errorMessage:
+              'Verification renewal is currently disabled.',
         );
       }
 
@@ -714,19 +1062,22 @@ class FlutterwaveMasterLeaguePaymentService
         return MasterLeaguePaymentResult.failed(
           provider: providerName,
           errorMessage:
-              'Verification renewal price is not configured correctly.',
+              'Verification renewal price is not configured '
+              'correctly.',
         );
       }
 
-      final currencyUsed = remotePlan.currency.trim().toUpperCase();
+      final currencyUsed =
+          remotePlan.currency.trim().toUpperCase();
 
-      return _runPayment(
+      return _runFlutterwavePayment(
         context: context,
         userId: userId,
         leagueId: safeMasterLeagueId,
         leagueName: safeMasterLeagueName,
         productType: 'organizer_verification_renewal',
-        productSubType: 'master_league_organizer_verification_renewal',
+        productSubType:
+            'master_league_organizer_verification_renewal',
         metadata: <String, dynamic>{
           'masterLeagueId': safeMasterLeagueId,
           'masterLeagueName': safeMasterLeagueName,
@@ -737,13 +1088,15 @@ class FlutterwaveMasterLeaguePaymentService
         items: <PaymentLineItem>[
           PaymentLineItem(
             productType: 'organizer_verification_renewal',
-            productSubType: 'master_league_organizer_verification_renewal',
+            productSubType:
+                'master_league_organizer_verification_renewal',
             quantity: 1,
             amount: fee,
           ),
         ],
         txRefPrefix: 'EH-ORGR',
-        description: 'Verification renewal: $safeMasterLeagueName',
+        description:
+            'Verification renewal: $safeMasterLeagueName',
         amount: fee,
         currency: currencyUsed,
         analyticsKind: 'organizer_verification_renewal',
