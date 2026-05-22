@@ -1,4 +1,6 @@
+// lib/features/leagues/logic/league_creation_payment_service.dart
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutterwave_standard/flutterwave.dart';
@@ -18,6 +20,8 @@ final leagueCreationPaymentServiceProvider =
     Provider<LeagueCreationPaymentService>((ref) {
   return FlutterwaveLeagueCreationPaymentService();
 });
+
+// ── Result ────────────────────────────────────────────────────────────────────
 
 class LeagueCreationPaymentResult {
   final bool success;
@@ -122,6 +126,8 @@ class LeagueCreationPaymentResult {
   }
 }
 
+// ── Abstract contract ─────────────────────────────────────────────────────────
+
 abstract class LeagueCreationPaymentService {
   Future<LeagueCreationPaymentResult> collectLeagueCreationFee({
     required BuildContext context,
@@ -139,6 +145,8 @@ abstract class LeagueCreationPaymentService {
   String get providerName;
 }
 
+// ── Implementation ─────────────────────────────────────────────────────────────
+
 class FlutterwaveLeagueCreationPaymentService
     implements LeagueCreationPaymentService {
   final Uuid _uuid = const Uuid();
@@ -148,23 +156,6 @@ class FlutterwaveLeagueCreationPaymentService
       PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
           ? 'google_play_billing'
           : 'flutterwave';
-
-  LeagueCreationPaymentResult _playBillingNotReady({
-    required bool addonsOnly,
-    required bool premiumUpgrade,
-    required MasterLeaguePlan selectedPlan,
-  }) {
-    return LeagueCreationPaymentResult.failed(
-      provider: providerName,
-      selectedPlanId: selectedPlan.id,
-      errorMessage: GooglePlayBillingService.instance
-          .pendingLeagueCreationMessage(
-        addonsOnly: addonsOnly,
-        premiumUpgrade: premiumUpgrade,
-        selectedPlan: selectedPlan,
-      ),
-    );
-  }
 
   String _toFlutterwaveAmount(double v) {
     final rounded = double.parse(v.toStringAsFixed(2));
@@ -183,24 +174,28 @@ class FlutterwaveLeagueCreationPaymentService
   }
 
   bool _isChargeSuccessful(ChargeResponse response) {
-    final status = (response.status ?? '').toString().trim().toLowerCase();
+    final status =
+        (response.status ?? '').toString().trim().toLowerCase();
     return response.success == true || status == 'successful';
   }
 
   String _cleanErrorMessage(Object error) {
     final raw = error.toString().trim();
-
-    if (raw.contains('Payment verification endpoint was not found (404)')) {
-      return 'Payment verification service is not available right now. Please contact support or try again later.';
+    if (raw.contains(
+        'Payment verification endpoint was not found (404)')) {
+      return 'Payment verification service is not available right now. '
+          'Please contact support or try again later.';
     }
     if (raw.contains('Payment verification failed (404)')) {
-      return 'Payment verification service is not available right now. Please contact support or try again later.';
+      return 'Payment verification service is not available right now. '
+          'Please contact support or try again later.';
     }
     if (raw.contains('Bad state:')) {
       return raw.replaceFirst('Bad state:', '').trim();
     }
     if (raw.contains('SocketException')) {
-      return 'Network error while verifying payment. Please check your internet and try again.';
+      return 'Network error while verifying payment. '
+          'Please check your internet and try again.';
     }
     if (raw.contains('timed out')) {
       return 'Payment verification timed out. Please try again.';
@@ -208,32 +203,151 @@ class FlutterwaveLeagueCreationPaymentService
     return raw;
   }
 
-  @override
-  Future<LeagueCreationPaymentResult> collectLeagueCreationFee({
-    required BuildContext context,
+  // ── Google Play Billing path ─────────────────────────────────────────────
+
+  Future<LeagueCreationPaymentResult> _collectViaGooglePlay({
     required String userId,
     required String leagueName,
-    bool addonsOnly = false,
-    bool premiumUpgrade = false,
-    MasterLeaguePlan? selectedPlan,
-    int viewerCapacity = 0,
-    bool buyCouponsForParticipants = false,
-    int couponDiscountPercent = 0,
-    int couponCount = 0,
+    required bool addonsOnly,
+    required bool premiumUpgrade,
+    required MasterLeaguePlan chosenPlan,
+    required bool buyCouponsForParticipants,
+    required int discountPercent,
+    required int safeCouponCount,
   }) async {
-    final discountPercent = _sanitizePercent(couponDiscountPercent);
-    final safeCouponCount =
-        buyCouponsForParticipants ? _sanitizeCount(couponCount) : 0;
-    final chosenPlan = selectedPlan ?? MasterLeaguePlan.pro;
-
-    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
-      return _playBillingNotReady(
-        addonsOnly: addonsOnly,
-        premiumUpgrade: premiumUpgrade,
-        selectedPlan: chosenPlan,
+    final uid =
+        (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    if (uid.isEmpty) {
+      return LeagueCreationPaymentResult.failed(
+        provider: providerName,
+        errorMessage: 'Please sign in to continue.',
+        selectedPlanId: chosenPlan.id,
       );
     }
 
+    // Create Firestore attempt first.
+    final productType = premiumUpgrade
+        ? 'plan_subscription'
+        : (addonsOnly ? 'league_upgrade' : 'league_creation');
+    final productSubType = premiumUpgrade
+        ? 'plan_${chosenPlan.id}_3mo'
+        : (addonsOnly
+            ? 'league_addons_only'
+            : 'league_creation_checkout');
+
+    final attemptId =
+        await GooglePlayBillingService.instance.createAttempt(
+      userId: uid,
+      productId: premiumUpgrade
+          ? GooglePlayBillingCatalog.subscriptionIdForPlan(
+              plan: chosenPlan,
+              duration: PlanDuration.threeMonths,
+            )
+          : (addonsOnly
+              ? GooglePlayBillingCatalog.leagueAddonsPackId
+              : GooglePlayBillingCatalog.leagueCreationUnlockId),
+      productType: productType,
+      productSubType: productSubType,
+      leagueName: leagueName,
+      planId: premiumUpgrade ? chosenPlan.id : '',
+      planDurationId: premiumUpgrade ? '3mo' : '',
+      metadata: <String, dynamic>{
+        'addonsOnly': addonsOnly,
+        'premiumUpgrade': premiumUpgrade,
+        'selectedPlanId': chosenPlan.id,
+        'viewerCapacity': 0,
+        'buyCouponsForParticipants':
+            premiumUpgrade ? false : buyCouponsForParticipants,
+        'couponDiscountPercent':
+            premiumUpgrade ? 0 : discountPercent,
+        'couponCount': premiumUpgrade ? 0 : safeCouponCount,
+      },
+    );
+
+    GooglePlayPurchaseResult gpResult;
+
+    if (premiumUpgrade) {
+      gpResult = await GooglePlayBillingService.instance
+          .purchasePlanSubscription(
+        plan: chosenPlan,
+        duration: PlanDuration.threeMonths,
+        userId: uid,
+        attemptId: attemptId,
+      );
+    } else if (addonsOnly) {
+      gpResult =
+          await GooglePlayBillingService.instance.purchaseLeagueAddons(
+        userId: uid,
+        leagueName: leagueName,
+        attemptId: attemptId,
+      );
+    } else {
+      gpResult = await GooglePlayBillingService.instance
+          .purchaseLeagueCreation(
+        userId: uid,
+        leagueName: leagueName,
+        attemptId: attemptId,
+      );
+    }
+
+    if (!gpResult.success) {
+      final msg = gpResult.errorMessage ?? 'Purchase failed.';
+      // Mark cancelled vs failed based on message.
+      if (msg.toLowerCase().contains('cancel') &&
+          attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientCancelled(
+          attemptId: attemptId,
+          reason: msg,
+        );
+      } else if (attemptId.isNotEmpty) {
+        await PaymentsService.instance.markClientFailed(
+          attemptId: attemptId,
+          errorMessage: msg,
+        );
+      }
+      return LeagueCreationPaymentResult.failed(
+        provider: providerName,
+        errorMessage: msg,
+        selectedPlanId: chosenPlan.id,
+        attemptId: attemptId,
+        paymentId: gpResult.paymentId,
+      );
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return LeagueCreationPaymentResult.paid(
+      receiptId: gpResult.orderId.isNotEmpty
+          ? gpResult.orderId
+          : gpResult.purchaseToken,
+      paidAtMs: now,
+      provider: providerName,
+      viewerCapacity: 0,
+      buyCouponsForParticipants:
+          premiumUpgrade ? false : buyCouponsForParticipants,
+      couponDiscountPercent: premiumUpgrade ? 0 : discountPercent,
+      couponCount: premiumUpgrade ? 0 : safeCouponCount,
+      totalAmount: '',
+      selectedPlanId: chosenPlan.id,
+      attemptId: attemptId,
+      paymentId: gpResult.paymentId,
+      transactionId: gpResult.orderId,
+      txRef: gpResult.purchaseToken,
+    );
+  }
+
+  // ── Flutterwave path (web + non-Android) ─────────────────────────────────
+
+  Future<LeagueCreationPaymentResult> _collectViaFlutterwave({
+    required BuildContext context,
+    required String userId,
+    required String leagueName,
+    required bool addonsOnly,
+    required bool premiumUpgrade,
+    required MasterLeaguePlan chosenPlan,
+    required bool buyCouponsForParticipants,
+    required int discountPercent,
+    required int safeCouponCount,
+  }) async {
     String attemptId = '';
     String totalAmount = '';
     String currencyUsed = '';
@@ -242,31 +356,32 @@ class FlutterwaveLeagueCreationPaymentService
       final authUser = FirebaseAuth.instance.currentUser;
       if (authUser == null || authUser.uid.trim().isEmpty) {
         return LeagueCreationPaymentResult.failed(
-          provider: providerName,
+          provider: 'flutterwave',
           errorMessage: 'Please sign in to continue.',
           selectedPlanId: chosenPlan.id,
         );
       }
 
-      final effectiveUserId =
-          userId.trim().isNotEmpty ? userId.trim() : authUser.uid.trim();
-
+      final effectiveUserId = userId.trim().isNotEmpty
+          ? userId.trim()
+          : authUser.uid.trim();
       final safeLeagueName = leagueName.trim();
       if (safeLeagueName.isEmpty) {
         return LeagueCreationPaymentResult.failed(
-          provider: providerName,
+          provider: 'flutterwave',
           errorMessage: 'League name is required.',
           selectedPlanId: chosenPlan.id,
         );
       }
 
-      final plan = await RemotePricingService.instance.getPlanForLocale(
+      final plan =
+          await RemotePricingService.instance.getPlanForLocale(
         Localizations.maybeLocaleOf(context),
       );
 
       if (!plan.paymentsEnabled) {
         return LeagueCreationPaymentResult.failed(
-          provider: providerName,
+          provider: 'flutterwave',
           errorMessage:
               'Payments are temporarily disabled by the administrator.',
           selectedPlanId: chosenPlan.id,
@@ -275,8 +390,9 @@ class FlutterwaveLeagueCreationPaymentService
 
       if (!plan.flutterwaveEnabled) {
         return LeagueCreationPaymentResult.failed(
-          provider: providerName,
-          errorMessage: 'Flutterwave payments are currently unavailable.',
+          provider: 'flutterwave',
+          errorMessage:
+              'Flutterwave payments are currently unavailable.',
           selectedPlanId: chosenPlan.id,
         );
       }
@@ -286,7 +402,8 @@ class FlutterwaveLeagueCreationPaymentService
       String productSubType = '';
 
       if (premiumUpgrade) {
-        final mlPrice = await MasterLeaguePricingService().getPlanPrice(
+        final mlPrice =
+            await MasterLeaguePricingService().getPlanPrice(
           plan: chosenPlan,
           duration: PlanDuration.threeMonths,
           locale: Localizations.maybeLocaleOf(context),
@@ -294,9 +411,10 @@ class FlutterwaveLeagueCreationPaymentService
 
         if (mlPrice == null) {
           return LeagueCreationPaymentResult.failed(
-            provider: providerName,
+            provider: 'flutterwave',
             errorMessage:
-                "${chosenPlan.displayName} price isn't configured yet. Please try again later.",
+                "${chosenPlan.displayName} price isn't configured yet. "
+                'Please try again later.',
             selectedPlanId: chosenPlan.id,
           );
         }
@@ -308,9 +426,11 @@ class FlutterwaveLeagueCreationPaymentService
       } else {
         currencyUsed = plan.currency.trim().toUpperCase();
         base = addonsOnly ? 0.0 : plan.createLeagueFee;
-        productType = addonsOnly ? 'league_upgrade' : 'league_creation';
-        productSubType =
-            addonsOnly ? 'league_addons_only' : 'league_creation_checkout';
+        productType =
+            addonsOnly ? 'league_upgrade' : 'league_creation';
+        productSubType = addonsOnly
+            ? 'league_addons_only'
+            : 'league_creation_checkout';
       }
 
       if (currencyUsed.isEmpty) {
@@ -322,8 +442,9 @@ class FlutterwaveLeagueCreationPaymentService
           safeCouponCount > 0 &&
           discountPercent <= 0) {
         return LeagueCreationPaymentResult.failed(
-          provider: providerName,
-          errorMessage: 'Discount must be greater than 0 when buying coupons.',
+          provider: 'flutterwave',
+          errorMessage:
+              'Discount must be greater than 0 when buying coupons.',
           selectedPlanId: chosenPlan.id,
         );
       }
@@ -337,7 +458,10 @@ class FlutterwaveLeagueCreationPaymentService
 
       final totalNumeric = _roundMoney(
         currencyUsed,
-        base + (premiumUpgrade ? 0.0 : couponPricing.discountedSubtotal),
+        base +
+            (premiumUpgrade
+                ? 0.0
+                : couponPricing.discountedSubtotal),
       );
 
       if (totalNumeric <= 0) {
@@ -384,7 +508,7 @@ class FlutterwaveLeagueCreationPaymentService
 
       attemptId = await PaymentsService.instance.createAttempt(
         PaymentAttemptCreate(
-          provider: providerName,
+          provider: 'flutterwave',
           currency: currencyUsed,
           amount: totalNumeric,
           amountStr: totalAmount,
@@ -399,10 +523,11 @@ class FlutterwaveLeagueCreationPaymentService
             'addonsOnly': addonsOnly,
             'premiumUpgrade': premiumUpgrade,
             'selectedPlanId': chosenPlan.id,
-            'viewerCapacity': viewerCapacity,
+            'viewerCapacity': 0,
             'buyCouponsForParticipants':
                 premiumUpgrade ? false : buyCouponsForParticipants,
-            'couponDiscountPercent': premiumUpgrade ? 0 : discountPercent,
+            'couponDiscountPercent':
+                premiumUpgrade ? 0 : discountPercent,
             'couponCount': premiumUpgrade ? 0 : safeCouponCount,
           },
           items: items,
@@ -415,21 +540,24 @@ class FlutterwaveLeagueCreationPaymentService
             : (addonsOnly ? 'league_upgrade' : 'league_creation'),
         leagueId: '',
         leagueName: safeLeagueName,
-        provider: providerName,
+        provider: 'flutterwave',
         currency: currencyUsed,
         amount: totalAmount,
         userId: effectiveUserId,
       );
 
-      final String email = (authUser.email?.trim().isNotEmpty ?? false)
-          ? authUser.email!.trim()
-          : 'user_$effectiveUserId@eleaguehub.app';
-      final String phone = (authUser.phoneNumber?.trim().isNotEmpty ?? false)
-          ? authUser.phoneNumber!.trim()
-          : '0000000000';
-      final String name = (authUser.displayName?.trim().isNotEmpty ?? false)
-          ? authUser.displayName!.trim()
-          : 'EleagueHub User';
+      final String email =
+          (authUser.email?.trim().isNotEmpty ?? false)
+              ? authUser.email!.trim()
+              : 'user_$effectiveUserId@eleaguehub.app';
+      final String phone =
+          (authUser.phoneNumber?.trim().isNotEmpty ?? false)
+              ? authUser.phoneNumber!.trim()
+              : '0000000000';
+      final String name =
+          (authUser.displayName?.trim().isNotEmpty ?? false)
+              ? authUser.displayName!.trim()
+              : 'EleagueHub User';
 
       final customer = Customer(
         name: name,
@@ -438,10 +566,14 @@ class FlutterwaveLeagueCreationPaymentService
       );
 
       final txRef = premiumUpgrade
-          ? 'EH-PLAN-${chosenPlan.id.toUpperCase()}-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}'
+          ? 'EH-PLAN-${chosenPlan.id.toUpperCase()}'
+            '-${DateTime.now().millisecondsSinceEpoch}'
+            '-${_uuid.v4()}'
           : (addonsOnly
-              ? 'EH-UPG-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}'
-              : 'EH-CRT-${DateTime.now().millisecondsSinceEpoch}-${_uuid.v4()}');
+              ? 'EH-UPG-${DateTime.now().millisecondsSinceEpoch}'
+                '-${_uuid.v4()}'
+              : 'EH-CRT-${DateTime.now().millisecondsSinceEpoch}'
+                '-${_uuid.v4()}');
 
       final flutterwave = Flutterwave(
         publicKey: FlutterwaveConfig.publicKey,
@@ -463,10 +595,12 @@ class FlutterwaveLeagueCreationPaymentService
         isTestMode: FlutterwaveConfig.isTestMode,
       );
 
-      final ChargeResponse response = await flutterwave.charge(context);
+      final ChargeResponse response =
+          await flutterwave.charge(context);
 
       if (_isChargeSuccessful(response)) {
-        final txId = (response.transactionId ?? '').toString().trim();
+        final txId =
+            (response.transactionId ?? '').toString().trim();
         if (txId.isEmpty) {
           if (attemptId.isNotEmpty) {
             await PaymentsService.instance.markClientFailed(
@@ -475,7 +609,7 @@ class FlutterwaveLeagueCreationPaymentService
             );
           }
           return LeagueCreationPaymentResult.failed(
-            provider: providerName,
+            provider: 'flutterwave',
             errorMessage: 'Missing transaction id.',
             totalAmount: totalAmount,
             buyCouponsForParticipants: false,
@@ -500,17 +634,20 @@ class FlutterwaveLeagueCreationPaymentService
 
         if (!verification.success) {
           final cleanError = _cleanErrorMessage(
-            verification.errorMessage ?? 'Payment verification failed.',
+            verification.errorMessage ??
+                'Payment verification failed.',
           );
 
           await AppAnalyticsService.instance.logPaymentResult(
             kind: premiumUpgrade
                 ? 'plan_subscription'
-                : (addonsOnly ? 'league_upgrade' : 'league_creation'),
+                : (addonsOnly
+                    ? 'league_upgrade'
+                    : 'league_creation'),
             leagueId: '',
             leagueName: safeLeagueName,
             success: false,
-            provider: providerName,
+            provider: 'flutterwave',
             currency: currencyUsed,
             amount: totalAmount,
             receiptId: null,
@@ -519,7 +656,7 @@ class FlutterwaveLeagueCreationPaymentService
           );
 
           return LeagueCreationPaymentResult.failed(
-            provider: providerName,
+            provider: 'flutterwave',
             errorMessage: cleanError,
             totalAmount: totalAmount,
             selectedPlanId: chosenPlan.id,
@@ -537,7 +674,7 @@ class FlutterwaveLeagueCreationPaymentService
           leagueId: '',
           leagueName: safeLeagueName,
           success: true,
-          provider: providerName,
+          provider: 'flutterwave',
           currency: verification.currency.isNotEmpty
               ? verification.currency
               : currencyUsed,
@@ -556,7 +693,8 @@ class FlutterwaveLeagueCreationPaymentService
           viewerCapacity: 0,
           buyCouponsForParticipants:
               premiumUpgrade ? false : buyCouponsForParticipants,
-          couponDiscountPercent: premiumUpgrade ? 0 : discountPercent,
+          couponDiscountPercent:
+              premiumUpgrade ? 0 : discountPercent,
           couponCount: premiumUpgrade ? 0 : safeCouponCount,
           totalAmount: verification.amountStr.isNotEmpty
               ? verification.amountStr
@@ -577,7 +715,7 @@ class FlutterwaveLeagueCreationPaymentService
       }
 
       return LeagueCreationPaymentResult.failed(
-        provider: providerName,
+        provider: 'flutterwave',
         errorMessage: 'Payment cancelled or not successful',
         viewerCapacity: 0,
         buyCouponsForParticipants:
@@ -599,7 +737,7 @@ class FlutterwaveLeagueCreationPaymentService
       }
 
       return LeagueCreationPaymentResult.failed(
-        provider: providerName,
+        provider: 'flutterwave',
         errorMessage: _cleanErrorMessage(e),
         viewerCapacity: 0,
         buyCouponsForParticipants:
@@ -611,5 +749,61 @@ class FlutterwaveLeagueCreationPaymentService
         attemptId: attemptId,
       );
     }
+  }
+
+  // ── Public entry point ────────────────────────────────────────────────────
+
+  @override
+  Future<LeagueCreationPaymentResult> collectLeagueCreationFee({
+    required BuildContext context,
+    required String userId,
+    required String leagueName,
+    bool addonsOnly = false,
+    bool premiumUpgrade = false,
+    MasterLeaguePlan? selectedPlan,
+    int viewerCapacity = 0,
+    bool buyCouponsForParticipants = false,
+    int couponDiscountPercent = 0,
+    int couponCount = 0,
+  }) async {
+    final discountPercent = _sanitizePercent(couponDiscountPercent);
+    final safeCouponCount =
+        buyCouponsForParticipants ? _sanitizeCount(couponCount) : 0;
+    final chosenPlan = selectedPlan ?? MasterLeaguePlan.pro;
+
+    // ── Route: Google Play Billing (Android) ──────────────────────────────
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      if (kDebugMode) {
+        debugPrint(
+            '[LeagueCreationPayment] Using Google Play Billing');
+      }
+      return _collectViaGooglePlay(
+        userId: userId,
+        leagueName: leagueName,
+        addonsOnly: addonsOnly,
+        premiumUpgrade: premiumUpgrade,
+        chosenPlan: chosenPlan,
+        buyCouponsForParticipants: buyCouponsForParticipants,
+        discountPercent: discountPercent,
+        safeCouponCount: safeCouponCount,
+      );
+    }
+
+    // ── Route: Flutterwave (web + non-Android) ────────────────────────────
+    if (kDebugMode) {
+      debugPrint(
+          '[LeagueCreationPayment] Using Flutterwave');
+    }
+    return _collectViaFlutterwave(
+      context: context,
+      userId: userId,
+      leagueName: leagueName,
+      addonsOnly: addonsOnly,
+      premiumUpgrade: premiumUpgrade,
+      chosenPlan: chosenPlan,
+      buyCouponsForParticipants: buyCouponsForParticipants,
+      discountPercent: discountPercent,
+      safeCouponCount: safeCouponCount,
+    );
   }
 }
