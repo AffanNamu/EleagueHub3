@@ -14,7 +14,6 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final UserProfileRepository _profiles = UserProfileRepository();
-
   final TextEditingController _teamNameCtrl = TextEditingController();
 
   bool _saving = false;
@@ -24,20 +23,53 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String _experience = '';
   String _goal = '';
 
+  // ─── Game catalogue ────────────────────────────────────────────────────────
+
+  static const _gameGroups = <_GameGroup>[
+    _GameGroup(
+      label: '⚽ Console / PC',
+      icon: Icons.sports_esports,
+      games: [
+        'EA Sports FC 25',
+        'FIFA 23',
+        'eFootball',
+        'PES 2021',
+        'PES 2017',
+        'UFL',
+        'Rocket League',
+      ],
+    ),
+    _GameGroup(
+      label: '📱 Mobile',
+      icon: Icons.smartphone,
+      games: [
+        'EA Sports FC Mobile',
+        'Dream League Soccer',
+        'Soccer Stars',
+        'Total Football',
+        'Football Strike',
+        'Mini Football',
+        'Score! Match',
+      ],
+    ),
+  ];
+
+  // ─── Lifecycle ─────────────────────────────────────────────────────────────
+
   @override
   void dispose() {
     _teamNameCtrl.dispose();
     super.dispose();
   }
 
-  Map<String, dynamic> _buildOnboardingAnswers() {
-    return <String, dynamic>{
-      'game': _game,
-      'experience': _experience,
-      'goal': _goal,
-      'category': 'football',
-    };
-  }
+  // ─── Helpers ───────────────────────────────────────────────────────────────
+
+  Map<String, dynamic> _buildOnboardingAnswers() => <String, dynamic>{
+        'game': _game,
+        'experience': _experience,
+        'goal': _goal,
+        'category': 'football',
+      };
 
   Future<void> _finish() async {
     if (_saving) return;
@@ -56,31 +88,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() => _saving = true);
 
     try {
-      final onboardingAnswers = _buildOnboardingAnswers();
-
       await _profiles.createProfileIfMissing(
         teamName: teamName,
         authProvider: 'email',
-        onboardingAnswers: onboardingAnswers,
+        onboardingAnswers: _buildOnboardingAnswers(),
       );
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$e'),
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text('$e'), behavior: SnackBarBehavior.floating),
       );
     } finally {
-      if (mounted) {
-        setState(() => _saving = false);
-      }
+      if (mounted) setState(() => _saving = false);
     }
   }
+
+  // ─── Widget builders ───────────────────────────────────────────────────────
 
   Widget _choiceChip({
     required String label,
@@ -127,8 +153,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     required bool active,
     String? subtitle,
   }) {
-    final theme = Theme.of(context);
-    final brightness = theme.brightness;
+    final brightness = Theme.of(context).brightness;
 
     return Step(
       title: Column(
@@ -167,7 +192,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Widget _sectionTitle(String text) {
     final brightness = Theme.of(context).brightness;
-
     return Text(
       text,
       style: TextStyle(
@@ -178,19 +202,78 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
+  /// Renders a labelled group header for game categories.
+  Widget _groupHeader(String label, IconData icon) {
+    final brightness = Theme.of(context).brightness;
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, bottom: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: AppTheme.secondaryText(brightness)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.secondaryText(brightness),
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Divider(
+              color: AppTheme.cardBorder(brightness),
+              thickness: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the full game-picker widget with grouped categories.
+  Widget _gamePicker() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Select Your Main Football Game'),
+        ..._gameGroups.map((group) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _groupHeader(group.label, group.icon),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: group.games
+                      .map(
+                        (game) => _choiceChip(
+                          label: game,
+                          icon: group.icon,
+                          groupValue: _game,
+                          onSelected: (v) => setState(() => _game = v),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+            )),
+      ],
+    );
+  }
+
+  // ─── Build ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final brightness = theme.brightness;
+    final brightness = Theme.of(context).brightness;
 
     final canContinueStep0 = _teamNameCtrl.text.trim().isNotEmpty;
     final canContinueStep1 = _game.trim().isNotEmpty;
     final canContinueStep2 = _experience.trim().isNotEmpty;
 
     return GlassScaffold(
-      appBar: AppBar(
-        title: const Text('Welcome to eSportlyic'),
-      ),
+      appBar: AppBar(title: const Text('Welcome to eSportlyic')),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -206,6 +289,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   type: StepperType.vertical,
                   elevation: 0,
                   currentStep: _step,
+                  // ── Controls ──────────────────────────────────────────────
                   controlsBuilder: (context, details) {
                     return Padding(
                       padding: const EdgeInsets.only(top: 16),
@@ -220,7 +304,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 vertical: 14,
                               ),
                             ),
-                            onPressed: _saving ? null : details.onStepContinue,
+                            onPressed:
+                                _saving ? null : details.onStepContinue,
                             child: _saving && _step == 3
                                 ? const SizedBox(
                                     width: 18,
@@ -231,47 +316,47 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                     ),
                                   )
                                 : Text(
-                                    _step == 3 ? 'Complete Setup' : 'Continue',
+                                    _step == 3
+                                        ? 'Complete Setup'
+                                        : 'Continue',
                                   ),
                           ),
                           const SizedBox(width: 12),
                           TextButton(
                             onPressed: _saving ? null : details.onStepCancel,
-                            child: Text(_step == 0 ? 'Close' : 'Back'),
+                            child:
+                                Text(_step == 0 ? 'Close' : 'Back'),
                           ),
                         ],
                       ),
                     );
                   },
+                  // ── Navigation ────────────────────────────────────────────
                   onStepContinue: () {
                     if (_step == 0 && canContinueStep0) {
                       setState(() => _step = 1);
                       return;
                     }
-
                     if (_step == 1 && canContinueStep1) {
                       setState(() => _step = 2);
                       return;
                     }
-
                     if (_step == 2 && canContinueStep2) {
                       setState(() => _step = 3);
                       return;
                     }
-
-                    if (_step == 3) {
-                      _finish();
-                    }
+                    if (_step == 3) _finish();
                   },
                   onStepCancel: () {
                     if (_step == 0) {
                       Navigator.of(context).maybePop();
                       return;
                     }
-
                     setState(() => _step -= 1);
                   },
+                  // ── Steps ─────────────────────────────────────────────────
                   steps: [
+                    // Step 0 – Identity
                     _stepCard(
                       context: context,
                       title: 'Identity',
@@ -294,54 +379,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         ],
                       ),
                     ),
+
+                    // Step 1 – Football Platform (all 14 games)
                     _stepCard(
                       context: context,
                       title: 'Football Platform',
                       subtitle:
                           'Choose the football game you mainly compete in.',
                       active: _step >= 1,
-                      content: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _sectionTitle('Select Your Main Football Game'),
-                          const SizedBox(height: 14),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              _choiceChip(
-                                label: 'eFootball Mobile',
-                                icon: Icons.sports_soccer,
-                                groupValue: _game,
-                                onSelected: (v) =>
-                                    setState(() => _game = v),
-                              ),
-                              _choiceChip(
-                                label: 'EA SPORTS FC Mobile',
-                                icon: Icons.sports_soccer,
-                                groupValue: _game,
-                                onSelected: (v) =>
-                                    setState(() => _game = v),
-                              ),
-                              _choiceChip(
-                                label: 'eFootball Console',
-                                icon: Icons.sports_esports,
-                                groupValue: _game,
-                                onSelected: (v) =>
-                                    setState(() => _game = v),
-                              ),
-                              _choiceChip(
-                                label: 'EA SPORTS FC Console',
-                                icon: Icons.sports_esports,
-                                groupValue: _game,
-                                onSelected: (v) =>
-                                    setState(() => _game = v),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                      content: _gamePicker(),
                     ),
+
+                    // Step 2 – Experience Level
                     _stepCard(
                       context: context,
                       title: 'Experience Level',
@@ -357,40 +406,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             spacing: 10,
                             runSpacing: 10,
                             children: [
-                              _choiceChip(
-                                label: 'Beginner',
-                                groupValue: _experience,
-                                onSelected: (v) =>
-                                    setState(() => _experience = v),
-                              ),
-                              _choiceChip(
-                                label: 'Intermediate',
-                                groupValue: _experience,
-                                onSelected: (v) =>
-                                    setState(() => _experience = v),
-                              ),
-                              _choiceChip(
-                                label: 'Professional',
-                                groupValue: _experience,
-                                onSelected: (v) =>
-                                    setState(() => _experience = v),
-                              ),
-                              _choiceChip(
-                                label: 'Tournament Organizer',
-                                groupValue: _experience,
-                                onSelected: (v) =>
-                                    setState(() => _experience = v),
-                              ),
-                            ],
+                              'Beginner',
+                              'Intermediate',
+                              'Professional',
+                              'Tournament Organizer',
+                            ]
+                                .map(
+                                  (lvl) => _choiceChip(
+                                    label: lvl,
+                                    groupValue: _experience,
+                                    onSelected: (v) =>
+                                        setState(() => _experience = v),
+                                  ),
+                                )
+                                .toList(),
                           ),
                         ],
                       ),
                     ),
+
+                    // Step 3 – Goal
                     _stepCard(
                       context: context,
                       title: 'Your Goal',
                       subtitle:
-                          'Tell us what you want to achieve on eSportyic.',
+                          'Tell us what you want to achieve on eSportlyic.',
                       active: _step >= 3,
                       content: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -419,4 +459,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ),
     );
   }
+}
+
+// ─── Data model ──────────────────────────────────────────────────────────────
+
+/// Immutable descriptor for a labelled group of games.
+class _GameGroup {
+  const _GameGroup({
+    required this.label,
+    required this.icon,
+    required this.games,
+  });
+
+  final String label;
+  final IconData icon;
+  final List<String> games;
 }
