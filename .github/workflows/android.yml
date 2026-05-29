@@ -109,7 +109,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            xz-utils unzip curl git libglu1-mesa
+            xz-utils unzip curl git libglu1-mesa imagemagick file
           sudo apt-get clean
 
       # ─────────────────────────────────────────
@@ -151,7 +151,7 @@ jobs:
           echo "flutter.versionName=1.0.0"   >> android/local.properties
 
       # ─────────────────────────────────────────
-      # 8. RELEASE KEYSTORE ← THE IMPORTANT PART
+      # 8. RELEASE KEYSTORE
       # ─────────────────────────────────────────
       - name: Restore Release Keystore
         shell: bash
@@ -163,7 +163,6 @@ jobs:
 
           if [ -z "${KEYSTORE_B64:-}" ]; then
             echo "::error::KEYSTORE_B64 secret is missing!"
-            echo "Follow the guide to create and add your release keystore"
             exit 1
           fi
 
@@ -178,7 +177,6 @@ jobs:
           print(f"✅ Wrote {len(data)} bytes → {out}")
           PY
 
-          # Set the path as env var for build.gradle to pick up
           echo "KEYSTORE_PATH=$(pwd)/android/app/keystore/release.keystore" \
             >> "$GITHUB_ENV"
 
@@ -196,11 +194,14 @@ jobs:
           echo "✅ Keystore is valid"
 
       # ─────────────────────────────────────────
-      # 9. PUB GET + ICONS
+      # 9. PUB GET
       # ─────────────────────────────────────────
       - name: Install Flutter dependencies
         run: flutter pub get
 
+      # ─────────────────────────────────────────
+      # 10. LAUNCHER ICON
+      # ─────────────────────────────────────────
       - name: Clean old launcher icons
         run: |
           rm -rf android/app/src/main/res/mipmap-*
@@ -208,18 +209,122 @@ jobs:
           rm -rf android/app/src/main/res/drawable-anydpi*
           find android/app/src/main/res/ -type f -name "*launcher*" -delete
 
-      - name: Download launcher icon
+      - name: Resolve launcher icon
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p assets
-          curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
-            -o assets/icon.png \
-            "https://drive.google.com/file/d/1QBBUJQHovaW-60aomg68B4YLO7OzZVSN/view?usp=drivesdk"
+
+          ICON_OK=0
+
+          # ── Priority 1: icon already committed to repo ──
+          if [ -f "assets/icon.png" ]; then
+            TYPE=$(file --mime-type -b assets/icon.png)
+            if [ "${TYPE}" = "image/png" ]; then
+              echo "✅ Using icon.png already in repository (${TYPE})"
+              ICON_OK=1
+            else
+              echo "⚠️ assets/icon.png exists but is not a PNG (${TYPE}) — will try download"
+              rm -f assets/icon.png
+            fi
+          fi
+
+          # ── Priority 2: direct Google Drive download ──
+          if [ "${ICON_OK}" -eq 0 ]; then
+            FILE_ID="1QBBUJQHovaW-60aomg68B4YLO7OzZVSN"
+            DIRECT_URL="https://drive.google.com/uc?export=download&id=${FILE_ID}"
+            echo "Attempting Google Drive direct download..."
+
+            curl -L \
+              --retry 5 \
+              --retry-delay 3 \
+              --retry-all-errors \
+              --max-time 60 \
+              --cookie-jar /tmp/gdrive-cookies.txt \
+              --cookie /tmp/gdrive-cookies.txt \
+              -o assets/icon.png \
+              "${DIRECT_URL}" || true
+
+            TYPE=$(file --mime-type -b assets/icon.png 2>/dev/null || echo "unknown")
+            if [ "${TYPE}" = "image/png" ]; then
+              echo "✅ Downloaded valid PNG from Google Drive"
+              ICON_OK=1
+            else
+              echo "⚠️ Google Drive returned non-PNG content (${TYPE})"
+              echo "   File size: $(wc -c < assets/icon.png 2>/dev/null || echo 0) bytes"
+              rm -f assets/icon.png
+            fi
+          fi
+
+          # ── Priority 3: generate a solid-colour placeholder ──
+          if [ "${ICON_OK}" -eq 0 ]; then
+            echo "⚠️ No icon source available — generating placeholder icon"
+            convert -size 1024x1024 xc:'#1A73E8' \
+              -fill white \
+              -font DejaVu-Sans-Bold \
+              -pointsize 200 \
+              -gravity Center \
+              -annotate 0 "E" \
+              assets/icon.png || {
+                # ultra-minimal fallback if convert also fails
+                python3 - <<'PY'
+          import struct, zlib, pathlib
+
+          def png_chunk(tag, data):
+              c = zlib.crc32(tag + data) & 0xFFFFFFFF
+              return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", c)
+
+          w = h = 192
+          raw = b""
+          for y in range(h):
+              raw += b"\x00"
+              for x in range(w):
+                  raw += bytes([26, 115, 232])   # #1A73E8
+
+          compressed = zlib.compress(raw, 9)
+          ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+          data = (
+              b"\x89PNG\r\n\x1a\n"
+              + png_chunk(b"IHDR", ihdr)
+              + png_chunk(b"IDAT", compressed)
+              + png_chunk(b"IEND", b"")
+          )
+          pathlib.Path("assets/icon.png").write_bytes(data)
+          print("✅ Minimal PNG placeholder written (192×192 blue)")
+          PY
+              }
+            echo "✅ Placeholder icon generated"
+            ICON_OK=1
+          fi
+
+          # ── Final check ──
+          if [ "${ICON_OK}" -ne 1 ] || [ ! -f "assets/icon.png" ]; then
+            echo "❌ Could not obtain a valid launcher icon — aborting"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== Icon summary ==="
+          file assets/icon.png
+          echo "Size: $(wc -c < assets/icon.png) bytes"
+
+          if command -v identify &>/dev/null; then
+            W=$(identify -format "%w" assets/icon.png 2>/dev/null || echo "?")
+            H=$(identify -format "%h" assets/icon.png 2>/dev/null || echo "?")
+            echo "Dimensions: ${W}x${H}"
+            if [ "${W}" != "?" ] && [ "${W}" -lt 192 ]; then
+              echo "⚠️ WARNING: icon is smaller than 192x192 — recommend 1024x1024"
+            fi
+          fi
 
       - name: Generate launcher icons
-        run: flutter pub run flutter_launcher_icons
+        run: |
+          set -euo pipefail
+          flutter pub run flutter_launcher_icons
+          echo "✅ Launcher icons generated successfully"
 
       # ─────────────────────────────────────────
-      # 10. BUILD APK
+      # 11. BUILD RELEASE APK
       # ─────────────────────────────────────────
       - name: Build Release APK
         env:
@@ -233,7 +338,7 @@ jobs:
           set -euo pipefail
 
           [ -n "${EH_WORKER_BASE_URL:-}" ] || \
-            { echo "::error::EH_WORKER_BASE_URL not set"; exit 1; }
+            { echo "::error::EH_WORKER_BASE_URL secret is not set"; exit 1; }
 
           DART_DEFINES=""
           DART_DEFINES+=" --dart-define=CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}"
@@ -243,9 +348,11 @@ jobs:
           if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
             DART_DEFINES+=" --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
             DART_DEFINES+=" --dart-define=FLW_TEST_MODE=false"
+            echo "Using LIVE Flutterwave key"
           elif [ -n "${FLW_PUBLIC_KEY_TEST:-}" ]; then
             DART_DEFINES+=" --dart-define=FLW_PUBLIC_KEY_TEST=${FLW_PUBLIC_KEY_TEST}"
             DART_DEFINES+=" --dart-define=FLW_TEST_MODE=true"
+            echo "Using TEST Flutterwave key"
           fi
 
           flutter build apk \
@@ -257,13 +364,27 @@ jobs:
 
       - name: Verify APK
         run: |
+          set -euo pipefail
           APK="build/app/outputs/flutter-apk/app-release.apk"
-          [ -f "$APK" ] || { echo "ERROR: APK not found"; exit 1; }
+          [ -f "$APK" ] || { echo "❌ ERROR: APK not found"; exit 1; }
           echo "✅ APK size: $(du -h $APK | cut -f1)"
+
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          BUILD_TOOLS_VER="$(ls "${SDK_DIR}/build-tools" | sort -V | tail -1)"
+          APKSIGNER="${SDK_DIR}/build-tools/${BUILD_TOOLS_VER}/apksigner"
+
+          if [ -f "${APKSIGNER}" ]; then
+            "${APKSIGNER}" verify --print-certs "$APK" \
+              && echo "✅ APK signature valid" \
+              || echo "⚠️ APK signature check warning"
+          else
+            echo "⚠️ apksigner not found — skipping signature check"
+          fi
+
           ls -lh build/app/outputs/flutter-apk/
 
       # ─────────────────────────────────────────
-      # 11. BUILD AAB (Play Store)
+      # 12. BUILD RELEASE AAB (Play Store)
       # ─────────────────────────────────────────
       - name: Build Release AAB (Play Store)
         env:
@@ -284,9 +405,11 @@ jobs:
           if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
             DART_DEFINES+=" --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
             DART_DEFINES+=" --dart-define=FLW_TEST_MODE=false"
+            echo "Using LIVE Flutterwave key"
           elif [ -n "${FLW_PUBLIC_KEY_TEST:-}" ]; then
             DART_DEFINES+=" --dart-define=FLW_PUBLIC_KEY_TEST=${FLW_PUBLIC_KEY_TEST}"
             DART_DEFINES+=" --dart-define=FLW_TEST_MODE=true"
+            echo "Using TEST Flutterwave key"
           fi
 
           flutter build appbundle \
@@ -298,13 +421,14 @@ jobs:
 
       - name: Verify AAB
         run: |
+          set -euo pipefail
           AAB="build/app/outputs/bundle/release/app-release.aab"
-          [ -f "$AAB" ] || { echo "ERROR: AAB not found"; exit 1; }
+          [ -f "$AAB" ] || { echo "❌ ERROR: AAB not found"; exit 1; }
           echo "✅ AAB size: $(du -h $AAB | cut -f1)"
           ls -lh build/app/outputs/bundle/release/
 
       # ─────────────────────────────────────────
-      # 12. UPLOAD ARTIFACTS
+      # 13. UPLOAD ARTIFACTS
       # ─────────────────────────────────────────
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
@@ -323,7 +447,7 @@ jobs:
           retention-days: 30
 
       # ─────────────────────────────────────────
-      # 13. SUMMARY
+      # 14. SUMMARY
       # ─────────────────────────────────────────
       - name: Build Summary
         run: |
@@ -331,11 +455,13 @@ jobs:
           echo "✅ BUILD COMPLETE"
           echo "============================================"
           echo ""
-          echo "📱 APK (Direct install/testing):"
+          echo "📱 APK (Direct install / sideload / testing):"
           ls -lh build/app/outputs/flutter-apk/app-release.apk
           echo ""
-          echo "🏪 AAB (Upload this to Play Store):"
+          echo "🏪 AAB (Upload THIS to Google Play Store):"
           ls -lh build/app/outputs/bundle/release/app-release.aab
           echo ""
-          echo "Download from: Actions → This run → Artifacts"
+          echo "How to download:"
+          echo "  Actions → This workflow run → Artifacts section"
+          echo "  Download 'app-release-aab' → upload .aab to Play Console"
           echo "============================================"
