@@ -24,6 +24,7 @@ jobs:
       FLUTTER_VERSION: 3.24.5
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
+      ICON_FILE_ID: "1QBBUJQHovaW-60aomg68B4YLO7OzZVSN"
 
     steps:
       # ─────────────────────────────────────────
@@ -109,7 +110,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            xz-utils unzip curl git libglu1-mesa imagemagick file
+            xz-utils unzip curl git libglu1-mesa imagemagick file python3
           sudo apt-get clean
 
       # ─────────────────────────────────────────
@@ -209,113 +210,272 @@ jobs:
           rm -rf android/app/src/main/res/drawable-anydpi*
           find android/app/src/main/res/ -type f -name "*launcher*" -delete
 
-      - name: Resolve launcher icon
+      - name: Download launcher icon from Google Drive
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p assets
 
+          FILE_ID="${ICON_FILE_ID}"
+          ICON_PATH="assets/icon.png"
+          COOKIE_JAR="/tmp/gdrive_cookies.txt"
           ICON_OK=0
 
-          # ── Priority 1: icon already committed to repo ──
-          if [ -f "assets/icon.png" ]; then
-            TYPE=$(file --mime-type -b assets/icon.png)
-            if [ "${TYPE}" = "image/png" ]; then
-              echo "✅ Using icon.png already in repository (${TYPE})"
-              ICON_OK=1
-            else
-              echo "⚠️ assets/icon.png exists but is not a PNG (${TYPE}) — will try download"
-              rm -f assets/icon.png
-            fi
+          echo "================================================"
+          echo "Downloading icon: File ID = ${FILE_ID}"
+          echo "================================================"
+
+          # ── Attempt 1: Simple direct download ──
+          echo ""
+          echo "🔄 Attempt 1: Simple direct download..."
+          curl -fsSL \
+            --retry 3 \
+            --retry-delay 2 \
+            --max-time 60 \
+            "https://drive.google.com/uc?export=download&id=${FILE_ID}" \
+            -o "${ICON_PATH}" || true
+
+          if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
+            echo "✅ Attempt 1 succeeded"
+            ICON_OK=1
+          else
+            echo "⚠️ Attempt 1 failed — not a PNG"
+            rm -f "${ICON_PATH}"
           fi
 
-          # ── Priority 2: direct Google Drive download ──
+          # ── Attempt 2: With cookie jar (handles large file confirmation) ──
           if [ "${ICON_OK}" -eq 0 ]; then
-            FILE_ID="1QBBUJQHovaW-60aomg68B4YLO7OzZVSN"
-            DIRECT_URL="https://drive.google.com/uc?export=download&id=${FILE_ID}"
-            echo "Attempting Google Drive direct download..."
+            echo ""
+            echo "🔄 Attempt 2: With cookie jar..."
+            rm -f "${COOKIE_JAR}"
 
-            curl -L \
-              --retry 5 \
-              --retry-delay 3 \
-              --retry-all-errors \
+            curl -fsSL \
+              --retry 3 \
+              --retry-delay 2 \
               --max-time 60 \
-              --cookie-jar /tmp/gdrive-cookies.txt \
-              --cookie /tmp/gdrive-cookies.txt \
-              -o assets/icon.png \
-              "${DIRECT_URL}" || true
+              --cookie-jar "${COOKIE_JAR}" \
+              "https://drive.google.com/uc?export=download&id=${FILE_ID}" \
+              -o "${ICON_PATH}" || true
 
-            TYPE=$(file --mime-type -b assets/icon.png 2>/dev/null || echo "unknown")
-            if [ "${TYPE}" = "image/png" ]; then
-              echo "✅ Downloaded valid PNG from Google Drive"
+            if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
+              echo "✅ Attempt 2 succeeded"
               ICON_OK=1
             else
-              echo "⚠️ Google Drive returned non-PNG content (${TYPE})"
-              echo "   File size: $(wc -c < assets/icon.png 2>/dev/null || echo 0) bytes"
-              rm -f assets/icon.png
+              echo "⚠️ Attempt 2 failed — extracting confirm token..."
+              rm -f "${ICON_PATH}"
+
+              # Extract confirm token from response
+              CONFIRM=$(grep -o 'confirm=[^&"]*' /tmp/gdrive_attempt2.html 2>/dev/null \
+                | head -1 | cut -d= -f2 || echo "")
+
+              if [ -z "${CONFIRM}" ]; then
+                CONFIRM="t"
+              fi
+
+              echo "   Using confirm token: ${CONFIRM}"
+
+              curl -fsSL \
+                --retry 3 \
+                --retry-delay 2 \
+                --max-time 60 \
+                --cookie-jar "${COOKIE_JAR}" \
+                --cookie "${COOKIE_JAR}" \
+                "https://drive.google.com/uc?export=download&confirm=${CONFIRM}&id=${FILE_ID}" \
+                -o "${ICON_PATH}" || true
+
+              if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
+                echo "✅ Attempt 2 with confirm token succeeded"
+                ICON_OK=1
+              else
+                echo "⚠️ Attempt 2 with confirm token failed"
+                rm -f "${ICON_PATH}"
+              fi
             fi
           fi
 
-          # ── Priority 3: generate a solid-colour placeholder ──
+          # ── Attempt 3: Python gdown-style download ──
           if [ "${ICON_OK}" -eq 0 ]; then
-            echo "⚠️ No icon source available — generating placeholder icon"
+            echo ""
+            echo "🔄 Attempt 3: Python smart download..."
+            python3 - <<PYEOF
+          import urllib.request
+          import urllib.parse
+          import http.cookiejar
+          import re
+          import sys
+          import os
+
+          file_id = "${FILE_ID}"
+          output  = "${ICON_PATH}"
+
+          jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          opener.addheaders = [
+              ("User-Agent",
+               "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+          ]
+
+          url1 = f"https://drive.google.com/uc?export=download&id={file_id}"
+          print(f"  Fetching: {url1}")
+
+          try:
+              resp1 = opener.open(url1, timeout=60)
+              body  = resp1.read()
+
+              # If it's already a PNG, save it
+              if body[:8] == b"\x89PNG\r\n\x1a\n":
+                  with open(output, "wb") as f:
+                      f.write(body)
+                  print(f"  ✅ Downloaded PNG directly ({len(body)} bytes)")
+                  sys.exit(0)
+
+              # Look for confirm token in HTML
+              text    = body.decode("utf-8", errors="replace")
+              confirm = ""
+
+              for pattern in [
+                  r'confirm=([0-9A-Za-z_\-]+)',
+                  r'"confirm":"([^"]+)"',
+                  r'name="confirm"\s+value="([^"]+)"',
+              ]:
+                  m = re.search(pattern, text)
+                  if m:
+                      confirm = m.group(1)
+                      break
+
+              if not confirm:
+                  confirm = "t"
+
+              print(f"  Confirm token: {confirm}")
+
+              url2 = (
+                  f"https://drive.google.com/uc?export=download"
+                  f"&confirm={confirm}&id={file_id}"
+              )
+              print(f"  Fetching confirmed URL...")
+              resp2 = opener.open(url2, timeout=60)
+              data  = resp2.read()
+
+              if data[:8] == b"\x89PNG\r\n\x1a\n":
+                  with open(output, "wb") as f:
+                      f.write(data)
+                  print(f"  ✅ Downloaded PNG with confirm ({len(data)} bytes)")
+                  sys.exit(0)
+              else:
+                  print(f"  ❌ Response is not PNG (first 16 bytes: {data[:16].hex()})")
+                  sys.exit(1)
+
+          except Exception as e:
+              print(f"  ❌ Error: {e}")
+              sys.exit(1)
+          PYEOF
+
+            if [ $? -eq 0 ] && file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
+              echo "✅ Attempt 3 succeeded"
+              ICON_OK=1
+            else
+              echo "⚠️ Attempt 3 failed"
+              rm -f "${ICON_PATH}" || true
+            fi
+          fi
+
+          # ── Attempt 4: thumbnail/export URL ──
+          if [ "${ICON_OK}" -eq 0 ]; then
+            echo ""
+            echo "🔄 Attempt 4: Thumbnail export URL..."
+            curl -fsSL \
+              --retry 3 \
+              --max-time 60 \
+              "https://drive.google.com/thumbnail?id=${FILE_ID}&sz=w1024" \
+              -o "${ICON_PATH}" || true
+
+            if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG\|JPEG\|image"; then
+              # Convert to PNG if needed
+              if ! file "${ICON_PATH}" | grep -q "PNG"; then
+                convert "${ICON_PATH}" /tmp/icon_converted.png && \
+                  mv /tmp/icon_converted.png "${ICON_PATH}" || true
+              fi
+
+              if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
+                echo "✅ Attempt 4 succeeded"
+                ICON_OK=1
+              else
+                rm -f "${ICON_PATH}"
+              fi
+            else
+              echo "⚠️ Attempt 4 failed"
+              rm -f "${ICON_PATH}" || true
+            fi
+          fi
+
+          # ── Fallback: Generate a solid colour placeholder ──
+          if [ "${ICON_OK}" -eq 0 ]; then
+            echo ""
+            echo "⚠️ All download attempts failed."
+            echo "⚠️ Generating placeholder icon (blue with E letter)..."
+            echo ""
+            echo "👉 TO FIX PERMANENTLY:"
+            echo "   1. Commit assets/icon.png to your git repository"
+            echo "   2. OR make sure the Google Drive file is publicly shared"
+
             convert -size 1024x1024 xc:'#1A73E8' \
               -fill white \
               -font DejaVu-Sans-Bold \
-              -pointsize 200 \
+              -pointsize 400 \
               -gravity Center \
               -annotate 0 "E" \
-              assets/icon.png || {
-                # ultra-minimal fallback if convert also fails
-                python3 - <<'PY'
+              "${ICON_PATH}" 2>/dev/null || python3 - <<'PY'
           import struct, zlib, pathlib
 
-          def png_chunk(tag, data):
-              c = zlib.crc32(tag + data) & 0xFFFFFFFF
-              return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", c)
+          def chunk(tag, data):
+              crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+              return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
 
-          w = h = 192
+          w = h = 512
           raw = b""
           for y in range(h):
               raw += b"\x00"
               for x in range(w):
-                  raw += bytes([26, 115, 232])   # #1A73E8
+                  raw += bytes([26, 115, 232])
 
-          compressed = zlib.compress(raw, 9)
           ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
-          data = (
+          png = (
               b"\x89PNG\r\n\x1a\n"
-              + png_chunk(b"IHDR", ihdr)
-              + png_chunk(b"IDAT", compressed)
-              + png_chunk(b"IEND", b"")
+              + chunk(b"IHDR", ihdr)
+              + chunk(b"IDAT", zlib.compress(raw, 9))
+              + chunk(b"IEND", b"")
           )
-          pathlib.Path("assets/icon.png").write_bytes(data)
-          print("✅ Minimal PNG placeholder written (192×192 blue)")
+          pathlib.Path("assets/icon.png").write_bytes(png)
+          print("✅ Fallback PNG written (512x512 blue solid)")
           PY
-              }
-            echo "✅ Placeholder icon generated"
             ICON_OK=1
           fi
 
-          # ── Final check ──
-          if [ "${ICON_OK}" -ne 1 ] || [ ! -f "assets/icon.png" ]; then
-            echo "❌ Could not obtain a valid launcher icon — aborting"
+          # ── Final validation ──
+          echo ""
+          echo "=== Final Icon Validation ==="
+          if [ ! -f "${ICON_PATH}" ]; then
+            echo "❌ Icon file does not exist — cannot continue"
+            exit 1
+          fi
+
+          file "${ICON_PATH}"
+          echo "Size: $(wc -c < "${ICON_PATH}") bytes"
+
+          if command -v identify &>/dev/null; then
+            W=$(identify -format "%w" "${ICON_PATH}" 2>/dev/null || echo "?")
+            H=$(identify -format "%h" "${ICON_PATH}" 2>/dev/null || echo "?")
+            echo "Dimensions: ${W}x${H} px"
+          fi
+
+          if ! file "${ICON_PATH}" | grep -qE "PNG|image"; then
+            echo "❌ Final file is not a valid image — aborting"
             exit 1
           fi
 
           echo ""
-          echo "=== Icon summary ==="
-          file assets/icon.png
-          echo "Size: $(wc -c < assets/icon.png) bytes"
-
-          if command -v identify &>/dev/null; then
-            W=$(identify -format "%w" assets/icon.png 2>/dev/null || echo "?")
-            H=$(identify -format "%h" assets/icon.png 2>/dev/null || echo "?")
-            echo "Dimensions: ${W}x${H}"
-            if [ "${W}" != "?" ] && [ "${W}" -lt 192 ]; then
-              echo "⚠️ WARNING: icon is smaller than 192x192 — recommend 1024x1024"
-            fi
-          fi
+          echo "✅ Icon is ready for flutter_launcher_icons"
 
       - name: Generate launcher icons
         run: |
@@ -378,7 +538,7 @@ jobs:
               && echo "✅ APK signature valid" \
               || echo "⚠️ APK signature check warning"
           else
-            echo "⚠️ apksigner not found — skipping signature check"
+            echo "⚠️ apksigner not found — skipping"
           fi
 
           ls -lh build/app/outputs/flutter-apk/
@@ -461,7 +621,7 @@ jobs:
           echo "🏪 AAB (Upload THIS to Google Play Store):"
           ls -lh build/app/outputs/bundle/release/app-release.aab
           echo ""
-          echo "How to download:"
+          echo "How to download artifacts:"
           echo "  Actions → This workflow run → Artifacts section"
           echo "  Download 'app-release-aab' → upload .aab to Play Console"
           echo "============================================"
