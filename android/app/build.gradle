@@ -24,12 +24,33 @@ if (flutterVersionName == null) {
     flutterVersionName = "1.0.0"
 }
 
+// ─── KEYSTORE SETUP ───────────────────────────────────────────────
+// Priority 1: Environment variables (GitHub Actions)
+// Priority 2: key.properties file (local development)
+// Priority 3: debug keystore (fallback)
+
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file("key.properties")
-def hasReleaseKeystore = keystorePropertiesFile.exists()
-if (hasReleaseKeystore) {
+
+// Check if env vars are set (GitHub Actions)
+def envKeystorePath = System.getenv("KEYSTORE_PATH")
+def envStorePassword = System.getenv("STORE_PASSWORD")
+def envKeyAlias = System.getenv("KEY_ALIAS")
+def envKeyPassword = System.getenv("KEY_PASSWORD")
+
+def hasEnvKeystore = envKeystorePath != null && 
+                     new File(envKeystorePath).exists() &&
+                     envStorePassword != null &&
+                     envKeyAlias != null &&
+                     envKeyPassword != null
+
+def hasFileKeystore = keystorePropertiesFile.exists()
+
+if (hasFileKeystore) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
+
+// ──────────────────────────────────────────────────────────────────
 
 flutter {
     source '../..'
@@ -58,12 +79,23 @@ android {
         }
 
         release {
-            if (hasReleaseKeystore) {
+            if (hasEnvKeystore) {
+                // ✅ GitHub Actions path
+                println "Using RELEASE keystore from environment variables"
+                storeFile file(envKeystorePath)
+                storePassword envStorePassword
+                keyAlias envKeyAlias
+                keyPassword envKeyPassword
+            } else if (hasFileKeystore) {
+                // ✅ Local development path  
+                println "Using RELEASE keystore from key.properties"
                 storeFile file(keystoreProperties["storeFile"])
                 storePassword keystoreProperties["storePassword"]
                 keyAlias keystoreProperties["keyAlias"]
                 keyPassword keystoreProperties["keyPassword"]
             } else {
+                // ⚠️ Fallback to debug (not for Play Store!)
+                println "WARNING: Using DEBUG keystore for release build!"
                 storeFile file("${System.getProperty('user.home')}/.android/debug.keystore")
                 storePassword "android"
                 keyAlias "androiddebugkey"
@@ -95,9 +127,7 @@ android {
 }
 
 dependencies {
-    // Google Mobile Ads SDK (AdMob)
     implementation "com.google.android.gms:play-services-ads:23.0.0"
-
     implementation "androidx.multidex:multidex:2.0.1"
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
 
