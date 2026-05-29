@@ -1,4 +1,4 @@
-name: Android CI (Release APK - Production)
+name: Android CI (Release AAB - Production)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: android-release-apk-${{ github.ref }}
+  group: android-release-aab-${{ github.ref }}
   cancel-in-progress: true
 
 # Least-privilege: workflow only needs read access to repository contents.
@@ -16,12 +16,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     env:
       CLOUDINARY_CLOUD_NAME: dbw9zpkxi
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
-      ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
 
       # Pin Flutter for reproducible production builds
       FLUTTER_CHANNEL: stable
@@ -32,6 +31,7 @@ jobs:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
 
     steps:
+      # ── 1. Checkout ───────────────────────────────────────────────────────
       - name: Checkout (manual git with retries/backoff)
         shell: bash
         env:
@@ -60,7 +60,8 @@ jobs:
 
             git remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
 
-            if git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${SHA}"; then
+            if git -c protocol.version=2 fetch --no-tags --prune \
+                  --no-recurse-submodules --depth=1 origin "${SHA}"; then
               git checkout --detach -q FETCH_HEAD
               echo "Checked out: $(git rev-parse HEAD)"
               ok=1
@@ -73,11 +74,12 @@ jobs:
           done
 
           if [ "${ok}" -ne 1 ]; then
-            echo "ERROR: Failed to checkout repository after multiple attempts. This is usually a GitHub outage (500/502)."
+            echo "ERROR: Failed to checkout repository after multiple attempts."
             exit 1
           fi
 
-      - name: Prepare deterministic cache directories (prevents cache warnings)
+      # ── 2. Prepare directories ────────────────────────────────────────────
+      - name: Prepare deterministic cache directories
         shell: bash
         run: |
           set -euo pipefail
@@ -85,34 +87,37 @@ jobs:
           mkdir -p "${GRADLE_USER_HOME}"
           mkdir -p "${{ runner.temp }}/flutter"
 
-      - name: Set up Java
+      # ── 3. Java ───────────────────────────────────────────────────────────
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Cache Gradle (workspace GRADLE_USER_HOME)
+      # ── 4. Gradle cache ───────────────────────────────────────────────────
+      - name: Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.GRADLE_USER_HOME }}/caches
             ${{ env.GRADLE_USER_HOME }}/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle-wrapper.properties', '**/*.gradle*', '**/settings.gradle*') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles(
+                 '**/gradle-wrapper.properties',
+                 '**/*.gradle*',
+                 '**/settings.gradle*') }}
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      # ── 5. Linux deps ─────────────────────────────────────────────────────
       - name: Install Linux deps for Flutter
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            xz-utils \
-            unzip \
-            curl \
-            git \
-            libglu1-mesa
+            xz-utils unzip curl git libglu1-mesa
           sudo apt-get clean
 
+      # ── 6. Flutter SDK ────────────────────────────────────────────────────
       - name: Cache Flutter SDK
         id: cache-flutter
         uses: actions/cache@v4
@@ -152,6 +157,7 @@ jobs:
           flutter config --no-analytics
           flutter doctor -v
 
+      # ── 7. Android local.properties ───────────────────────────────────────
       - name: Write android/local.properties
         run: |
           set -euo pipefail
@@ -163,37 +169,85 @@ jobs:
           echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
           echo "sdk.dir=${SDK_DIR}" >> android/local.properties
 
-      - name: Restore stable debug keystore
-        if: ${{ env.ANDROID_DEBUG_KEYSTORE_B64 != '' }}
+      # ── 8. Upload keystore for Play Store signing ─────────────────────────
+      # Required secrets (set in GitHub → Settings → Secrets → Actions):
+      #
+      #   KEYSTORE_B64           Base-64 of your upload keystore (.jks / .keystore)
+      #   KEYSTORE_PASSWORD      Store password
+      #   KEY_ALIAS              Key alias
+      #   KEY_PASSWORD           Key password
+      #
+      # To generate a base-64 string on macOS/Linux:
+      #   base64 -i upload-keystore.jks | pbcopy     (macOS)
+      #   base64 upload-keystore.jks | xclip         (Linux)
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Decode and write upload keystore
         shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
         run: |
           set -euo pipefail
-          mkdir -p ~/.android
-          python3 - <<'PY'
-          import os, base64, pathlib
-          b64 = os.environ.get("ANDROID_DEBUG_KEYSTORE_B64", "").strip().replace("\n","").replace("\r","")
-          b64 += "=" * ((4 - (len(b64) % 4)) % 4)
-          data = base64.b64decode(b64, validate=False)
-          out = pathlib.Path.home() / ".android" / "debug.keystore"
-          out.write_bytes(data)
-          print("Wrote:", out)
-          PY
 
-      - name: Verify keystore is valid (best-effort)
-        run: |
-          set -euo pipefail
-          if [ -f ~/.android/debug.keystore ]; then
-            echo "Keystore size: $(wc -c < ~/.android/debug.keystore) bytes"
-            keytool -list -v \
-              -alias androiddebugkey \
-              -keystore ~/.android/debug.keystore \
-              -storepass android \
-              -keypass android | grep -E "SHA1:|SHA-1:" || true
-          else
-            echo "No debug.keystore found (skipping)."
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "::error::KEYSTORE_B64 secret is not set."
+            echo "A signed AAB requires a proper upload keystore."
+            echo ""
+            echo "Steps:"
+            echo "  1. Generate a keystore:  keytool -genkey -v -keystore upload-keystore.jks"
+            echo "     -keyalg RSA -keysize 2048 -validity 10000 -alias upload"
+            echo "  2. Base-64 encode it:    base64 upload-keystore.jks"
+            echo "  3. Add as secret KEYSTORE_B64 in GitHub → Settings → Secrets"
+            echo "  4. Also add KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD"
+            exit 1
           fi
 
-      - name: Cache Pub packages (workspace PUB_CACHE)
+          mkdir -p android/keystore
+
+          python3 - <<'PY'
+          import os, base64, pathlib
+          b64 = os.environ["KEYSTORE_B64"].strip().replace("\n","").replace("\r","")
+          b64 += "=" * ((4 - (len(b64) % 4)) % 4)
+          data = base64.b64decode(b64, validate=False)
+          out = pathlib.Path("android/keystore/upload-keystore.jks")
+          out.write_bytes(data)
+          print(f"Wrote keystore: {out}  ({len(data)} bytes)")
+          PY
+
+      - name: Verify keystore is valid
+        shell: bash
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          echo "Keystore size: $(wc -c < android/keystore/upload-keystore.jks) bytes"
+          keytool -list -v \
+            -alias "${KEY_ALIAS}" \
+            -keystore android/keystore/upload-keystore.jks \
+            -storepass "${KEYSTORE_PASSWORD}" \
+            2>&1 | grep -E "Owner:|Issuer:|SHA1:|SHA-256:|Valid from:" || true
+
+      # ── 9. Write key.properties so Gradle picks up signing config ─────────
+      # This file is read by android/app/build.gradle (see note below).
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Write android/key.properties
+        shell: bash
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cat > android/key.properties <<EOF
+          storeFile=../keystore/upload-keystore.jks
+          storePassword=${KEYSTORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD}
+          EOF
+          echo "android/key.properties written."
+
+      # ── 10. Pub cache ─────────────────────────────────────────────────────
+      - name: Cache Pub packages
         uses: actions/cache@v4
         with:
           path: ${{ env.PUB_CACHE }}
@@ -206,11 +260,12 @@ jobs:
           set -euo pipefail
           flutter pub get
 
+      # ── 11. Launcher icons ────────────────────────────────────────────────
       - name: Clean old launcher icons
         run: |
           set -euo pipefail
           rm -rf android/app/src/main/res/mipmap-*
-          rm -f android/app/src/main/res/drawable/ic_launcher*
+          rm -f  android/app/src/main/res/drawable/ic_launcher*
           rm -rf android/app/src/main/res/drawable-anydpi*
           find android/app/src/main/res/ -type f -name "*launcher*" -delete
 
@@ -219,14 +274,16 @@ jobs:
           set -euo pipefail
           mkdir -p assets
           curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
-            -o assets/icon.png "https://drive.google.com/uc?export=download&id=1wWRfUNxW0bk6bggD_WwZFtF_vsxVuyT9"
+            -o assets/icon.png \
+            "https://drive.google.com/uc?export=download&id=1wWRfUNxW0bk6bggD_WwZFtF_vsxVuyT9"
 
       - name: Generate launcher icons
         run: |
           set -euo pipefail
           flutter pub run flutter_launcher_icons
 
-      - name: Build RELEASE APK
+      # ── 12. Build RELEASE AAB ─────────────────────────────────────────────
+      - name: Build RELEASE AAB
         env:
           EH_WORKER_BASE_URL: ${{ secrets.EH_WORKER_BASE_URL }}
           FLW_PUBLIC_KEY_TEST: ${{ secrets.FLW_PUBLIC_KEY_TEST }}
@@ -234,12 +291,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Validate critical secret is present
+          # Validate critical secret
           if [ -z "${EH_WORKER_BASE_URL:-}" ]; then
-            echo "::error::EH_WORKER_BASE_URL secret is not set. Payment verification will not work."
-            echo "Go to GitHub → Settings → Secrets → Actions → New repository secret"
-            echo "Name:  EH_WORKER_BASE_URL"
-            echo "Value: https://livekit-token-worker.esportlyic.workers.dev"
+            echo "::error::EH_WORKER_BASE_URL secret is not set."
             exit 1
           fi
 
@@ -251,7 +305,6 @@ jobs:
           DART_DEFINES="${DART_DEFINES} --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
           DART_DEFINES="${DART_DEFINES} --dart-define=EH_WORKER_BASE_URL=${EH_WORKER_BASE_URL}"
 
-          # Flutterwave keys (optional — use test key if live not set)
           if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=false"
@@ -264,49 +317,44 @@ jobs:
             echo "No Flutterwave key secrets set — using defaults from FlutterwaveConfig"
           fi
 
-          flutter build apk --release --no-tree-shake-icons ${DART_DEFINES}
+          # Build the AAB  ← only change from APK: appbundle instead of apk
+          flutter build appbundle --release --no-tree-shake-icons ${DART_DEFINES}
 
-      - name: Verify APK is signed (best-effort)
+      # ── 13. Verify AAB exists ─────────────────────────────────────────────
+      - name: Verify AAB was produced
         run: |
           set -euo pipefail
 
-          APK="build/app/outputs/flutter-apk/app-release.apk"
-          if [ ! -f "$APK" ]; then
-            echo "ERROR: APK not found at $APK"
+          AAB="build/app/outputs/bundle/release/app-release.aab"
+
+          if [ ! -f "${AAB}" ]; then
+            echo "::error::AAB not found at ${AAB}"
+            echo "Directory listing:"
+            find build/app/outputs -type f | sort || true
             exit 1
           fi
 
-          echo "APK size: $(wc -c < "$APK") bytes"
+          echo "AAB size: $(wc -c < "${AAB}") bytes"
+          echo "AAB path: ${AAB}"
 
-          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          if [ -z "${SDK_DIR}" ]; then
-            echo "WARNING: ANDROID_SDK_ROOT/ANDROID_HOME not set; cannot run apksigner."
-            exit 0
-          fi
-
-          if [ ! -d "${SDK_DIR}/build-tools" ]; then
-            echo "WARNING: build-tools directory not found; cannot run apksigner."
-            exit 0
-          fi
-
-          BUILD_TOOLS_VER="$(ls "${SDK_DIR}/build-tools" | sort -V | tail -1)"
-          APKSIGNER="${SDK_DIR}/build-tools/${BUILD_TOOLS_VER}/apksigner"
-
-          if [ ! -f "${APKSIGNER}" ]; then
-            echo "WARNING: apksigner not found at ${APKSIGNER}"
-            exit 0
-          fi
-
-          "${APKSIGNER}" verify --print-certs "$APK" || echo "WARNING: APK signature verification failed"
-
+      # ── 14. Show all build outputs ────────────────────────────────────────
       - name: Show build outputs
         run: |
           set -euo pipefail
-          ls -la build/app/outputs/flutter-apk || true
+          find build/app/outputs -type f | sort || true
 
-      - name: Upload RELEASE APK artifact
+      # ── 15. Upload AAB artifact ───────────────────────────────────────────
+      - name: Upload RELEASE AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: app-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+      # ── 16. Security: remove keystore from workspace ──────────────────────
+      - name: Remove keystore from workspace
+        if: always()
+        run: |
+          rm -f android/keystore/upload-keystore.jks
+          rm -f android/key.properties
+          echo "Keystore files removed from workspace."
