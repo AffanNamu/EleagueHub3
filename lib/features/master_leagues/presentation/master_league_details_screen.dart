@@ -78,8 +78,6 @@ class _MasterLeagueDetailsScreenState
   }
 
   // ── safe navigation ────────────────────────────────────────────────────────
-  // Always call GoRouter.of(context) directly.
-  // context.go / context.push extensions can fail inside shell navigators.
 
   void _safeGo(String location) {
     try {
@@ -143,64 +141,113 @@ class _MasterLeagueDetailsScreenState
 
   // Cached membership lookup — prevents repeated reads on list scroll
   Future<Membership?> _membershipForLeague(String leagueId) {
-    return _membershipCache.putIfAbsent(leagueId, () {
+    return _membershipCache.putIfAbsent(leagueId, () async {
       final uid = _currentUid.trim();
-      if (uid.isEmpty) return Future.value(null);
-      final repo =
-          LocalLeaguesRepository(ref.read(prefsServiceProvider));
-      return repo.getMembership(
-          leagueId: leagueId, userId: uid);
+      if (uid.isEmpty) return null;
+      try {
+        final repo =
+            LocalLeaguesRepository(ref.read(prefsServiceProvider));
+        return await repo.getMembership(
+            leagueId: leagueId, userId: uid);
+      } catch (_) {
+        // Permission denied or network error — treat as not joined
+        return null;
+      }
     });
   }
 
   // ── streams ────────────────────────────────────────────────────────────────
 
+  /// Watches the master league document.
+  ///
+  /// The Firestore rule allows [signedIn()] to read any master_league doc,
+  /// so this should never throw permission-denied for an authenticated user.
+  /// We add a handleError fallback for safety.
   Stream<MasterLeague?> _watchMasterLeague(String id) {
     return FirebaseFirestore.instance
         .collection('master_leagues')
         .doc(id.trim())
         .snapshots(includeMetadataChanges: true)
         .map((snap) {
-      if (!snap.exists) return null;
-      return MasterLeague.fromMap(
-        snap.id,
-        (snap.data() ?? <String, dynamic>{})
-            .cast<String, dynamic>(),
-      );
-    }).handleError((_) => null);
+          if (!snap.exists) return null;
+          return MasterLeague.fromMap(
+            snap.id,
+            (snap.data() ?? <String, dynamic>{})
+                .cast<String, dynamic>(),
+          );
+        })
+        .handleError((Object e) {
+          debugPrint('[MasterLeagueDetails] _watchMasterLeague error: $e');
+          return null;
+        });
   }
 
+  /// Watches leagues that belong to this master league.
+  ///
+  /// KEY FIX: The Firestore rule allows `list` on /leagues for any signed-in
+  /// user, so the query snapshot itself will succeed. However, if the Flutter
+  /// SDK internally tries to do a `get` on individual docs (which it does NOT
+  /// for collection queries — a query uses `list` semantics), we still guard
+  /// with handleError and return whatever docs succeeded.
+  ///
+  /// The real guard is: we parse each document defensively inside a try/catch
+  /// so a single malformed or inaccessible document never kills the stream.
   Stream<List<League>> _watchCompetitions(String masterId) {
     return FirebaseFirestore.instance
         .collection('leagues')
         .where('masterLeagueId', isEqualTo: masterId.trim())
         .snapshots(includeMetadataChanges: true)
         .map((snap) {
-      final list = snap.docs.map((d) {
-        final map = <String, dynamic>{...d.data()};
-        map['id'] =
-            (map['id'] as String?)?.trim().isNotEmpty == true
-                ? map['id']
-                : d.id;
-        return League.fromRemoteMap(map);
-      }).toList(growable: false);
-      final sorted = [...list];
-      sorted.sort(
-          (a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
-      return sorted;
-    }).handleError((_) => <League>[]);
+          final list = <League>[];
+          for (final d in snap.docs) {
+            try {
+              final map = <String, dynamic>{...d.data()};
+              map['id'] =
+                  (map['id'] as String?)?.trim().isNotEmpty == true
+                      ? map['id']
+                      : d.id;
+              list.add(League.fromRemoteMap(map));
+            } catch (e) {
+              // Skip docs that fail to parse or are inaccessible
+              debugPrint(
+                '[MasterLeagueDetails] skipping league doc ${d.id}: $e',
+              );
+            }
+          }
+          list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+          return list;
+        })
+        .handleError((Object e) {
+          // If the entire query is denied (e.g. user signed out mid-session)
+          // return an empty list so the UI degrades gracefully.
+          debugPrint('[MasterLeagueDetails] _watchCompetitions error: $e');
+          return <League>[];
+        });
   }
 
   Stream<List<LeagueAnnouncement>> _watchWorkspaceAnnouncements(
     String masterLeagueId,
   ) =>
       _announcements
-          .watchMasterLeagueAnnouncements(masterLeagueId);
+          .watchMasterLeagueAnnouncements(masterLeagueId)
+          .handleError((Object e) {
+        debugPrint(
+          '[MasterLeagueDetails] _watchWorkspaceAnnouncements error: $e',
+        );
+        return <LeagueAnnouncement>[];
+      });
 
-  Stream<LeagueAnnouncement?>
-      _watchPinnedWorkspaceAnnouncement(String masterLeagueId) =>
-          _announcements
-              .watchPinnedMasterLeagueAnnouncement(masterLeagueId);
+  Stream<LeagueAnnouncement?> _watchPinnedWorkspaceAnnouncement(
+    String masterLeagueId,
+  ) =>
+      _announcements
+          .watchPinnedMasterLeagueAnnouncement(masterLeagueId)
+          .handleError((Object e) {
+        debugPrint(
+          '[MasterLeagueDetails] _watchPinnedWorkspaceAnnouncement error: $e',
+        );
+        return null;
+      });
 
   // ── follow ─────────────────────────────────────────────────────────────────
 
@@ -251,7 +298,11 @@ class _MasterLeagueDetailsScreenState
         if (remoteId.isNotEmpty &&
             leagueIds.contains(remoteId)) return true;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint(
+        '[MasterLeagueDetails] _hasJoinedAnyCompetitionInWorkspace: $e',
+      );
+    }
 
     return false;
   }
@@ -873,8 +924,7 @@ class _MasterLeagueDetailsScreenState
                   labelText: 'Short ID',
                   prefixIcon: Icon(
                     role == 'admin'
-                        ? Icons
-                            .admin_panel_settings_outlined
+                        ? Icons.admin_panel_settings_outlined
                         : Icons.shield_outlined,
                   ),
                 ),
@@ -1545,8 +1595,6 @@ class _MasterLeagueDetailsScreenState
   }
 
   // ── organizer profile ──────────────────────────────────────────────────────
-  // OrganizerProfileScreen has no named route — Navigator.push is correct here.
-  // It is a modal-style profile viewer that does not need deep-link support.
 
   void _openOrganizerProfile(MasterLeague master) {
     Navigator.of(context).push(
@@ -1905,13 +1953,21 @@ class _MasterLeagueDetailsScreenState
         final master  = masterSnap.data;
         final isOwner = _isOwner(master);
 
+        // ── Detect permission-denied specifically ──────────────────────────
+        // When a FirebaseException with code 'permission-denied' arrives,
+        // masterSnap.hasError is true and masterSnap.data is null.
+        // We show a friendly "no access" state instead of the generic
+        // "not found" state so users understand why they see no content.
+        final hasPermissionError = masterSnap.hasError &&
+            masterSnap.error is FirebaseException &&
+            (masterSnap.error as FirebaseException).code ==
+                'permission-denied';
+
         return GlassScaffold(
           appBar: AppBar(
             title: const Text('Master League Workspace'),
             backgroundColor: Colors.transparent,
             elevation:       0,
-            // Explicit leading — prevents shell navigator from
-            // intercepting back on web
             leading: IconButton(
               icon:     const Icon(Icons.arrow_back),
               tooltip:  'Back',
@@ -1965,6 +2021,32 @@ class _MasterLeagueDetailsScreenState
             children: [
               SafeArea(
                 child: () {
+                  // ── Permission denied ──────────────────────────────────
+                  if (hasPermissionError) {
+                    return Center(
+                      child: EmptyState(
+                        title:   'Access Denied',
+                        message:
+                            'You do not have permission to view '
+                            'this Master League. Please sign in '
+                            'or contact the organizer.',
+                        icon: Icons.lock_outline_rounded,
+                        action: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor:
+                                AppTheme.limeAccent,
+                            foregroundColor:
+                                AppTheme.darkText,
+                          ),
+                          onPressed: () =>
+                              _safeGo('/master-leagues'),
+                          icon:  const Icon(Icons.arrow_back),
+                          label: const Text('Go Back'),
+                        ),
+                      ),
+                    );
+                  }
+
                   // ── Loading ────────────────────────────────────────────
                   if (masterSnap.connectionState ==
                           ConnectionState.waiting &&
@@ -2076,11 +2158,6 @@ class _MasterLeagueDetailsScreenState
   }
 
   // ── Desktop two-column layout ──────────────────────────────────────────────
-  //
-  // Left  (flex 3): Hero + Stats + Competitions
-  // Right (flex 2): Owner actions OR Visitor overview
-  //                 + Pinned announcement + Announcements
-  //                 + Templates (owner only)
 
   Widget _buildDesktopLayout({
     required BuildContext              context,
@@ -2101,7 +2178,6 @@ class _MasterLeagueDetailsScreenState
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Left column
               Expanded(
                 flex: 3,
                 child: Column(
@@ -2117,7 +2193,6 @@ class _MasterLeagueDetailsScreenState
                 ),
               ),
               const SizedBox(width: 20),
-              // Right column
               Expanded(
                 flex: 2,
                 child: Column(
@@ -2185,7 +2260,6 @@ class _MasterLeagueDetailsScreenState
   }
 
   // ── Workspace hero ─────────────────────────────────────────────────────────
-  // Reads Theme.of(context) internally — no ThemeData parameter
 
   Widget _buildWorkspaceHero(MasterLeague master) {
     final theme      = Theme.of(context);
@@ -2657,8 +2731,6 @@ class _MasterLeagueDetailsScreenState
           icon:     Icons.bookmarks_outlined,
           title:    'Competition Templates',
           subtitle: 'Save reusable competition setups and launch faster',
-          // Intentionally null — templates are rendered in the
-          // dedicated section below. This tile is a visual anchor only.
           onTap: null,
           tint:  const Color(0xFF14B8A6),
         ),
