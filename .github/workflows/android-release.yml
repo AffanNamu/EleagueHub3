@@ -24,7 +24,7 @@ jobs:
       FLUTTER_VERSION: 3.24.5
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-      ICON_FILE_ID: "1QBBUJQHovaW-60aomg68B4YLO7OzZVSN"
+      ICON_FILE_ID: "1v4TqvvJpfczoSJWPN5gXlJFpa4I22SZA"
 
     steps:
       # ─────────────────────────────────────────
@@ -264,13 +264,7 @@ jobs:
               echo "⚠️ Attempt 2 failed — extracting confirm token..."
               rm -f "${ICON_PATH}"
 
-              # Extract confirm token from response
-              CONFIRM=$(grep -o 'confirm=[^&"]*' /tmp/gdrive_attempt2.html 2>/dev/null \
-                | head -1 | cut -d= -f2 || echo "")
-
-              if [ -z "${CONFIRM}" ]; then
-                CONFIRM="t"
-              fi
+              CONFIRM="t"
 
               echo "   Using confirm token: ${CONFIRM}"
 
@@ -291,165 +285,6 @@ jobs:
                 rm -f "${ICON_PATH}"
               fi
             fi
-          fi
-
-          # ── Attempt 3: Python gdown-style download ──
-          if [ "${ICON_OK}" -eq 0 ]; then
-            echo ""
-            echo "🔄 Attempt 3: Python smart download..."
-            python3 - <<PYEOF
-          import urllib.request
-          import urllib.parse
-          import http.cookiejar
-          import re
-          import sys
-          import os
-
-          file_id = "${FILE_ID}"
-          output  = "${ICON_PATH}"
-
-          jar = http.cookiejar.CookieJar()
-          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          opener.addheaders = [
-              ("User-Agent",
-               "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-               "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
-          ]
-
-          url1 = f"https://drive.google.com/uc?export=download&id={file_id}"
-          print(f"  Fetching: {url1}")
-
-          try:
-              resp1 = opener.open(url1, timeout=60)
-              body  = resp1.read()
-
-              # If it's already a PNG, save it
-              if body[:8] == b"\x89PNG\r\n\x1a\n":
-                  with open(output, "wb") as f:
-                      f.write(body)
-                  print(f"  ✅ Downloaded PNG directly ({len(body)} bytes)")
-                  sys.exit(0)
-
-              # Look for confirm token in HTML
-              text    = body.decode("utf-8", errors="replace")
-              confirm = ""
-
-              for pattern in [
-                  r'confirm=([0-9A-Za-z_\-]+)',
-                  r'"confirm":"([^"]+)"',
-                  r'name="confirm"\s+value="([^"]+)"',
-              ]:
-                  m = re.search(pattern, text)
-                  if m:
-                      confirm = m.group(1)
-                      break
-
-              if not confirm:
-                  confirm = "t"
-
-              print(f"  Confirm token: {confirm}")
-
-              url2 = (
-                  f"https://drive.google.com/uc?export=download"
-                  f"&confirm={confirm}&id={file_id}"
-              )
-              print(f"  Fetching confirmed URL...")
-              resp2 = opener.open(url2, timeout=60)
-              data  = resp2.read()
-
-              if data[:8] == b"\x89PNG\r\n\x1a\n":
-                  with open(output, "wb") as f:
-                      f.write(data)
-                  print(f"  ✅ Downloaded PNG with confirm ({len(data)} bytes)")
-                  sys.exit(0)
-              else:
-                  print(f"  ❌ Response is not PNG (first 16 bytes: {data[:16].hex()})")
-                  sys.exit(1)
-
-          except Exception as e:
-              print(f"  ❌ Error: {e}")
-              sys.exit(1)
-          PYEOF
-
-            if [ $? -eq 0 ] && file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
-              echo "✅ Attempt 3 succeeded"
-              ICON_OK=1
-            else
-              echo "⚠️ Attempt 3 failed"
-              rm -f "${ICON_PATH}" || true
-            fi
-          fi
-
-          # ── Attempt 4: thumbnail/export URL ──
-          if [ "${ICON_OK}" -eq 0 ]; then
-            echo ""
-            echo "🔄 Attempt 4: Thumbnail export URL..."
-            curl -fsSL \
-              --retry 3 \
-              --max-time 60 \
-              "https://drive.google.com/thumbnail?id=${FILE_ID}&sz=w1024" \
-              -o "${ICON_PATH}" || true
-
-            if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG\|JPEG\|image"; then
-              # Convert to PNG if needed
-              if ! file "${ICON_PATH}" | grep -q "PNG"; then
-                convert "${ICON_PATH}" /tmp/icon_converted.png && \
-                  mv /tmp/icon_converted.png "${ICON_PATH}" || true
-              fi
-
-              if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
-                echo "✅ Attempt 4 succeeded"
-                ICON_OK=1
-              else
-                rm -f "${ICON_PATH}"
-              fi
-            else
-              echo "⚠️ Attempt 4 failed"
-              rm -f "${ICON_PATH}" || true
-            fi
-          fi
-
-          # ── Fallback: Generate a solid colour placeholder ──
-          if [ "${ICON_OK}" -eq 0 ]; then
-            echo ""
-            echo "⚠️ All download attempts failed."
-            echo "⚠️ Generating placeholder icon (blue with E letter)..."
-            echo ""
-            echo "👉 TO FIX PERMANENTLY:"
-            echo "   1. Commit assets/icon.png to your git repository"
-            echo "   2. OR make sure the Google Drive file is publicly shared"
-
-            convert -size 1024x1024 xc:'#1A73E8' \
-              -fill white \
-              -font DejaVu-Sans-Bold \
-              -pointsize 400 \
-              -gravity Center \
-              -annotate 0 "E" \
-              "${ICON_PATH}" 2>/dev/null || python3 - <<'PY'
-          import struct, zlib, pathlib
-
-          def chunk(tag, data):
-              crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-              return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
-
-          w = h = 512
-          raw = b""
-          for y in range(h):
-              raw += b"\x00"
-              for x in range(w):
-                  raw += bytes([26, 115, 232])
-
-          ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
-          png = (
-              b"\x89PNG\r\n\x1a\n"
-              + chunk(b"IHDR", ihdr)
-              + chunk(b"IDAT", zlib.compress(raw, 9))
-              + chunk(b"IEND", b"")
-          )
-          pathlib.Path("assets/icon.png").write_bytes(png)
-          print("✅ Fallback PNG written (512x512 blue solid)")
-          PY
-            ICON_OK=1
           fi
 
           # ── Final validation ──
