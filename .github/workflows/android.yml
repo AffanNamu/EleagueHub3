@@ -213,7 +213,7 @@ jobs:
           mkdir -p assets
           curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
             -o assets/icon.png \
-            "https://drive.google.com/uc?export=download&id=1wWRfUNxW0bk6bggD_WwZFtF_vsxVuyT9"
+            "https://drive.google.com/file/d/1QBBUJQHovaW-60aomg68B4YLO7OzZVSN/view?usp=drivesdk"
 
       - name: Generate launcher icons
         run: flutter pub run flutter_launcher_icons
