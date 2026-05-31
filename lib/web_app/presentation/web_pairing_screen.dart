@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:js' as js;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -13,13 +14,60 @@ import '../../core/widgets/glass_scaffold.dart';
 import 'web_desktop_session_store.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Breakpoint
+// Platform detection
 // ─────────────────────────────────────────────────────────────────────────────
 
-const double _kDesktopBreakpoint = 768;
+/// Returns true when running in a real desktop / laptop browser.
+///
+/// Rules (ALL must be true for mobile):
+///   1. Width < 900 px  AND
+///   2. User-agent contains a known mobile token
+///
+/// A Chromebook (ChromeOS) is NEVER treated as mobile even if its
+/// window is narrow, because ChromeOS does not carry mobile UA tokens.
+bool _isRealMobileBrowser(BuildContext context) {
+  final width = MediaQuery.of(context).size.width;
 
-bool _isDesktopView(BuildContext context) =>
-    MediaQuery.of(context).size.width >= _kDesktopBreakpoint;
+  // If width is >= 900 always treat as desktop regardless of UA.
+  if (width >= 900) return false;
+
+  // Narrow window — check user-agent.
+  try {
+    final ua = js.context['navigator']['userAgent'].toString().toLowerCase();
+
+    // ChromeOS / Chromebook: contains 'cros' — always desktop.
+    if (ua.contains('cros')) return false;
+
+    // Windows / macOS / Linux desktop browsers.
+    if (ua.contains('windows nt')) return false;
+    if (ua.contains('macintosh') || ua.contains('mac os x')) {
+      // Exclude iPhone/iPad which also say "mac os x".
+      if (!ua.contains('iphone') && !ua.contains('ipad')) return false;
+    }
+    if (ua.contains('x11') || ua.contains('linux')) {
+      // Exclude Android which also says "linux".
+      if (!ua.contains('android')) return false;
+    }
+
+    // Known mobile tokens.
+    final mobileTokens = [
+      'android',
+      'iphone',
+      'ipad',
+      'ipod',
+      'blackberry',
+      'windows phone',
+      'mobile',
+      'opera mini',
+      'opera mobi',
+    ];
+
+    return mobileTokens.any((t) => ua.contains(t));
+  } catch (_) {
+    // JS interop failed (e.g. unit tests) — fall back to width only.
+    return width < 900;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WebPairingScreen
@@ -113,7 +161,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
         }
       }
 
-      final session = await DesktopPairingService.instance.createSession();
+      final session =
+          await DesktopPairingService.instance.createSession();
       if (!mounted) return;
 
       setState(() {
@@ -133,7 +182,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+    _pollTimer =
+        Timer.periodic(const Duration(seconds: 3), (_) async {
       if (_paired) {
         _pollTimer?.cancel();
         return;
@@ -184,7 +234,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
           return;
         }
 
-        if (status.status == 'expired' || status.status == 'rejected') {
+        if (status.status == 'expired' ||
+            status.status == 'rejected') {
           _pollTimer?.cancel();
           if (!mounted) return;
           setState(() {
@@ -219,7 +270,9 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
       if (!mounted) return;
 
-      if (_isDesktopView(context)) {
+      final isMobile = _isRealMobileBrowser(context);
+
+      if (!isMobile) {
         // Desktop → save session and call onPaired
         await WebDesktopSessionStore.save(
           sessionId: 'google-direct',
@@ -259,8 +312,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
     final password = _passwordCtrl.text;
 
     if (email.isEmpty || password.isEmpty) {
-      setState(
-          () => _emailError = 'Please enter your email and password.');
+      setState(() =>
+          _emailError = 'Please enter your email and password.');
       return;
     }
 
@@ -273,7 +326,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
       UserCredential cred;
 
       if (_isSignUp) {
-        cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        cred = await FirebaseAuth.instance
+            .createUserWithEmailAndPassword(
           email: email,
           password: password,
         );
@@ -312,7 +366,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
       return;
     }
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      await FirebaseAuth.instance
+          .sendPasswordResetEmail(email: email);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -360,18 +415,18 @@ class _WebPairingScreenState extends State<WebPairingScreen>
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final isDesktop = _isDesktopView(context);
+    final isMobile = _isRealMobileBrowser(context);
 
     return GlassScaffold(
       useBubbles: false,
-      body: isDesktop
-          ? _buildDesktopLayout(brightness)
-          : _buildMobileLayout(brightness),
+      body: isMobile
+          ? _buildMobileLayout(brightness)
+          : _buildDesktopLayout(brightness),
     );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // DESKTOP LAYOUT  (width ≥ 768)
+  // DESKTOP LAYOUT
   // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildDesktopLayout(Brightness brightness) {
@@ -481,7 +536,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1220),
+                constraints:
+                    const BoxConstraints(maxWidth: 1220),
                 child: useStacked
                     ? Column(
                         children: [
@@ -538,7 +594,7 @@ class _WebPairingScreenState extends State<WebPairingScreen>
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // MOBILE LAYOUT  (width < 768)
+  // MOBILE LAYOUT
   // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildMobileLayout(Brightness brightness) {
@@ -547,14 +603,14 @@ class _WebPairingScreenState extends State<WebPairingScreen>
     return SafeArea(
       child: Center(
         child: SingleChildScrollView(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 24, vertical: 32),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 440),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── Brand ──────────────────────────────────────────────
+                // ── Brand ─────────────────────────────────────────
                 Center(
                   child: Column(
                     children: [
@@ -563,7 +619,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                         height: 72,
                         decoration: BoxDecoration(
                           color: AppTheme.limeAccent,
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius:
+                              BorderRadius.circular(20),
                           boxShadow: [
                             BoxShadow(
                               color: AppTheme.limeAccentDark
@@ -574,11 +631,13 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                           ],
                         ),
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius:
+                              BorderRadius.circular(16),
                           child: Image.asset(
                             'assets/icon.png',
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const Icon(
+                            errorBuilder: (_, __, ___) =>
+                                const Icon(
                               Icons.sports_esports_rounded,
                               color: AppTheme.darkText,
                               size: 38,
@@ -602,7 +661,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                             ? 'Create your account'
                             : 'Sign in to continue.',
                         style: TextStyle(
-                          color: AppTheme.secondaryText(brightness),
+                          color:
+                              AppTheme.secondaryText(brightness),
                           fontSize: 15,
                           fontWeight: FontWeight.w500,
                         ),
@@ -612,7 +672,7 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                 ),
                 const SizedBox(height: 32),
 
-                // ── Google Sign-In ──────────────────────────────────────
+                // ── Google Sign-In ─────────────────────────────────
                 _GoogleButton(
                   loading: _googleLoading,
                   brightness: brightness,
@@ -624,22 +684,25 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                   _ErrorBox(message: _googleError!),
                 ],
 
-                // ── Divider ─────────────────────────────────────────────
+                // ── Divider ────────────────────────────────────────
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 20),
                   child: Row(
                     children: [
                       Expanded(
                         child: Divider(
-                            color: AppTheme.cardBorder(brightness)),
+                            color:
+                                AppTheme.cardBorder(brightness)),
                       ),
                       Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12),
                         child: Text(
                           'OR',
                           style: TextStyle(
-                            color: AppTheme.secondaryText(brightness),
+                            color: AppTheme.secondaryText(
+                                brightness),
                             fontWeight: FontWeight.w700,
                             fontSize: 12,
                           ),
@@ -647,13 +710,14 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                       ),
                       Expanded(
                         child: Divider(
-                            color: AppTheme.cardBorder(brightness)),
+                            color:
+                                AppTheme.cardBorder(brightness)),
                       ),
                     ],
                   ),
                 ),
 
-                // ── Email field ─────────────────────────────────────────
+                // ── Email field ────────────────────────────────────
                 Glass(
                   borderRadius: 16,
                   padding: EdgeInsets.zero,
@@ -668,20 +732,23 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                     decoration: InputDecoration(
                       hintText: 'Email',
                       hintStyle: TextStyle(
-                          color: AppTheme.secondaryText(brightness)),
+                          color: AppTheme.secondaryText(
+                              brightness)),
                       prefixIcon: Icon(
                         Icons.email_outlined,
-                        color: AppTheme.secondaryText(brightness),
+                        color:
+                            AppTheme.secondaryText(brightness),
                       ),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                          vertical: 16, horizontal: 16),
+                      contentPadding:
+                          const EdgeInsets.symmetric(
+                              vertical: 16, horizontal: 16),
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
 
-                // ── Password field ──────────────────────────────────────
+                // ── Password field ─────────────────────────────────
                 Glass(
                   borderRadius: 16,
                   padding: EdgeInsets.zero,
@@ -695,30 +762,34 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                     decoration: InputDecoration(
                       hintText: 'Password',
                       hintStyle: TextStyle(
-                          color: AppTheme.secondaryText(brightness)),
+                          color: AppTheme.secondaryText(
+                              brightness)),
                       prefixIcon: Icon(
                         Icons.lock_outline_rounded,
-                        color: AppTheme.secondaryText(brightness),
+                        color:
+                            AppTheme.secondaryText(brightness),
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _obscurePassword
                               ? Icons.visibility_off_outlined
                               : Icons.visibility_outlined,
-                          color: AppTheme.secondaryText(brightness),
+                          color: AppTheme.secondaryText(
+                              brightness),
                         ),
-                        onPressed: () => setState(
-                            () => _obscurePassword = !_obscurePassword),
+                        onPressed: () => setState(() =>
+                            _obscurePassword = !_obscurePassword),
                       ),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                          vertical: 16, horizontal: 16),
+                      contentPadding:
+                          const EdgeInsets.symmetric(
+                              vertical: 16, horizontal: 16),
                     ),
                     onSubmitted: (_) => _submitEmail(),
                   ),
                 ),
 
-                // ── Forgot password ─────────────────────────────────────
+                // ── Forgot password ────────────────────────────────
                 if (!_isSignUp)
                   Align(
                     alignment: Alignment.centerRight,
@@ -736,7 +807,7 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
                 if (_isSignUp) const SizedBox(height: 12),
 
-                // ── Email error ─────────────────────────────────────────
+                // ── Email error ────────────────────────────────────
                 if (_emailError != null) ...[
                   const SizedBox(height: 8),
                   _ErrorBox(message: _emailError!),
@@ -744,18 +815,19 @@ class _WebPairingScreenState extends State<WebPairingScreen>
 
                 const SizedBox(height: 16),
 
-                // ── Submit button ───────────────────────────────────────
+                // ── Submit button ──────────────────────────────────
                 FilledButton(
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.limeAccent,
                     foregroundColor: AppTheme.darkText,
-                    padding:
-                        const EdgeInsets.symmetric(vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  onPressed: _emailLoading ? null : _submitEmail,
+                  onPressed:
+                      _emailLoading ? null : _submitEmail,
                   child: _emailLoading
                       ? const SizedBox(
                           width: 22,
@@ -766,7 +838,9 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                           ),
                         )
                       : Text(
-                          _isSignUp ? 'Create account' : 'Sign in',
+                          _isSignUp
+                              ? 'Create account'
+                              : 'Sign in',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
@@ -775,7 +849,7 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                 ),
                 const SizedBox(height: 20),
 
-                // ── Toggle sign in / sign up ────────────────────────────
+                // ── Toggle sign in / sign up ───────────────────────
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -784,7 +858,8 @@ class _WebPairingScreenState extends State<WebPairingScreen>
                           ? 'Already have an account?'
                           : 'No account?',
                       style: TextStyle(
-                        color: AppTheme.secondaryText(brightness),
+                        color:
+                            AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -832,7 +907,8 @@ class _ErrorBox extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline, color: Colors.red, size: 18),
+          const Icon(Icons.error_outline,
+              color: Colors.red, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -999,12 +1075,14 @@ class _IntroPanel extends StatelessWidget {
               Expanded(
                 child: Text(
                   'eSportlyic Web',
-                  style:
-                      Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            color: AppTheme.primaryText(brightness),
-                            fontWeight: FontWeight.w900,
-                            fontSize: compact ? 28 : 36,
-                          ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineSmall
+                      ?.copyWith(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w900,
+                        fontSize: compact ? 28 : 36,
+                      ),
                 ),
               ),
             ],
@@ -1012,20 +1090,25 @@ class _IntroPanel extends StatelessWidget {
           const SizedBox(height: 22),
           Text(
             'Use eSportlyic on your computer',
-            style:
-                Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: AppTheme.primaryText(brightness),
-                      fontWeight: FontWeight.w900,
-                      height: 1.08,
-                      fontSize: compact ? 28 : 54,
-                    ),
+            style: Theme.of(context)
+                .textTheme
+                .headlineMedium
+                ?.copyWith(
+                  color: AppTheme.primaryText(brightness),
+                  fontWeight: FontWeight.w900,
+                  height: 1.08,
+                  fontSize: compact ? 28 : 54,
+                ),
           ),
           const SizedBox(height: 16),
           Text(
             '1. Open eSportlyic on your phone\n'
             '2. Go to the QR scanner\n'
             '3. Scan this code to link your desktop',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(
                   color: AppTheme.secondaryText(brightness),
                   height: 1.5,
                   fontWeight: FontWeight.w600,
@@ -1089,7 +1172,8 @@ class _DesktopQrPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
-    final qrSize = compact ? 220.0 : (width < 1200 ? 260.0 : 300.0);
+    final qrSize =
+        compact ? 220.0 : (width < 1200 ? 260.0 : 300.0);
 
     return Glass(
       borderRadius: 28,
@@ -1099,7 +1183,7 @@ class _DesktopQrPanel extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── QR Code ────────────────────────────────────────────────
+          // ── QR Code ──────────────────────────────────────────
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
@@ -1135,7 +1219,8 @@ class _DesktopQrPanel extends StatelessWidget {
                       color: Colors.black,
                     ),
                     dataModuleStyle: const QrDataModuleStyle(
-                      dataModuleShape: QrDataModuleShape.square,
+                      dataModuleShape:
+                          QrDataModuleShape.square,
                       color: Colors.black,
                     ),
                   ),
@@ -1173,16 +1258,18 @@ class _DesktopQrPanel extends StatelessWidget {
             label: const Text('Refresh QR'),
           ),
 
-          // ── Divider ─────────────────────────────────────────────────
+          // ── Divider ───────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 20),
             child: Row(
               children: [
                 Expanded(
-                    child:
-                        Divider(color: AppTheme.cardBorder(brightness))),
+                  child: Divider(
+                      color: AppTheme.cardBorder(brightness)),
+                ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
                     'OR',
                     style: TextStyle(
@@ -1193,8 +1280,9 @@ class _DesktopQrPanel extends StatelessWidget {
                   ),
                 ),
                 Expanded(
-                    child:
-                        Divider(color: AppTheme.cardBorder(brightness))),
+                  child: Divider(
+                      color: AppTheme.cardBorder(brightness)),
+                ),
               ],
             ),
           ),
@@ -1210,7 +1298,6 @@ class _DesktopQrPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // ── Google button ───────────────────────────────────────────
           _GoogleButton(
             loading: googleLoading,
             brightness: brightness,
