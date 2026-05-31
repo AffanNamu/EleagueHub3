@@ -1,62 +1,50 @@
-// Web-only implementation using dart:js_util (works in both
-// dart2js and dart2wasm / Flutter Web).
+// Web-only implementation (safe because it is imported ONLY on web via
+// conditional import in ua_detector.dart).
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:js_util' as js_util;
 
-/// Returns true only when the current browser is a real mobile browser.
+/// Detect a "real mobile browser" using BOTH width + user-agent.
+///
+/// Goals:
+/// - Chromebook should be treated as DESKTOP even if narrow.
+/// - Desktop-mode on phone (request desktop site) should behave like desktop
+///   when width becomes large.
+/// - Small phones should be treated as mobile.
 ///
 /// Rules:
-///   width >= 900               → always desktop (return false)
-///   UA contains 'cros'         → ChromeOS / Chromebook → desktop
-///   UA contains 'windows nt'   → Windows desktop
-///   UA contains 'macintosh'
-///     without iphone/ipad      → macOS desktop
-///   UA contains 'x11'/'linux'
-///     without android          → Linux desktop
-///   Otherwise check mobile tokens → mobile if found
+/// - width >= 900  -> desktop
+/// - UA contains 'cros' (ChromeOS) -> desktop
+/// - else if UA contains common mobile tokens -> mobile
+/// - else fallback to width < 900
 bool isRealMobileBrowser(double width) {
-  // Wide window → always desktop regardless of UA.
   if (width >= 900) return false;
 
   try {
-    final navigator = js_util.getProperty<Object>(
-      js_util.globalThis,
-      'navigator',
-    );
-    final ua = js_util
-        .getProperty<String>(navigator, 'userAgent')
-        .toLowerCase();
+    final navigator = js_util.getProperty<Object>(js_util.globalThis, 'navigator');
+    final ua = js_util.getProperty<String>(navigator, 'userAgent').toLowerCase();
 
-    // ── Desktop OS tokens ─────────────────────────────────────────────
-    if (ua.contains('cros')) return false;           // ChromeOS
-    if (ua.contains('windows nt')) return false;     // Windows
+    // ChromeOS / Chromebook -> always desktop
+    if (ua.contains('cros')) return false;
 
-    if (ua.contains('macintosh') || ua.contains('mac os x')) {
-      if (!ua.contains('iphone') && !ua.contains('ipad')) {
-        return false;                                // macOS
-      }
-    }
-
-    if (ua.contains('x11') || ua.contains('linux')) {
-      if (!ua.contains('android')) return false;    // Linux
-    }
-
-    // ── Known mobile tokens ───────────────────────────────────────────
-    const mobileTokens = [
+    // Common mobile tokens
+    const mobileTokens = <String>[
       'android',
       'iphone',
       'ipad',
       'ipod',
-      'blackberry',
-      'windows phone',
       'mobile',
+      'windows phone',
+      'blackberry',
       'opera mini',
       'opera mobi',
     ];
 
-    return mobileTokens.any((t) => ua.contains(t));
+    if (mobileTokens.any(ua.contains)) return true;
+
+    // Fallback: width only
+    return width < 900;
   } catch (_) {
-    // JS interop failed — fall back to width only.
+    // If JS access fails, fallback to width only.
     return width < 900;
   }
 }
