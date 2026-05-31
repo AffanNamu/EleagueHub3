@@ -62,7 +62,13 @@ import '../theme/app_theme.dart';
 import '../widgets/glass.dart';
 
 // ---------------------------------------------------------------------------
-// Mobile-only screen
+// Breakpoint
+// ---------------------------------------------------------------------------
+
+const double _kWebDesktopBreakpoint = 768;
+
+// ---------------------------------------------------------------------------
+// _MobileOnlyScreen
 // ---------------------------------------------------------------------------
 
 class _MobileOnlyScreen extends StatelessWidget {
@@ -133,26 +139,8 @@ class _MobileOnlyScreen extends StatelessWidget {
 
 // ---------------------------------------------------------------------------
 // WebJoinScreen
-//
-// Shown on WEB when a user opens a join link:
-//   https://esportlyic.web.app/join?code=ABC123
-//
-// On MOBILE the same /join route passes the code to QRScannerScreen
-// which auto-triggers the join flow without requiring any camera scan.
-//
-// WHY THIS SCREEN EXISTS:
-//   - Web cannot use the camera scanner (mobile_scanner is mobile-only).
-//   - Web users need a simple confirm-and-join UI.
-//   - The same Firestore write-order fix applies here:
-//       1. Update memberIds FIRST (arrayUnion).
-//       2. Write membership sub-document SECOND.
-//     This is the exact same fix applied to _joinLeagueCore() in
-//     leagues_repository_local.dart — the order is what prevents
-//     the permission-denied error from Firestore security rules.
-//
-// UI REUSES the same Glass + AppTheme components as the rest of the app
-// so it looks native and consistent on web.
 // ---------------------------------------------------------------------------
+
 class WebJoinScreen extends StatefulWidget {
   final String joinCode;
   const WebJoinScreen({super.key, required this.joinCode});
@@ -169,9 +157,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
   String? _error;
   String? _joinedLeagueName;
   String? _joinedLeagueId;
-
-  // The join mode chosen by the user — participant or viewer.
-  // We default to participant but show both options.
   bool _modeChosen = false;
 
   String get _code => widget.joinCode.trim().toUpperCase();
@@ -182,17 +167,14 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
     final uid =
         (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
     if (uid.isEmpty) {
-      setState(() {
-        _error = 'Please sign in and try again.';
-      });
+      setState(() => _error = 'Please sign in and try again.');
       return;
     }
 
     if (_code.isEmpty) {
-      setState(() {
-        _error =
-            'No join code found. Please use a valid invite link.';
-      });
+      setState(() =>
+          _error =
+              'No join code found. Please use a valid invite link.');
       return;
     }
 
@@ -203,7 +185,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
     });
 
     try {
-      // ── Step 1: Find league by code ────────────────────────────────────
       final query = await _firestore
           .collection('leagues')
           .where('code', isEqualTo: _code)
@@ -233,16 +214,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
       final membershipRef =
           leagueRef.collection('memberships').doc(uid);
 
-      // ── Step 2: Update memberIds FIRST ────────────────────────────────
-      //
-      // CRITICAL: This must happen before the membership write.
-      // Firestore security rules check that request.auth.uid is in
-      // the league's memberIds array before allowing a membership
-      // sub-document write. Writing memberIds first satisfies that
-      // precondition and prevents permission-denied.
-      //
-      // This is the same fix applied to _joinLeagueCore() in
-      // leagues_repository_local.dart.
       await leagueRef
           .set(
             {
@@ -254,12 +225,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
           )
           .timeout(const Duration(seconds: 20));
 
-      // ── Step 3: Write membership SECOND (participant only) ────────────
-      //
-      // Now that memberIds contains uid, the security rule check
-      // on the membership sub-document passes cleanly.
-      // Viewer joins skip this — they are in memberIds but have no
-      // formal membership document, which is the correct viewer state.
       if (asParticipant) {
         try {
           final existing = await membershipRef
@@ -274,7 +239,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
                     'leagueId': leagueId,
                     'userId': uid,
                     'teamId': null,
-                    // LeagueRole.member = index 1
                     'role': 1,
                     'updatedAtMs':
                         DateTime.now().millisecondsSinceEpoch,
@@ -285,8 +249,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
                 .timeout(const Duration(seconds: 20));
           }
         } catch (membershipError) {
-          // Non-fatal: user is already in memberIds.
-          // The membership document will be created on next access.
           assert(() {
             debugPrint(
               '[WebJoinScreen] membership write failed '
@@ -342,7 +304,9 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: brightness == Brightness.dark ? AppTheme.navyBgSoft : AppTheme.lightBg,
+      backgroundColor: brightness == Brightness.dark
+          ? AppTheme.navyBgSoft
+          : AppTheme.lightBg,
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -370,7 +334,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Header ────────────────────────────────────────────────────
           Icon(
             Icons.group_add_rounded,
             color: AppTheme.limeAccentDark,
@@ -394,8 +357,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
             ),
           ),
           const SizedBox(height: 20),
-
-          // ── Join code display ──────────────────────────────────────────
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 20,
@@ -429,8 +390,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
               ],
             ),
           ),
-
-          // ── Error ──────────────────────────────────────────────────────
           if (_error != null) ...[
             const SizedBox(height: 16),
             Container(
@@ -440,8 +399,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
                 color: theme.colorScheme.error.withOpacity(0.10),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color:
-                      theme.colorScheme.error.withOpacity(0.30),
+                  color: theme.colorScheme.error.withOpacity(0.30),
                 ),
               ),
               child: Text(
@@ -456,10 +414,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
               ),
             ),
           ],
-
           const SizedBox(height: 24),
-
-          // ── Join as Participant ────────────────────────────────────────
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -485,9 +440,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
                     )
                   : const Icon(Icons.sports_soccer_rounded),
               label: Text(
-                _joining
-                    ? 'Joining\u2026'
-                    : 'Join as Participant',
+                _joining ? 'Joining\u2026' : 'Join as Participant',
                 style: const TextStyle(
                   fontWeight: FontWeight.w900,
                   fontSize: 15,
@@ -495,10 +448,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
               ),
             ),
           ),
-
           const SizedBox(height: 12),
-
-          // ── Join as Viewer ─────────────────────────────────────────────
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -525,15 +475,13 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
               ),
             ),
           ),
-
           const SizedBox(height: 10),
-
-          // ── Cancel ────────────────────────────────────────────────────
           SizedBox(
             width: double.infinity,
             child: TextButton(
               style: TextButton.styleFrom(
-                foregroundColor: AppTheme.secondaryText(brightness),
+                foregroundColor:
+                    AppTheme.secondaryText(brightness),
               ),
               onPressed: _joining
                   ? null
@@ -635,7 +583,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// WebSessionGateScreen — unchanged from original
+// WebSessionGateScreen
 // ---------------------------------------------------------------------------
 
 class WebSessionGateScreen extends StatefulWidget {
@@ -668,6 +616,7 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
 
   @override
   void didChangeMetrics() {
+    // Rebuild when window is resized so mobile/desktop view switches live.
     if (mounted) setState(() {});
   }
 
@@ -700,6 +649,7 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
     }
   }
 
+  // ── QR pairing success (desktop) ─────────────────────────────────────
   void _onPaired({
     required String uid,
     required String name,
@@ -717,8 +667,33 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
     });
   }
 
+  // ── Mobile browser Google / email sign-in success ─────────────────────
+  void _onMobileLogin(User user) {
+    if (!mounted) return;
+
+    final session = {
+      'pairedUserUid': user.uid,
+      'pairedUserName': user.displayName ?? '',
+      'pairedUserEmail': user.email ?? '',
+      'sessionId': 'mobile-browser',
+      'sessionSecret': 'mobile-browser',
+    };
+
+    // Persist so page refresh keeps the user logged in.
+    WebDesktopSessionStore.save(
+      sessionId: 'mobile-browser',
+      sessionSecret: 'mobile-browser',
+      pairedUserUid: user.uid,
+      pairedUserName: user.displayName ?? '',
+      pairedUserEmail: user.email ?? '',
+    );
+
+    setState(() => _savedSession = session);
+  }
+
   void _onUnlink() {
     WebDesktopSessionStore.clear();
+    FirebaseAuth.instance.signOut().catchError((_) {});
     if (!mounted) return;
     setState(() {
       _savedSession = null;
@@ -726,8 +701,15 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
     });
   }
 
+  bool get _isDesktopViewport {
+    if (!mounted) return true;
+    return MediaQuery.of(context).size.width >=
+        _kWebDesktopBreakpoint;
+  }
+
   @override
   Widget build(BuildContext context) {
+    // ── Error ─────────────────────────────────────────────────────────
     if (_startupError != null) {
       return Scaffold(
         backgroundColor: const Color(0xFF0F172A),
@@ -747,6 +729,7 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
       );
     }
 
+    // ── Loading ───────────────────────────────────────────────────────
     if (_checking) {
       return const Scaffold(
         backgroundColor: Color(0xFF0F172A),
@@ -758,24 +741,31 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
       );
     }
 
-    final session = _savedSession;
-    final uid = (session?['pairedUserUid'] ?? '').trim();
+    final uid = (_savedSession?['pairedUserUid'] ?? '').trim();
+    final isLoggedIn = uid.isNotEmpty;
 
-    if (uid.isNotEmpty) {
+    // ── Already logged in → show shell ────────────────────────────────
+    if (isLoggedIn) {
       return WebDesktopShellScreen(
         pairedUserUid: uid,
-        pairedUserName: session?['pairedUserName'] ?? '',
-        pairedUserEmail: session?['pairedUserEmail'] ?? '',
+        pairedUserName: _savedSession?['pairedUserName'] ?? '',
+        pairedUserEmail: _savedSession?['pairedUserEmail'] ?? '',
         onUnlink: _onUnlink,
       );
     }
 
-    return WebPairingScreen(onPaired: _onPaired);
+    // ── Not logged in → WebPairingScreen handles the split ────────────
+    // width >= 768 → QR pairing + Google sign-in  (desktop)
+    // width <  768 → Full login / sign-up form    (mobile browser)
+    return WebPairingScreen(
+      onPaired: _onPaired,
+      onMobileLogin: _onMobileLogin,
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
-// AuthRouterRefresh — unchanged from original
+// AuthRouterRefresh
 // ---------------------------------------------------------------------------
 
 enum _ProfileState { unknown, checking, missing, exists }
@@ -788,7 +778,6 @@ class AuthRouterRefresh extends ChangeNotifier {
       _user = user;
 
       AppAdminsService.instance.ensureStarted();
-
       _cancelRetry();
       _retryAttempt = 0;
 
@@ -930,7 +919,8 @@ class AuthRouterRefresh extends ChangeNotifier {
           .timeout(const Duration(seconds: 12));
       _retryAttempt = 0;
       _setProfileState(
-          exists ? _ProfileState.exists : _ProfileState.missing);
+        exists ? _ProfileState.exists : _ProfileState.missing,
+      );
       return;
     } catch (e) {
       final fallback = (prev == _ProfileState.exists)
@@ -940,7 +930,7 @@ class AuthRouterRefresh extends ChangeNotifier {
 
       if (kDebugMode) {
         debugPrint(
-          'AuthRouterRefresh: profile check failed uid=$uid \u2192 $e',
+          'AuthRouterRefresh: profile check failed uid=$uid → $e',
         );
       }
 
@@ -1012,10 +1002,6 @@ final appRouter = GoRouter(
     final inVerifyEmail = loc == '/verify-email';
     final inOnboarding = loc == '/onboarding';
     final inBootstrap = loc == '/bootstrap';
-
-    // /join is a public deep-link entry point.
-    // We allow it through the redirect guard so the join code
-    // is never lost during the auth/profile loading cycle.
     final inJoin = loc == '/join';
 
     final inPricingAdmin = loc == '/admin/pricing';
@@ -1028,7 +1014,6 @@ final appRouter = GoRouter(
     final inGlobalChatRequestsAdmin =
         loc == '/admin/global-chat-requests';
 
-    // ── Web: block mobile-only routes ─────────────────────────────────
     if (kIsWeb) {
       if (loc.startsWith('/live') || loc == '/call') {
         return '/';
@@ -1048,8 +1033,6 @@ final appRouter = GoRouter(
 
     if (inDesktop) return null;
 
-    // /join: if not signed in, redirect to login and preserve the
-    // full join URL in a returnTo param so it is restored after login.
     if (inJoin && !authRouterRefresh.isSignedIn) {
       final query = state.uri.query;
       final fullPath =
@@ -1072,8 +1055,6 @@ final appRouter = GoRouter(
 
     if (authRouterRefresh.isCheckingProfile) {
       if (inBootstrap) return null;
-      // Allow /join through while profile is loading so the code
-      // is preserved in the URL.
       if (inJoin) return null;
       return '/bootstrap';
     }
@@ -1099,7 +1080,10 @@ final appRouter = GoRouter(
     }
 
     if (authRouterRefresh.hasProfile) {
-      if (inLogin || inOnboarding || inBootstrap || inVerifyEmail) {
+      if (inLogin ||
+          inOnboarding ||
+          inBootstrap ||
+          inVerifyEmail) {
         return '/';
       }
       return null;
@@ -1108,21 +1092,13 @@ final appRouter = GoRouter(
     return null;
   },
   routes: [
-    // ── Desktop pairing / web session gate ───────────────────────────────
+    // ── Desktop pairing ────────────────────────────────────────────────
     GoRoute(
       path: '/desktop',
       builder: (context, state) => const WebPairingScreen(),
     ),
 
-    // ── Join deep-link route ─────────────────────────────────────────────
-    //
-    // TOP-LEVEL route so it is reachable directly from:
-    //   https://esportlyic.web.app/join?code=ABC123
-    //   eleaguehub://join?code=ABC123  (via deep_link_gate.dart)
-    //
-    // On WEB    → WebJoinScreen (this file — inline confirm-and-join)
-    // On MOBILE → QRScannerScreen with initialJoinCode pre-filled
-    //             so the join triggers automatically without scanning
+    // ── Join deep-link ─────────────────────────────────────────────────
     GoRoute(
       path: '/join',
       builder: (context, state) {
@@ -1135,7 +1111,7 @@ final appRouter = GoRouter(
       },
     ),
 
-    // ── Auth ─────────────────────────────────────────────────────────────
+    // ── Auth ───────────────────────────────────────────────────────────
     GoRoute(
       path: '/bootstrap',
       builder: (context, state) => const BootstrapScreen(),
@@ -1170,7 +1146,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const OnboardingScreen(),
     ),
 
-    // ── Standalone routes ─────────────────────────────────────────────────
+    // ── Standalone ─────────────────────────────────────────────────────
     GoRoute(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
@@ -1186,18 +1162,19 @@ final appRouter = GoRouter(
           const PublicOrganizerDiscoveryScreen(),
     ),
 
-    // ── Call Room — mobile only ───────────────────────────────────────────
+    // ── Call Room ──────────────────────────────────────────────────────
     GoRoute(
       path: '/call',
       builder: (context, state) {
         if (kIsWeb) {
-          return const _MobileOnlyScreen(featureName: 'Voice Room');
+          return const _MobileOnlyScreen(
+              featureName: 'Voice Room');
         }
         return const CallRoomScreen();
       },
     ),
 
-    // ── Admin ─────────────────────────────────────────────────────────────
+    // ── Admin ──────────────────────────────────────────────────────────
     GoRoute(
       path: '/admin/pricing',
       builder: (context, state) => const PricingAdminScreen(),
@@ -1227,7 +1204,7 @@ final appRouter = GoRouter(
           const GlobalChatAdminRequestsScreen(),
     ),
 
-    // ── Root shell ────────────────────────────────────────────────────────
+    // ── Root shell ─────────────────────────────────────────────────────
     GoRoute(
       path: '/',
       builder: (context, state) {
@@ -1335,14 +1312,16 @@ final appRouter = GoRouter(
                   path: 'chat',
                   builder: (context, state) =>
                       OrganizerChatScreen(
-                    masterLeagueId: state.pathParameters['id']!,
+                    masterLeagueId:
+                        state.pathParameters['id']!,
                   ),
                 ),
                 GoRoute(
                   path: 'discipline',
                   builder: (context, state) =>
                       OrganizerDisciplineScreen(
-                    masterLeagueId: state.pathParameters['id']!,
+                    masterLeagueId:
+                        state.pathParameters['id']!,
                   ),
                 ),
               ],
@@ -1351,7 +1330,8 @@ final appRouter = GoRouter(
         ),
         GoRoute(
           path: 'leagues',
-          builder: (context, state) => const LeaguesListScreen(),
+          builder: (context, state) =>
+              const LeaguesListScreen(),
           routes: [
             GoRoute(
               path: 'create',
@@ -1367,8 +1347,8 @@ final appRouter = GoRouter(
                     (extra['masterLeagueId'] as String?)
                             ?.trim() ??
                         '';
-                final format =
-                    extra['initialFormat'] as LeagueFormat?;
+                final format = extra['initialFormat']
+                    as LeagueFormat?;
                 return LeagueCreateWizard(
                   masterLeagueId: masterLeagueId,
                   initialFormat: format,
@@ -1405,9 +1385,6 @@ final appRouter = GoRouter(
                     leagueName: leagueName);
               },
             ),
-            // QR Scanner / Join entry point
-            // On web: redirects to the top-level /join route
-            // On mobile: shows the full camera QR scanner
             GoRoute(
               path: 'join-scanner',
               redirect: (context, state) {
@@ -1473,7 +1450,8 @@ final appRouter = GoRouter(
                 ),
                 GoRoute(
                   path: 'chat',
-                  builder: (context, state) => LeagueChatScreen(
+                  builder: (context, state) =>
+                      LeagueChatScreen(
                     leagueId: state.pathParameters['id']!,
                   ),
                 ),
@@ -1482,39 +1460,45 @@ final appRouter = GoRouter(
             GoRoute(
               path: ':leagueId/fixtures',
               builder: (context, state) => FixturesScreen(
-                leagueId: state.pathParameters['leagueId']!,
+                leagueId:
+                    state.pathParameters['leagueId']!,
               ),
             ),
             GoRoute(
               path: ':leagueId/admin-scores',
               builder: (context, state) => LeagueRoleGuard(
-                leagueId: state.pathParameters['leagueId']!,
+                leagueId:
+                    state.pathParameters['leagueId']!,
                 title: 'Organizer Access Only',
                 message:
                     'Only the organizer or allowed admins '
                     'can manage league scores.',
                 child: AdminScoreMgmtScreen(
-                  leagueId: state.pathParameters['leagueId']!,
+                  leagueId:
+                      state.pathParameters['leagueId']!,
                 ),
               ),
             ),
             GoRoute(
               path: ':leagueId/admin',
               builder: (context, state) => LeagueRoleGuard(
-                leagueId: state.pathParameters['leagueId']!,
+                leagueId:
+                    state.pathParameters['leagueId']!,
                 title: 'Organizer Access Only',
                 message:
                     'Only the organizer or allowed admins '
                     'can open league settings.',
                 child: LeagueAdminScreen(
-                  leagueId: state.pathParameters['leagueId']!,
+                  leagueId:
+                      state.pathParameters['leagueId']!,
                 ),
               ),
             ),
             GoRoute(
               path: ':leagueId/matches/:matchId',
               builder: (context, state) => MatchDetailScreen(
-                leagueId: state.pathParameters['leagueId']!,
+                leagueId:
+                    state.pathParameters['leagueId']!,
                 matchId: state.pathParameters['matchId']!,
               ),
             ),
