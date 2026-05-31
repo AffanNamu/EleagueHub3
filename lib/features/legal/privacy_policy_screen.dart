@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
@@ -7,7 +8,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
 
   static const String _appName = 'eSportlyic';
-  static const String _supportEmail = 'support-esportlyic@kainuwa.africa';
+  static const String _supportEmail = 'NASSARACORETECHVENTURES@GMAIL.COM';
   static const String _effectiveDate = '15 February 2026';
 
   @override
@@ -29,151 +30,210 @@ class PrivacyPolicyScreen extends StatelessWidget {
                   padding: const EdgeInsets.all(18),
                   child: _LegalDoc(
                     title: 'Privacy Policy',
-                    subtitle: 'Effective date: $_effectiveDate',
-                    children: const [
-                      _P(
-                        'This Privacy Policy explains how our app collects, uses, shares, and protects information when you use the App and related services. '
-                        'By using the App, you agree to the practices described in this Privacy Policy.',
+                    subtitle: '$_appName · Effective date: $_effectiveDate',
+                    children: [
+                      // ── 1. Introduction ────────────────────────────────
+                      const _H('1. Introduction'),
+                      const _P(
+                        'This Privacy Policy explains how $_appName ("we", "our", or '
+                        '"the App") collects, uses, stores, and protects your '
+                        'information when you use our application.',
                       ),
-                      _H('1) Who we are'),
-                      _P(
-                        '$_appName is a league management application that enables users to create accounts, manage profiles, create/manage leagues, and interact with marketplace content that may include affiliate links.',
+                      const _P(
+                        'By using the App, you agree to the practices described in '
+                        'this Privacy Policy. If you do not agree, please do not use '
+                        'the App.',
                       ),
-                      _H('2) Information we collect'),
-                      _P(
-                        'We collect information in the following ways:',
+
+                      // ── 2. Information We Collect ──────────────────────
+                      const _H('2. Information We Collect'),
+                      const _P('We collect the following types of information:'),
+
+                      const _SubH('2.1 Information you provide directly'),
+                      const _B('Account information such as email address (via Google/Firebase Authentication or other login methods).'),
+                      const _B('Profile details such as team name, username, and profile photo.'),
+                      const _B('Content you upload within the App (such as images or league-related data).'),
+                      const _B('Support messages or communications you send to us.'),
+
+                      const _SubH('2.2 Information collected automatically'),
+                      const _P('When you use the App, we may automatically collect:'),
+                      const _B('Device information (model, operating system version).'),
+                      const _B('App version and usage data.'),
+                      const _B('Crash logs and diagnostic data (for performance and bug fixing).'),
+                      const _B('IP address and general network information.'),
+
+                      const _SubH('2.3 Information from third-party services'),
+                      const _P(
+                        'If you sign in using third-party services (such as Google), '
+                        'we may receive:',
                       ),
-                      _B(
-                        'Information you provide: account and profile information (such as team name), support requests, and any content you submit within the App.',
+                      const _B('Unique user ID.'),
+                      const _B('Email address.'),
+                      const _B('Display name.'),
+                      const _B('Profile photo (if available).'),
+                      const _P(
+                        'This data is provided in accordance with the third party\'s '
+                        'privacy settings and policies.',
                       ),
-                      _B(
-                        'Information collected automatically: limited technical data such as device information, app version, crash logs, and diagnostic data to help maintain security and performance.',
+
+                      // ── 3. Camera / Microphone / Screen Recording ──────
+                      const _H('3. Camera, Microphone, and Screen Recording'),
+                      const _P(
+                        'The App may request access to sensitive device features only '
+                        'when you explicitly use related features:',
                       ),
-                      _B(
-                        'Information from third parties: where you choose to sign in via supported identity providers (e.g., Google), we receive authentication identifiers and basic profile details from that provider as permitted by your settings and their policies.',
+                      const _B('Camera access: used for profile images, streaming, or content creation.'),
+                      const _B('Microphone access: used for voice chat, live communication, or recording features.'),
+                      const _B('Screen recording (Media Projection): used only when you explicitly start screen sharing or live streaming sessions.'),
+                      const _P(
+                        'We do not access your camera, microphone, or screen in the '
+                        'background without your active permission and interaction. '
+                        'You can disable these permissions at any time in your device '
+                        'settings.',
                       ),
-                      _H('3) Firebase Authentication data'),
-                      _P(
-                        'We use Firebase Authentication to sign you in and to secure access to your account. Depending on the sign-in method, Firebase Authentication may process data such as:',
+
+                      // ── 4. Overlay Permission ──────────────────────────
+                      const _H('4. Overlay (Floating Window) Permission'),
+                      const _P(
+                        'The App may display floating UI elements (such as chat heads, '
+                        'voice controls, or live session controls) using overlay '
+                        'permissions. These overlays:',
                       ),
-                      _B('A unique user identifier (UID).'),
-                      _B('Email address (if you sign in with email or a provider that shares email).'),
-                      _B('Display name and profile photo URL (if available).'),
-                      _B('Authentication tokens and security-related metadata.'),
-                      _P(
-                        'Authentication data is used to authenticate you, protect your account, prevent abuse, and provide account-related features. '
-                        'Firebase processes this information under its own terms and privacy policy.',
+                      const _B('Only appear during active features (e.g., live sessions or voice tools).'),
+                      const _B('Do not collect personal data by themselves.'),
+                      const _B('Can be disabled by the user through settings or system permissions.'),
+
+                      // ── 5. How We Use Your Information ────────────────
+                      const _H('5. How We Use Your Information'),
+                      const _P('We use collected information to:'),
+                      const _B('Provide and operate the App.'),
+                      const _B('Enable user accounts and authentication.'),
+                      const _B('Support league and profile features.'),
+                      const _B('Enable live interaction features (voice, streaming, etc.).'),
+                      const _B('Improve performance and fix bugs.'),
+                      const _B('Provide customer support.'),
+                      const _B('Ensure security and prevent fraud or abuse.'),
+
+                      // ── 6. Data Storage and Services ──────────────────
+                      const _H('6. Data Storage and Services'),
+                      const _P(
+                        'We use trusted third-party services to operate the App, '
+                        'including:',
                       ),
-                      _H('4) User profile data'),
-                      _P(
-                        'If you create or update a profile within the App, we may store profile-related information in our backend (such as Cloud Firestore). This can include:',
+                      const _B('Google Firebase — Authentication, database, crash reporting.'),
+                      const _B('Cloudinary — image storage and delivery.'),
+                      const _P(
+                        'These providers may process your data according to their own '
+                        'privacy policies.',
                       ),
-                      _B('Team name and public-facing profile identifiers.'),
-                      _B('Profile photo URL and related image references.'),
-                      _B('App feature configuration linked to your account (e.g., preferences or league-related settings).'),
-                      _P(
-                        'We use this information to display your profile, enable league features, and support the functionality of the App.',
+
+                      // ── 7. Sharing of Information ─────────────────────
+                      const _H('7. Sharing of Information'),
+                      const _P('We do not sell your personal data.'),
+                      const _P('We may share information only in the following cases:'),
+                      const _B('With service providers (Firebase, Cloudinary) to operate the App.'),
+                      const _B('When required by law or legal process.'),
+                      const _B('To protect user safety, security, or prevent abuse.'),
+                      const _B('In case of business transfer (merger or acquisition).'),
+
+                      // ── 8. Data Retention ─────────────────────────────
+                      const _H('8. Data Retention'),
+                      const _P(
+                        'We keep your information only as long as necessary to:',
                       ),
-                      _H('5) Cloudinary image storage'),
-                      _P(
-                        'When you upload images (such as an avatar/profile photo), the image may be uploaded to Cloudinary for storage and delivery. '
-                        'Cloudinary may receive your uploaded image and related technical metadata required to store and deliver the image (for example, file type, size, and delivery URLs).',
+                      const _B('Provide App services.'),
+                      const _B('Comply with legal obligations.'),
+                      const _B('Resolve disputes.'),
+                      const _B('Enforce agreements.'),
+                      const _P(
+                        'You may request deletion of your account and data at any time.',
                       ),
-                      _P(
-                        'Images are used to display your profile/team visuals inside the App. You can remove or replace your uploaded images in the App where supported. '
-                        'Removal in the App updates our stored references; cached copies may persist for a limited time due to CDN caching.',
+
+                      // ── 9. Your Rights ────────────────────────────────
+                      const _H('9. Your Rights'),
+                      const _P(
+                        'Depending on your location, you may have the right to:',
                       ),
-                      _H('6) Affiliate links and marketplace content'),
-                      _P(
-                        'The App may include marketplace content and links to third-party stores or partner sites. Some links may be affiliate links, meaning we may earn a commission if you make a purchase through those links.',
+                      const _B('Access your personal data.'),
+                      const _B('Correct inaccurate data.'),
+                      const _B('Request deletion of your data.'),
+                      const _B('Withdraw consent.'),
+                      const _B('Object to data processing.'),
+                      const _P('To exercise these rights, contact us at:'),
+                      _EmailLink(email: _supportEmail),
+
+                      // ── 10. Security ──────────────────────────────────
+                      const _H('10. Security'),
+                      const _P(
+                        'We implement appropriate technical and organizational measures '
+                        'to protect your data. However, no system is 100% secure, and '
+                        'we cannot guarantee absolute security.',
                       ),
-                      _P(
-                        'When you click an affiliate link, you may be redirected to an external site that is governed by its own privacy policy and terms. '
-                        'We do not control how third-party sites collect or use your information.',
+                      const _P(
+                        'You are responsible for keeping your account credentials safe.',
                       ),
-                      _H('7) Analytics and diagnostics'),
-                      _P(
-                        'We use diagnostics tools to maintain and improve the App. This may include Firebase Crashlytics (and, where enabled, analytics events) to understand stability, performance, and how features are used. '
-                        'These tools may collect technical identifiers, app interaction data, and crash reports. We use this information to:',
+
+                      // ── 11. Children's Privacy ────────────────────────
+                      const _H('11. Children\'s Privacy'),
+                      const _P(
+                        'The App is not intended for children under 13 years of age '
+                        '(or the minimum legal age in your country). We do not '
+                        'knowingly collect data from children.',
                       ),
-                      _B('Detect, prevent, and fix crashes and bugs.'),
-                      _B('Improve reliability, performance, and user experience.'),
-                      _B('Monitor security and potential abuse.'),
-                      _H('8) How we use information'),
-                      _P(
-                        'We may use collected information to:',
+                      const _P(
+                        'If we discover such data has been collected, we will delete '
+                        'it promptly.',
                       ),
-                      _B('Provide, operate, and maintain the App and its features.'),
-                      _B('Authenticate users and secure accounts.'),
-                      _B('Process and display user profile content, including images.'),
-                      _B('Communicate with you about support requests and important service updates.'),
-                      _B('Enforce our Terms of Service and prevent fraud or abuse.'),
-                      _B('Comply with legal obligations.'),
-                      _H('9) How we share information'),
-                      _P(
-                        'We do not sell your personal information. We may share information only in the following circumstances:',
+
+                      // ── 12. Third-Party Services ──────────────────────
+                      const _H('12. Third-Party Services'),
+                      const _P(
+                        'The App may include third-party services such as:',
                       ),
-                      _B(
-                        'Service providers: with vendors who help us operate the App (for example, Firebase/Google for authentication and database services, Cloudinary for image storage/delivery).',
+                      const _B('Google/Firebase services.'),
+                      const _B('Cloudinary image hosting.'),
+                      const _B('External links or affiliate marketplaces.'),
+                      const _P(
+                        'These services operate under their own privacy policies, '
+                        'which we encourage you to review.',
                       ),
-                      _B(
-                        'Legal and safety: if required by law, legal process, or to protect the rights, property, and safety of users, the public, or our services.',
+
+                      // ── 13. Affiliate Links ───────────────────────────
+                      const _H('13. Affiliate Links'),
+                      const _P(
+                        'Some links in the App may be affiliate links. This means we '
+                        'may earn a commission if you purchase through those links. '
+                        'This does not affect the price you pay.',
                       ),
-                      _B(
-                        'Business changes: if we are involved in a merger, acquisition, financing, reorganization, bankruptcy, or sale of assets, information may be transferred as part of that transaction, subject to applicable law.',
+
+                      // ── 14. International Data Transfers ──────────────
+                      const _H('14. International Data Transfers'),
+                      const _P(
+                        'Your data may be processed in countries outside your location '
+                        'where our service providers operate. We ensure appropriate '
+                        'safeguards are applied where required by law.',
                       ),
-                      _H('10) Data protection and security'),
-                      _P(
-                        'We implement reasonable administrative, technical, and organizational safeguards designed to protect information against unauthorized access, alteration, disclosure, or destruction. '
-                        'No method of transmission or storage is 100% secure. You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account.',
+
+                      // ── 15. Changes to This Policy ────────────────────
+                      const _H('15. Changes to This Policy'),
+                      const _P(
+                        'We may update this Privacy Policy from time to time. Updates '
+                        'will be posted within the App, and the effective date will be '
+                        'revised.',
                       ),
-                      _H('11) Data retention'),
-                      _P(
-                        'We retain information for as long as needed to provide the App and for legitimate business purposes such as security, compliance, dispute resolution, and enforcement of agreements. '
-                        'If you request deletion, we will take reasonable steps to delete or de-identify personal information, unless we are required to retain certain data for legal or security reasons.',
+                      const _P(
+                        'Continued use of the App means you accept the updated policy.',
                       ),
-                      _H('12) Your rights and choices'),
-                      _P(
-                        'Depending on your location and applicable law, you may have rights to:',
+
+                      // ── 16. Contact Us ────────────────────────────────
+                      const _H('16. Contact Us'),
+                      const _P(
+                        'If you have any questions about this Privacy Policy, '
+                        'contact us:',
                       ),
-                      _B('Access the personal information we hold about you.'),
-                      _B('Correct inaccurate or incomplete information.'),
-                      _B('Request deletion of your information.'),
-                      _B('Object to or restrict certain processing.'),
-                      _B('Withdraw consent where processing is based on consent.'),
-                      _P(
-                        'To exercise these rights, contact us at $_supportEmail. We may need to verify your identity before fulfilling certain requests.',
-                      ),
-                      _H('13) Third-party services'),
-                      _P(
-                        'The App relies on third-party services that may process information to provide their functionality. These may include (but are not limited to):',
-                      ),
-                      _B('Google/Firebase (Authentication, Cloud Firestore, Crashlytics and related infrastructure).'),
-                      _B('Cloudinary (image storage and delivery).'),
-                      _B('External affiliate/partner stores (when you click outbound links).'),
-                      _P(
-                        'Your use of third-party services is subject to their terms and privacy policies. We encourage you to review them.',
-                      ),
-                      _H('14) Children’s privacy'),
-                      _P(
-                        'The App is not directed to children under the age of 13 (or a higher age where required by local law). '
-                        'We do not knowingly collect personal information from children. If you believe a child has provided personal information, contact us so we can take appropriate action.',
-                      ),
-                      _H('15) International transfers'),
-                      _P(
-                        'Your information may be processed and stored in countries other than your own, including where our service providers maintain facilities. '
-                        'We take steps designed to ensure that transfers comply with applicable data protection laws.',
-                      ),
-                      _H('16) Changes to this Privacy Policy'),
-                      _P(
-                        'We may update this Privacy Policy from time to time. We will post the updated version in the App and update the effective date above. '
-                        'Your continued use of the App after changes become effective means you accept the updated Privacy Policy.',
-                      ),
-                      _H('17) Contact us'),
-                      _P(
-                        'If you have any questions about this Privacy Policy or our privacy practices, contact us:',
-                      ),
-                      _P('Email: $_supportEmail'),
+                      _EmailLink(email: _supportEmail),
+
+                      const SizedBox(height: 8),
                     ],
                   ),
                 ),
@@ -185,6 +245,10 @@ class PrivacyPolicyScreen extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal layout widgets
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _LegalDoc extends StatelessWidget {
   const _LegalDoc({
@@ -210,25 +274,28 @@ class _LegalDoc extends StatelessWidget {
           title,
           style: t.headlineSmall?.copyWith(
             fontWeight: FontWeight.w900,
-            color: cs.onBackground,
+            color: cs.onSurface,
           ),
         ),
         const SizedBox(height: 6),
         Text(
           subtitle,
           style: t.bodySmall?.copyWith(
-            color: cs.onBackground.withOpacity(0.70),
+            color: cs.onSurface.withOpacity(0.65),
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 16),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 14),
+          child: Divider(),
+        ),
         ...children,
-        const SizedBox(height: 8),
       ],
     );
   }
 }
 
+/// Large section heading  e.g. "1. Introduction"
 class _H extends StatelessWidget {
   const _H(this.text);
 
@@ -237,22 +304,47 @@ class _H extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final t = theme.textTheme;
     final cs = theme.colorScheme;
 
     return Padding(
-      padding: const EdgeInsets.only(top: 14, bottom: 6),
+      padding: const EdgeInsets.only(top: 18, bottom: 6),
       child: Text(
         text,
-        style: t.titleMedium?.copyWith(
-          color: cs.onBackground,
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: cs.primary,
           fontWeight: FontWeight.w900,
+          letterSpacing: 0.1,
         ),
       ),
     );
   }
 }
 
+/// Sub-section heading  e.g. "2.1 Information you provide directly"
+class _SubH extends StatelessWidget {
+  const _SubH(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Text(
+        text,
+        style: theme.textTheme.bodyLarge?.copyWith(
+          color: cs.onSurface,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+/// Body paragraph
 class _P extends StatelessWidget {
   const _P(this.text);
 
@@ -261,23 +353,23 @@ class _P extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final t = theme.textTheme;
     final cs = theme.colorScheme;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Text(
         text,
-        style: t.bodyMedium?.copyWith(
-          color: cs.onBackground.withOpacity(0.88),
-          height: 1.35,
-          fontWeight: FontWeight.w500,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: cs.onSurface.withOpacity(0.88),
+          height: 1.55,
+          fontWeight: FontWeight.w400,
         ),
       ),
     );
   }
 }
 
+/// Bullet point
 class _B extends StatelessWidget {
   const _B(this.text);
 
@@ -286,16 +378,15 @@ class _B extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final t = theme.textTheme;
     final cs = theme.colorScheme;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 8, left: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 3),
+            padding: const EdgeInsets.only(top: 7),
             child: Container(
               width: 6,
               height: 6,
@@ -309,14 +400,55 @@ class _B extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: t.bodyMedium?.copyWith(
-                color: cs.onBackground.withOpacity(0.88),
-                height: 1.35,
-                fontWeight: FontWeight.w500,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.onSurface.withOpacity(0.88),
+                height: 1.55,
+                fontWeight: FontWeight.w400,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Tappable e-mail link
+class _EmailLink extends StatelessWidget {
+  const _EmailLink({required this.email});
+
+  final String email;
+
+  Future<void> _launch() async {
+    final uri = Uri(scheme: 'mailto', path: email);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GestureDetector(
+        onTap: _launch,
+        child: Row(
+          children: [
+            Icon(Icons.email_outlined, size: 16, color: cs.primary),
+            const SizedBox(width: 8),
+            Text(
+              email,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: cs.primary,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                    decorationColor: cs.primary,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
