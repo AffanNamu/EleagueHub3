@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'dart:js' as js;
+import '../utils/ua_detector.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
@@ -702,33 +702,13 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
     });
   }
 
-   // NEW - uses same UA detection as WebPairingScreen
   bool get _isDesktopViewport {
-    if (!mounted) return true;
-    final width = MediaQuery.of(context).size.width;
-    if (width >= 900) return true;
-    try {
-      final ua = js.context['navigator']['userAgent']
-          .toString()
-          .toLowerCase();
-      if (ua.contains('cros')) return true;
-      if (ua.contains('windows nt')) return true;
-      if (ua.contains('macintosh') || ua.contains('mac os x')) {
-        if (!ua.contains('iphone') && !ua.contains('ipad')) return true;
-      }
-      if (ua.contains('x11') || ua.contains('linux')) {
-        if (!ua.contains('android')) return true;
-      }
-      final mobileTokens = [
-        'android', 'iphone', 'ipad', 'ipod',
-        'blackberry', 'windows phone', 'mobile',
-        'opera mini', 'opera mobi',
-      ];
-      return !mobileTokens.any((t) => ua.contains(t));
-    } catch (_) {
-      return width >= 900;
-    }
-  }
+  if (!mounted) return true;
+  final width = MediaQuery.of(context).size.width;
+  // isRealMobileBrowser returns true only for real mobile browsers.
+  // So desktop = NOT mobile.
+  return !isRealMobileBrowser(width);
+}
 
   @override
   Widget build(BuildContext context) {
