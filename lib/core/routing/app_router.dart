@@ -988,7 +988,7 @@ bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
 // ---------------------------------------------------------------------------
 
 final appRouter = GoRouter(
-  initialLocation: '/bootstrap',
+  initialLocation: kIsWeb ? '/' : '/bootstrap',
   refreshListenable: authRouterRefresh,
   debugLogDiagnostics: kDebugMode,
   redirect: (context, state) {
