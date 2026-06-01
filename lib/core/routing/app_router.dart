@@ -592,8 +592,7 @@ class WebSessionGateScreen extends StatefulWidget {
   const WebSessionGateScreen({super.key, this.pendingRoute});
 
   @override
-  State<WebSessionGateScreen> createState() =>
-      _WebSessionGateScreenState();
+  State<WebSessionGateScreen> createState() => _WebSessionGateScreenState();
 }
 
 class _WebSessionGateScreenState extends State<WebSessionGateScreen>
@@ -601,6 +600,7 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
   bool _checking = true;
   String? _startupError;
   Map<String, String>? _savedSession;
+  bool _didNavigatePending = false;
 
   @override
   void initState() {
@@ -617,8 +617,21 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
 
   @override
   void didChangeMetrics() {
-    // Rebuild when window is resized so mobile/desktop view switches live.
     if (mounted) setState(() {});
+  }
+
+  void _maybeNavigatePending() {
+    final pending = (widget.pendingRoute ?? '').trim();
+    if (pending.isEmpty) return;
+    if (_didNavigatePending) return;
+    _didNavigatePending = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        GoRouter.of(context).push(pending);
+      } catch (_) {}
+    });
   }
 
   Future<void> _check() async {
@@ -630,16 +643,10 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
         _checking = false;
       });
 
-      if (saved != null &&
-          (saved['pairedUserUid'] ?? '').trim().isNotEmpty &&
-          widget.pendingRoute != null &&
-          widget.pendingRoute!.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          try {
-            GoRouter.of(context).push(widget.pendingRoute!);
-          } catch (_) {}
-        });
+      // If a session already exists and we have a pending route, go there.
+      final uid = (saved?['pairedUserUid'] ?? '').trim();
+      if (uid.isNotEmpty) {
+        _maybeNavigatePending();
       }
     } catch (e) {
       if (!mounted) return;
@@ -650,13 +657,13 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
     }
   }
 
-  // ── QR pairing success (desktop) ─────────────────────────────────────
   void _onPaired({
     required String uid,
     required String name,
     required String email,
   }) {
     if (!mounted) return;
+
     setState(() {
       _savedSession = {
         'pairedUserUid': uid,
@@ -666,21 +673,14 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
         'sessionSecret': '',
       };
     });
+
+    _maybeNavigatePending();
   }
 
-  // ── Mobile browser Google / email sign-in success ─────────────────────
   void _onMobileLogin(User user) {
     if (!mounted) return;
 
-    final session = {
-      'pairedUserUid': user.uid,
-      'pairedUserName': user.displayName ?? '',
-      'pairedUserEmail': user.email ?? '',
-      'sessionId': 'mobile-browser',
-      'sessionSecret': 'mobile-browser',
-    };
-
-    // Persist so page refresh keeps the user logged in.
+    // Persist so refresh keeps the user in the shell.
     WebDesktopSessionStore.save(
       sessionId: 'mobile-browser',
       sessionSecret: 'mobile-browser',
@@ -689,7 +689,17 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
       pairedUserEmail: user.email ?? '',
     );
 
-    setState(() => _savedSession = session);
+    setState(() {
+      _savedSession = {
+        'pairedUserUid': user.uid,
+        'pairedUserName': user.displayName ?? '',
+        'pairedUserEmail': user.email ?? '',
+        'sessionId': 'mobile-browser',
+        'sessionSecret': 'mobile-browser',
+      };
+    });
+
+    _maybeNavigatePending();
   }
 
   void _onUnlink() {
@@ -699,20 +709,12 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
     setState(() {
       _savedSession = null;
       _checking = false;
+      _didNavigatePending = false;
     });
   }
 
-  bool get _isDesktopViewport {
-  if (!mounted) return true;
-  final width = MediaQuery.of(context).size.width;
-  // isRealMobileBrowser returns true only for real mobile browsers.
-  // So desktop = NOT mobile.
-  return !isRealMobileBrowser(width);
-}
-
   @override
   Widget build(BuildContext context) {
-    // ── Error ─────────────────────────────────────────────────────────
     if (_startupError != null) {
       return Scaffold(
         backgroundColor: const Color(0xFF0F172A),
@@ -722,44 +724,38 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
             child: Text(
               'Failed to load session:\n$_startupError',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.redAccent,
-                fontSize: 18,
-              ),
+              style: const TextStyle(color: Colors.redAccent, fontSize: 18),
             ),
           ),
         ),
       );
     }
 
-    // ── Loading ───────────────────────────────────────────────────────
     if (_checking) {
       return const Scaffold(
         backgroundColor: Color(0xFF0F172A),
         body: Center(
-          child: CircularProgressIndicator(
-            color: Color(0xFFBEF264),
-          ),
+          child: CircularProgressIndicator(color: Color(0xFFBEF264)),
         ),
       );
     }
 
-    final uid = (_savedSession?['pairedUserUid'] ?? '').trim();
-    final isLoggedIn = uid.isNotEmpty;
+    final session = _savedSession;
+    final uid = (session?['pairedUserUid'] ?? '').trim();
 
-    // ── Already logged in → show shell ────────────────────────────────
-    if (isLoggedIn) {
+    if (uid.isNotEmpty) {
       return WebDesktopShellScreen(
         pairedUserUid: uid,
-        pairedUserName: _savedSession?['pairedUserName'] ?? '',
-        pairedUserEmail: _savedSession?['pairedUserEmail'] ?? '',
+        pairedUserName: session?['pairedUserName'] ?? '',
+        pairedUserEmail: session?['pairedUserEmail'] ?? '',
         onUnlink: _onUnlink,
       );
     }
 
-    // ── Not logged in → WebPairingScreen handles the split ────────────
-    // width >= 768 → QR pairing + Google sign-in  (desktop)
-    // width <  768 → Full login / sign-up form    (mobile browser)
+    // Not logged in (no saved pairing/mobile session):
+    // WebPairingScreen decides:
+    //  - desktop/chromebook -> QR pairing screen
+    //  - mobile browser     -> login/signup screen
     return WebPairingScreen(
       onPaired: _onPaired,
       onMobileLogin: _onMobileLogin,
