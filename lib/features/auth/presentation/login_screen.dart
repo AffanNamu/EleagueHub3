@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -30,6 +31,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // If someone hits /login on WEB desktop, push them to "/" (pairing gate).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!kIsWeb) return;
+
+      final w = MediaQuery.of(context).size.width;
+      if (w >= 900) {
+        context.go('/');
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -255,13 +272,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             _isRegister ? TextInputAction.next : TextInputAction.done,
                         autofillHints: const [AutofillHints.password],
                         suffixIcon: IconButton(
-                          tooltip:
-                              _obscurePassword ? 'Show password' : 'Hide password',
+                          tooltip: _obscurePassword ? 'Show password' : 'Hide password',
                           onPressed: _submitting
                               ? null
-                              : () => setState(
-                                    () => _obscurePassword = !_obscurePassword,
-                                  ),
+                              : () => setState(() => _obscurePassword = !_obscurePassword),
                           icon: Icon(
                             _obscurePassword
                                 ? Icons.visibility_outlined
@@ -281,13 +295,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           textInputAction: TextInputAction.done,
                           autofillHints: const [AutofillHints.newPassword],
                           suffixIcon: IconButton(
-                            tooltip:
-                                _obscureConfirm ? 'Show password' : 'Hide password',
+                            tooltip: _obscureConfirm ? 'Show password' : 'Hide password',
                             onPressed: _submitting
                                 ? null
-                                : () => setState(
-                                      () => _obscureConfirm = !_obscureConfirm,
-                                    ),
+                                : () => setState(() => _obscureConfirm = !_obscureConfirm),
                             icon: Icon(
                               _obscureConfirm
                                   ? Icons.visibility_outlined
@@ -302,9 +313,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed: _submitting
-                                ? null
-                                : () => context.go('/forgot-password'),
+                            onPressed: _submitting ? null : () => context.go('/forgot-password'),
                             child: Text(
                               'Forgot password?',
                               style: TextStyle(color: AppTheme.limeAccentDark),
@@ -342,9 +351,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       TextButton(
                         onPressed: _submitting
                             ? null
-                            : () => setState(() {
-                                  _isRegister = !_isRegister;
-                                }),
+                            : () => setState(() => _isRegister = !_isRegister),
                         child: Text(
                           _isRegister
                               ? l10n.authLoginToggleToSignIn
