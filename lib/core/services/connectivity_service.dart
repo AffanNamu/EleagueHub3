@@ -114,7 +114,14 @@ class ConnectivityService {
 
   /// Real internet check (DNS lookup).
   /// Uses multiple hosts to reduce false negatives in restricted networks.
+  ///
+  /// WEB FIX:
+  /// InternetAddress.lookup is not reliable/supported the same way on web.
+  /// For web, if we have *any* network signal from connectivity_plus,
+  /// we treat it as online and let Firestore requests decide.
   Future<bool> _hasRealInternetAccess() async {
+    if (kIsWeb) return true;
+
     const hosts = <String>[
       'one.one.one.one', // Cloudflare
       'google.com',
