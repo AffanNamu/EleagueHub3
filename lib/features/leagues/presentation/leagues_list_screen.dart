@@ -496,7 +496,7 @@ class _LeaguesListScreenState
         final data = entry.value;
         // Ensure the document has an id field so League.fromMap works.
         data['id'] = entry.key;
-        final league = League.fromMap(data, entry.key);
+        final map = <String, dynamic>{...data}; final existingId = (map['id'] as String?)?.trim() ?? ''; if (existingId.isEmpty) map['id'] = entry.key; final league = League.fromRemoteMap(map);
         leagues.add(league);
       } catch (e) {
         debugPrint(
@@ -530,7 +530,7 @@ class _LeaguesListScreenState
             final data = doc.data()!;
             data['id'] = doc.id;
             try {
-              memberships.add(Membership.fromMap(data));
+              final map = <String, dynamic>{...data}; final existingId = (map['id'] as String?)?.trim() ?? ''; if (existingId.isEmpty) map['id'] = (map['id'] as String?)?.trim().isNotEmpty == true ? map['id'] : ''; memberships.add(Membership.fromRemoteMap(map));
             } catch (_) {}
           }
         } catch (_) {}
