@@ -1,5 +1,7 @@
 import 'dart:html' as html;
 
+import 'package:firebase_auth/firebase_auth.dart';
+
 class WebDesktopSessionStore {
   static const String _kSessionId = 'eh_desktop_session_id';
   static const String _kSessionSecret = 'eh_desktop_session_secret';
@@ -22,24 +24,53 @@ class WebDesktopSessionStore {
   }
 
   static Future<Map<String, String>?> load() async {
-    final sessionId = html.window.localStorage[_kSessionId]?.trim() ?? '';
-    final sessionSecret =
-        html.window.localStorage[_kSessionSecret]?.trim() ?? '';
-    final pairedUserUid =
-        html.window.localStorage[_kPairedUserUid]?.trim() ?? '';
+    final firebaseUser = FirebaseAuth.instance.currentUser;
 
-    if (sessionId.isEmpty ||
-        sessionSecret.isEmpty ||
-        pairedUserUid.isEmpty) {
+    final storedSessionId = html.window.localStorage[_kSessionId]?.trim() ?? '';
+    final storedSessionSecret = html.window.localStorage[_kSessionSecret]?.trim() ?? '';
+    final storedUid = html.window.localStorage[_kPairedUserUid]?.trim() ?? '';
+
+    // If localStorage says a session exists but FirebaseAuth is not signed in,
+    // this is a broken/expired session (commonly caused by custom-token sign-in failure).
+    // Clear it so the gate shows the login/pairing screen again.
+    if (firebaseUser == null) {
+      if (storedUid.isNotEmpty || storedSessionId.isNotEmpty || storedSessionSecret.isNotEmpty) {
+        await clear();
+      }
       return null;
     }
 
+    final uid = firebaseUser.uid.trim();
+    if (uid.isEmpty) {
+      await clear();
+      return null;
+    }
+
+    final name = (firebaseUser.displayName ?? '').trim();
+    final email = (firebaseUser.email ?? '').trim();
+
+    // If localStorage is missing or mismatched, rebuild it from FirebaseAuth.
+    final needsRebuild = storedUid.isEmpty || storedUid != uid;
+
+    final effectiveSessionId = (storedSessionId.isNotEmpty) ? storedSessionId : 'firebase-auth';
+    final effectiveSessionSecret = (storedSessionSecret.isNotEmpty) ? storedSessionSecret : 'firebase-auth';
+
+    if (needsRebuild) {
+      await save(
+        sessionId: effectiveSessionId,
+        sessionSecret: effectiveSessionSecret,
+        pairedUserUid: uid,
+        pairedUserName: name,
+        pairedUserEmail: email,
+      );
+    }
+
     return <String, String>{
-      'sessionId': sessionId,
-      'sessionSecret': sessionSecret,
-      'pairedUserUid': pairedUserUid,
-      'pairedUserName': html.window.localStorage[_kPairedUserName] ?? '',
-      'pairedUserEmail': html.window.localStorage[_kPairedUserEmail] ?? '',
+      'sessionId': effectiveSessionId,
+      'sessionSecret': effectiveSessionSecret,
+      'pairedUserUid': uid,
+      'pairedUserName': name,
+      'pairedUserEmail': email,
     };
   }
 
@@ -52,7 +83,8 @@ class WebDesktopSessionStore {
   }
 
   static bool get hasSession {
-    final uid = html.window.localStorage[_kPairedUserUid]?.trim() ?? '';
-    return uid.isNotEmpty;
+    // On web, session should be tied to FirebaseAuth.
+    final u = FirebaseAuth.instance.currentUser;
+    return u != null && (u.uid.trim().isNotEmpty);
   }
 }
