@@ -147,16 +147,36 @@ class _WebPairingScreenState extends State<WebPairingScreen>
           _paired = true;
 
           final token = status.firebaseCustomToken.trim();
-          if (token.isNotEmpty && Firebase.apps.isNotEmpty) {
-            try {
-              final auth = FirebaseAuth.instance;
-              if (auth.currentUser != null) {
-                await auth.signOut();
-              }
-              await auth.signInWithCustomToken(token);
-            } catch (e) {
-              debugPrint('Custom token sign-in skipped: $e');
+
+          // IMPORTANT FIX:
+          // Pairing must result in a valid FirebaseAuth session.
+          // If custom-token sign-in fails, do NOT save localStorage session
+          // and do NOT proceed to the shell.
+          if (token.isEmpty) {
+            if (!mounted) return;
+            setState(() {
+              _paired = false;
+              _error = 'Pairing was approved but sign-in token is missing. Please refresh and scan again.';
+            });
+            return;
+          }
+
+          try {
+            final auth = FirebaseAuth.instance;
+            if (auth.currentUser != null) {
+              await auth.signOut();
             }
+            final cred = await auth.signInWithCustomToken(token);
+            if (cred.user == null) {
+              throw StateError('Custom token sign-in returned no user.');
+            }
+          } catch (e) {
+            if (!mounted) return;
+            setState(() {
+              _paired = false;
+              _error = 'Could not sign in to this paired session. Please refresh and scan again.\n\n$e';
+            });
+            return;
           }
 
           await WebDesktopSessionStore.save(
