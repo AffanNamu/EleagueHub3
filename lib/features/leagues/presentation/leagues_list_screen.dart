@@ -106,10 +106,10 @@ class _LeaguesListScreenState
   String _searchQuery = '';
   _LeagueViewTab _selectedTab = _LeagueViewTab.leagues;
 
-  // ── Monetization gate state ────────────────────────────────────────────────
+  // ── Monetization gate state ──────────────────────────────────────────────
   bool _rewardGateInProgress = false;
 
-  // ── Plan upgrade payment state (Android Google Play) ─────────────────────
+  // ── Plan upgrade payment state (Android Google Play) ────────────────────
   bool _planUpgradeInProgress = false;
 
   @override
@@ -193,7 +193,6 @@ class _LeaguesListScreenState
         return true;
       }
 
-      // Also check activePlanId from claims for plan-based premium.
       final activePlanId =
           (claims['activePlanId'] as String? ?? '').trim();
       if (activePlanId == 'pro' || activePlanId == 'elite') {
@@ -232,7 +231,6 @@ class _LeaguesListScreenState
         return true;
       }
 
-      // Check plan-based premium from Firestore user doc.
       final activePlanId =
           (data['activePlanId'] as String? ?? '').trim();
       if (activePlanId == 'pro' || activePlanId == 'elite') {
@@ -300,25 +298,19 @@ class _LeaguesListScreenState
     );
   }
 
-  // ── Plan upgrade routing ──────────────────────────────────────────────────
-  // Android → Google Play Billing
-  // Web     → Flutterwave via LeaguePremiumUpgradeHelper sheet
-
+  // ── Plan upgrade routing ─────────────────────────────────────────────────
   Future<void> _openInlinePlanChooser() async {
     if (_planUpgradeInProgress) return;
 
-    // Android → Google Play Billing
     if (PaymentPlatformConfig
         .routeAndroidPaymentsToGooglePlayBilling) {
       await _openGooglePlayPlanUpgrade();
       return;
     }
 
-    // Web / non-Android → Flutterwave sheet
     await _openFlutterwavePlanUpgrade();
   }
 
-  /// Android: purchase plan subscription via Google Play Billing.
   Future<void> _openGooglePlayPlanUpgrade() async {
     if (_planUpgradeInProgress) return;
 
@@ -331,8 +323,6 @@ class _LeaguesListScreenState
         return;
       }
 
-      // Show a bottom sheet to let user pick plan + duration
-      // then trigger Google Play purchase.
       final success =
           await LeaguePremiumUpgradeHelper.openUpgradeFlow(
         context,
@@ -342,8 +332,7 @@ class _LeaguesListScreenState
       if (!mounted) return;
 
       if (success) {
-        _snack(
-            'Plan purchase completed. Refreshing access...');
+        _snack('Plan purchase completed. Refreshing access...');
         await _refreshLeagues();
         return;
       }
@@ -360,7 +349,6 @@ class _LeaguesListScreenState
     }
   }
 
-  /// Web / non-Android: Flutterwave plan upgrade sheet.
   Future<void> _openFlutterwavePlanUpgrade() async {
     if (_planUpgradeInProgress) return;
 
@@ -376,8 +364,7 @@ class _LeaguesListScreenState
       if (!mounted) return;
 
       if (ok) {
-        _snack(
-            'Plan purchase completed. Refreshing access...');
+        _snack('Plan purchase completed. Refreshing access...');
         await _refreshLeagues();
         return;
       }
@@ -392,6 +379,165 @@ class _LeaguesListScreenState
         setState(() => _planUpgradeInProgress = false);
       }
     }
+  }
+
+  // ── KEY FIX: Web Firestore fallback ─────────────────────────────────────
+  // On web, LocalLeaguesRepository reads from SharedPreferences/local cache
+  // which is always empty the first time (no mobile sync). We detect this
+  // and fall back to querying Firestore directly for all leagues where the
+  // user is a member (memberIds array-contains) or the owner/organizer.
+  // The results are then converted to League objects and returned as if
+  // they came from local storage — so all downstream logic is unchanged.
+  // ────────────────────────────────────────────────────────────────────────
+  Future<List<League>> _fetchLeaguesFromFirestoreForWeb(
+      String uid) async {
+    final trimmed = uid.trim();
+    if (trimmed.isEmpty) return [];
+
+    final ids = <String>{};
+    final Map<String, Map<String, dynamic>> docsById = {};
+
+    // Query 1: leagues where user is in memberIds array
+    try {
+      final snap = await _firestore
+          .collection('leagues')
+          .where('memberIds', arrayContains: trimmed)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      for (final doc in snap.docs) {
+        if (ids.add(doc.id)) {
+          docsById[doc.id] = doc.data();
+        }
+      }
+    } catch (e) {
+      debugPrint('[LeaguesListScreen] web memberIds query failed: $e');
+    }
+
+    // Query 2: leagues where user is organizerUid (owner)
+    try {
+      final snap = await _firestore
+          .collection('leagues')
+          .where('organizerUid', isEqualTo: trimmed)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      for (final doc in snap.docs) {
+        if (ids.add(doc.id)) {
+          docsById[doc.id] = doc.data();
+        }
+      }
+    } catch (e) {
+      debugPrint('[LeaguesListScreen] web organizerUid query failed: $e');
+    }
+
+    // Query 3: leagues where user is ownerUid
+    try {
+      final snap = await _firestore
+          .collection('leagues')
+          .where('ownerUid', isEqualTo: trimmed)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 20));
+
+      for (final doc in snap.docs) {
+        if (ids.add(doc.id)) {
+          docsById[doc.id] = doc.data();
+        }
+      }
+    } catch (e) {
+      debugPrint('[LeaguesListScreen] web ownerUid query failed: $e');
+    }
+
+    // Query 4: leagues where user is ownerId (legacy field)
+    if (_looksLikeFirebaseUid(trimmed)) {
+      try {
+        final snap = await _firestore
+            .collection('leagues')
+            .where('ownerId', isEqualTo: trimmed)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 20));
+
+        for (final doc in snap.docs) {
+          if (ids.add(doc.id)) {
+            docsById[doc.id] = doc.data();
+          }
+        }
+      } catch (e) {
+        debugPrint('[LeaguesListScreen] web ownerId query failed: $e');
+      }
+    }
+
+    // Query 5: leagues where user is organizerUserId (legacy field)
+    if (_looksLikeFirebaseUid(trimmed)) {
+      try {
+        final snap = await _firestore
+            .collection('leagues')
+            .where('organizerUserId', isEqualTo: trimmed)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 20));
+
+        for (final doc in snap.docs) {
+          if (ids.add(doc.id)) {
+            docsById[doc.id] = doc.data();
+          }
+        }
+      } catch (e) {
+        debugPrint(
+            '[LeaguesListScreen] web organizerUserId query failed: $e');
+      }
+    }
+
+    if (docsById.isEmpty) return [];
+
+    // Convert Firestore docs to League objects.
+    final leagues = <League>[];
+    for (final entry in docsById.entries) {
+      try {
+        final data = entry.value;
+        // Ensure the document has an id field so League.fromMap works.
+        data['id'] = entry.key;
+        final league = League.fromMap(data, entry.key);
+        leagues.add(league);
+      } catch (e) {
+        debugPrint(
+            '[LeaguesListScreen] failed to parse league ${entry.key}: $e');
+      }
+    }
+
+    return leagues;
+  }
+
+  /// Fetch memberships from Firestore for web (when local cache is empty).
+  Future<List<Membership>> _fetchMembershipsFromFirestoreForWeb(
+      String uid, List<League> leagues) async {
+    final trimmed = uid.trim();
+    if (trimmed.isEmpty || leagues.isEmpty) return [];
+
+    final memberships = <Membership>[];
+
+    await Future.wait(
+      leagues.map((league) async {
+        try {
+          final doc = await _firestore
+              .collection('leagues')
+              .doc(league.id)
+              .collection('memberships')
+              .doc(trimmed)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 10));
+
+          if (doc.exists && doc.data() != null) {
+            final data = doc.data()!;
+            data['id'] = doc.id;
+            try {
+              memberships.add(Membership.fromMap(data));
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }),
+    );
+
+    return memberships;
   }
 
   Future<void> _loadLeagues({required bool showSpinner}) async {
@@ -410,15 +556,29 @@ class _LeaguesListScreenState
       final hasLeagueAccess =
           await _detectLeagueAccessFromPlan(effectiveUserId);
       final createdCount =
-          await _countCreatedLeaguesAcrossAllFlows(
-              effectiveUserId);
+          await _countCreatedLeaguesAcrossAllFlows(effectiveUserId);
 
-      final leagues = await _repo
-          .listLeagues()
-          .timeout(const Duration(seconds: 20));
-      final memberships = await _repo
-          .listMemberships()
-          .timeout(const Duration(seconds: 25));
+      // ── KEY FIX: Load leagues ────────────────────────────────────────────
+      // On web: always load from Firestore directly — local cache is empty.
+      // On mobile: use local repository as before (unchanged behaviour).
+      // ────────────────────────────────────────────────────────────────────
+      List<League> leagues;
+      List<Membership> memberships;
+
+      if (kIsWeb) {
+        // Web: query Firestore directly for all leagues this user belongs to.
+        leagues = await _fetchLeaguesFromFirestoreForWeb(effectiveUserId);
+        memberships = await _fetchMembershipsFromFirestoreForWeb(
+            effectiveUserId, leagues);
+      } else {
+        // Mobile: use local repository (existing behaviour unchanged).
+        leagues = await _repo
+            .listLeagues()
+            .timeout(const Duration(seconds: 20));
+        memberships = await _repo
+            .listMemberships()
+            .timeout(const Duration(seconds: 25));
+      }
 
       final Map<String, int> counts = {};
       final Map<String, bool> viewerIsParticipant = {};
@@ -552,8 +712,7 @@ class _LeaguesListScreenState
       }));
 
       if (!mounted) return;
-      setState(
-          () => _latestAnnouncements = latestAnns);
+      setState(() => _latestAnnouncements = latestAnns);
     } finally {
       _loadingAnnouncements = false;
     }
@@ -650,12 +809,19 @@ class _LeaguesListScreenState
     return false;
   }
 
-  // ── Monetization gate handler ─────────────────────────────────────────────
+  // ── Monetization gate handler ────────────────────────────────────────────
   Future<void> _handleLeagueCardDoubleTap(
       League league) async {
     if (_rewardGateInProgress) return;
 
     if (_isPremiumUser) {
+      context.push('/leagues/${league.id}');
+      return;
+    }
+
+    // On web, skip rewarded ad gate — ads are not supported on web.
+    // Navigate directly for web users.
+    if (kIsWeb) {
       context.push('/leagues/${league.id}');
       return;
     }
@@ -931,7 +1097,24 @@ class _LeaguesListScreenState
     }
 
     try {
-      await _repo.leaveLeague(league.id);
+      // On web, remove from Firestore memberIds directly
+      // since there is no local cache to update.
+      if (kIsWeb) {
+        final uid = _authUidOrEmpty();
+        if (uid.isNotEmpty) {
+          await _firestore
+              .collection('leagues')
+              .doc(league.id)
+              .update({
+            'memberIds': FieldValue.arrayRemove([uid]),
+            'updatedAtMs':
+                DateTime.now().millisecondsSinceEpoch,
+          });
+        }
+      } else {
+        await _repo.leaveLeague(league.id);
+      }
+
       if (!mounted) return;
       _snack('League removed from your list.');
       await _refreshLeagues();
@@ -1524,7 +1707,6 @@ class _LeaguesListScreenState
     final masterCount =
         _leagues.where((l) => l.isInsideMasterLeague).length;
 
-    // Determine payment provider label for UI.
     final bool isAndroidBilling = PaymentPlatformConfig
         .routeAndroidPaymentsToGooglePlayBilling;
 
@@ -1730,8 +1912,6 @@ class _LeaguesListScreenState
                               ),
                             ),
                           const SizedBox(height: 8),
-                          // ── Plan upgrade button ─────────────────────
-                          // Shows payment provider based on platform.
                           SizedBox(
                             width: double.infinity,
                             height: 42,
@@ -2618,6 +2798,80 @@ class _LeaguesListScreenState
       });
 
       try {
+        // On web, join by querying Firestore directly
+        // since local repo has no data to work from.
+        if (kIsWeb) {
+          final uid = authUid;
+
+          final query = await _firestore
+              .collection('leagues')
+              .where('code', isEqualTo: code)
+              .limit(1)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 20));
+
+          if (query.docs.isEmpty) {
+            setModalState(() {
+              joining = false;
+              error =
+                  "No league found with that code. "
+                  "Please check and try again.";
+            });
+            return;
+          }
+
+          final leagueDoc = query.docs.first;
+          final leagueId = leagueDoc.id;
+
+          // Add user to memberIds
+          await _firestore
+              .collection('leagues')
+              .doc(leagueId)
+              .update({
+            'memberIds': FieldValue.arrayUnion([uid]),
+            'updatedAtMs':
+                DateTime.now().millisecondsSinceEpoch,
+          });
+
+          // Create membership if joining as participant
+          if (mode == LeagueJoinMode.participant) {
+            final membershipRef = _firestore
+                .collection('leagues')
+                .doc(leagueId)
+                .collection('memberships')
+                .doc(uid);
+
+            final existing = await membershipRef
+                .get(const GetOptions(source: Source.server))
+                .timeout(const Duration(seconds: 10));
+
+            if (!existing.exists) {
+              await membershipRef.set({
+                'id': uid,
+                'leagueId': leagueId,
+                'userId': uid,
+                'teamId': null,
+                'role': 1, // LeagueRole.member
+                'updatedAtMs':
+                    DateTime.now().millisecondsSinceEpoch,
+                'version': 1,
+              });
+            }
+          }
+
+          if (!context.mounted) return;
+          Navigator.of(context).pop();
+          _snack(mode == LeagueJoinMode.viewer
+              ? l10n.tr('leagues_join_snackbar_joined_viewer')
+              : l10n.tr(
+                  'leagues_join_snackbar_joined_participant'));
+          if (mounted) {
+            await _refreshLeagues();
+          }
+          return;
+        }
+
+        // Mobile: use local repo (existing behaviour)
         final league =
             await repo.joinLeagueLocallyByCode(
           joinCode: code,
@@ -3010,7 +3264,7 @@ class _LeaguesListScreenState
 }
 
 // ---------------------------------------------------------------------------
-// Supporting widgets
+// Supporting widgets — NO CHANGES BELOW THIS LINE
 // ---------------------------------------------------------------------------
 
 class _TopLeagueSwitcher extends StatelessWidget {
