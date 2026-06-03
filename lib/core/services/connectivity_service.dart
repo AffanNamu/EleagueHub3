@@ -28,7 +28,8 @@ class ConnectivityService {
   /// Defaults to false until first check completes.
   final ValueNotifier<bool> isConnected = ValueNotifier<bool>(false);
 
-  final StreamController<bool> _connectionController = StreamController<bool>.broadcast();
+  final StreamController<bool> _connectionController =
+      StreamController<bool>.broadcast();
   Stream<bool> get connectionStream => _connectionController.stream;
 
   StreamSubscription<List<ConnectivityResult>>? _subscription;
@@ -89,7 +90,8 @@ class ConnectivityService {
   Future<void> _updateStatus(List<ConnectivityResult> results) async {
     if (_disposed) return;
 
-    final hasNetwork = results.isNotEmpty && !results.contains(ConnectivityResult.none);
+    final hasNetwork =
+        results.isNotEmpty && !results.contains(ConnectivityResult.none);
 
     if (!hasNetwork) {
       _setConnected(false);
@@ -116,9 +118,10 @@ class ConnectivityService {
   /// Uses multiple hosts to reduce false negatives in restricted networks.
   ///
   /// WEB FIX:
-  /// InternetAddress.lookup is not reliable/supported the same way on web.
-  /// For web, if we have *any* network signal from connectivity_plus,
-  /// we treat it as online and let Firestore requests decide.
+  /// On Flutter Web, InternetAddress.lookup is unreliable / may fail even when
+  /// the browser has internet. For web, if we have any connectivity signal
+  /// from connectivity_plus, treat as online and let real network calls
+  /// (Firestore/Auth/HTTP) decide.
   Future<bool> _hasRealInternetAccess() async {
     if (kIsWeb) return true;
 
@@ -130,7 +133,8 @@ class ConnectivityService {
 
     for (final host in hosts) {
       try {
-        final result = await InternetAddress.lookup(host).timeout(const Duration(seconds: 2));
+        final result =
+            await InternetAddress.lookup(host).timeout(const Duration(seconds: 2));
         if (result.isNotEmpty && result.first.rawAddress.isNotEmpty) return true;
       } catch (_) {
         // try next host
