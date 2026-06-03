@@ -152,7 +152,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
   String? _joinedLeagueName;
   String? _joinedLeagueId;
 
-  // The join mode chosen by the user — participant or viewer.
   bool _modeChosen = false;
 
   String get _code => widget.joinCode.trim().toUpperCase();
@@ -231,7 +230,6 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
                     'leagueId': leagueId,
                     'userId': uid,
                     'teamId': null,
-                    // LeagueRole.member = index 1
                     'role': 1,
                     'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
                     'version': 1,
@@ -599,9 +597,46 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
     });
   }
 
+  // ── KEY FIX ──────────────────────────────────────────────────────────────
+  // When FirebaseAuth already has a current user (e.g. after Google sign-in
+  // or email/password sign-in on this browser), but the WebDesktopSessionStore
+  // localStorage entry was never written (e.g. first login, or cleared by
+  // browser), we fall back to the Firebase Auth user so that the shell is
+  // shown immediately with the correct UID — and leagues load correctly.
+  // ─────────────────────────────────────────────────────────────────────────
   Future<void> _check() async {
     try {
-      final saved = await WebDesktopSessionStore.load();
+      Map<String, String>? saved = await WebDesktopSessionStore.load();
+
+      // If localStorage has no session but Firebase Auth has a current user,
+      // synthesize the session from the Firebase user and persist it so that
+      // future reloads also work without re-scanning the QR code.
+      if (saved == null || (saved['pairedUserUid'] ?? '').trim().isEmpty) {
+        final firebaseUser = FirebaseAuth.instance.currentUser;
+        if (firebaseUser != null) {
+          final uid = firebaseUser.uid.trim();
+          final name = (firebaseUser.displayName ?? '').trim();
+          final email = (firebaseUser.email ?? '').trim();
+
+          // Persist so next reload finds it in localStorage.
+          await WebDesktopSessionStore.save(
+            sessionId: 'firebase-auth',
+            sessionSecret: 'firebase-auth',
+            pairedUserUid: uid,
+            pairedUserName: name,
+            pairedUserEmail: email,
+          );
+
+          saved = {
+            'sessionId': 'firebase-auth',
+            'sessionSecret': 'firebase-auth',
+            'pairedUserUid': uid,
+            'pairedUserName': name,
+            'pairedUserEmail': email,
+          };
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _savedSession = saved;
@@ -644,7 +679,6 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
   void _onMobileLogin(User user) {
     if (!mounted) return;
 
-    // Persist so refresh keeps the user logged in.
     WebDesktopSessionStore.save(
       sessionId: 'mobile-browser',
       sessionSecret: 'mobile-browser',
@@ -796,7 +830,8 @@ class AuthRouterRefresh extends ChangeNotifier {
   bool get isCheckingProfile =>
       isSignedIn &&
       !needsEmailVerification &&
-      (_profileState == _ProfileState.unknown || _profileState == _ProfileState.checking);
+      (_profileState == _ProfileState.unknown ||
+          _profileState == _ProfileState.checking);
 
   bool get needsOnboarding =>
       isSignedIn &&
@@ -869,17 +904,20 @@ class AuthRouterRefresh extends ChangeNotifier {
     _setProfileState(_ProfileState.checking);
 
     try {
-      final exists = await _profiles.profileExists(uid).timeout(const Duration(seconds: 12));
+      final exists =
+          await _profiles.profileExists(uid).timeout(const Duration(seconds: 12));
       _retryAttempt = 0;
       _setProfileState(exists ? _ProfileState.exists : _ProfileState.missing);
       return;
     } catch (e) {
-      final fallback =
-          (prev == _ProfileState.exists) ? _ProfileState.exists : _ProfileState.unknown;
+      final fallback = (prev == _ProfileState.exists)
+          ? _ProfileState.exists
+          : _ProfileState.unknown;
       _setProfileState(fallback);
 
       if (kDebugMode) {
-        debugPrint('AuthRouterRefresh: profile check failed uid=$uid → $e');
+        debugPrint(
+            'AuthRouterRefresh: profile check failed uid=$uid → $e');
       }
 
       if (_isNetworkError(e is Object ? e : Exception('unknown'))) return;
@@ -923,14 +961,14 @@ bool _isPricingAdminUidSync(String uid) {
 
 const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
-bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) => r.needsOnboarding;
+bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
+    r.needsOnboarding;
 
 // ---------------------------------------------------------------------------
 // App router
 // ---------------------------------------------------------------------------
 
 final appRouter = GoRouter(
-  // IMPORTANT: WEB should start at "/" so desktop sees pairing immediately.
   initialLocation: kIsWeb ? '/' : '/bootstrap',
   refreshListenable: authRouterRefresh,
   debugLogDiagnostics: kDebugMode,
@@ -994,7 +1032,6 @@ final appRouter = GoRouter(
     // Signed out
     if (!authRouterRefresh.isSignedIn) {
       if (kIsWeb) {
-        // Let "/" render WebSessionGateScreen (desktop pairing, mobile login)
         if (inRoot || inForgot || inReset || inVerifyEmail) return null;
 
         final fullPath = state.uri.toString();
@@ -1002,7 +1039,6 @@ final appRouter = GoRouter(
         return '/?returnTo=$encoded';
       }
 
-      // Mobile behavior unchanged
       if (inLogin || inForgot || inReset || inVerifyEmail) return null;
       return '/login';
     }
@@ -1016,6 +1052,13 @@ final appRouter = GoRouter(
     if (authRouterRefresh.isCheckingProfile) {
       if (inBootstrap) return null;
       if (inJoin) return null;
+      // ── KEY FIX ──────────────────────────────────────────────────────────
+      // On web, while checking the profile, stay at "/" so the
+      // WebSessionGateScreen can render. Do NOT redirect to /bootstrap
+      // (which is the mobile loading screen and is not used on web).
+      // ─────────────────────────────────────────────────────────────────────
+      if (kIsWeb && inRoot) return null;
+      if (kIsWeb) return '/';
       return '/bootstrap';
     }
 
@@ -1181,7 +1224,9 @@ final appRouter = GoRouter(
         GoRoute(
           path: 'live/join',
           builder: (context, state) {
-            if (kIsWeb) return const _MobileOnlyScreen(featureName: 'Live Match');
+            if (kIsWeb) {
+              return const _MobileOnlyScreen(featureName: 'Live Match');
+            }
             return const JoinMatchScreen();
           },
         ),
@@ -1207,8 +1252,10 @@ final appRouter = GoRouter(
               if (map['isHost'] is bool) isHost = map['isHost'] as bool;
               if (map['host'] is String) hostAddress = map['host'] as String;
               if (map['port'] is int) port = map['port'] as int;
-              if (map['homeName'] is String) homeName = map['homeName'] as String;
-              if (map['awayName'] is String) awayName = map['awayName'] as String;
+              if (map['homeName'] is String)
+                homeName = map['homeName'] as String;
+              if (map['awayName'] is String)
+                awayName = map['awayName'] as String;
               if (map['side'] is String) hostSide = map['side'] as String;
             }
 
@@ -1281,7 +1328,8 @@ final appRouter = GoRouter(
                 String leagueName = 'League';
                 if (extra is Map) {
                   final map = extra.cast<dynamic, dynamic>();
-                  if (map['leagueName'] is String) leagueName = map['leagueName'] as String;
+                  if (map['leagueName'] is String)
+                    leagueName = map['leagueName'] as String;
                 }
                 return LeagueCreationPaymentScreen(leagueName: leagueName);
               },
@@ -1293,7 +1341,8 @@ final appRouter = GoRouter(
                 String leagueName = 'League';
                 if (extra is Map) {
                   final map = extra.cast<dynamic, dynamic>();
-                  if (map['leagueName'] is String) leagueName = map['leagueName'] as String;
+                  if (map['leagueName'] is String)
+                    leagueName = map['leagueName'] as String;
                 }
                 return LeagueCreationPaymentScreen(leagueName: leagueName);
               },
@@ -1310,8 +1359,10 @@ final appRouter = GoRouter(
               path: 'add-teams',
               builder: (context, state) {
                 final extra = state.extra as Map<String, dynamic>? ?? {};
-                final leagueId = extra['leagueId'] as String? ?? 'mock-id';
-                final format = extra['format'] as LeagueFormat? ?? LeagueFormat.classic;
+                final leagueId =
+                    extra['leagueId'] as String? ?? 'mock-id';
+                final format = extra['format'] as LeagueFormat? ??
+                    LeagueFormat.classic;
                 return AddTeamsScreen(leagueId: leagueId, format: format);
               },
             ),
