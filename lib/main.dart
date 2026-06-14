@@ -15,16 +15,10 @@ import 'core/platform/overlay_bridge.dart';
 import 'core/routing/deep_link_gate.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/desktop/desktop_pairing_service.dart';
-import 'core/services/notification_service.dart';
 import 'core/services/push_messaging_service.dart';
 import 'firebase_options.dart';
 import 'web_app/web_app.dart';
 
-// ---------------------------------------------------------------------------
-// Conditional import for google_mobile_ads
-// Only imported on dart:io (Android/iOS) — never on Web.
-// This prevents dart2js from trying to resolve the package.
-// ---------------------------------------------------------------------------
 import 'core/services/admob_initializer_stub.dart'
     if (dart.library.io) 'core/services/admob_initializer.dart' as _admob;
 
@@ -70,15 +64,10 @@ Future<void> main() async {
   }
 
   // 4. Initialize Google Mobile Ads (Android / iOS only)
-  // ─────────────────────────────────────────────────────
-  // MUST be called after WidgetsFlutterBinding.ensureInitialized()
-  // and BEFORE runApp(). Skipped on Web via conditional import stub.
-  // Crashes on launch if skipped on Android when the SDK is present.
   if (!kIsWeb) {
     try {
       await _admob.initializeMobileAds();
     } catch (e, st) {
-      // Non-fatal — ads will not work but the app still runs.
       debugPrint('MobileAds.initialize failed: $e');
       debugPrintStack(stackTrace: st);
     }
@@ -123,12 +112,27 @@ Future<void> main() async {
       }
 
       if (!kIsWeb) {
-        try {
-          await NotificationService().init();
-        } catch (e, st) {
-          await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
-        }
+        // ─────────────────────────────────────────────────────────────────
+        // NOTE: NotificationService().init() and
+        //       PushMessagingService.instance.init() are NO LONGER called
+        //       here at startup.
+        //
+        // - Message listeners + token sync → PushMessagingService.init()
+        //   is now called once after user logs in (in auth_bootstrap or
+        //   your settings screen).
+        //
+        // - Notification PERMISSION is only requested when the user
+        //   explicitly enables notifications in the settings screen via:
+        //     PushMessagingService.instance.requestNotificationPermission()
+        //
+        // - Camera / Microphone permissions are only requested when the
+        //   user actually starts a Live session (already lazy).
+        //
+        // - Image / Video picker permissions are already lazy (safe_image_picker,
+        //   safe_video_picker — no changes needed there).
+        // ─────────────────────────────────────────────────────────────────
 
+        // Only start silent background listener (no permission dialog shown).
         try {
           await PushMessagingService.instance.init();
         } catch (e, st) {
@@ -149,7 +153,6 @@ Future<void> main() async {
         ),
       );
     } catch (fatalError, stackTrace) {
-      // Anti-white-screen guard
       if (kIsWeb) {
         runApp(
           MaterialApp(
@@ -163,8 +166,8 @@ Future<void> main() async {
                     child: Text(
                       'CRITICAL BOOT ERROR:\n\n$fatalError\n\n$stackTrace',
                       style: const TextStyle(
-                        color:      Colors.redAccent,
-                        fontSize:   16,
+                        color: Colors.redAccent,
+                        fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                       textDirection: TextDirection.ltr,
