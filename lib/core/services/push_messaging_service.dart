@@ -23,7 +23,7 @@ class PushMessagingService {
 
   bool _inited = false;
 
-  /// Used to suppress WhatsApp-style foreground banners when user is already inside that league chat.
+  /// Used to suppress foreground banners when user is already inside that league chat.
   final ValueNotifier<String?> activeLeagueChatId = ValueNotifier<String?>(null);
 
   void setActiveLeagueChat(String? leagueId) {
@@ -67,6 +67,9 @@ class PushMessagingService {
     }
   }
 
+  /// Sets up message listeners and token syncing.
+  /// Does NOT ask for notification permission — that is done lazily
+  /// via [requestNotificationPermission] when user enables notifications.
   Future<void> init() async {
     if (_inited) return;
     _inited = true;
@@ -75,14 +78,11 @@ class PushMessagingService {
       await _messaging.setAutoInitEnabled(true);
     } catch (_) {}
 
-    try {
-      await _messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
-      );
-    } catch (_) {}
+    // ─────────────────────────────────────────────────────────────────────
+    // REMOVED: requestPermission() from here.
+    // Permission is now only requested when user explicitly enables
+    // notifications in the settings screen via requestNotificationPermission().
+    // ─────────────────────────────────────────────────────────────────────
 
     try {
       await FollowedOrganizerNotificationsService.instance.init();
@@ -111,7 +111,8 @@ class PushMessagingService {
       final leagueId = (data['leagueId'] ?? '').toString().trim();
       final senderId = (data['senderId'] ?? '').toString().trim();
 
-      if (leagueId.isNotEmpty && activeLeagueChatId.value?.trim() == leagueId) {
+      if (leagueId.isNotEmpty &&
+          activeLeagueChatId.value?.trim() == leagueId) {
         return;
       }
 
@@ -160,6 +161,33 @@ class PushMessagingService {
         _syncSpecificTokenToFirestore(uid: uid, token: t);
       });
     });
+  }
+
+  /// Call this ONLY when user explicitly enables notifications
+  /// (e.g. toggling the notifications switch in your settings screen).
+  /// Returns true if permission was granted.
+  Future<bool> requestNotificationPermission() async {
+    try {
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+
+      final granted =
+          settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional;
+
+      if (granted) {
+        // Also request local notification permission on Android 13+
+        await NotificationService().requestPermissionIfNeeded();
+      }
+
+      return granted;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _syncTokenToFirestore(String uid) async {
