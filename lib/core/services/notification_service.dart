@@ -24,6 +24,9 @@ class NotificationService {
   static const String _testChannelId = 'test_channel_id';
   static const String _organizerFeedChannelId = 'organizer_feed_channel';
 
+  /// Call this ONLY when user explicitly enables notifications in settings
+  /// or when user first interacts with a feature that needs notifications.
+  /// Do NOT call at app startup.
   Future<void> init() async {
     if (_initialized) return;
 
@@ -64,9 +67,11 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
     if (android != null) {
-      try {
-        await android.requestNotificationsPermission();
-      } catch (_) {}
+      // ─────────────────────────────────────────────────────────────────────
+      // REMOVED: requestNotificationsPermission() from here.
+      // Permission is now requested lazily via requestPermissionIfNeeded()
+      // which is called ONLY when user turns on notifications in settings.
+      // ─────────────────────────────────────────────────────────────────────
 
       try {
         await android.createNotificationChannel(
@@ -114,6 +119,27 @@ class NotificationService {
     }
 
     _initialized = true;
+  }
+
+  /// Call this ONLY when user explicitly wants notifications
+  /// (e.g. toggling notifications ON in your settings screen).
+  /// Returns true if permission was granted.
+  Future<bool> requestPermissionIfNeeded() async {
+    // Make sure plugin is initialized first (channels etc.)
+    await init();
+
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    if (android == null) return false;
+
+    try {
+      final granted = await android.requestNotificationsPermission();
+      return granted ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
   int _stableIdFromString(String s) {
@@ -171,7 +197,8 @@ class NotificationService {
       notifTitle,
       message,
       details,
-      payload: (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
+      payload:
+          (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
     );
   }
 
@@ -201,7 +228,8 @@ class NotificationService {
       title,
       message,
       details,
-      payload: (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
+      payload:
+          (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
     );
   }
 
@@ -217,10 +245,13 @@ class NotificationService {
       await init();
     }
 
-    final title = leagueName.trim().isEmpty ? 'League Chat' : leagueName.trim();
-    final bodySender = senderName.trim().isEmpty ? 'Someone' : senderName.trim();
-    final bodyMsg =
-        messagePreview.trim().isEmpty ? 'New message' : messagePreview.trim();
+    final title =
+        leagueName.trim().isEmpty ? 'League Chat' : leagueName.trim();
+    final bodySender =
+        senderName.trim().isEmpty ? 'Someone' : senderName.trim();
+    final bodyMsg = messagePreview.trim().isEmpty
+        ? 'New message'
+        : messagePreview.trim();
     final body = '$bodySender: $bodyMsg';
 
     final androidDetails = AndroidNotificationDetails(
@@ -248,7 +279,8 @@ class NotificationService {
       title,
       body,
       details,
-      payload: (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
+      payload:
+          (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
     );
   }
 }
