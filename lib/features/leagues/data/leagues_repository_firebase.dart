@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../master_leagues/domain/master_league_plan.dart';
 import '../models/league.dart';
 import '../models/membership.dart';
+import '../models/point_adjustment.dart';
 
 class UserFriendlyException implements Exception {
   final String message;
@@ -105,9 +106,6 @@ class LeaguesRepositoryFirebase {
     return League.fromRemoteMap(map);
   }
 
-  /// Validates master league ownership and returns the doc data.
-  /// This is a Dart-side check BEFORE writing — the security rules
-  /// do NOT need to repeat this check via get().
   Future<Map<String, dynamic>> _requireMasterLeagueOwnerOrThrow({
     required String masterLeagueId,
     required String authUid,
@@ -264,11 +262,6 @@ class LeaguesRepositoryFirebase {
     );
   }
 
-  /// Builds write data for a league document.
-  ///
-  /// CRITICAL: All identity fields set to authUid.
-  /// The security rules verify these match request.auth.uid
-  /// WITHOUT needing any get() calls.
   Map<String, dynamic> _buildLeagueWriteData({
     required League fixed,
     required String authUid,
@@ -312,8 +305,6 @@ class LeaguesRepositoryFirebase {
     return leagueData;
   }
 
-  /// Creates a league document at a specific ID.
-  /// NO pre-read get(). Direct set() only.
   Future<String> _createLeagueAtExactId({
     required League league,
     required String id,
@@ -353,7 +344,6 @@ class LeaguesRepositoryFirebase {
       );
     }
 
-    // Write league doc — single set(), no transaction
     await leagueRef
         .set(writeData, SetOptions(merge: false))
         .timeout(const Duration(seconds: 20));
@@ -362,8 +352,6 @@ class LeaguesRepositoryFirebase {
       debugPrint('[LeaguesRepoFirebase] League doc written: $id');
     }
 
-    // Write membership as separate call (not transaction)
-    // Uses self-create rule path: request.auth.uid == membershipId
     try {
       await membershipRef
           .set(membership.toRemoteMap(), SetOptions(merge: false))
@@ -507,9 +495,6 @@ class LeaguesRepositoryFirebase {
         );
       }
 
-      // Dart-side ownership check (reads master league doc from server).
-      // The security rules do NOT repeat this check — they just verify
-      // the league data fields match request.auth.uid.
       Map<String, dynamic>? mlData;
       if (requestedMasterLeagueId.isNotEmpty) {
         mlData = await _requireMasterLeagueOwnerOrThrow(
@@ -518,7 +503,6 @@ class LeaguesRepositoryFirebase {
         );
       }
 
-      // New competition inside master league (empty id)
       if (requestedMasterLeagueId.isNotEmpty && league.id.trim().isEmpty) {
         return await _createMasterLeagueCompetitionWithReservedSlot(
           league: league,
@@ -547,7 +531,6 @@ class LeaguesRepositoryFirebase {
         now: now,
       );
 
-      // Try to read existing doc — handle permission-denied gracefully
       bool docExists = false;
       Map<String, dynamic>? existingData;
 
@@ -644,6 +627,74 @@ class LeaguesRepositoryFirebase {
           .doc(leagueId)
           .delete()
           .timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Creates a point adjustment for a team.
+  /// Only league organizers/owners can call this.
+  Future<void> createPointAdjustment({
+    required String leagueId,
+    required String teamId,
+    required PointAdjustmentType type,
+    required int points,
+    required String reason,
+  }) async {
+    try {
+      final authUid = _requireAuthUid();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final adjustmentId = _uuid.v4();
+
+      final adjustmentRef = _leaguesCol
+          .doc(leagueId)
+          .collection('pointAdjustments')
+          .doc(adjustmentId);
+
+      final adjustmentData = <String, dynamic>{
+        'id': adjustmentId,
+        'leagueId': leagueId,
+        'teamId': teamId,
+        'type': type.toFirestoreString(),
+        'points': points,
+        'reason': reason,
+        'adjustedBy': authUid,
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdAtMs': now,
+      };
+
+      await adjustmentRef
+          .set(adjustmentData, SetOptions(merge: false))
+          .timeout(const Duration(seconds: 20));
+
+      final teamRef = _leaguesCol.doc(leagueId).collection('teams').doc(teamId);
+      
+      final teamSnap = await teamRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      if (teamSnap.exists) {
+        final teamData = teamSnap.data() ?? <String, dynamic>{};
+        final currentAdj = (teamData['adminAdjustment'] as num?)?.toInt() ?? 0;
+        final currentBase = (teamData['basePoints'] as num?)?.toInt() ?? 0;
+        
+        final delta = type == PointAdjustmentType.addition ? points : -points;
+        final newAdj = currentAdj + delta;
+        final newFinal = currentBase + newAdj;
+
+        await teamRef.update({
+          'adminAdjustment': newAdj,
+          'finalPoints': newFinal,
+          'updatedAtMs': now,
+        }).timeout(const Duration(seconds: 15));
+      }
+
+      if (kDebugMode) {
+        debugPrint(
+          '[LeaguesRepoFirebase] Point adjustment created: '
+          'league=$leagueId team=$teamId type=${type.name} points=$points',
+        );
+      }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
