@@ -11,6 +11,7 @@ import '../../../core/locale/locale_controller.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/platform/overlay_platform.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/push_messaging_service.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -410,7 +411,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   // ── Delete account ─────────────────────────────────────────────────────────
 
   Future<void> _handleDeleteAccount() async {
-    // Prevent multiple taps
     if (_deletingAccount) return;
 
     setState(() => _deletingAccount = true);
@@ -420,11 +420,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       if (!mounted) return;
 
       if (deleted) {
-        // Firebase Auth signs out automatically on delete.
-        // The authRouterRefresh listener will fire and GoRouter's redirect
-        // will send the user to /login automatically.
-        // We also push /login manually as a safety net in case the
-        // listener fires slightly late.
         GoRouter.of(context).go('/login');
       }
     } finally {
@@ -928,6 +923,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         )
                       : Column(
                           children: [
+                            // ── Main notifications toggle ───────────────────
+                            // Permission is requested HERE — only when user
+                            // explicitly flips this switch ON.
+                            // It is NEVER requested at app startup.
                             _SettingsToggle(
                               icon: Icons.notifications_active_rounded,
                               title: l10n.notificationsEnabledTitle,
@@ -937,9 +936,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                               onChanged: (v) async {
                                 setState(() => _enabled = v);
                                 await _saveNotifications();
+
                                 if (v) {
-                                  await NotificationService()
-                                      .showTestNotification();
+                                  // ── Request permission only when user
+                                  // explicitly enables notifications.
+                                  // Never at app startup. ──────────────
+                                  final granted =
+                                      await PushMessagingService
+                                          .instance
+                                          .requestNotificationPermission();
+
+                                  if (!mounted) return;
+
+                                  if (granted) {
+                                    // Fire a test notification so the
+                                    // user can confirm it works.
+                                    await NotificationService()
+                                        .showTestNotification();
+                                  } else {
+                                    // Permission denied — tell user how
+                                    // to enable it manually and revert
+                                    // the toggle back to OFF.
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(
+                                      const SnackBar(
+                                        behavior:
+                                            SnackBarBehavior.floating,
+                                        content: Text(
+                                          'Notification permission denied. '
+                                          'Please enable it in Android Settings '
+                                          '→ Apps → eSportlyic → Permissions.',
+                                        ),
+                                      ),
+                                    );
+                                    setState(() => _enabled = false);
+                                    await _saveNotifications();
+                                  }
                                 }
                               },
                             ),
@@ -1360,9 +1392,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
-                // ────────────────────────────────────────────────────────────
-                // ACCOUNT SECTION
-                // ────────────────────────────────────────────────────────────
+                // ── Account ─────────────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.manage_accounts_rounded,
                   label: 'Account',
@@ -1374,7 +1404,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // ── Account info row ──────────────────────────────────
                       Row(
                         children: [
                           Container(
@@ -1436,7 +1465,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       ),
                       const SizedBox(height: 18),
 
-                      // ── Delete account button ─────────────────────────────
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
@@ -1486,7 +1514,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                       const SizedBox(height: 10),
 
-                      // ── Danger disclaimer ─────────────────────────────────
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1646,7 +1673,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 }
 
 // ---------------------------------------------------------------------------
-// Private widgets — all unchanged from original
+// Private widgets
 // ---------------------------------------------------------------------------
 
 class _SectionLabel extends StatelessWidget {
@@ -1696,8 +1723,7 @@ class _ThemeModeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final onSurface = cs.onSurface;
-    final color =
-        selected ? cs.primary : onSurface.withOpacity(0.65);
+    final color = selected ? cs.primary : onSurface.withOpacity(0.65);
 
     return InkWell(
       onTap: onTap,
@@ -1843,8 +1869,7 @@ class _OverlayStatusCard extends StatelessWidget {
     }
 
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(14),
@@ -1899,8 +1924,7 @@ class _PremiumBadge extends StatelessWidget {
         : onSurface.withOpacity(0.55);
 
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: color.withOpacity(0.12),
@@ -1934,8 +1958,7 @@ class _QuickMessageTile extends StatelessWidget {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
-      padding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: onSurface.withOpacity(0.04),
         borderRadius: BorderRadius.circular(12),
