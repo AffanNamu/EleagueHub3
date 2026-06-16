@@ -1,9 +1,9 @@
+// core/app/app.dart
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../locale/app_localizations.dart';
 import '../locale/locale_controller.dart';
@@ -50,9 +50,22 @@ class EleagueHubApp extends ConsumerWidget {
             data: mq.copyWith(textScaler: clampedScale),
             child: Stack(
               children: [
-                PermissionWrapper(child: child ?? const SizedBox.shrink()),
+                // ─────────────────────────────────────────────────────────────
+                // IMPORTANT CHANGE:
+                // Removed PermissionWrapper that was requesting permissions
+                // (camera/mic/notifications/bluetooth) immediately on app start.
+                //
+                // Permissions must be requested ONLY when user triggers the
+                // corresponding feature (e.g. start call, start live, enable notifications).
+                // ─────────────────────────────────────────────────────────────
+                child ?? const SizedBox.shrink(),
 
+                // ─────────────────────────────────────────────────────────────
                 // Notification tap -> route navigation
+                //
+                // This only initializes local notifications plugin to capture taps.
+                // It does NOT request notification permission.
+                // ─────────────────────────────────────────────────────────────
                 const _NotificationTapRouter(),
 
                 // ONLINE-ONLY: show a simple offline indicator, but do not enable local fallback.
@@ -85,7 +98,15 @@ class _NotificationTapRouterState extends State<_NotificationTapRouter> {
   void initState() {
     super.initState();
 
-    // Ensure plugin is initialized once.
+    // ─────────────────────────────────────────────────────────────
+    // Safe to call at startup:
+    // - Initializes local notifications plugin
+    // - Creates Android notification channels
+    // - Does NOT request notification permission
+    // Permission must be requested by user action via:
+    //   PushMessagingService.instance.requestNotificationPermission()
+    //   OR NotificationService().requestPermissionIfNeeded()
+    // ─────────────────────────────────────────────────────────────
     // ignore: discarded_futures
     NotificationService().init();
 
@@ -108,34 +129,4 @@ class _NotificationTapRouterState extends State<_NotificationTapRouter> {
 
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
-}
-
-class PermissionWrapper extends StatefulWidget {
-  final Widget child;
-  const PermissionWrapper({super.key, required this.child});
-
-  @override
-  State<PermissionWrapper> createState() => _PermissionWrapperState();
-}
-
-class _PermissionWrapperState extends State<PermissionWrapper> {
-  @override
-  void initState() {
-    super.initState();
-    _checkPermissions();
-  }
-
-  Future<void> _checkPermissions() async {
-    await [
-      Permission.camera,
-      Permission.microphone,
-      Permission.notification,
-      Permission.bluetoothConnect,
-    ].request();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return widget.child;
-  }
 }
