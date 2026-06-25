@@ -23,7 +23,7 @@ jobs:
       FLUTTER_VERSION: 3.24.5
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
 
-      # Helps reduce occasional DNS/IPv6-related connection instability on hosted runners.
+      # Helps reduce DNS/IPv6 flakiness on some runners
       NODE_OPTIONS: --dns-result-order=ipv4first
 
     steps:
@@ -103,7 +103,42 @@ jobs:
       - name: Install Firebase CLI (pinned)
         run: npm i -g firebase-tools@15.21.0
 
-      # ---- DEBUG: prove the secret is present and valid JSON (safe output) ----
+      # Workaround: patch gtoken token URL away from www.googleapis.com/oauth2/v4/token
+      - name: Patch OAuth token endpoint (gtoken workaround)
+        run: |
+          set -euo pipefail
+
+          GLOBAL="$(npm root -g)"
+          echo "Global node_modules: $GLOBAL"
+
+          TARGET_DIR="$GLOBAL/firebase-tools/node_modules/gtoken"
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "gtoken not found at: $TARGET_DIR"
+            echo "Listing firebase-tools node_modules:"
+            ls -la "$GLOBAL/firebase-tools/node_modules" || true
+            exit 1
+          fi
+
+          echo "Searching for legacy token endpoint..."
+          MATCHES="$(grep -R "https://www.googleapis.com/oauth2/v4/token" -n "$TARGET_DIR" || true)"
+          echo "$MATCHES" || true
+
+          if [ -n "$MATCHES" ]; then
+            FILES="$(echo "$MATCHES" | cut -d: -f1 | sort -u)"
+            echo "Patching files:"
+            echo "$FILES"
+
+            for f in $FILES; do
+              # Try without sudo first, then sudo if needed.
+              sed -i 's#https://www.googleapis.com/oauth2/v4/token#https://oauth2.googleapis.com/token#g' "$f" 2>/dev/null \
+                || sudo sed -i 's#https://www.googleapis.com/oauth2/v4/token#https://oauth2.googleapis.com/token#g' "$f"
+            done
+          fi
+
+          echo "Confirm patched endpoint exists (sample):"
+          grep -R "oauth2.googleapis.com/token" -n "$TARGET_DIR" | head -n 20 || true
+
+      # Safe validation that secret exists and parses (does not print private_key)
       - name: Validate FIREBASE_SERVICE_ACCOUNT secret (safe)
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
@@ -112,37 +147,36 @@ jobs:
           echo "Secret length: ${#SA_JSON}"
           node -e "const sa=JSON.parse(process.env.SA_JSON); console.log('project_id=', sa.project_id); console.log('client_email=', sa.client_email); console.log('private_key_present=', !!sa.private_key);"
 
-      - name: Write service account file + verify it parses
+      - name: Write service account file
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           KEY_PATH="${RUNNER_TEMP}/firebase-sa.json"
           printf '%s' "$SA_JSON" > "$KEY_PATH"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$KEY_PATH" >> $GITHUB_ENV
           ls -la "$KEY_PATH"
 
-          # Parse using argv so it's never undefined.
-          node -e "const fs=require('fs'); const p=process.argv[1]; const sa=JSON.parse(fs.readFileSync(p,'utf8')); console.log('file_project_id=', sa.project_id); console.log('file_client_email=', sa.client_email);" "$KEY_PATH"
-
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$KEY_PATH" >> $GITHUB_ENV
-
-      - name: Connectivity check to Google OAuth endpoint
-        run: |
-          set -euo pipefail
-          curl -I --max-time 15 https://oauth2.googleapis.com/token || true
-          curl -I --max-time 15 https://www.googleapis.com/oauth2/v4/token || true
-
-      # This forces Firebase auth to happen and prints the REAL reason if it fails.
-      - name: Firebase auth debug (projects:list)
+      - name: Firebase auth debug (projects:list) with retry
         run: |
           set -euo pipefail
           firebase --version
-          firebase projects:list --debug
+
+          for i in 1 2 3 4 5; do
+            echo "projects:list attempt $i..."
+            if firebase projects:list --debug; then
+              exit 0
+            fi
+            sleep $((i*8))
+          done
+
+          echo "projects:list failed after retries."
+          exit 1
 
       - name: Deploy to Firebase Hosting (retry + debug)
         run: |
           set -euo pipefail
-          for i in 1 2 3; do
+          for i in 1 2 3 4 5; do
             echo "Deploy attempt $i..."
             if firebase deploy --only hosting --project esportlyic --non-interactive --debug; then
               echo "Deploy succeeded."
@@ -151,5 +185,5 @@ jobs:
             echo "Deploy failed. Sleeping before retry..."
             sleep $((i*10))
           done
-          echo "Deploy failed after 3 attempts."
+          echo "Deploy failed after retries."
           exit 1
