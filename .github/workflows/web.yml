@@ -15,7 +15,6 @@ permissions:
 
 jobs:
   build_and_deploy:
-    # Pin OS to reduce surprise runner changes (ubuntu-latest can change under you)
     runs-on: ubuntu-22.04
     timeout-minutes: 40
 
@@ -24,7 +23,7 @@ jobs:
       FLUTTER_VERSION: 3.24.5
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
 
-      # Helps with occasional DNS/IPv6 weirdness on CI
+      # Helps reduce occasional DNS/IPv6-related connection instability on hosted runners.
       NODE_OPTIONS: --dns-result-order=ipv4first
 
     steps:
@@ -121,17 +120,19 @@ jobs:
           KEY_PATH="${RUNNER_TEMP}/firebase-sa.json"
           printf '%s' "$SA_JSON" > "$KEY_PATH"
           ls -la "$KEY_PATH"
-          node -e "const fs=require('fs'); const sa=JSON.parse(fs.readFileSync(process.env.KEY_PATH,'utf8')); console.log('file_project_id=', sa.project_id); console.log('file_client_email=', sa.client_email);" KEY_PATH="$KEY_PATH"
+
+          # Parse using argv so it's never undefined.
+          node -e "const fs=require('fs'); const p=process.argv[1]; const sa=JSON.parse(fs.readFileSync(p,'utf8')); console.log('file_project_id=', sa.project_id); console.log('file_client_email=', sa.client_email);" "$KEY_PATH"
+
           echo "GOOGLE_APPLICATION_CREDENTIALS=$KEY_PATH" >> $GITHUB_ENV
 
-      # ---- DEBUG: check basic network connectivity to Google APIs ----
       - name: Connectivity check to Google OAuth endpoint
         run: |
           set -euo pipefail
-          curl -I --max-time 15 https://www.googleapis.com/oauth2/v4/token || true
           curl -I --max-time 15 https://oauth2.googleapis.com/token || true
+          curl -I --max-time 15 https://www.googleapis.com/oauth2/v4/token || true
 
-      # ---- DEBUG: force firebase auth to happen and print the real failure ----
+      # This forces Firebase auth to happen and prints the REAL reason if it fails.
       - name: Firebase auth debug (projects:list)
         run: |
           set -euo pipefail
