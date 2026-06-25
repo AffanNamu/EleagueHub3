@@ -25,6 +25,8 @@ jobs:
 
       # Helps reduce DNS/IPv6 flakiness on some runners
       NODE_OPTIONS: --dns-result-order=ipv4first
+      # Larger thread pool for DNS/network I/O
+      UV_THREADPOOL_SIZE: 128
 
     steps:
       - name: Checkout repository
@@ -92,82 +94,112 @@ jobs:
           test -d build/web
           ls -la build/web
 
-      - name: Set up Node (pinned)
+      # ──────────────────────────────────────────────────────────────────
+      # Node 20 LTS — Node 22 causes "Premature close" errors with
+      # gaxios / google-auth-library on GitHub-hosted runners.
+      # ──────────────────────────────────────────────────────────────────
+      - name: Set up Node.js 20 LTS
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "20"
 
       - name: Node version
         run: node -v && npm -v
 
-      - name: Install Firebase CLI (pinned)
+      - name: Install Firebase CLI
         run: npm i -g firebase-tools@15.21.0
 
-      # Workaround: patch gtoken token URL away from www.googleapis.com/oauth2/v4/token
-      - name: Patch OAuth token endpoint (gtoken workaround)
-        run: |
-          set -euo pipefail
-
-          GLOBAL="$(npm root -g)"
-          echo "Global node_modules: $GLOBAL"
-
-          TARGET_DIR="$GLOBAL/firebase-tools/node_modules/gtoken"
-          if [ ! -d "$TARGET_DIR" ]; then
-            echo "gtoken not found at: $TARGET_DIR"
-            echo "Listing firebase-tools node_modules:"
-            ls -la "$GLOBAL/firebase-tools/node_modules" || true
-            exit 1
-          fi
-
-          echo "Searching for legacy token endpoint..."
-          MATCHES="$(grep -R "https://www.googleapis.com/oauth2/v4/token" -n "$TARGET_DIR" || true)"
-          echo "$MATCHES" || true
-
-          if [ -n "$MATCHES" ]; then
-            FILES="$(echo "$MATCHES" | cut -d: -f1 | sort -u)"
-            echo "Patching files:"
-            echo "$FILES"
-
-            for f in $FILES; do
-              # Try without sudo first, then sudo if needed.
-              sed -i 's#https://www.googleapis.com/oauth2/v4/token#https://oauth2.googleapis.com/token#g' "$f" 2>/dev/null \
-                || sudo sed -i 's#https://www.googleapis.com/oauth2/v4/token#https://oauth2.googleapis.com/token#g' "$f"
-            done
-          fi
-
-          echo "Confirm patched endpoint exists (sample):"
-          grep -R "oauth2.googleapis.com/token" -n "$TARGET_DIR" | head -n 20 || true
-
-      # Safe validation that secret exists and parses (does not print private_key)
+      # ──────────────────────────────────────────────────────────────────
+      # Validate the service-account JSON (never print private_key).
+      # ──────────────────────────────────────────────────────────────────
       - name: Validate FIREBASE_SERVICE_ACCOUNT secret (safe)
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           echo "Secret length: ${#SA_JSON}"
-          node -e "const sa=JSON.parse(process.env.SA_JSON); console.log('project_id=', sa.project_id); console.log('client_email=', sa.client_email); console.log('private_key_present=', !!sa.private_key);"
+          echo "$SA_JSON" | jq '{project_id, client_email, private_key_present: (.private_key | length > 0)}'
 
-      - name: Write service account file
+      # ──────────────────────────────────────────────────────────────────
+      # Obtain a Google OAuth2 access token using curl + openssl.
+      #
+      # This COMPLETELY BYPASSES the Node.js google-auth-library HTTP
+      # stack, avoiding the "Premature close" network errors caused by
+      # Node 22 + gaxios on GitHub runners.
+      #
+      # The resulting token is exported as FIREBASE_TOKEN, which the
+      # Firebase CLI reads directly — no JWT↔token exchange inside Node.
+      # ──────────────────────────────────────────────────────────────────
+      - name: Obtain Firebase access token via curl
+        id: firebase-auth
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
-          KEY_PATH="${RUNNER_TEMP}/firebase-sa.json"
-          printf '%s' "$SA_JSON" > "$KEY_PATH"
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$KEY_PATH" >> $GITHUB_ENV
-          ls -la "$KEY_PATH"
 
-      - name: Firebase auth debug (projects:list) with retry
+          CLIENT_EMAIL="$(echo "$SA_JSON" | jq -r '.client_email')"
+          TOKEN_URI="$(echo "$SA_JSON" | jq -r '.token_uri // "https://oauth2.googleapis.com/token"')"
+
+          # Write private key to a temp file for openssl signing
+          KEY_FILE="$(mktemp /tmp/sa-key.XXXXXX.pem)"
+          echo "$SA_JSON" | jq -r '.private_key' > "$KEY_FILE"
+
+          # ── Helper: base64url encoding (no padding) ──
+          b64url() { base64 -w0 | tr '+/' '-_' | tr -d '='; }
+
+          # ── Build JWT header & payload ──
+          HEADER="$(printf '%s' '{"alg":"RS256","typ":"JWT"}' | b64url)"
+
+          NOW="$(date +%s)"
+          EXP="$((NOW + 3600))"
+          PAYLOAD="$(printf '{"iss":"%s","scope":"email openid https://www.googleapis.com/auth/cloudplatformprojects.readonly https://www.googleapis.com/auth/firebase https://www.googleapis.com/auth/cloud-platform","aud":"%s","exp":%d,"iat":%d}' \
+            "$CLIENT_EMAIL" "$TOKEN_URI" "$EXP" "$NOW" | b64url)"
+
+          # ── Sign the JWT with the service account private key ──
+          SIGNATURE="$(printf '%s' "${HEADER}.${PAYLOAD}" \
+            | openssl dgst -binary -sha256 -sign "$KEY_FILE" \
+            | b64url)"
+
+          rm -f "$KEY_FILE"
+
+          JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
+
+          # ── Exchange JWT for access token (with retries) ──
+          for i in 1 2 3; do
+            RESPONSE="$(curl -sS --http1.1 --max-time 30 --retry 2 \
+              -X POST "${TOKEN_URI}" \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              -d "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${JWT}")"
+
+            ACCESS_TOKEN="$(echo "$RESPONSE" | jq -r '.access_token // empty')"
+            if [ -n "$ACCESS_TOKEN" ]; then
+              echo "Access token obtained successfully (length: ${#ACCESS_TOKEN})"
+              # Register as FIREBASE_TOKEN so firebase CLI uses it directly
+              echo "FIREBASE_TOKEN=${ACCESS_TOKEN}" >> "$GITHUB_ENV"
+              # Mask the token in subsequent logs
+              echo "::add-mask::${ACCESS_TOKEN}"
+              exit 0
+            fi
+
+            echo "Attempt $i failed. Server response:"
+            echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
+            sleep 5
+          done
+
+          echo "ERROR: Could not obtain access token after 3 attempts."
+          exit 1
+
+      - name: Firebase projects:list (verify auth)
         run: |
           set -euo pipefail
           firebase --version
 
-          for i in 1 2 3 4 5; do
+          for i in 1 2 3; do
             echo "projects:list attempt $i..."
-            if firebase projects:list --debug; then
+            if firebase projects:list; then
               exit 0
             fi
-            sleep $((i*8))
+            sleep 5
           done
 
           echo "projects:list failed after retries."
