@@ -23,6 +23,9 @@ jobs:
       FLUTTER_VERSION: 3.24.5
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
 
+      # Reduces occasional DNS/IPv6-related connection instability on hosted runners.
+      NODE_OPTIONS: --dns-result-order=ipv4first
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,7 +34,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -81,7 +84,6 @@ jobs:
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=true"
           fi
 
-          # THIS IS THE FIX: Actually applying --web-renderer html to the build command
           flutter build web --release --web-renderer html ${DART_DEFINES}
 
       - name: Verify web output
@@ -90,10 +92,37 @@ jobs:
           test -d build/web
           ls -la build/web
 
-      - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      # Pin Node for firebase-tools execution (avoid whatever Node version the runner/action defaults to)
+      - name: Set up Node (pinned)
+        uses: actions/setup-node@v4
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          channelId: live
-          projectId: esportlyic
+          node-version: "22"
+
+      - name: Node version
+        run: node -v && npm -v
+
+      # Pin firebase-tools version (avoid @latest changes)
+      - name: Install Firebase CLI (pinned)
+        run: npm i -g firebase-tools@15.21.0
+
+      # Safe validation that the secret is present and parseable (does NOT print private key)
+      - name: Validate Firebase service account JSON (safe)
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          node -e "const sa=JSON.parse(process.env.SA_JSON); console.log('project_id=', sa.project_id); console.log('client_email=', sa.client_email); console.log('private_key_present=', !!sa.private_key);"
+
+      - name: Write service account key file
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="${RUNNER_TEMP}/firebase-sa.json"
+          printf '%s' "$SA_JSON" > "$KEY_PATH"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$KEY_PATH" >> $GITHUB_ENV
+
+      - name: Deploy to Firebase Hosting (CLI)
+        run: |
+          set -euo pipefail
+          firebase --version
+          firebase deploy --only hosting --project esportlyic --non-interactive
