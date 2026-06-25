@@ -15,7 +15,8 @@ permissions:
 
 jobs:
   build_and_deploy:
-    runs-on: ubuntu-latest
+    # Pin OS to reduce surprise runner changes (ubuntu-latest can change under you)
+    runs-on: ubuntu-22.04
     timeout-minutes: 40
 
     env:
@@ -23,7 +24,7 @@ jobs:
       FLUTTER_VERSION: 3.24.5
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
 
-      # Reduces occasional DNS/IPv6-related connection instability on hosted runners.
+      # Helps with occasional DNS/IPv6 weirdness on CI
       NODE_OPTIONS: --dns-result-order=ipv4first
 
     steps:
@@ -92,7 +93,6 @@ jobs:
           test -d build/web
           ls -la build/web
 
-      # Pin Node for firebase-tools execution (avoid whatever Node version the runner/action defaults to)
       - name: Set up Node (pinned)
         uses: actions/setup-node@v4
         with:
@@ -101,28 +101,54 @@ jobs:
       - name: Node version
         run: node -v && npm -v
 
-      # Pin firebase-tools version (avoid @latest changes)
       - name: Install Firebase CLI (pinned)
         run: npm i -g firebase-tools@15.21.0
 
-      # Safe validation that the secret is present and parseable (does NOT print private key)
-      - name: Validate Firebase service account JSON (safe)
+      # ---- DEBUG: prove the secret is present and valid JSON (safe output) ----
+      - name: Validate FIREBASE_SERVICE_ACCOUNT secret (safe)
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
+          set -euo pipefail
+          echo "Secret length: ${#SA_JSON}"
           node -e "const sa=JSON.parse(process.env.SA_JSON); console.log('project_id=', sa.project_id); console.log('client_email=', sa.client_email); console.log('private_key_present=', !!sa.private_key);"
 
-      - name: Write service account key file
+      - name: Write service account file + verify it parses
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           KEY_PATH="${RUNNER_TEMP}/firebase-sa.json"
           printf '%s' "$SA_JSON" > "$KEY_PATH"
+          ls -la "$KEY_PATH"
+          node -e "const fs=require('fs'); const sa=JSON.parse(fs.readFileSync(process.env.KEY_PATH,'utf8')); console.log('file_project_id=', sa.project_id); console.log('file_client_email=', sa.client_email);" KEY_PATH="$KEY_PATH"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$KEY_PATH" >> $GITHUB_ENV
 
-      - name: Deploy to Firebase Hosting (CLI)
+      # ---- DEBUG: check basic network connectivity to Google APIs ----
+      - name: Connectivity check to Google OAuth endpoint
+        run: |
+          set -euo pipefail
+          curl -I --max-time 15 https://www.googleapis.com/oauth2/v4/token || true
+          curl -I --max-time 15 https://oauth2.googleapis.com/token || true
+
+      # ---- DEBUG: force firebase auth to happen and print the real failure ----
+      - name: Firebase auth debug (projects:list)
         run: |
           set -euo pipefail
           firebase --version
-          firebase deploy --only hosting --project esportlyic --non-interactive
+          firebase projects:list --debug
+
+      - name: Deploy to Firebase Hosting (retry + debug)
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            echo "Deploy attempt $i..."
+            if firebase deploy --only hosting --project esportlyic --non-interactive --debug; then
+              echo "Deploy succeeded."
+              exit 0
+            fi
+            echo "Deploy failed. Sleeping before retry..."
+            sleep $((i*10))
+          done
+          echo "Deploy failed after 3 attempts."
+          exit 1
