@@ -41,6 +41,10 @@ import '../../features/leagues/presentation/league_standings_screen.dart';
 import '../../features/leagues/presentation/leagues_list_screen.dart';
 import '../../features/leagues/presentation/match_detail_screen.dart';
 import '../../features/leagues/presentation/qr_scanner_screen.dart';
+import '../../features/legal/affiliate_disclosure_screen.dart';
+import '../../features/legal/contact_screen.dart';
+import '../../features/legal/privacy_policy_screen.dart';
+import '../../features/legal/terms_of_service_screen.dart';
 import '../../features/live/presentation/join_match_screen.dart';
 import '../../features/live/presentation/live_view_screen.dart';
 import '../../features/marketplace/presentation/admin_marketplace_upload_screen.dart';
@@ -305,7 +309,8 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
     );
   }
 
-  Widget _buildJoin(BuildContext context, Brightness brightness, ThemeData theme) {
+  Widget _buildJoin(
+      BuildContext context, Brightness brightness, ThemeData theme) {
     return Glass(
       borderRadius: 28,
       padding: const EdgeInsets.all(28),
@@ -335,8 +340,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
           ),
           const SizedBox(height: 20),
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             decoration: BoxDecoration(
               color: AppTheme.limeAccentDark.withOpacity(0.08),
               borderRadius: BorderRadius.circular(14),
@@ -398,8 +402,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
                   borderRadius: BorderRadius.circular(16),
                 ),
               ),
-              onPressed:
-                  _joining ? null : () => _joinAs(asParticipant: true),
+              onPressed: _joining ? null : () => _joinAs(asParticipant: true),
               icon: _joining
                   ? SizedBox(
                       width: 18,
@@ -433,8 +436,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
                   borderRadius: BorderRadius.circular(16),
                 ),
               ),
-              onPressed:
-                  _joining ? null : () => _joinAs(asParticipant: false),
+              onPressed: _joining ? null : () => _joinAs(asParticipant: false),
               icon: const Icon(Icons.visibility_rounded),
               label: const Text(
                 'Join as Viewer',
@@ -597,20 +599,10 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
     });
   }
 
-  // ── KEY FIX ──────────────────────────────────────────────────────────────
-  // When FirebaseAuth already has a current user (e.g. after Google sign-in
-  // or email/password sign-in on this browser), but the WebDesktopSessionStore
-  // localStorage entry was never written (e.g. first login, or cleared by
-  // browser), we fall back to the Firebase Auth user so that the shell is
-  // shown immediately with the correct UID — and leagues load correctly.
-  // ─────────────────────────────────────────────────────────────────────────
   Future<void> _check() async {
     try {
       Map<String, String>? saved = await WebDesktopSessionStore.load();
 
-      // If localStorage has no session but Firebase Auth has a current user,
-      // synthesize the session from the Firebase user and persist it so that
-      // future reloads also work without re-scanning the QR code.
       if (saved == null || (saved['pairedUserUid'] ?? '').trim().isEmpty) {
         final firebaseUser = FirebaseAuth.instance.currentUser;
         if (firebaseUser != null) {
@@ -618,7 +610,6 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
           final name = (firebaseUser.displayName ?? '').trim();
           final email = (firebaseUser.email ?? '').trim();
 
-          // Persist so next reload finds it in localStorage.
           await WebDesktopSessionStore.save(
             sessionId: 'firebase-auth',
             sessionSecret: 'firebase-auth',
@@ -904,8 +895,9 @@ class AuthRouterRefresh extends ChangeNotifier {
     _setProfileState(_ProfileState.checking);
 
     try {
-      final exists =
-          await _profiles.profileExists(uid).timeout(const Duration(seconds: 12));
+      final exists = await _profiles
+          .profileExists(uid)
+          .timeout(const Duration(seconds: 12));
       _retryAttempt = 0;
       _setProfileState(exists ? _ProfileState.exists : _ProfileState.missing);
       return;
@@ -965,6 +957,17 @@ bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
     r.needsOnboarding;
 
 // ---------------------------------------------------------------------------
+// Public legal routes — never require auth
+// ---------------------------------------------------------------------------
+
+const _publicRoutes = <String>{
+  '/privacy_policy_screen',
+  '/terms_of_service_screen',
+  '/contact_screen',
+  '/affiliate_disclosure_screen',
+};
+
+// ---------------------------------------------------------------------------
 // App router
 // ---------------------------------------------------------------------------
 
@@ -977,6 +980,9 @@ final appRouter = GoRouter(
 
     final loc = state.matchedLocation;
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+    // ── Always allow public legal pages — no auth required ──────────────
+    if (_publicRoutes.contains(loc)) return null;
 
     final inDesktop = loc == '/desktop';
     final inLogin = loc == '/login';
@@ -1052,11 +1058,6 @@ final appRouter = GoRouter(
     if (authRouterRefresh.isCheckingProfile) {
       if (inBootstrap) return null;
       if (inJoin) return null;
-      // ── KEY FIX ──────────────────────────────────────────────────────────
-      // On web, while checking the profile, stay at "/" so the
-      // WebSessionGateScreen can render. Do NOT redirect to /bootstrap
-      // (which is the mobile loading screen and is not used on web).
-      // ─────────────────────────────────────────────────────────────────────
       if (kIsWeb && inRoot) return null;
       if (kIsWeb) return '/';
       return '/bootstrap';
@@ -1092,13 +1093,31 @@ final appRouter = GoRouter(
     return null;
   },
   routes: [
-    // Desktop pairing
+    // ── Desktop pairing ──────────────────────────────────────────────────
     GoRoute(
       path: '/desktop',
       builder: (context, state) => const WebPairingScreen(),
     ),
 
-    // Join deep-link
+    // ── Legal pages (public — no auth required) ──────────────────────────
+    GoRoute(
+      path: '/privacy_policy_screen',
+      builder: (context, state) => const PrivacyPolicyScreen(),
+    ),
+    GoRoute(
+      path: '/terms_of_service_screen',
+      builder: (context, state) => const TermsOfServiceScreen(),
+    ),
+    GoRoute(
+      path: '/contact_screen',
+      builder: (context, state) => const ContactScreen(),
+    ),
+    GoRoute(
+      path: '/affiliate_disclosure_screen',
+      builder: (context, state) => const AffiliateDisclosureScreen(),
+    ),
+
+    // ── Join deep-link ───────────────────────────────────────────────────
     GoRoute(
       path: '/join',
       builder: (context, state) {
@@ -1108,7 +1127,7 @@ final appRouter = GoRouter(
       },
     ),
 
-    // Auth
+    // ── Auth ─────────────────────────────────────────────────────────────
     GoRoute(
       path: '/bootstrap',
       builder: (context, state) => const BootstrapScreen(),
@@ -1143,7 +1162,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const OnboardingScreen(),
     ),
 
-    // Standalone
+    // ── Standalone ───────────────────────────────────────────────────────
     GoRoute(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
@@ -1157,7 +1176,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const PublicOrganizerDiscoveryScreen(),
     ),
 
-    // Call room
+    // ── Call room ────────────────────────────────────────────────────────
     GoRoute(
       path: '/call',
       builder: (context, state) {
@@ -1166,7 +1185,7 @@ final appRouter = GoRouter(
       },
     ),
 
-    // Admin
+    // ── Admin ────────────────────────────────────────────────────────────
     GoRoute(
       path: '/admin/pricing',
       builder: (context, state) => const PricingAdminScreen(),
@@ -1192,7 +1211,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const GlobalChatAdminRequestsScreen(),
     ),
 
-    // Root shell
+    // ── Root shell ───────────────────────────────────────────────────────
     GoRoute(
       path: '/',
       builder: (context, state) {
@@ -1359,8 +1378,7 @@ final appRouter = GoRouter(
               path: 'add-teams',
               builder: (context, state) {
                 final extra = state.extra as Map<String, dynamic>? ?? {};
-                final leagueId =
-                    extra['leagueId'] as String? ?? 'mock-id';
+                final leagueId = extra['leagueId'] as String? ?? 'mock-id';
                 final format = extra['format'] as LeagueFormat? ??
                     LeagueFormat.classic;
                 return AddTeamsScreen(leagueId: leagueId, format: format);
