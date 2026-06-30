@@ -865,7 +865,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (!context.mounted) return;
       _snack(
         context,
-        'Use the mobile app to scan the desktop QR code.',
+        'Need to link your desktop? Visit esportlyic.web.app on your computer and scan the displayed QR code.',
       );
       return;
     }

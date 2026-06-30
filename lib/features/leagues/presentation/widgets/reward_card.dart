@@ -30,6 +30,31 @@ class RewardCard extends StatelessWidget {
     return '${position}th';
   }
 
+  /// Maps a stored [rewardType] value to a user-facing display label.
+  ///
+  /// Firestore field values (e.g. 'cash', 'physical') are internal identifiers
+  /// and must not change. Only the display label presented to users is mapped
+  /// here so that no financial terminology appears in the UI.
+  static String _typeDisplayLabel(String rewardType) {
+    final t = rewardType.trim().toLowerCase();
+    switch (t) {
+      case 'cash':
+        return 'Monetary';
+      case 'physical':
+        return 'Physical Item';
+      case 'digital':
+        return 'Digital Item';
+      case 'trophy':
+        return 'Trophy / Medal';
+      case 'other':
+        return 'Other';
+      default:
+        // For any unknown / future type, capitalize first letter as fallback.
+        if (t.isEmpty) return 'Other';
+        return t[0].toUpperCase() + t.substring(1);
+    }
+  }
+
   Color _badgeColor() {
     switch (reward.position) {
       case 1:
@@ -214,7 +239,7 @@ class RewardCard extends StatelessWidget {
           right: 12,
           top: 12,
           child: _TypeChip(
-            type: reward.rewardType,
+            displayLabel: _typeDisplayLabel(reward.rewardType),
             color: _typeChipColor(),
           ),
         ),
@@ -338,18 +363,18 @@ class _PositionBadge extends StatelessWidget {
 
 class _TypeChip extends StatelessWidget {
   const _TypeChip({
-    required this.type,
+    required this.displayLabel,
     required this.color,
   });
 
-  final String type;
+  /// Pre-resolved user-facing display label.
+  /// The raw Firestore [rewardType] value is mapped to this label
+  /// by [RewardCard._typeDisplayLabel] before being passed here.
+  final String displayLabel;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final label = type.trim().isEmpty ? 'other' : type.trim().toLowerCase();
-    final display = label[0].toUpperCase() + label.substring(1);
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -358,7 +383,7 @@ class _TypeChip extends StatelessWidget {
         border: Border.all(color: color.withOpacity(0.22)),
       ),
       child: Text(
-        display,
+        displayLabel,
         style: TextStyle(
           fontWeight: FontWeight.w900,
           color: color,

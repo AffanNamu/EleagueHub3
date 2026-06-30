@@ -58,7 +58,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => RewardEditorSheet(
         leagueId: widget.leagueId,
-        title: 'Add Reward',
+        title: 'Add Prize',
       ),
     );
 
@@ -74,7 +74,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => RewardEditorSheet(
         leagueId: widget.leagueId,
-        title: 'Edit Reward',
+        title: 'Edit Prize',
         initialReward: reward,
       ),
     );
@@ -96,7 +96,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
         return AlertDialog(
           backgroundColor: AppTheme.cardColor(brightness),
           surfaceTintColor: Colors.transparent,
-          title: const Text('Delete reward?'),
+          title: const Text('Delete prize?'),
           content:
               Text('This will permanently remove "${reward.rewardName}".'),
           actions: <Widget>[
@@ -147,7 +147,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: Text(
-                'You do not have permission to manage rewards for this league.',
+                'You do not have permission to manage prizes for this league.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppTheme.secondaryText(brightness),
@@ -194,7 +194,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
             if (rewards.isEmpty) {
               return Center(
                 child: Text(
-                  'No rewards yet. Tap "Add Reward" to create one.',
+                  'No prizes yet. Tap \u201cAdd Prize\u201d to create one.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w600,
@@ -250,14 +250,14 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
           foregroundColor: AppTheme.darkText,
           onPressed: _createReward,
           icon: const Icon(Icons.add),
-          label: const Text('Add Reward'),
+          label: const Text('Add Prize'),
         );
       },
     );
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Manage Rewards'),
+        title: const Text('Manage Prizes'),
       ),
       floatingActionButton: fab,
       body: SafeArea(
@@ -549,26 +549,26 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                                     _rewardType,
                                   ),
                                   decoration: const InputDecoration(
-                                    labelText: 'Reward Type',
+                                    labelText: 'Prize Type',
                                   ),
                                   dropdownColor:
                                       Theme.of(context).colorScheme.surface,
                                   items: const <DropdownMenuItem<String>>[
                                     DropdownMenuItem(
                                       value: 'cash',
-                                      child: Text('Cash'),
+                                      child: Text('Monetary'),
                                     ),
                                     DropdownMenuItem(
                                       value: 'physical',
-                                      child: Text('Physical'),
+                                      child: Text('Physical Item'),
                                     ),
                                     DropdownMenuItem(
                                       value: 'digital',
-                                      child: Text('Digital'),
+                                      child: Text('Digital Item'),
                                     ),
                                     DropdownMenuItem(
                                       value: 'trophy',
-                                      child: Text('Trophy'),
+                                      child: Text('Trophy / Medal'),
                                     ),
                                     DropdownMenuItem(
                                       value: 'other',
@@ -590,11 +590,11 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                             initialValue: _rewardName,
                             enabled: !_busy,
                             decoration: const InputDecoration(
-                              labelText: 'Reward Name',
+                              labelText: 'Prize Name',
                             ),
                             validator: (v) {
                               if (v == null || v.trim().isEmpty) {
-                                return 'Reward name is required';
+                                return 'Prize name is required';
                               }
                               if (v.trim().length < 2) return 'Too short';
                               return null;
@@ -688,7 +688,7 @@ class _ImagePickerRow extends StatelessWidget {
 
     return InputDecorator(
       decoration: const InputDecoration(
-        labelText: 'Reward Image (Cloudinary)',
+        labelText: 'Prize Image (Cloudinary)',
       ),
       child: Row(
         children: <Widget>[

@@ -106,7 +106,7 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
     return GlassScaffold(
       appBar: AppBar(
         title: Text(
-          'Rewards',
+          'Prizes',
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w900,
           ),
@@ -118,7 +118,7 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
               final canManage = snap.data == true;
               if (!canManage) return const SizedBox.shrink();
               return IconButton(
-                tooltip: 'Manage Rewards',
+                tooltip: 'Manage Prizes',
                 onPressed: _openManageRewards,
                 icon: Icon(
                   Icons.edit_outlined,
@@ -183,7 +183,7 @@ class _EmptyState extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'No rewards available',
+                  'No prizes available',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: AppTheme.primaryText(brightness),
