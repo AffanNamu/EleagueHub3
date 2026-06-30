@@ -34,9 +34,8 @@ class PrivacyPolicyScreen extends StatelessWidget {
                     // ── 1. Introduction ──────────────────────────────────
                     const _H('1. Introduction'),
                     _P(
-  'This Privacy Policy explains how $_appName collects, uses, stores, and protects your '
-  'information when you use our application.',
-),
+                      'This Privacy Policy explains how $_appName collects, uses, stores, and protects your '
+                      'information when you use our application.',
                     ),
                     const _P(
                       'By using the App, you agree to the practices described in '
