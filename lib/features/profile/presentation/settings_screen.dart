@@ -1376,7 +1376,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Powered by Kaida',
+                              'Powered by NCT Ventures',
                               style: TextStyle(
                                 color: onSurface.withOpacity(0.50),
                                 fontSize: 12,
