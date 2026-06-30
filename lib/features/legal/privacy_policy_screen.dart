@@ -33,8 +33,8 @@ class PrivacyPolicyScreen extends StatelessWidget {
                   children: [
                     // ── 1. Introduction ──────────────────────────────────
                     const _H('1. Introduction'),
-                    const _P(
-                      'This Privacy Policy explains how $_appName "our"
+                    _P(
+                      'This Privacy Policy explains how $_appName ("we", "our", '
                       '"the App") collects, uses, stores, and protects your '
                       'information when you use our application.',
                     ),
@@ -61,7 +61,8 @@ class PrivacyPolicyScreen extends StatelessWidget {
                     const _SubH('2.2 Information collected automatically'),
                     const _P(
                         'When you use the App, we may automatically collect:'),
-                    const _B('Device information (model, operating system version).'),
+                    const _B(
+                        'Device information (model, operating system version).'),
                     const _B('App version and usage data.'),
                     const _B(
                         'Crash logs and diagnostic data (for performance and bug fixing).'),
