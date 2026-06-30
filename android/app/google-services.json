@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "155243307303-t1ced80klttan2da0altu5j2m8sm2g6a.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.eleaguehub.app",
+            "certificate_hash": "36e875dc8dbeedc62db7d67917e816c04c7cfcd8"
+          }
+        },
+        {
           "client_id": "155243307303-gu3ucs09cvng144h5ppjgquptrouo0ne.apps.googleusercontent.com",
           "client_type": 3
         }
