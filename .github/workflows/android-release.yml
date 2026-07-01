@@ -1,5 +1,5 @@
 name: Android CI (Release APK + AAB - Production)
-#Mohammed Auwal
+
 on:
   push:
     branches: [ main ]
@@ -24,7 +24,7 @@ jobs:
       FLUTTER_VERSION: 3.24.5
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-      ICON_FILE_ID: "1o1XBBURzlYOK0HdAIVPV7TPAvNDTUJx7"
+      ICON_FILE_ID: "ICON_FILE_ID: "1o1XBBURzlYOK0HdAIVPV7TPAvNDTUJx7"
 
     steps:
       # ─────────────────────────────────────────
@@ -110,9 +110,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            xz-utils unzip curl git libglu1-mesa imagemagick file python3 python3-pip
+            xz-utils unzip curl git libglu1-mesa imagemagick file python3
           sudo apt-get clean
-          pip3 install --quiet gdown
 
       # ─────────────────────────────────────────
       # 6. FLUTTER
@@ -219,160 +218,80 @@ jobs:
 
           FILE_ID="${ICON_FILE_ID}"
           ICON_PATH="assets/icon.png"
+          COOKIE_JAR="/tmp/gdrive_cookies.txt"
           ICON_OK=0
 
           echo "================================================"
           echo "Downloading icon: File ID = ${FILE_ID}"
           echo "================================================"
 
-          is_valid_image() {
-            local f="$1"
-            [ -f "$f" ] || return 1
-            local sz
-            sz=$(wc -c < "$f")
-            [ "$sz" -gt 1024 ] || return 1
-            file "$f" | grep -qiE "PNG|image" || return 1
-            return 0
-          }
-
-          # ── Attempt 1: gdown (best for Google Drive) ──
+          # ── Attempt 1: Simple direct download ──
           echo ""
-          echo "🔄 Attempt 1: gdown..."
-          gdown --fuzzy \
-            "https://drive.google.com/file/d/${FILE_ID}/view" \
-            -O "${ICON_PATH}" 2>&1 || true
+          echo "🔄 Attempt 1: Simple direct download..."
+          curl -fsSL \
+            --retry 3 \
+            --retry-delay 2 \
+            --max-time 60 \
+            "https://drive.google.com/uc?export=download&id=${FILE_ID}" \
+            -o "${ICON_PATH}" || true
 
-          if is_valid_image "${ICON_PATH}"; then
-            echo "✅ Attempt 1 (gdown) succeeded"
+          if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
+            echo "✅ Attempt 1 succeeded"
             ICON_OK=1
           else
-            echo "⚠️ Attempt 1 failed"
+            echo "⚠️ Attempt 1 failed — not a PNG"
             rm -f "${ICON_PATH}"
           fi
 
-          # ── Attempt 2: gdown with direct file ID ──
+          # ── Attempt 2: With cookie jar (handles large file confirmation) ──
           if [ "${ICON_OK}" -eq 0 ]; then
             echo ""
-            echo "🔄 Attempt 2: gdown with file ID..."
-            gdown "${FILE_ID}" -O "${ICON_PATH}" 2>&1 || true
+            echo "🔄 Attempt 2: With cookie jar..."
+            rm -f "${COOKIE_JAR}"
 
-            if is_valid_image "${ICON_PATH}"; then
-              echo "✅ Attempt 2 (gdown ID) succeeded"
-              ICON_OK=1
-            else
-              echo "⚠️ Attempt 2 failed"
-              rm -f "${ICON_PATH}"
-            fi
-          fi
-
-          # ── Attempt 3: Direct curl with export=download ──
-          if [ "${ICON_OK}" -eq 0 ]; then
-            echo ""
-            echo "🔄 Attempt 3: curl direct export..."
             curl -fsSL \
               --retry 3 \
-              --retry-delay 3 \
-              --max-time 90 \
-              -A "Mozilla/5.0 (X11; Linux x86_64)" \
-              "https://drive.google.com/uc?export=download&id=${FILE_ID}&confirm=t" \
+              --retry-delay 2 \
+              --max-time 60 \
+              --cookie-jar "${COOKIE_JAR}" \
+              "https://drive.google.com/uc?export=download&id=${FILE_ID}" \
               -o "${ICON_PATH}" || true
 
-            if is_valid_image "${ICON_PATH}"; then
-              echo "✅ Attempt 3 succeeded"
+            if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
+              echo "✅ Attempt 2 succeeded"
               ICON_OK=1
             else
-              echo "⚠️ Attempt 3 failed"
+              echo "⚠️ Attempt 2 failed — extracting confirm token..."
               rm -f "${ICON_PATH}"
-            fi
-          fi
 
-          # ── Attempt 4: Google Drive thumbnail/content API ──
-          if [ "${ICON_OK}" -eq 0 ]; then
-            echo ""
-            echo "🔄 Attempt 4: Drive content API..."
-            curl -fsSL \
-              --retry 3 \
-              --retry-delay 3 \
-              --max-time 90 \
-              -A "Mozilla/5.0 (X11; Linux x86_64)" \
-              -L \
-              "https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t" \
-              -o "${ICON_PATH}" || true
+              CONFIRM="t"
 
-            if is_valid_image "${ICON_PATH}"; then
-              echo "✅ Attempt 4 succeeded"
-              ICON_OK=1
-            else
-              echo "⚠️ Attempt 4 failed"
-              rm -f "${ICON_PATH}"
-            fi
-          fi
+              echo "   Using confirm token: ${CONFIRM}"
 
-          # ── Attempt 5: Python requests with session ──
-          if [ "${ICON_OK}" -eq 0 ]; then
-            echo ""
-            echo "🔄 Attempt 5: Python requests session..."
-            python3 - <<PYEOF || true
-          import requests, pathlib, sys
+              curl -fsSL \
+                --retry 3 \
+                --retry-delay 2 \
+                --max-time 60 \
+                --cookie-jar "${COOKIE_JAR}" \
+                --cookie "${COOKIE_JAR}" \
+                "https://drive.google.com/uc?export=download&confirm=${CONFIRM}&id=${FILE_ID}" \
+                -o "${ICON_PATH}" || true
 
-          FILE_ID = "${FILE_ID}"
-          ICON_PATH = "${ICON_PATH}"
-
-          session = requests.Session()
-          session.headers.update({
-              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-          })
-
-          url = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
-          resp = session.get(url, stream=True, timeout=60)
-
-          # Handle virus scan warning page
-          if "text/html" in resp.headers.get("Content-Type", ""):
-              # Extract confirm token
-              token = None
-              for key, val in resp.cookies.items():
-                  if "download_warning" in key:
-                      token = val
-                      break
-              if not token:
-                  import re
-                  m = re.search(r'confirm=([0-9A-Za-z_\-]+)', resp.text)
-                  token = m.group(1) if m else "t"
-
-              url2 = f"https://drive.google.com/uc?export=download&confirm={token}&id={FILE_ID}"
-              resp = session.get(url2, stream=True, timeout=60,
-                                 cookies=resp.cookies)
-
-          data = resp.content
-          if len(data) > 1024:
-              pathlib.Path(ICON_PATH).write_bytes(data)
-              print(f"✅ Downloaded {len(data)} bytes")
-          else:
-              print("❌ Response too small")
-              sys.exit(1)
-          PYEOF
-
-            if is_valid_image "${ICON_PATH}"; then
-              echo "✅ Attempt 5 succeeded"
-              ICON_OK=1
-            else
-              echo "⚠️ Attempt 5 failed"
-              rm -f "${ICON_PATH}"
+              if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
+                echo "✅ Attempt 2 with confirm token succeeded"
+                ICON_OK=1
+              else
+                echo "⚠️ Attempt 2 with confirm token failed"
+                rm -f "${ICON_PATH}"
+              fi
             fi
           fi
 
           # ── Final validation ──
           echo ""
           echo "=== Final Icon Validation ==="
-
-          if [ "${ICON_OK}" -eq 0 ]; then
-            echo "❌ All download attempts failed!"
-            echo ""
-            echo "⚠️  ACTION REQUIRED:"
-            echo "    Make sure the Google Drive file is set to:"
-            echo "    'Anyone with the link can view'"
-            echo "    File ID: ${FILE_ID}"
-            echo "    URL: https://drive.google.com/file/d/${FILE_ID}/view"
+          if [ ! -f "${ICON_PATH}" ]; then
+            echo "❌ Icon file does not exist — cannot continue"
             exit 1
           fi
 
@@ -383,6 +302,11 @@ jobs:
             W=$(identify -format "%w" "${ICON_PATH}" 2>/dev/null || echo "?")
             H=$(identify -format "%h" "${ICON_PATH}" 2>/dev/null || echo "?")
             echo "Dimensions: ${W}x${H} px"
+          fi
+
+          if ! file "${ICON_PATH}" | grep -qE "PNG|image"; then
+            echo "❌ Final file is not a valid image — aborting"
+            exit 1
           fi
 
           echo ""
