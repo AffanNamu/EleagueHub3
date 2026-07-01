@@ -24,7 +24,7 @@ jobs:
       FLUTTER_VERSION: 3.24.5
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-      ICON_FILE_ID: "1o1XBBURzlYOK0HdAIVPV7TPAvNDTUJx7"
+      ICON_FILE_ID: "1ynEFtKZCC-mQPegEQKw7QqjRU_KCYqA4"
 
     steps:
       # ─────────────────────────────────────────
