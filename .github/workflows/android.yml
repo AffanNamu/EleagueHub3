@@ -225,76 +225,183 @@ jobs:
           echo "Downloading icon: File ID = ${FILE_ID}"
           echo "================================================"
 
-          # ── Attempt 1: Simple direct download ──
+          # Helper: check if file is a valid PNG/image
+          is_valid_image() {
+            local f="$1"
+            [ -f "${f}" ] && [ "$(wc -c < "${f}")" -gt 1000 ] \
+              && file "${f}" 2>/dev/null | grep -qE "PNG|image"
+          }
+
+          # ── Attempt 1: drive.usercontent.google.com (newer endpoint) ──
           echo ""
-          echo "🔄 Attempt 1: Simple direct download..."
+          echo "🔄 Attempt 1: drive.usercontent.google.com..."
           curl -fsSL \
-            --retry 3 \
-            --retry-delay 2 \
-            --max-time 60 \
-            "https://drive.google.com/uc?export=download&id=${FILE_ID}" \
+            --retry 3 --retry-delay 3 --max-time 60 \
+            -A "Mozilla/5.0 (X11; Linux x86_64)" \
+            "https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&authuser=0&confirm=t" \
             -o "${ICON_PATH}" || true
 
-          if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
+          if is_valid_image "${ICON_PATH}"; then
             echo "✅ Attempt 1 succeeded"
             ICON_OK=1
           else
-            echo "⚠️ Attempt 1 failed — not a PNG"
+            echo "⚠️ Attempt 1 failed"
             rm -f "${ICON_PATH}"
           fi
 
-          # ── Attempt 2: With cookie jar (handles large file confirmation) ──
+          # ── Attempt 2: Classic uc endpoint with confirm ──
           if [ "${ICON_OK}" -eq 0 ]; then
             echo ""
-            echo "🔄 Attempt 2: With cookie jar..."
+            echo "🔄 Attempt 2: Classic uc endpoint with confirm=t..."
+            curl -fsSL \
+              --retry 3 --retry-delay 3 --max-time 60 \
+              -A "Mozilla/5.0 (X11; Linux x86_64)" \
+              "https://drive.google.com/uc?export=download&confirm=t&id=${FILE_ID}" \
+              -o "${ICON_PATH}" || true
+
+            if is_valid_image "${ICON_PATH}"; then
+              echo "✅ Attempt 2 succeeded"
+              ICON_OK=1
+            else
+              echo "⚠️ Attempt 2 failed"
+              rm -f "${ICON_PATH}"
+            fi
+          fi
+
+          # ── Attempt 3: With cookie jar + follow redirects ──
+          if [ "${ICON_OK}" -eq 0 ]; then
+            echo ""
+            echo "🔄 Attempt 3: Cookie jar + follow redirects..."
             rm -f "${COOKIE_JAR}"
 
-            curl -fsSL \
-              --retry 3 \
-              --retry-delay 2 \
-              --max-time 60 \
+            # First request to get cookies
+            curl -sL \
+              --retry 2 --max-time 60 \
+              -A "Mozilla/5.0 (X11; Linux x86_64)" \
               --cookie-jar "${COOKIE_JAR}" \
               "https://drive.google.com/uc?export=download&id=${FILE_ID}" \
               -o "${ICON_PATH}" || true
 
-            if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
-              echo "✅ Attempt 2 succeeded"
+            if is_valid_image "${ICON_PATH}"; then
+              echo "✅ Attempt 3 (first request) succeeded"
               ICON_OK=1
             else
-              echo "⚠️ Attempt 2 failed — extracting confirm token..."
               rm -f "${ICON_PATH}"
-
-              CONFIRM="t"
-
-              echo "   Using confirm token: ${CONFIRM}"
-
-              curl -fsSL \
-                --retry 3 \
-                --retry-delay 2 \
-                --max-time 60 \
-                --cookie-jar "${COOKIE_JAR}" \
+              # Second request with cookies + confirm
+              curl -sL \
+                --retry 2 --max-time 60 \
+                -A "Mozilla/5.0 (X11; Linux x86_64)" \
                 --cookie "${COOKIE_JAR}" \
-                "https://drive.google.com/uc?export=download&confirm=${CONFIRM}&id=${FILE_ID}" \
+                --cookie-jar "${COOKIE_JAR}" \
+                "https://drive.google.com/uc?export=download&confirm=t&id=${FILE_ID}" \
                 -o "${ICON_PATH}" || true
 
-              if file "${ICON_PATH}" 2>/dev/null | grep -q "PNG"; then
-                echo "✅ Attempt 2 with confirm token succeeded"
+              if is_valid_image "${ICON_PATH}"; then
+                echo "✅ Attempt 3 (with cookies) succeeded"
                 ICON_OK=1
               else
-                echo "⚠️ Attempt 2 with confirm token failed"
+                echo "⚠️ Attempt 3 failed"
                 rm -f "${ICON_PATH}"
               fi
+            fi
+          fi
+
+          # ── Attempt 4: Python gdown-style download ──
+          if [ "${ICON_OK}" -eq 0 ]; then
+            echo ""
+            echo "🔄 Attempt 4: Python-based download..."
+            python3 - <<PYEOF
+          import urllib.request, urllib.parse, http.cookiejar, os, sys
+
+          file_id = os.environ["ICON_FILE_ID"]
+          out_path = "assets/icon.png"
+
+          jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          opener.addheaders = [("User-Agent", "Mozilla/5.0 (X11; Linux x86_64)")]
+
+          urls = [
+              f"https://drive.usercontent.google.com/download?id={file_id}&export=download&authuser=0&confirm=t",
+              f"https://drive.google.com/uc?export=download&confirm=t&id={file_id}",
+          ]
+
+          for url in urls:
+              try:
+                  print(f"  Trying: {url[:80]}...")
+                  with opener.open(url, timeout=60) as r:
+                      data = r.read()
+                  if len(data) > 1000 and (data[:4] == b'\\x89PNG' or b'PNG' in data[:16]):
+                      with open(out_path, "wb") as f:
+                          f.write(data)
+                      print(f"✅ Python download succeeded: {len(data)} bytes")
+                      sys.exit(0)
+                  else:
+                      print(f"  ⚠️ Got {len(data)} bytes but not a PNG")
+              except Exception as e:
+                  print(f"  ⚠️ Error: {e}")
+
+          print("❌ All Python attempts failed")
+          sys.exit(1)
+          PYEOF
+
+            if is_valid_image "${ICON_PATH}"; then
+              echo "✅ Attempt 4 succeeded"
+              ICON_OK=1
+            else
+              echo "⚠️ Attempt 4 failed"
+              rm -f "${ICON_PATH}"
+            fi
+          fi
+
+          # ── Fallback: Generate a placeholder icon using ImageMagick ──
+          if [ "${ICON_OK}" -eq 0 ]; then
+            echo ""
+            echo "⚠️ All download attempts failed."
+            echo "🎨 Generating placeholder icon with ImageMagick..."
+
+            convert -size 1024x1024 xc:"#1a237e" \
+              -fill white \
+              -font DejaVu-Sans-Bold \
+              -pointsize 200 \
+              -gravity center \
+              -annotate 0 "E" \
+              "${ICON_PATH}" 2>/dev/null || \
+            convert -size 1024x1024 \
+              gradient:"#1a237e-#4a148c" \
+              "${ICON_PATH}" 2>/dev/null || \
+            python3 - <<'PYEOF'
+          import struct, zlib, pathlib
+
+          def make_png(size=1024, r=26, g=35, b=126):
+              def chunk(tag, data):
+                  c = zlib.crc32(tag + data) & 0xffffffff
+                  return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", c)
+              sig = b'\x89PNG\r\n\x1a\n'
+              ihdr = chunk(b'IHDR', struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+              raw = b''
+              for _ in range(size):
+                  raw += b'\x00' + bytes([r, g, b] * size)
+              idat = chunk(b'IDAT', zlib.compress(raw, 1))
+              iend = chunk(b'IEND', b'')
+              return sig + ihdr + idat + iend
+
+          pathlib.Path("assets/icon.png").write_bytes(make_png())
+          print("✅ Pure-Python PNG placeholder created")
+          PYEOF
+
+            if is_valid_image "${ICON_PATH}"; then
+              echo "✅ Placeholder icon generated successfully"
+              ICON_OK=1
+              echo "::warning::Using placeholder icon — Google Drive download failed. Replace assets/icon.png with your real icon."
+            else
+              echo "❌ Even placeholder generation failed"
+              exit 1
             fi
           fi
 
           # ── Final validation ──
           echo ""
           echo "=== Final Icon Validation ==="
-          if [ ! -f "${ICON_PATH}" ]; then
-            echo "❌ Icon file does not exist — cannot continue"
-            exit 1
-          fi
-
           file "${ICON_PATH}"
           echo "Size: $(wc -c < "${ICON_PATH}") bytes"
 
@@ -304,12 +411,6 @@ jobs:
             echo "Dimensions: ${W}x${H} px"
           fi
 
-          if ! file "${ICON_PATH}" | grep -qE "PNG|image"; then
-            echo "❌ Final file is not a valid image — aborting"
-            exit 1
-          fi
-
-          echo ""
           echo "✅ Icon is ready for flutter_launcher_icons"
 
       - name: Generate launcher icons
