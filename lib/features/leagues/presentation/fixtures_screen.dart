@@ -1,3 +1,18 @@
+// lib/features/leagues/presentation/fixtures_screen.dart
+//
+// MODIFIED (World Cup support):
+// 1) Treat World Cup as a grouped format in this screen (group filter + round filter).
+// 2) Load group list from matches for BOTH UCL Group and World Cup.
+// 3) Show group selector for BOTH UCL Group and World Cup.
+// 4) Display group label on fixture cards for BOTH UCL Group and World Cup.
+// 5) Extend group display labels to include Groups I–L (World Cup 48-team).
+// 6) Share card subtitle now supports grouped formats (UCL Group + World Cup).
+//
+// IMPORTANT:
+// - No changes to Swiss generation logic.
+// - No changes to sharing logic beyond subtitle + group tag display.
+// - No refactor of unrelated code.
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -98,11 +113,14 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
 
   void _debugLog(String msg, [Object? err, StackTrace? st]) {
     assert(() {
+      // ignore: avoid_print
       print('[FixturesShare] $msg');
       if (err != null) {
+        // ignore: avoid_print
         print('  error: $err');
       }
       if (st != null) {
+        // ignore: avoid_print
         print('  stack:\n$st');
       }
       return true;
@@ -170,6 +188,11 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
     if (g == 'Group G') return l10n.tr('add_teams_group_g');
     if (g == 'Group H') return l10n.tr('add_teams_group_h');
 
+    // World Cup (48-team) additional groups (no l10n keys yet).
+    if (g == 'Group I' || g == 'Group J' || g == 'Group K' || g == 'Group L') {
+      return g;
+    }
+
     return g;
   }
 
@@ -214,7 +237,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
   }) {
     Iterable<FixtureMatch> filtered = matches;
 
-    if (format == LeagueFormat.uclGroup && selectedGroup != null) {
+    // MODIFIED: Group filtering applies to both UCL Group and World Cup.
+    if ((format == LeagueFormat.uclGroup || format == LeagueFormat.worldCup) &&
+        selectedGroup != null) {
       filtered = filtered.where((m) => m.groupId == selectedGroup);
     }
 
@@ -227,7 +252,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
   List<FixtureMatch> _matchesForSelectedRound() {
     Iterable<FixtureMatch> filtered = _allMatches;
 
-    if (_format == LeagueFormat.uclGroup && _selectedGroup != null) {
+    // MODIFIED: Group filtering applies to both UCL Group and World Cup.
+    if ((_format == LeagueFormat.uclGroup || _format == LeagueFormat.worldCup) &&
+        _selectedGroup != null) {
       filtered = filtered.where((m) => m.groupId == _selectedGroup);
     }
 
@@ -317,7 +344,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
   }
 
   Map<String, String> _mergePreferExisting(
-      Map<String, String> base, Map<String, String> incoming) {
+    Map<String, String> base,
+    Map<String, String> incoming,
+  ) {
     if (incoming.isEmpty) return base;
     final out = <String, String>{...base};
     incoming.forEach((k, v) {
@@ -458,19 +487,23 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
       await ConnectivityService.instance
           .requireOnline(timeout: const Duration(seconds: 4));
 
-      final league = await _repo.getLeagueById(widget.leagueId)
+      final league = await _repo
+          .getLeagueById(widget.leagueId)
           .timeout(const Duration(seconds: 20));
       unawaited(_loadLeagueBrandingBestEffort(leagueObject: league));
 
-      final teams = await _repo.getTeams(widget.leagueId)
+      final teams = await _repo
+          .getTeams(widget.leagueId)
           .timeout(const Duration(seconds: 20));
-      final allMatches = await _repo.getMatches(widget.leagueId)
+      final allMatches = await _repo
+          .getMatches(widget.leagueId)
           .timeout(const Duration(seconds: 25));
 
       final format = league?.format ?? LeagueFormat.classic;
 
+      // MODIFIED: Both UCL Group and World Cup use groupId-based filtering.
       List<String> groups = [];
-      if (format == LeagueFormat.uclGroup) {
+      if (format == LeagueFormat.uclGroup || format == LeagueFormat.worldCup) {
         groups = allMatches
             .map((m) => m.groupId)
             .whereType<String>()
@@ -482,7 +515,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
       }
 
       String? validatedGroup;
-      if (format == LeagueFormat.uclGroup) {
+      if (format == LeagueFormat.uclGroup || format == LeagueFormat.worldCup) {
         final g = _selectedGroup;
         if (g != null && g.isNotEmpty && groups.contains(g)) {
           validatedGroup = g;
@@ -584,7 +617,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
       await ConnectivityService.instance
           .requireOnline(timeout: const Duration(seconds: 4));
 
-      final league = await _repo.getLeagueById(widget.leagueId)
+      final league = await _repo
+          .getLeagueById(widget.leagueId)
           .timeout(const Duration(seconds: 20));
       if (league == null) {
         _snack(l10n.tr('fixtures_league_not_found'));
@@ -593,7 +627,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
 
       final maxRounds = league.settings.swissRounds;
 
-      final teams = await _repo.getTeams(widget.leagueId)
+      final teams = await _repo
+          .getTeams(widget.leagueId)
           .timeout(const Duration(seconds: 20));
 
       final n = teams.length;
@@ -602,7 +637,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
         return;
       }
 
-      final existingMatches = await _repo.getMatches(widget.leagueId)
+      final existingMatches = await _repo
+          .getMatches(widget.leagueId)
           .timeout(const Duration(seconds: 25));
 
       int currentMaxRound = 0;
@@ -669,7 +705,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
         return;
       }
 
-      await _repo.saveMatches(widget.leagueId, newFixtures)
+      await _repo
+          .saveMatches(widget.leagueId, newFixtures)
           .timeout(const Duration(seconds: 25));
 
       if (!mounted) return;
@@ -1055,7 +1092,6 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final brightness = theme.brightness;
 
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight),
@@ -1077,11 +1113,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                 ),
                 if (_format == LeagueFormat.uclSwiss && _isOrganizer)
                   IconButton(
-                    onPressed: _isGeneratingNextRound
-                        ? null
-                        : _generateNextSwissRound,
-                    tooltip: l10n
-                        .tr('fixtures_generate_next_swiss_round_tooltip'),
+                    onPressed:
+                        _isGeneratingNextRound ? null : _generateNextSwissRound,
+                    tooltip:
+                        l10n.tr('fixtures_generate_next_swiss_round_tooltip'),
                     icon: _isGeneratingNextRound
                         ? SizedBox(
                             width: 18,
@@ -1151,7 +1186,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
     final mainBody = SafeArea(
       child: _isLoading
           ? Center(
-              child: CircularProgressIndicator(color: AppTheme.limeAccentDark),
+              child:
+                  CircularProgressIndicator(color: AppTheme.limeAccentDark),
             )
           : (_loadError != null
               ? _buildLoadErrorState(_loadError!)
@@ -1167,11 +1203,12 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                           : cs.surface,
                       child: Column(
                         children: [
-                          if (_format == LeagueFormat.uclGroup &&
+                          // MODIFIED: show group selector for both UCL Group and World Cup.
+                          if ((_format == LeagueFormat.uclGroup ||
+                                  _format == LeagueFormat.worldCup) &&
                               _groups.isNotEmpty)
                             _buildGroupSelector(),
-                          if (_totalRounds > 0)
-                            _buildRoundSelector(_totalRounds),
+                          if (_totalRounds > 0) _buildRoundSelector(_totalRounds),
                           Padding(
                             padding:
                                 const EdgeInsets.symmetric(horizontal: 16),
@@ -1311,9 +1348,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: allSelected
-                    ? AppTheme.limeAccent
-                    : unselectedBg,
+                color: allSelected ? AppTheme.limeAccent : unselectedBg,
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
                   color: allSelected
@@ -1326,9 +1361,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
               child: Text(
                 l10n.tr('admin_score_all_groups'),
                 style: TextStyle(
-                  color: allSelected
-                      ? AppTheme.darkText
-                      : unselectedText,
+                  color: allSelected ? AppTheme.darkText : unselectedText,
                   fontWeight: FontWeight.w900,
                   fontSize: 12,
                 ),
@@ -1343,12 +1376,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                   onTap: () => _setGroup(group),
                   child: Container(
                     margin: const EdgeInsetsDirectional.only(end: 10),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: isSelected
-                          ? AppTheme.limeAccent
-                          : unselectedBg,
+                      color: isSelected ? AppTheme.limeAccent : unselectedBg,
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
                         color: isSelected
@@ -1361,9 +1392,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                     child: Text(
                       _groupDisplayName(l10n, group),
                       style: TextStyle(
-                        color: isSelected
-                            ? AppTheme.darkText
-                            : unselectedText,
+                        color: isSelected ? AppTheme.darkText : unselectedText,
                         fontWeight: FontWeight.w900,
                         fontSize: 12,
                       ),
@@ -1410,9 +1439,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
               margin: const EdgeInsetsDirectional.only(end: 12),
               padding: const EdgeInsets.symmetric(horizontal: 20),
               decoration: BoxDecoration(
-                color: isSelected
-                    ? AppTheme.limeAccent
-                    : unselectedBg,
+                color: isSelected ? AppTheme.limeAccent : unselectedBg,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: isSelected
@@ -1425,9 +1452,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
               child: Text(
                 '${l10n.tr('admin_score_round_prefix')}$round',
                 style: TextStyle(
-                  color: isSelected
-                      ? AppTheme.darkText
-                      : unselectedText,
+                  color: isSelected ? AppTheme.darkText : unselectedText,
                   fontWeight: FontWeight.w900,
                   fontSize: 13,
                 ),
@@ -1502,8 +1527,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => _handleFixtureTap(match),
-      onLongPress:
-          _canAdminSelectFixtures ? () => _handleFixtureLongPress(match) : null,
+      onLongPress: _canAdminSelectFixtures ? () => _handleFixtureLongPress(match) : null,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         child: AnimatedContainer(
@@ -1517,14 +1541,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: selected
-                  ? AppTheme.limeAccentDark
-                  : Colors.transparent,
+              color: selected ? AppTheme.limeAccentDark : Colors.transparent,
               width: 2,
             ),
-            boxShadow: selected
-                ? AppTheme.softCardShadow(brightness)
-                : null,
+            boxShadow: selected ? AppTheme.softCardShadow(brightness) : null,
           ),
           child: Stack(
             children: [
@@ -1535,7 +1555,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (_format == LeagueFormat.uclGroup && groupLabel != null)
+                    // MODIFIED: show group label for both UCL Group and World Cup.
+                    if ((_format == LeagueFormat.uclGroup ||
+                            _format == LeagueFormat.worldCup) &&
+                        groupLabel != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Align(
@@ -1655,8 +1678,7 @@ class _TeamThumb extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url,
-      {int width = 64, int height = 64}) {
+  String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
     final u = url.trim();
     if (u.isEmpty) return u;
 
@@ -1875,7 +1897,9 @@ class _FixturesShareCard extends StatelessWidget {
     final shown = sorted.take(maxItems).toList(growable: false);
     final extra = math.max(0, sorted.length - shown.length);
 
-    final subtitle = payload.leagueFormat == LeagueFormat.uclGroup &&
+    // MODIFIED: subtitle supports group formats (UCL Group + World Cup).
+    final subtitle = (payload.leagueFormat == LeagueFormat.uclGroup ||
+                payload.leagueFormat == LeagueFormat.worldCup) &&
             (payload.selectedGroup ?? '').trim().isNotEmpty
         ? (payload.selectedGroup ?? '').trim()
         : '';
@@ -1923,8 +1947,8 @@ class _FixturesShareCard extends StatelessWidget {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: Color.alphaBlend(
-                          cs.primary.withOpacity(0.12), base),
+                      color:
+                          Color.alphaBlend(cs.primary.withOpacity(0.12), base),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: cs.primary.withOpacity(0.35)),
                     ),
@@ -1983,11 +2007,9 @@ class _FixturesShareCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 10, vertical: 7),
                     decoration: BoxDecoration(
-                      color: Color.alphaBlend(
-                          cs.onSurface.withOpacity(0.06), base),
+                      color: Color.alphaBlend(cs.onSurface.withOpacity(0.06), base),
                       borderRadius: BorderRadius.circular(999),
-                      border:
-                          Border.all(color: cs.onSurface.withOpacity(0.18)),
+                      border: Border.all(color: cs.onSurface.withOpacity(0.18)),
                     ),
                     child: Text(
                       '${payload.matches.length} selected',
@@ -2011,10 +2033,8 @@ class _FixturesShareCard extends StatelessWidget {
                   base: base,
                   round: m.roundNumber,
                   groupLabel: (m.groupId ?? '').trim(),
-                  homeName:
-                      (payload.teamNames[m.homeTeamId] ?? 'TBD').trim(),
-                  awayName:
-                      (payload.teamNames[m.awayTeamId] ?? 'TBD').trim(),
+                  homeName: (payload.teamNames[m.homeTeamId] ?? 'TBD').trim(),
+                  awayName: (payload.teamNames[m.awayTeamId] ?? 'TBD').trim(),
                   homeScore: m.homeScore,
                   awayScore: m.awayScore,
                 ),
@@ -2136,8 +2156,7 @@ class _FixturesShareRow extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: Color.alphaBlend(
                     cs.primary.withOpacity(0.16),
@@ -2183,8 +2202,7 @@ class _FixturesShareRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: scoreBg,
               borderRadius: BorderRadius.circular(14),
@@ -2197,9 +2215,7 @@ class _FixturesShareRow extends StatelessWidget {
             child: Text(
               scoreText,
               style: TextStyle(
-                color: _hasScore
-                    ? cs.primary.withOpacity(0.98)
-                    : fg.withOpacity(0.75),
+                color: _hasScore ? cs.primary.withOpacity(0.98) : fg.withOpacity(0.75),
                 fontWeight: FontWeight.w900,
                 fontSize: 14,
               ),

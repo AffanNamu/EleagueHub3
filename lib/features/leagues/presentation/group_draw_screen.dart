@@ -13,6 +13,7 @@ import '../logic/fixture_generator.dart';
 import '../models/fixture_match.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
+import '../models/league_settings.dart';
 import '../models/team.dart';
 import '../widgets/glass_group_card.dart';
 import 'standings_providers.dart';
@@ -39,6 +40,22 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
   bool _drawLocked = false;
 
   static const int _groupSize = 4;
+
+  // World Cup has up to 12 groups (A–L).
+  static const List<String> _allGroupNamesAtoL = <String>[
+    'Group A',
+    'Group B',
+    'Group C',
+    'Group D',
+    'Group E',
+    'Group F',
+    'Group G',
+    'Group H',
+    'Group I',
+    'Group J',
+    'Group K',
+    'Group L',
+  ];
 
   Color _baseToastBg(ThemeData theme) {
     return theme.brightness == Brightness.dark
@@ -138,19 +155,30 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
     scheduleMicrotask(_loadLeagueAndTeams);
   }
 
-  List<String> _groupNamesForCount(int teamCount) {
+  // ---------------------------------------------------------------------------
+  // Group names helpers
+  // ---------------------------------------------------------------------------
+
+  /// Returns group names for:
+  /// - UCL Group (16/32): A–D or A–H
+  /// - World Cup 2022 (32): A–H
+  /// - World Cup 2026 (48): A–L
+  List<String> _groupNamesForLeague({
+    required League league,
+    required int teamCount,
+  }) {
+    // All supported group-based formats in this screen have groups of 4.
     final groupCount = teamCount ~/ _groupSize;
-    const names = <String>[
-      'Group A',
-      'Group B',
-      'Group C',
-      'Group D',
-      'Group E',
-      'Group F',
-      'Group G',
-      'Group H',
-    ];
-    return names.take(groupCount).toList();
+
+    if (league.format == LeagueFormat.worldCup) {
+      final wc = league.settings.worldCupFormat;
+      // Enforce official FIFA group count (8 or 12) even if teamCount matches.
+      final expected = wc.groupCount;
+      return _allGroupNamesAtoL.take(expected).toList(growable: false);
+    }
+
+    // Default: UCL Group league supports up to 8 groups.
+    return _allGroupNamesAtoL.take(groupCount.clamp(0, 8)).toList(growable: false);
   }
 
   String _displayGroupName(String groupId) {
@@ -172,10 +200,22 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         return l10n.tr('add_teams_group_g');
       case 'Group H':
         return l10n.tr('add_teams_group_h');
+
+      // World Cup 2026 adds I–L (no localization keys yet).
+      case 'Group I':
+      case 'Group J':
+      case 'Group K':
+      case 'Group L':
+        return groupId;
+
       default:
         return groupId;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Load / draw lock
+  // ---------------------------------------------------------------------------
 
   Future<void> _loadLeagueAndTeams() async {
     final l10n = context.l10n;
@@ -195,7 +235,8 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
       final List<Team> teams = await repo.getTeams(widget.leagueId).timeout(
             const Duration(seconds: 25),
           );
-      final List<FixtureMatch> matches = await repo.getMatches(widget.leagueId)
+      final List<FixtureMatch> matches = await repo
+          .getMatches(widget.leagueId)
           .timeout(const Duration(seconds: 25));
 
       if (!mounted) return;
@@ -209,7 +250,14 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         });
         return;
       }
-      if (league.format != LeagueFormat.uclGroup) {
+
+      // This screen now supports:
+      // - UCL Group League (existing behavior)
+      // - World Cup (new engine)
+      final isSupported = league.format == LeagueFormat.uclGroup ||
+          league.format == LeagueFormat.worldCup;
+
+      if (!isSupported) {
         setState(() {
           _loadError = l10n.tr('group_draw_only_ucl_group');
           _loading = false;
@@ -217,21 +265,39 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         return;
       }
 
+      // Draw is locked once any group-stage fixtures exist (groupId set).
       _drawLocked = matches.any((m) => (m.groupId ?? '').trim().isNotEmpty);
 
-      if (!(teams.length == 16 || teams.length == 32)) {
-        _toastErr(
-          '${l10n.tr('admin_score_group_team_count_error_prefix')}${teams.length}.',
-        );
-        setState(() {
-          groups.clear();
-          remainingTeams.clear();
-          _loading = false;
-        });
-        return;
+      // Validate team count for format.
+      if (league.format == LeagueFormat.uclGroup) {
+        if (!(teams.length == 16 || teams.length == 32)) {
+          _toastErr(
+            '${l10n.tr('admin_score_group_team_count_error_prefix')}${teams.length}.',
+          );
+          setState(() {
+            groups.clear();
+            remainingTeams.clear();
+            _loading = false;
+          });
+          return;
+        }
+      } else if (league.format == LeagueFormat.worldCup) {
+        final wc = league.settings.worldCupFormat;
+        final expected = wc.teamCount;
+        if (teams.length != expected) {
+          _toastErr(
+            'World Cup requires exactly $expected teams for this format. Found ${teams.length}.',
+          );
+          setState(() {
+            groups.clear();
+            remainingTeams.clear();
+            _loading = false;
+          });
+          return;
+        }
       }
 
-      final groupNames = _groupNamesForCount(teams.length);
+      final groupNames = _groupNamesForLeague(league: league, teamCount: teams.length);
 
       groups
         ..clear()
@@ -366,12 +432,24 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         return;
       }
 
-      final fixtures = FixtureGenerator.generateUclGroupStage(
-        leagueId: widget.leagueId,
-        teams: _allTeams,
-        doubleRoundRobin: league.settings.doubleRoundRobin,
-        groupSize: _groupSize,
-      );
+      final List<FixtureMatch> fixtures;
+
+      if (league.format == LeagueFormat.worldCup) {
+        // World Cup ALWAYS uses single round-robin in groups (engine enforces it).
+        fixtures = FixtureGenerator.generateWorldCupGroupStage(
+          leagueId: widget.leagueId,
+          teams: _allTeams,
+          worldCupFormat: league.settings.worldCupFormat,
+        );
+      } else {
+        // Existing UCL Group flow (unchanged).
+        fixtures = FixtureGenerator.generateUclGroupStage(
+          leagueId: widget.leagueId,
+          teams: _allTeams,
+          doubleRoundRobin: league.settings.doubleRoundRobin,
+          groupSize: _groupSize,
+        );
+      }
 
       if (fixtures.isEmpty) {
         _toastErr(
@@ -475,7 +553,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
       );
     }
 
-    if (!(_allTeams.length == 16 || _allTeams.length == 32) || groups.isEmpty) {
+    if (groups.isEmpty) {
       return GlassScaffold(
         appBar: AppBar(
           title: Text(l10n.tr('group_draw_appbar_title')),
@@ -485,7 +563,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
           child: Padding(
             padding: const EdgeInsets.all(18),
             child: Text(
-              '${l10n.tr('group_draw_team_count_help_prefix')}${_allTeams.length}.',
+              l10n.tr('admin_score_complete_group_draw_first'),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppTheme.secondaryText(brightness),
@@ -516,8 +594,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
         children: [
           if (_drawLocked)
             Padding(
-              padding:
-                  const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 0),
+              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 0),
               child: Text(
                 l10n.tr('group_draw_locked_banner'),
                 style: const TextStyle(
@@ -529,8 +606,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
               ),
             ),
           Padding(
-            padding:
-                const EdgeInsetsDirectional.fromSTEB(16, 14, 16, 8),
+            padding: const EdgeInsetsDirectional.fromSTEB(16, 14, 16, 8),
             child: Row(
               children: [
                 Expanded(
@@ -554,10 +630,9 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
                       backgroundColor: AppTheme.limeAccent,
                       foregroundColor: AppTheme.darkText,
                     ),
-                    onPressed:
-                        (_drawLocked || !_allGroupsFull || _isGeneratingFixtures)
-                            ? null
-                            : _generateGroupFixtures,
+                    onPressed: (_drawLocked || !_allGroupsFull || _isGeneratingFixtures)
+                        ? null
+                        : _generateGroupFixtures,
                     icon: _isGeneratingFixtures
                         ? const SizedBox(
                             width: 16,
@@ -583,8 +658,7 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
           Expanded(
             child: GridView.builder(
               padding: const EdgeInsets.all(16),
-              gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 crossAxisSpacing: 15,
                 mainAxisSpacing: 15,

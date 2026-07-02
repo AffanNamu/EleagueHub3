@@ -1,3 +1,10 @@
+// lib/features/leagues/models/league.dart
+//
+// MODIFIED: worldCup leagues use format = LeagueFormat.worldCup (index 3).
+// The worldCupFormat (32 vs 48 teams) is stored inside LeagueSettings.
+// maxTeams is set to 32 or 48 depending on worldCupFormat at creation time.
+// ALL existing fields and behavior are unchanged.
+
 import 'dart:convert';
 
 import 'enums.dart';
@@ -50,12 +57,18 @@ class League {
   /// Stored at the root of the league document as `homeAwayEnabled`.
   /// Backward compatible: if missing, defaults to false (with best-effort
   /// inference from settings).
+  ///
+  /// NOTE: World Cup format always uses single round-robin in groups —
+  /// homeAwayEnabled is forced to false for worldCup leagues.
   final bool homeAwayEnabled;
 
   final LeagueFormat format;
   final LeaguePrivacy privacy;
   final String region;
+
+  /// For World Cup: set to 32 (FIFA 2022) or 48 (FIFA 2026) at creation.
   final int maxTeams;
+
   final String season;
 
   /// RULES AUTHORITY:
@@ -105,13 +118,20 @@ class League {
     required this.version,
   });
 
+  // ── Convenience getters ──────────────────────────────────────────────────
+
   bool get isPrivate => privacy == LeaguePrivacy.private;
-
   bool get isInsideMasterLeague => masterLeagueId.trim().isNotEmpty;
-
   bool get hasLeagueImage => leagueImageUrl.trim().isNotEmpty;
   bool get hasSponsorImage => sponsorImageUrl.trim().isNotEmpty;
   bool get hasViewerCapacity => viewerCapacity > 0;
+
+  /// True when this is a World Cup format league.
+  bool get isWorldCup => format == LeagueFormat.worldCup;
+
+  /// The World Cup format (32 vs 48 teams) stored in settings.
+  /// Only meaningful when [isWorldCup] is true.
+  WorldCupFormat get worldCupFormat => settings.worldCupFormat;
 
   /// Safer coupon detection:
   /// - New data: couponsEnabled && couponCount > 0
@@ -123,32 +143,6 @@ class League {
   // ---------------------------------------------------------------------------
   // qrPayload — FIXED for web + mobile compatibility
   // ---------------------------------------------------------------------------
-  //
-  // OLD behaviour:
-  //   Returned 'eleaguehub://join?code=$code&id=$id'
-  //   This custom URI scheme only works on mobile devices that have the app
-  //   installed and have registered the scheme. Browsers cannot open it, and
-  //   web-generated share links were HTTPS URLs, which the old scanner parser
-  //   did not understand — causing the "permission denied / invalid QR" loop.
-  //
-  // NEW behaviour:
-  //   1. If qrPayloadOverride is stored (non-empty), return it as-is.
-  //      This preserves any QR codes already saved in Firestore.
-  //   2. Otherwise, generate an HTTPS URL using the production web domain
-  //      esportlyic.web.app with the join path and both code + id params.
-  //
-  //   The HTTPS URL works everywhere:
-  //     - On mobile: the scanner parser reads ?code= and extracts the code.
-  //     - On web: the browser opens the URL and the web app handles /join.
-  //     - As a share link: users can tap it on any device.
-  //
-  //   The mobile scanner (qr_scanner_screen.dart _parseJoinPayload) is already
-  //   updated to handle HTTPS URLs with a ?code= query parameter.
-  //
-  //   BACKWARD COMPATIBLE: existing leagues that already have a
-  //   qrPayloadOverride stored in Firestore (including old eleaguehub:// ones)
-  //   will continue to work because the scanner handles both schemes.
-  // ---------------------------------------------------------------------------
   String get qrPayload {
     // 1. Stored override wins (backward compatible with old eleaguehub:// QRs).
     if (qrPayloadOverride.trim().isNotEmpty) return qrPayloadOverride;
@@ -159,23 +153,18 @@ class League {
     final trimmedId = id.trim();
 
     if (trimmedCode.isEmpty) {
-      // Fallback: if no code yet (e.g. league not saved), use id only.
       return 'https://esportlyic.web.app/join?id=$trimmedId';
     }
 
     return 'https://esportlyic.web.app/join?code=$trimmedCode&id=$trimmedId';
   }
 
-  /// IMPORTANT (online-only + rules):
-  /// `isPrivate` must be a **bool** on Firestore, not 0/1.
   Map<String, dynamic> toJson() {
     final map = <String, dynamic>{
       'id': id,
       'name': name,
 
       // Master League System
-      // Only include when present; standalone leagues omit the field
-      // (backward compatible).
       if (masterLeagueId.trim().isNotEmpty)
         'masterLeagueId': masterLeagueId.trim(),
 
@@ -193,18 +182,18 @@ class League {
       'couponDiscountPercent': couponDiscountPercent,
       'couponCount': couponCount,
 
-      // NEW: Home/Away matches toggle
+      // Home/Away matches toggle
       'homeAwayEnabled': homeAwayEnabled,
 
       'format': format.index,
-      'isPrivate': isPrivate, // bool (not 0/1)
+      'isPrivate': isPrivate,
       'region': region,
       'maxTeams': maxTeams,
       'season': season,
 
       // Identity
-      'organizerUid': organizerUid, // Firebase UID authority
-      'organizerUserId': organizerUserId, // short/local id for UI/offline
+      'organizerUid': organizerUid,
+      'organizerUserId': organizerUserId,
 
       'code': code,
       'qrPayload': qrPayloadOverride,
@@ -216,12 +205,8 @@ class League {
     return map;
   }
 
-  /// Stored locally as a JSON string in SharedPreferences
-  /// (legacy/offline-first).
-  /// Online-only migration: should not be used for domain persistence.
   String toJsonString() => jsonEncode(toJson());
 
-  /// Parse legacy JSON string (best-effort).
   static League fromJsonString(String raw) {
     final map = (jsonDecode(raw) as Map).cast<String, dynamic>();
     return fromRemoteMap(map);
@@ -253,8 +238,6 @@ class League {
   }
 
   static League fromRemoteMap(Map<String, dynamic> map) {
-    // Backward/forward compatible key resolution (some deployments may have
-    // used different keys).
     final leagueImageUrl =
         _stringFromAny(map['leagueImageUrl']).trim().isNotEmpty
             ? _stringFromAny(map['leagueImageUrl'])
@@ -305,20 +288,15 @@ class League {
     final name =
         (map['name'] as String?) ?? (map['leagueName'] as String?) ?? '';
 
-    // Master League System (optional)
     final masterLeagueId = _stringFromAny(map['masterLeagueId']).trim();
 
-    // New authoritative organizer UID (Firebase UID)
     String organizerUid = _stringFromAny(map['organizerUid']).trim();
 
-    // Backward compatible organizer id resolution for display/offline id:
     final organizerUserId = (map['organizerUserId'] as String?) ??
         (map['ownerId'] as String?) ??
         (map['organizerId'] as String?) ??
         '';
 
-    // If organizerUid missing but organizerUserId looks like a Firebase UID,
-    // treat it as organizerUid.
     if (organizerUid.isEmpty && organizerUserId.trim().length > 20) {
       organizerUid = organizerUserId.trim();
     }
@@ -344,6 +322,14 @@ class League {
                   )
                 : false);
 
+    // Deserialize format — worldCup is index 3.
+    final LeagueFormat format =
+        LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0);
+
+    // World Cup leagues force homeAwayEnabled = false.
+    final bool effectiveHomeAway =
+        format == LeagueFormat.worldCup ? false : homeAwayEnabled;
+
     return League(
       id: id,
       name: name,
@@ -355,8 +341,8 @@ class League {
       couponsEnabled: couponsEnabled,
       couponDiscountPercent: couponDiscountPercent,
       couponCount: safeCouponCount,
-      homeAwayEnabled: homeAwayEnabled,
-      format: LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0),
+      homeAwayEnabled: effectiveHomeAway,
+      format: format,
       privacy: isPrivate ? LeaguePrivacy.private : LeaguePrivacy.public,
       region: map['region'] as String? ?? 'Global',
       maxTeams: (map['maxTeams'] as num?)?.toInt() ?? 20,

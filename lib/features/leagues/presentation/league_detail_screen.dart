@@ -1,3 +1,17 @@
+// lib/features/leagues/presentation/league_detail_screen.dart
+//
+// MODIFIED (World Cup support):
+// 1) Added World Cup format pill in _overviewCard (FIFA 2022 vs FIFA 2026).
+// 2) Extended _quickActions to treat World Cup as a knockout-capable format.
+// 3) Added organizer action: "Generate World Cup Knockouts".
+// 4) Added _generateWorldCupKnockouts() which computes group standings (with FIFA tie-breakers)
+//    and seeds the correct bracket (R16 for 32 teams, R32 for 48 teams).
+// 5) Imported league_settings.dart for WorldCupFormat access.
+//
+// IMPORTANT:
+// - No existing flows were removed.
+// - Classic / UCL Group / UCL Swiss logic remains unchanged.
+// - World Cup KO generation is an additive path only.
 
 import 'dart:async';
 import 'dart:convert';
@@ -34,6 +48,7 @@ import '../models/knockout_match.dart';
 import '../models/league.dart';
 import '../models/league_announcement.dart';
 import '../models/league_format.dart';
+import '../models/league_settings.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
 import 'screens/edit_league_rewards_screen.dart';
@@ -1037,6 +1052,19 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       );
     }
 
+    // ── NEW: World Cup format pill (FIFA 2022 vs FIFA 2026) ──────────────────
+    if (league.format == LeagueFormat.worldCup) {
+      final wc = league.worldCupFormat;
+      rulePills.add(
+        _pill(
+          wc == WorldCupFormat.fifa2026
+              ? 'FIFA 2026 • 48 Teams'
+              : 'FIFA 2022 • 32 Teams',
+          _premiumAmber,
+        ),
+      );
+    }
+
     final desc = league.description.trim();
 
     return Glass(
@@ -1449,6 +1477,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
     final isSwiss = league.format == LeagueFormat.uclSwiss;
     final isGroup = league.format == LeagueFormat.uclGroup;
+    final isWorldCup = league.format == LeagueFormat.worldCup; // NEW
     final hasKnockouts = knockouts.isNotEmpty;
 
     void showNeedKnockoutsSnack() =>
@@ -1721,7 +1750,38 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 ),
               ),
             ],
-            if (isSwiss || isGroup) ...[
+
+            // ── NEW: World Cup knockout generation ───────────────────────────
+            if (isWorldCup) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(
+                        color: AppTheme.limeAccentDark),
+                    foregroundColor: AppTheme.limeAccentDark,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.public_rounded),
+                  label: const Text(
+                    'Generate World Cup Knockouts',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12),
+                  ),
+                  onPressed: () => _generateWorldCupKnockouts(
+                      context, league),
+                ),
+              ),
+            ],
+
+            // MODIFIED: Include World Cup in KO viewing/admin row visibility.
+            if (isSwiss || isGroup || isWorldCup) ...[
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -2467,6 +2527,146 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               'league_details_group_knockout_generated_16');
 
       _toastOk(label);
+      if (mounted) _reloadScreen();
+    } catch (e) {
+      _toastErr(
+        UserFriendlyError.toMessage(
+            e is Object ? e : Exception('unknown')),
+      );
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // NEW: World Cup knockouts generation (FIFA 2022 / FIFA 2026)
+  // ───────────────────────────────────────────────────────────────────────────
+  Future<void> _generateWorldCupKnockouts(
+    BuildContext context,
+    League league,
+  ) async {
+    try {
+      if (league.format != LeagueFormat.worldCup) {
+        _toastWarn('This action is only available for World Cup competitions.');
+        return;
+      }
+
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
+
+      final existing =
+          await _repo.getKnockoutMatches(league.id);
+      if (existing.isNotEmpty) {
+        _toastWarn(context.l10n.tr('league_details_knockout_already_generated'));
+        if (mounted) setState(() => _reloadScreen);
+        return;
+      }
+
+      final teams = await _repo.getTeams(league.id);
+      final matches = await _repo.getMatches(league.id);
+
+      final wcFormat = league.worldCupFormat;
+
+      // Validate team count matches selected format (32/48).
+      if (teams.length != wcFormat.teamCount) {
+        _toastErr('Invalid team count for ${wcFormat.displayName}: ${teams.length}.');
+        return;
+      }
+
+      // World Cup group stage matches are the ones with groupId != null.
+      final groupMatches =
+          matches.where((m) => m.groupId != null).toList();
+      if (groupMatches.isEmpty) {
+        _toastErr('No World Cup group stage matches found yet.');
+        return;
+      }
+
+      // Require all group stage matches completed before seeding knockouts.
+      final anyUnplayedGroup =
+          groupMatches.any((m) => !m.isPlayed);
+      if (anyUnplayedGroup) {
+        _toastWarn('Finish all group stage matches first before generating knockouts.');
+        return;
+      }
+
+      final groupIds = groupMatches
+          .map((m) => m.groupId)
+          .whereType<String>()
+          .map((g) => g.trim())
+          .where((g) => g.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
+      // Validate expected number of groups (8 for 32-team, 12 for 48-team).
+      final expectedGroupCount = wcFormat.groupCount;
+      if (groupIds.length != expectedGroupCount) {
+        _toastErr('Invalid group structure: expected $expectedGroupCount groups, found ${groupIds.length}.');
+        return;
+      }
+
+      final groupStandings = <String, List<StandingsRow>>{};
+
+      // Build standings for each group using FIFA-compliant tie-breakers.
+      for (final groupId in groupIds) {
+        final gm = groupMatches
+            .where((m) => m.groupId == groupId)
+            .toList();
+        if (gm.isEmpty) continue;
+
+        final teamIds = <String>{};
+        for (final m in gm) {
+          teamIds.add(m.homeTeamId);
+          teamIds.add(m.awayTeamId);
+        }
+
+        final groupTeams = teams
+            .where((t) => teamIds.contains(t.id))
+            .toList();
+        if (groupTeams.length != 4) {
+          _toastErr('Invalid group ($groupId): expected 4 teams, found ${groupTeams.length}.');
+          return;
+        }
+
+        final rows = StandingsCalculator.calculate(
+          teams: groupTeams,
+          matches: gm,
+          fifaGroupTieBreakers: true, // Enable FIFA H2H for World Cup
+        );
+        if (rows.length != 4) {
+          _toastErr('Invalid standings output for group $groupId.');
+          return;
+        }
+        groupStandings[groupId] = rows;
+      }
+
+      if (groupStandings.length != expectedGroupCount) {
+        _toastErr('Incomplete group standings: expected $expectedGroupCount groups.');
+        return;
+      }
+
+      // Seed KO bracket based on format.
+      final List<KnockoutMatch> koMatches = (wcFormat == WorldCupFormat.fifa2026)
+          ? TournamentController.seedWorldCupKnockouts48(
+              leagueId: league.id,
+              groupStandings: groupStandings,
+            )
+          : TournamentController.seedWorldCupKnockouts32(
+              leagueId: league.id,
+              groupStandings: groupStandings,
+            );
+
+      if (koMatches.isEmpty) {
+        _toastErr('Failed to seed World Cup knockout bracket.');
+        return;
+      }
+
+      await _repo.saveKnockoutMatches(league.id, koMatches);
+
+      _toastOk(
+        wcFormat == WorldCupFormat.fifa2026
+            ? 'World Cup knockouts generated (Round of 32).'
+            : 'World Cup knockouts generated (Round of 16).',
+      );
+
       if (mounted) _reloadScreen();
     } catch (e) {
       _toastErr(

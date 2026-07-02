@@ -1,3 +1,14 @@
+// lib/features/leagues/presentation/admin_score_mgmt_screen.dart
+//
+// MODIFIED (World Cup support):
+// 1) Added _isGroupedFormat getter to treat World Cup and UCL Group identically for filtering.
+// 2) Added _groupDisplayName to correctly label Groups A-L (including I-L for 48-team World Cup).
+// 3) Updated _loadData to extract and filter groups for BOTH UCL Group and World Cup.
+// 4) Updated UI to show group selector and group labels for BOTH formats.
+// 5) Passed formatted group label to _ScoreEntryTile.
+//
+// ALL existing Classic, Swiss, and UCL Group logic remains completely unchanged.
+
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -53,6 +64,10 @@ class _AdminScoreMgmtScreenState
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Set<String> _requestedUserImageIds = <String>{};
+
+  // NEW: Grouped formats include both UCL Group and World Cup.
+  bool get _isGroupedFormat =>
+      _format == LeagueFormat.uclGroup || _format == LeagueFormat.worldCup;
 
   Color _baseToastBg(ThemeData theme) {
     if (theme.brightness == Brightness.dark) return const Color(0xFF101522);
@@ -119,6 +134,26 @@ class _AdminScoreMgmtScreenState
   }
 
   bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
+
+  // NEW: Helper to display group names, including I-L for World Cup 48.
+  String _groupDisplayName(AppLocalizations l10n, String groupId) {
+    final g = groupId.trim();
+    if (g == 'Group A') return l10n.tr('add_teams_group_a');
+    if (g == 'Group B') return l10n.tr('add_teams_group_b');
+    if (g == 'Group C') return l10n.tr('add_teams_group_c');
+    if (g == 'Group D') return l10n.tr('add_teams_group_d');
+    if (g == 'Group E') return l10n.tr('add_teams_group_e');
+    if (g == 'Group F') return l10n.tr('add_teams_group_f');
+    if (g == 'Group G') return l10n.tr('add_teams_group_g');
+    if (g == 'Group H') return l10n.tr('add_teams_group_h');
+
+    // World Cup 2026 extra groups (no l10n keys yet).
+    if (g == 'Group I' || g == 'Group J' || g == 'Group K' || g == 'Group L') {
+      return g;
+    }
+
+    return g;
+  }
 
   String _bestUserImageUrlFromUserDoc(Map<String, dynamic> data) {
     final teamImageUrl = (data['teamImageUrl'] as String?)?.trim() ?? '';
@@ -307,8 +342,9 @@ class _AdminScoreMgmtScreenState
 
       final format = league.format;
 
+      // MODIFIED: Extract groups for BOTH UCL Group and World Cup.
       List<String> groups = [];
-      if (format == LeagueFormat.uclGroup) {
+      if (_isGroupedFormat) {
         groups = matches
             .map((m) => m.groupId)
             .whereType<String>()
@@ -337,16 +373,19 @@ class _AdminScoreMgmtScreenState
       });
 
       String? selectedGroup = _selectedGroup;
-      if (format != LeagueFormat.uclGroup) {
+
+      // MODIFIED: Group selection validation for BOTH formats.
+      if (!_isGroupedFormat) {
         selectedGroup = null;
       } else if (selectedGroup != null && !groups.contains(selectedGroup)) {
         selectedGroup = null;
       }
 
       Iterable<FixtureMatch> forRounds = matches;
-      if (format == LeagueFormat.uclGroup && selectedGroup != null) {
+      if (_isGroupedFormat && selectedGroup != null) {
         forRounds = forRounds.where((m) => m.groupId == selectedGroup);
       }
+      
       final roundSet = forRounds.map((m) => m.roundNumber).toSet();
       int selectedRound = _selectedRound;
       if (roundSet.isEmpty) {
@@ -710,7 +749,7 @@ class _AdminScoreMgmtScreenState
     List<int> availableRounds = [];
     {
       Iterable<FixtureMatch> forRounds = _matches;
-      if (_format == LeagueFormat.uclGroup && _selectedGroup != null) {
+      if (_isGroupedFormat && _selectedGroup != null) {
         forRounds = forRounds.where((m) => m.groupId == _selectedGroup);
       }
       final roundSet = forRounds.map((m) => m.roundNumber).toSet();
@@ -718,7 +757,7 @@ class _AdminScoreMgmtScreenState
     }
 
     List<FixtureMatch> visibleMatches = _matches;
-    if (_format == LeagueFormat.uclGroup && _selectedGroup != null) {
+    if (_isGroupedFormat && _selectedGroup != null) {
       visibleMatches =
           visibleMatches.where((m) => m.groupId == _selectedGroup).toList();
     }
@@ -874,7 +913,8 @@ class _AdminScoreMgmtScreenState
                   ),
                 ),
                 const SizedBox(height: 8),
-                if (_format == LeagueFormat.uclGroup && _groups.isNotEmpty)
+                // MODIFIED: Show group selector for BOTH UCL Group and World Cup.
+                if (_isGroupedFormat && _groups.isNotEmpty)
                   _buildGroupSelector(),
                 if (availableRounds.isNotEmpty)
                   _buildRoundSelector(availableRounds),
@@ -904,6 +944,11 @@ class _AdminScoreMgmtScreenState
                             final awayUrl =
                                 (_teamImageUrls[match.awayTeamId] ?? '').trim();
 
+                            // MODIFIED: Pass formatted group label.
+                            final formattedGroup = match.groupId?.trim().isNotEmpty == true
+                                ? _groupDisplayName(l10n, match.groupId!.trim())
+                                : null;
+
                             return _ScoreEntryTile(
                               key: ValueKey(match.id),
                               match: match,
@@ -914,6 +959,7 @@ class _AdminScoreMgmtScreenState
                               homeImageUrl: homeUrl,
                               awayImageUrl: awayUrl,
                               saving: saving,
+                              groupLabel: formattedGroup,
                               onSave: (h, a) => _updateScore(match, h, a),
                             );
                           },
@@ -1023,7 +1069,8 @@ class _AdminScoreMgmtScreenState
                     ),
                     alignment: Alignment.center,
                     child: Text(
-                      group,
+                      // MODIFIED: Use formatted group name.
+                      _groupDisplayName(l10n, group),
                       style: TextStyle(
                         color: isSelected
                             ? AppTheme.darkText
@@ -1098,6 +1145,10 @@ class _ScoreEntryTile extends StatefulWidget {
   final String homeImageUrl;
   final String awayImageUrl;
   final bool saving;
+  
+  // MODIFIED: Accept pre-formatted group label.
+  final String? groupLabel; 
+  
   final Future<void> Function(int, int) onSave;
 
   const _ScoreEntryTile({
@@ -1108,6 +1159,7 @@ class _ScoreEntryTile extends StatefulWidget {
     required this.homeImageUrl,
     required this.awayImageUrl,
     required this.saving,
+    required this.groupLabel,
     required this.onSave,
   });
 
@@ -1173,11 +1225,6 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
-    final groupLabel =
-        widget.match.groupId?.trim().isNotEmpty == true
-            ? widget.match.groupId!.trim()
-            : null;
-
     return Glass(
       padding: const EdgeInsets.all(18),
       fill: AppTheme.cardColor(brightness),
@@ -1187,13 +1234,13 @@ class _ScoreEntryTileState extends State<_ScoreEntryTile> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (groupLabel != null)
+            if (widget.groupLabel != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Align(
                   alignment: AlignmentDirectional.centerStart,
                   child: Text(
-                    groupLabel,
+                    widget.groupLabel!,
                     style: TextStyle(
                       color: AppTheme.secondaryText(brightness),
                       fontSize: 11,
