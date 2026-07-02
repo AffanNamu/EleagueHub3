@@ -1,13 +1,9 @@
 // lib/features/leagues/presentation/knockout_bracket_screen.dart
 //
-// MODIFIED: Added 'Round of 32' to the bracket round order.
-//
-// Changes:
-// - Added 'Round of 32' to _roundOrder constant list (before 'Round of 16').
+// FIXED:
+// - Replaced curly apostrophe in 'Couldn't load bracket' with straight quote.
+// - Added 'Round of 32' to _roundOrder for World Cup 48-team format.
 // - Added 'Round of 32' to _roundDisplayName() switch case.
-// - The rest of the bracket rendering logic handles R32 transparently
-//   since it follows the same structural pattern as R16.
-// - All other existing code is completely unchanged.
 
 import 'dart:async';
 import 'dart:math' as math;
@@ -68,7 +64,7 @@ class _KnockoutBracketScreenState
   // MODIFIED: Added 'Round of 32' before 'Round of 16' for World Cup 48-team.
   static const _roundOrder = <String>[
     'Play-off',
-    'Round of 32',  // NEW — FIFA 2026 World Cup format
+    'Round of 32', // World Cup FIFA 2026 (48-team)
     'Round of 16',
     'Quarter Finals',
     'Semi Finals',
@@ -178,15 +174,14 @@ class _KnockoutBracketScreenState
     });
 
     try {
-      final uid =
-          FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
       if (uid.isEmpty) {
         if (mounted) context.go('/login');
         return;
       }
 
-      await ConnectivityService.instance.requireOnline(
-          timeout: const Duration(seconds: 4));
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
 
       final teams = await _repo
           .getTeams(widget.leagueId)
@@ -232,7 +227,7 @@ class _KnockoutBracketScreenState
       case 'Play-off':
         return l10n.tr('admin_knockout_round_playoff');
       case 'Round of 32':
-        // World Cup 48-team format — no localization key yet, use literal.
+        // World Cup 48-team format.
         return 'Round of 32';
       case 'Round of 16':
         return l10n.tr('admin_knockout_round_r16');
@@ -429,8 +424,10 @@ class _KnockoutBracketScreenState
                   Icon(Icons.cloud_off_rounded,
                       color: cs.primary, size: 44),
                   const SizedBox(height: 10),
+                  // FIX: Was curly apostrophe 'Couldn\u2019t'.
+                  // Replaced with straight apostrophe 'Couldn\'t'.
                   Text(
-                    'Couldn't load bracket',
+                    "Couldn't load bracket",
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: cs.onSurface,
@@ -564,17 +561,16 @@ class _KnockoutBracketScreenState
     // MODIFIED: Include 'Round of 32' in bracket rounds for FIFA 2026.
     final bracketRounds = <String>[
       for (final rn in const [
-        'Round of 32',   // NEW — World Cup 48-team format
+        'Round of 32', // World Cup 48-team format
         'Round of 16',
         'Quarter Finals',
         'Semi Finals',
-        'Final'
+        'Final',
       ])
         if (rounds.containsKey(rn)) rn,
     ];
 
-    final finalList =
-        rounds['Final'] ?? const <KnockoutMatch>[];
+    final finalList = rounds['Final'] ?? const <KnockoutMatch>[];
     final finalMatch =
         finalList.isNotEmpty ? finalList.first : null;
 
@@ -602,7 +598,8 @@ class _KnockoutBracketScreenState
 
       final leftCount =
           (list.length == 1) ? 1 : (list.length ~/ 2);
-      final left = list.sublist(0, math.min(leftCount, list.length));
+      final left =
+          list.sublist(0, math.min(leftCount, list.length));
       final right =
           list.sublist(math.min(leftCount, list.length));
 
@@ -690,8 +687,7 @@ class _KnockoutBracketScreenState
         ),
         const SizedBox(height: 10),
         Text(
-          l10n.tr(
-              'knockout_bracket_matches_scheduled_suffix'),
+          l10n.tr('knockout_bracket_matches_scheduled_suffix'),
           style: TextStyle(
             color: cs.onSurface.withOpacity(0.35),
             fontSize: 11,
@@ -704,8 +700,7 @@ class _KnockoutBracketScreenState
     );
   }
 
-  Widget _buildPlayoffSection(
-      List<KnockoutMatch> playoffMatches) {
+  Widget _buildPlayoffSection(List<KnockoutMatch> playoffMatches) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
@@ -737,8 +732,7 @@ class _KnockoutBracketScreenState
           children: [
             for (final m in playoffMatches)
               SizedBox(
-                  width: _colWidth,
-                  child: _buildMatchCard(m)),
+                  width: _colWidth, child: _buildMatchCard(m)),
           ],
         ),
       ],
@@ -758,8 +752,7 @@ class _KnockoutBracketScreenState
 
     for (int i = 0; i < sideTitleRounds.length; i++) {
       final rn = sideTitleRounds[i];
-      final matches =
-          byRound[rn] ?? const <KnockoutMatch>[];
+      final matches = byRound[rn] ?? const <KnockoutMatch>[];
       if (matches.isEmpty) continue;
 
       children.add(
@@ -895,11 +888,14 @@ class _KnockoutBracketScreenState
               children: [
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
                     children: [
                       Text(
-                        l10n.tr('knockout_bracket_header_title'),
-                        style: theme.textTheme.titleLarge?.copyWith(
+                        l10n.tr(
+                            'knockout_bracket_header_title'),
+                        style:
+                            theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w900,
                           fontSize: 18,
                           letterSpacing: 0.5,
@@ -908,8 +904,10 @@ class _KnockoutBracketScreenState
                       const SizedBox(height: 2),
                       Text(
                         '${_matches.length} ${l10n.tr('knockout_bracket_matches_scheduled_suffix')}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: cs.onSurface.withOpacity(0.55),
+                        style:
+                            theme.textTheme.bodySmall?.copyWith(
+                          color:
+                              cs.onSurface.withOpacity(0.55),
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
@@ -940,7 +938,8 @@ class _KnockoutBracketScreenState
               width: 3,
               decoration: BoxDecoration(
                 color: cs.primary,
-                borderRadius: const BorderRadiusDirectional.only(
+                borderRadius:
+                    const BorderRadiusDirectional.only(
                   topStart: Radius.circular(18),
                   bottomStart: Radius.circular(18),
                 ),
@@ -961,8 +960,8 @@ class _KnockoutBracketScreenState
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final roundIndex =
-        _roundIndexForCount(maxMatches: maxMatches, count: matches.length);
+    final roundIndex = _roundIndexForCount(
+        maxMatches: maxMatches, count: matches.length);
 
     return Column(
       children: [
@@ -1039,10 +1038,8 @@ class _KnockoutBracketScreenState
       } else if (m.awayScore! > m.homeScore!) {
         isAwayWinner = true;
       } else if (m.tiebreakWinnerTeamId != null) {
-        isHomeWinner =
-            m.tiebreakWinnerTeamId == m.homeTeamId;
-        isAwayWinner =
-            m.tiebreakWinnerTeamId == m.awayTeamId;
+        isHomeWinner = m.tiebreakWinnerTeamId == m.homeTeamId;
+        isAwayWinner = m.tiebreakWinnerTeamId == m.awayTeamId;
       }
     }
 
@@ -1093,7 +1090,8 @@ class _KnockoutBracketScreenState
               ),
             ],
           ),
-          Divider(color: onSurface.withOpacity(0.10), height: 1),
+          Divider(
+              color: onSurface.withOpacity(0.10), height: 1),
           Row(
             children: [
               Expanded(
@@ -1179,8 +1177,9 @@ class _KnockoutBracketScreenState
                 name.toUpperCase(),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                textAlign:
-                    alignEnd ? TextAlign.end : TextAlign.start,
+                textAlign: alignEnd
+                    ? TextAlign.end
+                    : TextAlign.start,
                 style: theme.textTheme.titleSmall?.copyWith(
                   color: resolvedNameColor,
                   fontWeight: emphasis
@@ -1212,7 +1211,7 @@ class _KnockoutBracketScreenState
             ),
           ),
           child: Text(
-            score == null ? '—' : '$score',
+            score == null ? '-' : '$score',
             style: TextStyle(
               color: resolvedScoreColor,
               fontSize: 16,
@@ -1348,8 +1347,8 @@ class _KnockoutBracketScreenState
           footer =
               '${l10n.tr('knockout_bracket_penalties_prefix')}${_teamName(match.tiebreakWinnerTeamId) ?? match.tiebreakWinnerTeamId}';
         } else {
-          footer = l10n
-              .tr('knockout_bracket_draw_winner_required');
+          footer =
+              l10n.tr('knockout_bracket_draw_winner_required');
         }
       }
     }
@@ -1358,8 +1357,7 @@ class _KnockoutBracketScreenState
         isTBD ? onSurface.withOpacity(0.22) : cs.primary;
 
     final footerIsWarn = footer ==
-            l10n.tr(
-                'knockout_bracket_draw_winner_required') ||
+            l10n.tr('knockout_bracket_draw_winner_required') ||
         footer ==
             l10n.tr(
                 'knockout_bracket_aggregate_tied_penalties_required');
@@ -1395,7 +1393,8 @@ class _KnockoutBracketScreenState
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: onSurface.withOpacity(0.55),
+                            color:
+                                onSurface.withOpacity(0.55),
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.2,
@@ -1404,8 +1403,9 @@ class _KnockoutBracketScreenState
                       ),
                       if (match.roundName != 'Play-off')
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
+                          padding:
+                              const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: _isFinished(match)
                                 ? cs.primary.withOpacity(0.14)
@@ -1413,8 +1413,8 @@ class _KnockoutBracketScreenState
                             borderRadius:
                                 BorderRadius.circular(999),
                             border: Border.all(
-                                color:
-                                    onSurface.withOpacity(0.10)),
+                                color: onSurface
+                                    .withOpacity(0.10)),
                           ),
                           child: Text(
                             _isFinished(match)
@@ -1425,7 +1425,8 @@ class _KnockoutBracketScreenState
                             style: TextStyle(
                               color: _isFinished(match)
                                   ? cs.primary
-                                  : onSurface.withOpacity(0.55),
+                                  : onSurface
+                                      .withOpacity(0.55),
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                             ),
@@ -1437,7 +1438,7 @@ class _KnockoutBracketScreenState
                   _buildTeamRow(
                     url: homeUrl,
                     name: homeName,
-                    score: match.homeScore?.toString() ?? "-",
+                    score: match.homeScore?.toString() ?? '-',
                     isWinner: isHomeWinner,
                   ),
                   const SizedBox(height: 8),
@@ -1448,7 +1449,7 @@ class _KnockoutBracketScreenState
                   _buildTeamRow(
                     url: awayUrl,
                     name: awayName,
-                    score: match.awayScore?.toString() ?? "-",
+                    score: match.awayScore?.toString() ?? '-',
                     isWinner: isAwayWinner,
                   ),
                   const Spacer(),
@@ -1484,7 +1485,8 @@ class _KnockoutBracketScreenState
             width: 3,
             decoration: BoxDecoration(
               color: leftStripeColor,
-              borderRadius: const BorderRadiusDirectional.only(
+              borderRadius:
+                  const BorderRadiusDirectional.only(
                 topStart: Radius.circular(14),
                 bottomStart: Radius.circular(14),
               ),
@@ -1506,7 +1508,7 @@ class _KnockoutBracketScreenState
     final onSurface = cs.onSurface;
 
     final baseTextColor =
-        (score == "-") ? onSurface.withOpacity(0.45) : onSurface;
+        (score == '-') ? onSurface.withOpacity(0.45) : onSurface;
     final nameColor = isWinner ? cs.primary : baseTextColor;
 
     return Row(
@@ -1527,8 +1529,8 @@ class _KnockoutBracketScreenState
           ),
         ),
         Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
             color: isWinner
                 ? cs.primary.withOpacity(0.12)
@@ -1568,14 +1570,16 @@ class _TeamThumb extends StatelessWidget {
     return u.startsWith('https://') || u.startsWith('http://');
   }
 
-  String _cloudinaryOptimizedUrl(String url,
-      {int width = 64, int height = 64}) {
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    int width = 64,
+    int height = 64,
+  }) {
     final u = url.trim();
     if (u.isEmpty) return u;
 
-    final isCloudinary =
-        u.contains('res.cloudinary.com') &&
-            u.contains('/image/upload/');
+    final isCloudinary = u.contains('res.cloudinary.com') &&
+        u.contains('/image/upload/');
     if (!isCloudinary) return u;
 
     final marker = '/image/upload/';
@@ -1613,8 +1617,9 @@ class _TeamThumb extends StatelessWidget {
     final has = raw.isNotEmpty && _looksLikeHttpUrl(raw);
 
     final px = (size * 3).clamp(48, 96).toInt();
-    final d =
-        has ? _cloudinaryOptimizedUrl(raw, width: px, height: px) : '';
+    final d = has
+        ? _cloudinaryOptimizedUrl(raw, width: px, height: px)
+        : '';
 
     return Container(
       width: size,
@@ -1622,8 +1627,8 @@ class _TeamThumb extends StatelessWidget {
       decoration: BoxDecoration(
         color: cs.onSurface.withOpacity(0.06),
         shape: BoxShape.circle,
-        border:
-            Border.all(color: cs.onSurface.withOpacity(0.14)),
+        border: Border.all(
+            color: cs.onSurface.withOpacity(0.14)),
       ),
       child: ClipOval(
         child: has
@@ -1641,14 +1646,18 @@ class _TeamThumb extends StatelessWidget {
                 ),
                 loadingBuilder: (context, child, event) {
                   if (event == null) return child;
-                  return Icon(Icons.emoji_events_outlined,
-                      size: size * 0.68,
-                      color: cs.onSurface.withOpacity(0.55));
+                  return Icon(
+                    Icons.emoji_events_outlined,
+                    size: size * 0.68,
+                    color: cs.onSurface.withOpacity(0.55),
+                  );
                 },
               )
-            : Icon(Icons.emoji_events_outlined,
+            : Icon(
+                Icons.emoji_events_outlined,
                 size: size * 0.68,
-                color: cs.onSurface.withOpacity(0.55)),
+                color: cs.onSurface.withOpacity(0.55),
+              ),
       ),
     );
   }
