@@ -1,9 +1,12 @@
 // lib/features/master_leagues/data/master_leagues_repository_firebase.dart
 //
-// MODIFIED: saveCompetitionTemplate now enforces World Cup invariants:
-// - maxTeams is derived from worldCupFormat when format == worldCup
-// - homeAwayEnabled is forced to false for World Cup templates
-// - worldCupFormat is carried through copyWith to Firestore
+// MODIFIED: 
+// 1. Added import for league_settings.dart so WorldCupFormatX extension
+//    is visible at the call site.
+// 2. saveCompetitionTemplate now enforces World Cup invariants:
+//    - maxTeams is derived from worldCupFormat when format == worldCup
+//    - homeAwayEnabled is forced to false for World Cup templates
+//    - worldCupFormat is carried through copyWith to Firestore
 // All other methods are UNCHANGED.
 
 import 'dart:async';
@@ -16,6 +19,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../leagues/models/league_format.dart';
+import '../../leagues/models/league_settings.dart'; // NEW: required for WorldCupFormatX extension
 import '../domain/competition_template.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
@@ -398,15 +402,18 @@ class MasterLeaguesRepositoryFirebase {
           template.id.trim().isEmpty ? _uuid.v4() : template.id.trim();
       final now = _nowMs();
 
-      // MODIFIED: For World Cup templates, maxTeams must match the sub-format's
+      // For World Cup templates, maxTeams must match the sub-format's
       // team count. We re-derive it here as a safety guard.
+      // NOTE: worldCupFormat!.teamCount is an extension getter from
+      // WorldCupFormatX in league_settings.dart. The extension is now
+      // visible because of the import added at the top of this file.
       final effectiveMaxTeams =
           template.format == LeagueFormat.worldCup &&
                   template.worldCupFormat != null
               ? template.worldCupFormat!.teamCount
               : template.maxTeams;
 
-      // MODIFIED: World Cup never supports home/away — enforce at persistence layer.
+      // World Cup never supports home/away — enforce at persistence layer.
       final effectiveHomeAway =
           template.format == LeagueFormat.worldCup
               ? false
