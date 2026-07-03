@@ -5,35 +5,36 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// Supports BOTH:
 /// 1) League announcements:
 ///    - scope: 'league'
-///    - leagueId: non-empty
-///    - masterLeagueId: '' (default)
+///    - leagueId: non-empty (usually)
+///    - masterLeagueId: ''
 ///
 /// 2) Organizer/Master league announcements:
 ///    - scope: 'master_league'
-///    - masterLeagueId: non-empty
+///    - masterLeagueId: non-empty (usually)
 ///    - leagueId: '' (by convention in your repository)
 ///
-/// IMPORTANT: This model is intentionally backward compatible.
-/// Many existing call-sites construct LeagueAnnouncement without:
-/// - masterLeagueId
-/// - scope
-/// - pinned fields
+/// IMPORTANT (Backward Compatibility):
+/// This model is intentionally permissive because older screens (e.g.
+/// league_admin_screen.dart) may construct LeagueAnnouncement without
+/// providing fields like authorId/authorName/masterLeagueId/scope.
+/// Validation is enforced at the repository + Firestore rules layer.
 class LeagueAnnouncement {
   const LeagueAnnouncement({
-    required this.id,
-    required this.leagueId,
-    required this.title,
-    required this.message,
-    required this.createdAtMs,
-    required this.authorId,
-    required this.authorName,
-    this.scope = 'league',
+    this.id = '',
+    this.leagueId = '',
     this.masterLeagueId = '',
+    this.scope = 'league',
+    this.title = '',
+    this.message = '',
+    this.createdAtMs = 0,
+    this.authorId = '',
+    this.authorName = '',
     this.pinned = false,
     this.pinnedAtMs = 0,
     this.pinnedBy = '',
   });
 
+  /// Firestore document id. Can be empty; repository may generate one.
   final String id;
 
   /// League ID for regular league announcements.
@@ -50,6 +51,8 @@ class LeagueAnnouncement {
 
   final int createdAtMs;
 
+  /// Author fields may be empty in some older call-sites; repository/rules
+  /// enforce correctness when actually writing to Firestore.
   final String authorId;
   final String authorName;
 
