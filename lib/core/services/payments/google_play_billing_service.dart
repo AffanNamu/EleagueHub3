@@ -1,4 +1,5 @@
 // lib/core/services/payments/google_play_billing_service.dart
+
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../../../features/master_leagues/domain/master_league_plan.dart';
+import '../../../features/verification/logic/badge_service.dart';
 import '../../config/payment_platform_config.dart';
 import '../app_analytics_service.dart';
 import 'google_play_billing_catalog.dart';
@@ -86,7 +88,8 @@ class GooglePlayBillingService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   bool get enabledForAndroid =>
-      PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling;
+      PaymentPlatformConfig
+          .routeAndroidPaymentsToGooglePlayBilling;
 
   // ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -126,6 +129,121 @@ class GooglePlayBillingService {
 
     return response.productDetails.first;
   }
+
+  // ── Badge grant on purchase success ──────────────────────────────────────
+
+  /// Grants the appropriate badges immediately after a confirmed
+  /// Google Play purchase.
+  ///
+  /// This client-side grant runs before the server-side webhook so
+  /// that the UI reflects the new badge state without waiting for
+  /// the webhook. Both writes are idempotent — running twice is safe.
+  ///
+  /// Errors are caught and logged; they must never propagate back
+  /// to the purchase flow.
+  Future<void> _grantBadgesForProduct({
+    required String productId,
+  }) async {
+    final uid = _uid();
+    if (uid.isEmpty) {
+      if (kDebugMode) {
+        debugPrint(
+          '[GPB] _grantBadgesForProduct: no authenticated user '
+          '— skipping badge grant.',
+        );
+      }
+      return;
+    }
+
+    try {
+      // ── Plan subscriptions ───────────────────────────────────────────
+      final tierInfo =
+          GooglePlayBillingCatalog.tierInfoForProductId(productId);
+
+      if (tierInfo != null) {
+        final expiresAt = DateTime.now()
+            .add(Duration(days: tierInfo.durationDays));
+
+        switch (tierInfo.tier) {
+          case PlanSubscriptionTier.pro:
+            await BadgeService.instance
+                .onProSubscriptionPurchased(
+              userId: uid,
+              expiresAt: expiresAt,
+            );
+            if (kDebugMode) {
+              debugPrint(
+                '[GPB] Pro subscription badges granted '
+                'for $uid (expires $expiresAt)',
+              );
+            }
+            return;
+
+          case PlanSubscriptionTier.elite:
+            await BadgeService.instance
+                .onEliteSubscriptionPurchased(
+              userId: uid,
+              expiresAt: expiresAt,
+            );
+            if (kDebugMode) {
+              debugPrint(
+                '[GPB] Elite subscription badges granted '
+                'for $uid (expires $expiresAt)',
+              );
+            }
+            return;
+        }
+      }
+
+      // ── Organizer verification (initial) ─────────────────────────────
+      if (productId ==
+          GooglePlayBillingCatalog.organizerVerificationId) {
+        await BadgeService.instance
+            .onOrganizerVerificationPurchased(userId: uid);
+        if (kDebugMode) {
+          debugPrint(
+            '[GPB] Organizer verification badge granted for $uid',
+          );
+        }
+        return;
+      }
+
+      // ── Organizer verification renewal ───────────────────────────────
+      if (productId ==
+          GooglePlayBillingCatalog
+              .organizerVerificationRenewalId) {
+        await BadgeService.instance
+            .onOrganizerVerificationRenewalPurchased(
+          userId: uid,
+        );
+        if (kDebugMode) {
+          debugPrint(
+            '[GPB] Organizer verification renewal badge '
+            'granted for $uid',
+          );
+        }
+        return;
+      }
+
+      // Product has no badge mapping — expected for league products.
+      if (kDebugMode) {
+        debugPrint(
+          '[GPB] _grantBadgesForProduct: productId=$productId '
+          'has no badge mapping — skipped.',
+        );
+      }
+    } catch (e) {
+      // Badge grant failure must never fail the purchase flow.
+      if (kDebugMode) {
+        debugPrint(
+          '[GPB] _grantBadgesForProduct error '
+          'for productId=$productId: $e',
+        );
+      }
+    }
+  }
+
+  // ── Core purchase flow ────────────────────────────────────────────────────
 
   Future<GooglePlayPurchaseResult> _purchase({
     required String productId,
@@ -196,7 +314,9 @@ class GooglePlayBillingService {
         for (final purchase in purchases) {
           if (purchase.productID != productId) continue;
 
-          if (purchase.status == PurchaseStatus.pending) continue;
+          if (purchase.status == PurchaseStatus.pending) {
+            continue;
+          }
 
           if (purchase.status == PurchaseStatus.purchased ||
               purchase.status == PurchaseStatus.restored) {
@@ -204,13 +324,14 @@ class GooglePlayBillingService {
               await _iap.completePurchase(purchase);
             }
 
-            final token =
-                purchase.verificationData.serverVerificationData;
+            final token = purchase
+                .verificationData.serverVerificationData;
             final orderId = purchase.purchaseID ?? '';
             final paymentId =
                 'gpb_${orderId.isNotEmpty ? orderId : token}';
             final now = _nowMs();
 
+            // ── Persist receipt ───────────────────────────────────────
             try {
               await _recordGooglePlayPurchase(
                 uid: uid,
@@ -226,14 +347,19 @@ class GooglePlayBillingService {
               );
             } catch (e) {
               if (kDebugMode) {
-                debugPrint(
-                  '[GPB] Firestore record error: $e',
-                );
+                debugPrint('[GPB] Firestore record error: $e');
               }
             }
 
+            // ── Grant badges ──────────────────────────────────────────
+            // Called after receipt is persisted. Errors are caught
+            // internally — they never block the purchase result.
+            await _grantBadgesForProduct(productId: productId);
+
+            // ── Analytics ─────────────────────────────────────────────
             try {
-              await AppAnalyticsService.instance.logPaymentResult(
+              await AppAnalyticsService.instance
+                  .logPaymentResult(
                 kind: flowLabel,
                 leagueId: '',
                 leagueName: leagueName,
@@ -313,6 +439,8 @@ class GooglePlayBillingService {
     );
   }
 
+  // ── Receipt persistence ───────────────────────────────────────────────────
+
   Future<void> _recordGooglePlayPurchase({
     required String uid,
     required String productId,
@@ -379,8 +507,12 @@ class GooglePlayBillingService {
       );
     }
 
-    await batch.commit().timeout(const Duration(seconds: 20));
+    await batch
+        .commit()
+        .timeout(const Duration(seconds: 20));
   }
+
+  // ── Error normaliser ──────────────────────────────────────────────────────
 
   String _cleanError(Object e) {
     final raw = e.toString().trim();
@@ -403,7 +535,7 @@ class GooglePlayBillingService {
     return raw;
   }
 
-  // ── Public API ─────────────────────────────────────────────────────────────
+  // ── Public API ────────────────────────────────────────────────────────────
 
   /// League creation unlock — one-time consumable.
   Future<GooglePlayPurchaseResult> purchaseLeagueCreation({
@@ -412,7 +544,8 @@ class GooglePlayBillingService {
     required String attemptId,
   }) =>
       _purchase(
-        productId: GooglePlayBillingCatalog.leagueCreationUnlockId,
+        productId:
+            GooglePlayBillingCatalog.leagueCreationUnlockId,
         attemptId: attemptId,
         flowLabel: 'league_creation',
         leagueName: leagueName,
@@ -443,7 +576,8 @@ class GooglePlayBillingService {
     required String attemptId,
   }) =>
       _purchase(
-        productId: GooglePlayBillingCatalog.premiumSubscriptionId,
+        productId:
+            GooglePlayBillingCatalog.premiumSubscriptionId,
         attemptId: attemptId,
         flowLabel: 'premium_subscription',
         leagueName: 'Premium',
@@ -489,21 +623,23 @@ class GooglePlayBillingService {
   }
 
   /// Organizer verification — one-time consumable.
-  Future<GooglePlayPurchaseResult> purchaseOrganizerVerification({
+  Future<GooglePlayPurchaseResult>
+      purchaseOrganizerVerification({
     required String userId,
     required String masterLeagueName,
     required String attemptId,
   }) =>
-      _purchase(
-        productId:
-            GooglePlayBillingCatalog.organizerVerificationId,
-        attemptId: attemptId,
-        flowLabel: 'organizer_verification',
-        leagueName: masterLeagueName,
-        productType: 'organizer_verification',
-        productSubType: 'master_league_organizer_verification',
-        isSubscription: false,
-      );
+          _purchase(
+            productId:
+                GooglePlayBillingCatalog.organizerVerificationId,
+            attemptId: attemptId,
+            flowLabel: 'organizer_verification',
+            leagueName: masterLeagueName,
+            productType: 'organizer_verification',
+            productSubType:
+                'master_league_organizer_verification',
+            isSubscription: false,
+          );
 
   /// Organizer verification renewal — one-time consumable.
   Future<GooglePlayPurchaseResult>

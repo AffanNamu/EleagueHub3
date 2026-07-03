@@ -1,4 +1,5 @@
 // lib/core/services/payments/google_play_billing_catalog.dart
+
 import '../../../features/master_leagues/domain/master_league_plan.dart';
 
 class GooglePlayBillingCatalog {
@@ -6,39 +7,46 @@ class GooglePlayBillingCatalog {
 
   // ── Subscriptions for organizer plans ─────────────────────────────────────
 
-  static const String pro3MonthsSubscriptionId = String.fromEnvironment(
+  static const String pro3MonthsSubscriptionId =
+      String.fromEnvironment(
     'GPB_SUB_PRO_3MO_ID',
     defaultValue: 'pro_3mo',
   );
 
-  static const String pro6MonthsSubscriptionId = String.fromEnvironment(
+  static const String pro6MonthsSubscriptionId =
+      String.fromEnvironment(
     'GPB_SUB_PRO_6MO_ID',
     defaultValue: 'pro_6mo',
   );
 
-  static const String proYearlySubscriptionId = String.fromEnvironment(
+  static const String proYearlySubscriptionId =
+      String.fromEnvironment(
     'GPB_SUB_PRO_YEARLY_ID',
     defaultValue: 'pro_yearly',
   );
 
-  static const String elite3MonthsSubscriptionId = String.fromEnvironment(
+  static const String elite3MonthsSubscriptionId =
+      String.fromEnvironment(
     'GPB_SUB_ELITE_3MO_ID',
     defaultValue: 'elite_3mo',
   );
 
-  static const String elite6MonthsSubscriptionId = String.fromEnvironment(
+  static const String elite6MonthsSubscriptionId =
+      String.fromEnvironment(
     'GPB_SUB_ELITE_6MO_ID',
     defaultValue: 'elite_6mo',
   );
 
-  static const String eliteYearlySubscriptionId = String.fromEnvironment(
+  static const String eliteYearlySubscriptionId =
+      String.fromEnvironment(
     'GPB_SUB_ELITE_YEARLY_ID',
     defaultValue: 'elite_yearly',
   );
 
   // ── One-time / consumable products ────────────────────────────────────────
 
-  static const String leagueCreationUnlockId = String.fromEnvironment(
+  static const String leagueCreationUnlockId =
+      String.fromEnvironment(
     'GPB_LEAGUE_CREATION_UNLOCK_ID',
     defaultValue: 'league_creation_unlock',
   );
@@ -48,29 +56,33 @@ class GooglePlayBillingCatalog {
     defaultValue: 'league_addons_pack',
   );
 
-  static const String leagueAccessUnlockId = String.fromEnvironment(
+  static const String leagueAccessUnlockId =
+      String.fromEnvironment(
     'GPB_LEAGUE_ACCESS_UNLOCK_ID',
     defaultValue: 'league_access_unlock',
   );
 
-  static const String organizerVerificationId = String.fromEnvironment(
+  static const String organizerVerificationId =
+      String.fromEnvironment(
     'GPB_ORGANIZER_VERIFICATION_ID',
     defaultValue: 'organizer_verification',
   );
 
-  static const String organizerVerificationRenewalId = String.fromEnvironment(
+  static const String organizerVerificationRenewalId =
+      String.fromEnvironment(
     'GPB_ORGANIZER_VERIFICATION_RENEWAL_ID',
     defaultValue: 'organizer_verification_renewal',
   );
 
   // ── Premium app subscription ──────────────────────────────────────────────
 
-  static const String premiumSubscriptionId = String.fromEnvironment(
+  static const String premiumSubscriptionId =
+      String.fromEnvironment(
     'GPB_PREMIUM_SUB_ID',
     defaultValue: 'premium_subscription',
   );
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Existing helpers (unchanged) ──────────────────────────────────────────
 
   static String subscriptionIdForPlan({
     required MasterLeaguePlan plan,
@@ -112,8 +124,104 @@ class GooglePlayBillingCatalog {
       'league_addons_pack': leagueAddonsPackId,
       'league_access_unlock': leagueAccessUnlockId,
       'organizer_verification': organizerVerificationId,
-      'organizer_verification_renewal': organizerVerificationRenewalId,
+      'organizer_verification_renewal':
+          organizerVerificationRenewalId,
       'premium_subscription': premiumSubscriptionId,
     };
   }
+
+  // ── NEW: Badge tier helpers ───────────────────────────────────────────────
+
+  /// Returns badge tier information for a given [productId].
+  ///
+  /// Returns null if the product is not a plan subscription
+  /// (e.g. it is a one-time product or an unrelated subscription).
+  ///
+  /// Used exclusively by [GooglePlayBillingService._grantBadgesForProduct]
+  /// to decide which badges to grant without hardcoding tier logic
+  /// in multiple places.
+  static _SubscriptionTierInfo? tierInfoForProductId(
+      String productId) {
+    // Pro — 3 months
+    if (productId == pro3MonthsSubscriptionId) {
+      return const _SubscriptionTierInfo(
+        tier: PlanSubscriptionTier.pro,
+        durationDays: 90,
+      );
+    }
+    // Pro — 6 months
+    if (productId == pro6MonthsSubscriptionId) {
+      return const _SubscriptionTierInfo(
+        tier: PlanSubscriptionTier.pro,
+        durationDays: 180,
+      );
+    }
+    // Pro — yearly
+    if (productId == proYearlySubscriptionId) {
+      return const _SubscriptionTierInfo(
+        tier: PlanSubscriptionTier.pro,
+        durationDays: 365,
+      );
+    }
+    // Elite — 3 months
+    if (productId == elite3MonthsSubscriptionId) {
+      return const _SubscriptionTierInfo(
+        tier: PlanSubscriptionTier.elite,
+        durationDays: 90,
+      );
+    }
+    // Elite — 6 months
+    if (productId == elite6MonthsSubscriptionId) {
+      return const _SubscriptionTierInfo(
+        tier: PlanSubscriptionTier.elite,
+        durationDays: 180,
+      );
+    }
+    // Elite — yearly
+    if (productId == eliteYearlySubscriptionId) {
+      return const _SubscriptionTierInfo(
+        tier: PlanSubscriptionTier.elite,
+        durationDays: 365,
+      );
+    }
+
+    return null;
+  }
+
+  /// Returns true if [productId] resolves to a Pro-tier subscription.
+  static bool isProSubscription(String productId) {
+    return productId == pro3MonthsSubscriptionId ||
+        productId == pro6MonthsSubscriptionId ||
+        productId == proYearlySubscriptionId;
+  }
+
+  /// Returns true if [productId] resolves to an Elite-tier subscription.
+  static bool isEliteSubscription(String productId) {
+    return productId == elite3MonthsSubscriptionId ||
+        productId == elite6MonthsSubscriptionId ||
+        productId == eliteYearlySubscriptionId;
+  }
+
+  /// Returns true if [productId] is the organizer_verification or
+  /// organizer_verification_renewal one-time product.
+  static bool isOrganizerVerificationProduct(String productId) {
+    return productId == organizerVerificationId ||
+        productId == organizerVerificationRenewalId;
+  }
+}
+
+// ── Internal types ────────────────────────────────────────────────────────────
+
+/// Which plan tier a subscription belongs to.
+enum PlanSubscriptionTier { pro, elite }
+
+/// Tier + duration information returned by [tierInfoForProductId].
+class _SubscriptionTierInfo {
+  final PlanSubscriptionTier tier;
+  final int durationDays;
+
+  const _SubscriptionTierInfo({
+    required this.tier,
+    required this.durationDays,
+  });
 }

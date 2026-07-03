@@ -1,3 +1,5 @@
+// lib/features/profile/presentation/profile_screen.dart
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -32,6 +34,7 @@ import '../../legal/terms_of_service_screen.dart';
 import '../../leagues/data/services/reward_firestore_service.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
+import '../../verification/domain/badge_model.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -80,8 +83,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }) {
     final u = url.trim();
     if (u.isEmpty) return u;
-    final isCloudinary =
-        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    final isCloudinary = u.contains('res.cloudinary.com') &&
+        u.contains('/image/upload/');
     if (!isCloudinary) return u;
     final marker = '/image/upload/';
     final idx = u.indexOf(marker);
@@ -103,11 +106,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (parts.isEmpty) return '$prefix$transforms/$suffix';
 
     final first = parts.first;
-    final isVersionOnly =
-        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+    final isVersionOnly = first.startsWith('v') &&
+        int.tryParse(first.substring(1)) != null;
 
     if (!isVersionOnly) {
-      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      if (first.contains('f_auto') || first.contains('q_auto')) {
+        return u;
+      }
       parts[0] = 'f_auto,q_auto,$first';
       return prefix + parts.join('/');
     }
@@ -115,18 +120,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return '$prefix$transforms/$suffix';
   }
 
-  Future<String> _uploadToCloudinary({required PlatformFile picked}) async {
+  Future<String> _uploadToCloudinary({
+    required PlatformFile picked,
+  }) async {
     final cloudName =
         const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
-    final uploadPreset =
-        const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET')
-            .trim();
+    final uploadPreset = const String.fromEnvironment(
+      'CLOUDINARY_UNSIGNED_UPLOAD_PRESET',
+    ).trim();
     if (cloudName.isEmpty || uploadPreset.isEmpty) {
       throw StateError('Cloudinary is not configured.');
     }
 
-    final uploadUrl =
-        Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+    final uploadUrl = Uri.parse(
+      'https://api.cloudinary.com/v1_1/$cloudName/image/upload',
+    );
     final ts = DateTime.now().millisecondsSinceEpoch;
 
     http.MultipartFile filePart;
@@ -135,8 +143,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final path = (picked.path ?? '').trim();
 
     if (bytes != null && bytes.isNotEmpty) {
-      filePart =
-          http.MultipartFile.fromBytes('file', bytes, filename: picked.name);
+      filePart = http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: picked.name,
+      );
     } else if (path.isNotEmpty) {
       filePart = await http.MultipartFile.fromPath(
         'file',
@@ -156,8 +167,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final client = http.Client();
     try {
-      final streamed =
-          await client.send(req).timeout(const Duration(seconds: 45));
+      final streamed = await client
+          .send(req)
+          .timeout(const Duration(seconds: 45));
       final resp = await http.Response.fromStream(streamed)
           .timeout(const Duration(seconds: 45));
 
@@ -165,11 +177,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         String message = 'Upload failed (HTTP ${resp.statusCode}).';
         try {
           final decoded = jsonDecode(resp.body);
-          final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
+          final err = (decoded is Map<String, dynamic>)
+              ? decoded['error']
+              : null;
           final msg = (err is Map<String, dynamic>)
               ? (err['message']?.toString() ?? '')
               : '';
-          if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
+          if (msg.trim().isNotEmpty) {
+            message = 'Upload failed: ${msg.trim()}';
+          }
         } catch (_) {}
         throw StateError(message);
       }
@@ -179,7 +195,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         throw StateError('Upload failed: invalid response.');
       }
 
-      final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
+      final secureUrl =
+          (decoded['secure_url']?.toString() ?? '').trim();
       if (secureUrl.isEmpty) {
         throw StateError('Upload failed: secure_url missing.');
       }
@@ -194,7 +211,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Future<void> _pickAndUploadAvatar(BuildContext context) async {
     if (_uploadingAvatar) return;
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final uid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
       if (context.mounted) context.go('/login');
       return;
@@ -212,7 +230,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
       if (!pickResult.isSuccess) {
         if (!context.mounted) return;
-        _snack(context, pickResult.errorMessage ?? 'Could not pick image.');
+        _snack(
+          context,
+          pickResult.errorMessage ?? 'Could not pick image.',
+        );
         return;
       }
 
@@ -220,14 +241,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
       if (picked.size > _maxBytes) {
         if (!context.mounted) return;
-        _snack(context, 'Image too large. Please select an image under 5 MB.');
+        _snack(
+          context,
+          'Image too large. Please select an image under 5 MB.',
+        );
         return;
       }
 
       final secureUrl = await _uploadToCloudinary(picked: picked);
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      await FirebaseFirestore.instance.collection('users').doc(uid).set(
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set(
         <String, dynamic>{
           'photoUrl': secureUrl,
           'profileImageUrl': secureUrl,
@@ -238,7 +265,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       ).timeout(const Duration(seconds: 15));
 
       try {
-        await FirebaseAuth.instance.currentUser?.updatePhotoURL(secureUrl);
+        await FirebaseAuth.instance.currentUser
+            ?.updatePhotoURL(secureUrl);
       } catch (_) {}
 
       if (!context.mounted) return;
@@ -250,7 +278,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (!context.mounted) return;
       _snack(
         context,
-        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+        UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown'),
+        ),
       );
     } finally {
       if (!mounted) return;
@@ -259,7 +289,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _clearAvatar(BuildContext context) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final uid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
       if (context.mounted) context.go('/login');
       return;
@@ -272,8 +303,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       builder: (ctx) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 24,
+          ),
           child: Glass(
             borderRadius: 26,
             padding: const EdgeInsets.all(18),
@@ -312,17 +345,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       Expanded(
                         child: Text(
                           'Remove photo?',
-                          style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                                color: AppTheme.primaryText(brightness),
+                          style: Theme.of(ctx)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(
+                                color:
+                                    AppTheme.primaryText(brightness),
                                 fontWeight: FontWeight.w900,
                               ),
                         ),
                       ),
                       IconButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
+                        onPressed: () =>
+                            Navigator.of(ctx).pop(false),
                         icon: Icon(
                           Icons.close,
-                          color: AppTheme.secondaryText(brightness),
+                          color:
+                              AppTheme.secondaryText(brightness),
                         ),
                       ),
                     ],
@@ -344,7 +383,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     children: [
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: () => Navigator.of(ctx).pop(false),
+                          onPressed: () =>
+                              Navigator.of(ctx).pop(false),
                           child: const Text('Cancel'),
                         ),
                       ),
@@ -352,10 +392,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       Expanded(
                         child: FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: Theme.of(ctx).colorScheme.error,
+                            backgroundColor:
+                                Theme.of(ctx).colorScheme.error,
                             foregroundColor: Colors.white,
                           ),
-                          onPressed: () => Navigator.of(ctx).pop(true),
+                          onPressed: () =>
+                              Navigator.of(ctx).pop(true),
                           child: const Text('Remove'),
                         ),
                       ),
@@ -377,7 +419,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      await FirebaseFirestore.instance.collection('users').doc(uid).set(
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set(
         <String, dynamic>{
           'photoUrl': '',
           'profileImageUrl': '',
@@ -388,7 +433,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       ).timeout(const Duration(seconds: 15));
 
       try {
-        await FirebaseAuth.instance.currentUser?.updatePhotoURL(null);
+        await FirebaseAuth.instance.currentUser
+            ?.updatePhotoURL(null);
       } catch (_) {}
 
       if (!context.mounted) return;
@@ -397,7 +443,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (!context.mounted) return;
       _snack(
         context,
-        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+        UserFriendlyError.toMessage(
+          e is Object ? e : Exception('unknown'),
+        ),
       );
     }
   }
@@ -407,7 +455,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     required String leagueId,
     required String leagueName,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final uid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
       if (context.mounted) context.go('/login');
       return;
@@ -420,7 +469,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (context.mounted) {
         _snack(
           context,
-          UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+          UserFriendlyError.toMessage(
+            e is Object ? e : Exception('unknown'),
+          ),
         );
       }
       return;
@@ -436,7 +487,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         final theme = Theme.of(ctx);
         final brightness = theme.brightness;
 
-        final cfgStream = CouponConfigService().watchConfig(leagueId);
+        final cfgStream =
+            CouponConfigService().watchConfig(leagueId);
         final redemptionsQuery = FirebaseFirestore.instance
             .collection('leagues')
             .doc(leagueId)
@@ -473,16 +525,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         Container(
                           width: 40,
                           height: 4,
-                          margin: const EdgeInsets.only(bottom: 14),
+                          margin:
+                              const EdgeInsets.only(bottom: 14),
                           decoration: BoxDecoration(
                             color: AppTheme.cardBorder(brightness),
-                            borderRadius: BorderRadius.circular(2),
+                            borderRadius:
+                                BorderRadius.circular(2),
                           ),
                         ),
                         Text(
                           'Coupons',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: AppTheme.primaryText(brightness),
+                          style:
+                              theme.textTheme.titleMedium?.copyWith(
+                            color:
+                                AppTheme.primaryText(brightness),
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
                           ),
@@ -490,8 +546,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(height: 6),
                         Text(
                           leagueName,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: AppTheme.secondaryText(brightness),
+                          style:
+                              theme.textTheme.bodySmall?.copyWith(
+                            color:
+                                AppTheme.secondaryText(brightness),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -502,16 +560,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           stream: cfgStream,
                           builder: (context, snap) {
                             if (snap.hasError) {
-                              final msg = UserFriendlyError.toMessage(
+                              final msg =
+                                  UserFriendlyError.toMessage(
                                 snap.error as Object,
                               );
                               return Padding(
                                 padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
+                                    const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
                                 child: Text(
                                   msg,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: Theme.of(context).colorScheme.error,
+                                  style: theme
+                                      .textTheme.bodyMedium
+                                      ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .error,
                                     fontWeight: FontWeight.w700,
                                   ),
                                   textAlign: TextAlign.center,
@@ -523,10 +588,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 ConnectionState.waiting) {
                               return Padding(
                                 padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
+                                    const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
                                 child: Center(
-                                  child: CircularProgressIndicator(
-                                    color: AppTheme.limeAccentDark,
+                                  child:
+                                      CircularProgressIndicator(
+                                    color:
+                                        AppTheme.limeAccentDark,
                                   ),
                                 ),
                               );
@@ -535,17 +604,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             final cfg = snap.data;
                             if (cfg == null) {
                               return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.stretch,
                                 children: [
                                   Padding(
                                     padding:
-                                        const EdgeInsets.symmetric(vertical: 8),
+                                        const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
                                     child: Text(
                                       'No coupon configuration yet.',
                                       textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: AppTheme.secondaryText(brightness),
-                                        fontWeight: FontWeight.w700,
+                                      style: theme
+                                          .textTheme.bodySmall
+                                          ?.copyWith(
+                                        color:
+                                            AppTheme.secondaryText(
+                                          brightness,
+                                        ),
+                                        fontWeight:
+                                            FontWeight.w700,
                                       ),
                                     ),
                                   ),
@@ -553,38 +631,53 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   Row(
                                     children: [
                                       Expanded(
-                                        child: OutlinedButton.icon(
+                                        child:
+                                            OutlinedButton.icon(
                                           onPressed: () =>
-                                              Navigator.of(ctx).pop(),
-                                          icon: const Icon(Icons.close),
-                                          label: const Text('Close'),
+                                              Navigator.of(ctx)
+                                                  .pop(),
+                                          icon: const Icon(
+                                              Icons.close),
+                                          label: const Text(
+                                              'Close'),
                                         ),
                                       ),
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: FilledButton.icon(
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor: AppTheme.limeAccent,
-                                            foregroundColor: AppTheme.darkText,
+                                          style:
+                                              FilledButton.styleFrom(
+                                            backgroundColor:
+                                                AppTheme.limeAccent,
+                                            foregroundColor:
+                                                AppTheme.darkText,
                                           ),
                                           onPressed: () {
                                             Navigator.of(ctx).pop();
-                                            GoRouter.of(context).push(
+                                            GoRouter.of(context)
+                                                .push(
                                               '/leagues/$leagueId/upgrade/payment',
                                               extra: {
-                                                'leagueId': leagueId,
-                                                'leagueName': leagueName,
+                                                'leagueId':
+                                                    leagueId,
+                                                'leagueName':
+                                                    leagueName,
                                                 'addonsOnly': true,
-                                                'existingCouponsEnabled': false,
-                                                'existingCouponCount': 0,
-                                                'existingCouponDiscountPercent': 0,
+                                                'existingCouponsEnabled':
+                                                    false,
+                                                'existingCouponCount':
+                                                    0,
+                                                'existingCouponDiscountPercent':
+                                                    0,
                                               },
                                             );
                                           },
                                           icon: const Icon(
-                                            Icons.add_shopping_cart,
+                                            Icons
+                                                .add_shopping_cart,
                                           ),
-                                          label: const Text('Buy / enable'),
+                                          label: const Text(
+                                              'Buy / enable'),
                                         ),
                                       ),
                                     ],
@@ -595,12 +688,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
                             final redeemed = cfg.qtyRedeemed;
                             final usersPay =
-                                (100 - cfg.discountPercent).clamp(0, 100);
+                                (100 - cfg.discountPercent)
+                                    .clamp(0, 100);
 
                             return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
-                                _kv(context, 'Currency', cfg.currency),
+                                _kv(context, 'Currency',
+                                    cfg.currency),
                                 _kv(
                                   context,
                                   'Unit price',
@@ -623,45 +719,63 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   'Threshold discount',
                                   '${money(cfg.thresholdDiscountPercent)}%',
                                 ),
-                                Divider(color: AppTheme.cardBorder(brightness)),
+                                Divider(
+                                    color: AppTheme.cardBorder(
+                                        brightness)),
                                 _kv(
                                   context,
                                   'Discount',
                                   '${cfg.discountPercent}%',
                                 ),
-                                _kv(context, 'Users pay', '$usersPay%'),
-                                Divider(color: AppTheme.cardBorder(brightness)),
-                                _kv(context, 'Purchased', '${cfg.qtyTotal}'),
-                                _kv(context, 'Remaining', '${cfg.qtyRemaining}'),
-                                _kv(context, 'Redeemed', '$redeemed'),
+                                _kv(context, 'Users pay',
+                                    '$usersPay%'),
+                                Divider(
+                                    color: AppTheme.cardBorder(
+                                        brightness)),
+                                _kv(context, 'Purchased',
+                                    '${cfg.qtyTotal}'),
+                                _kv(context, 'Remaining',
+                                    '${cfg.qtyRemaining}'),
+                                _kv(context, 'Redeemed',
+                                    '$redeemed'),
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
                                     Expanded(
                                       child: OutlinedButton.icon(
                                         onPressed: () =>
-                                            Navigator.of(ctx).pop(),
-                                        icon: const Icon(Icons.close),
-                                        label: const Text('Close'),
+                                            Navigator.of(ctx)
+                                                .pop(),
+                                        icon:
+                                            const Icon(Icons.close),
+                                        label:
+                                            const Text('Close'),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: FilledButton.icon(
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor: AppTheme.limeAccent,
-                                          foregroundColor: AppTheme.darkText,
+                                        style:
+                                            FilledButton.styleFrom(
+                                          backgroundColor:
+                                              AppTheme.limeAccent,
+                                          foregroundColor:
+                                              AppTheme.darkText,
                                         ),
                                         onPressed: () {
                                           Navigator.of(ctx).pop();
-                                          GoRouter.of(context).push(
+                                          GoRouter.of(context)
+                                              .push(
                                             '/leagues/$leagueId/upgrade/payment',
                                             extra: {
                                               'leagueId': leagueId,
-                                              'leagueName': leagueName,
+                                              'leagueName':
+                                                  leagueName,
                                               'addonsOnly': true,
-                                              'existingCouponsEnabled': true,
-                                              'existingCouponCount': cfg.qtyTotal,
+                                              'existingCouponsEnabled':
+                                                  true,
+                                              'existingCouponCount':
+                                                  cfg.qtyTotal,
                                               'existingCouponDiscountPercent':
                                                   cfg.discountPercent,
                                             },
@@ -670,7 +784,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         icon: const Icon(
                                           Icons.add_shopping_cart,
                                         ),
-                                        label: const Text('Buy more'),
+                                        label:
+                                            const Text('Buy more'),
                                       ),
                                     ),
                                   ],
@@ -678,159 +793,217 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 const SizedBox(height: 14),
                                 Text(
                                   'Recent redemptions',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: AppTheme.primaryText(brightness),
+                                  style: theme
+                                      .textTheme.bodyMedium
+                                      ?.copyWith(
+                                    color: AppTheme.primaryText(
+                                        brightness),
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
                                 ConstrainedBox(
                                   constraints:
-                                      const BoxConstraints(maxHeight: 320),
+                                      const BoxConstraints(
+                                    maxHeight: 320,
+                                  ),
                                   child: StreamBuilder<
-                                      QuerySnapshot<Map<String, dynamic>>>(
-                                    stream: redemptionsQuery.snapshots(),
+                                      QuerySnapshot<
+                                          Map<String, dynamic>>>(
+                                    stream: redemptionsQuery
+                                        .snapshots(),
                                     builder: (context, rs) {
                                       if (rs.hasError) {
                                         return Center(
                                           child: Text(
-                                            UserFriendlyError.toMessage(
+                                            UserFriendlyError
+                                                .toMessage(
                                               rs.error as Object,
                                             ),
-                                            style: theme.textTheme.bodySmall
+                                            style: theme
+                                                .textTheme.bodySmall
                                                 ?.copyWith(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .error,
-                                              fontWeight: FontWeight.w700,
+                                              color:
+                                                  Theme.of(context)
+                                                      .colorScheme
+                                                      .error,
+                                              fontWeight:
+                                                  FontWeight.w700,
                                             ),
-                                            textAlign: TextAlign.center,
+                                            textAlign:
+                                                TextAlign.center,
                                           ),
                                         );
                                       }
                                       if (!rs.hasData) {
                                         return Center(
-                                          child: CircularProgressIndicator(
-                                            color: AppTheme.limeAccentDark,
+                                          child:
+                                              CircularProgressIndicator(
+                                            color: AppTheme
+                                                .limeAccentDark,
                                           ),
                                         );
                                       }
-                                      final docs = rs.data!.docs;
+                                      final docs =
+                                          rs.data!.docs;
                                       if (docs.isEmpty) {
                                         return Center(
                                           child: Text(
                                             'No redemptions yet.',
-                                            style: theme.textTheme.bodySmall
+                                            style: theme
+                                                .textTheme.bodySmall
                                                 ?.copyWith(
                                               color:
-                                                  AppTheme.secondaryText(brightness),
-                                              fontWeight: FontWeight.w600,
+                                                  AppTheme.secondaryText(
+                                                brightness,
+                                              ),
+                                              fontWeight:
+                                                  FontWeight.w600,
                                             ),
                                           ),
                                         );
                                       }
                                       return ListView.separated(
                                         itemCount: docs.length,
-                                        separatorBuilder: (_, __) => Divider(
-                                          color: AppTheme.cardBorder(brightness),
+                                        separatorBuilder:
+                                            (_, __) => Divider(
+                                          color:
+                                              AppTheme.cardBorder(
+                                                  brightness),
                                         ),
-                                        itemBuilder: (context, i) {
-                                          final d = docs[i].data();
-                                          final status = (d['status'] as String?) ??
-                                              'pending';
+                                        itemBuilder:
+                                            (context, i) {
+                                          final d =
+                                              docs[i].data();
+                                          final status =
+                                              (d['status']
+                                                      as String?) ??
+                                                  'pending';
                                           final paidAtMs =
-                                              (d['paidAtMs'] as num?)?.toInt() ?? 0;
+                                              (d['paidAtMs']
+                                                          as num?)
+                                                      ?.toInt() ??
+                                                  0;
                                           final provider =
-                                              (d['provider'] as String?) ?? '';
+                                              (d['provider']
+                                                      as String?) ??
+                                                  '';
                                           final expected =
-                                              (d['expectedAmount'] as num?)
+                                              (d['expectedAmount']
+                                                          as num?)
                                                       ?.toDouble() ??
                                                   0.0;
                                           final currency =
-                                              (d['currency'] as String?) ??
+                                              (d['currency']
+                                                      as String?) ??
                                                   cfg.currency;
-                                          final isPaid = status == 'paid';
+                                          final isPaid =
+                                              status == 'paid';
                                           final when = paidAtMs > 0
-                                              ? DateTime.fromMillisecondsSinceEpoch(
+                                              ? DateTime
+                                                      .fromMillisecondsSinceEpoch(
                                                       paidAtMs)
                                                   .toLocal()
                                                   .toString()
                                               : '—';
-                                          final shortUserId = ((d['shareId']
-                                                          as String?) ??
-                                                      '')
-                                                  .trim()
-                                                  .isNotEmpty
-                                              ? (d['shareId'] as String).trim()
-                                              : UserProfile.deriveShareIdFromUid(
-                                                  (d['userId'] as String?) ?? '',
-                                                );
+                                          final shortUserId =
+                                              ((d['shareId']
+                                                              as String?) ??
+                                                          '')
+                                                      .trim()
+                                                      .isNotEmpty
+                                                  ? (d['shareId']
+                                                          as String)
+                                                      .trim()
+                                                  : UserProfile
+                                                      .deriveShareIdFromUid(
+                                                      (d['userId']
+                                                              as String?) ??
+                                                          '',
+                                                    );
 
                                           return ListTile(
                                             dense: true,
-                                            contentPadding: EdgeInsets.zero,
+                                            contentPadding:
+                                                EdgeInsets.zero,
                                             leading: Icon(
                                               isPaid
                                                   ? Icons.verified
                                                   : Icons.pending,
                                               color: isPaid
-                                                  ? const Color(0xFF22C55E)
-                                                  : AppTheme.limeAccentDark,
+                                                  ? const Color(
+                                                      0xFF22C55E)
+                                                  : AppTheme
+                                                      .limeAccentDark,
                                               size: 20,
                                             ),
                                             title: Text(
                                               shortUserId.isEmpty
                                                   ? '(unknown user)'
                                                   : shortUserId,
-                                              style: theme.textTheme.bodyMedium
+                                              style: theme.textTheme
+                                                  .bodyMedium
                                                   ?.copyWith(
-                                                color: AppTheme.primaryText(
+                                                color: AppTheme
+                                                    .primaryText(
                                                   brightness,
                                                 ),
-                                                fontWeight: FontWeight.w900,
+                                                fontWeight:
+                                                    FontWeight.w900,
                                               ),
                                             ),
                                             subtitle: Text(
                                               isPaid
                                                   ? 'Paid • $provider • $when'
                                                   : 'Pending • ${money(expected)} $currency',
-                                              style: theme.textTheme.bodySmall
+                                              style: theme.textTheme
+                                                  .bodySmall
                                                   ?.copyWith(
-                                                color:
-                                                    AppTheme.secondaryText(brightness),
-                                                fontWeight: FontWeight.w700,
+                                                color: AppTheme
+                                                    .secondaryText(
+                                                  brightness,
+                                                ),
+                                                fontWeight:
+                                                    FontWeight.w700,
                                               ),
                                             ),
                                             trailing: IconButton(
-                                              tooltip: 'Copy short id',
+                                              tooltip:
+                                                  'Copy short id',
                                               icon: Icon(
                                                 Icons.copy,
-                                                color: AppTheme.secondaryText(
+                                                color: AppTheme
+                                                    .secondaryText(
                                                   brightness,
                                                 ),
                                                 size: 18,
                                               ),
-                                              onPressed: shortUserId.isEmpty
-                                                  ? null
-                                                  : () async {
-                                                      await Clipboard.setData(
-                                                        ClipboardData(
-                                                          text: shortUserId,
-                                                        ),
-                                                      );
-                                                      if (!context.mounted) {
-                                                        return;
-                                                      }
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                        SnackBar(
-                                                          content: Text(
-                                                            'Copied: $shortUserId',
-                                                          ),
-                                                        ),
-                                                      );
-                                                    },
+                                              onPressed:
+                                                  shortUserId.isEmpty
+                                                      ? null
+                                                      : () async {
+                                                          await Clipboard
+                                                              .setData(
+                                                            ClipboardData(
+                                                              text:
+                                                                  shortUserId,
+                                                            ),
+                                                          );
+                                                          if (!context
+                                                              .mounted) {
+                                                            return;
+                                                          }
+                                                          ScaffoldMessenger
+                                                              .of(context)
+                                                              .showSnackBar(
+                                                            SnackBar(
+                                                              content:
+                                                                  Text(
+                                                                'Copied: $shortUserId',
+                                                              ),
+                                                            ),
+                                                          );
+                                                        },
                                             ),
                                           );
                                         },
@@ -855,7 +1028,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _openDesktopScanner(BuildContext context) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final uid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
       if (context.mounted) context.go('/login');
       return;
@@ -865,7 +1039,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (!context.mounted) return;
       _snack(
         context,
-        'Need to link your desktop? Visit esportlyic.web.app on your computer and scan the displayed QR code.',
+        'Need to link your desktop? Visit esportlyic.web.app on '
+        'your computer and scan the displayed QR code.',
       );
       return;
     }
@@ -874,7 +1049,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     context.push('/leagues/join-scanner');
   }
 
-  String _readProfileImageUrl(UserProfile? profile, User? authUser) {
+  String _readProfileImageUrl(
+    UserProfile? profile,
+    User? authUser,
+  ) {
     String url = '';
     try {
       final dyn = profile as dynamic;
@@ -901,32 +1079,119 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return url;
   }
 
-  Widget _verificationBadge(BuildContext context, UserProfile? profile) {
+  // ── Badge display ─────────────────────────────────────────────────────────
+
+  /// Builds all active verification badge icons for the profile header.
+  ///
+  /// Priority order (left to right):
+  ///   1. Staff / Ambassador badge  (purple shield)
+  ///   2. Gold Organizer badge      (amber verified)
+  ///   3. Green Verified badge      (green verified)
+  ///   4. Legacy isVerified flag    (blue verified — backward compat)
+  ///   5. Verification pending      (amber outlined)
+  ///
+  /// All icons are shown inline next to the username exactly as before.
+  /// No layout is changed — we only extend the icon list.
+  Widget _verificationBadge(
+    BuildContext context,
+    UserProfile? profile,
+  ) {
     if (profile == null) return const SizedBox.shrink();
 
-    if (profile.verifiedActive) {
-      return const Tooltip(
-        message: 'Verified account',
-        child: Icon(
-          Icons.verified_rounded,
-          size: 18,
-          color: Color(0xFF1D9BF0),
+    final badges = profile.verificationBadges;
+    final icons = <Widget>[];
+
+    // 1. Staff / Ambassador badge
+    if (badges.isStaffActive) {
+      icons.add(
+        const Tooltip(
+          message: 'Staff / Ambassador',
+          child: Padding(
+            padding: EdgeInsets.only(left: 4),
+            child: Icon(
+              Icons.shield_rounded,
+              size: 18,
+              color: Color(0xFF7C3AED), // deep purple
+            ),
+          ),
         ),
       );
     }
 
-    if (profile.verificationPending) {
-      return const Tooltip(
-        message: 'Verification pending',
-        child: Icon(
-          Icons.verified_outlined,
-          size: 18,
-          color: Color(0xFFF59E0B),
+    // 2. Gold Organizer badge
+    if (badges.isOrganizerActive) {
+      icons.add(
+        const Tooltip(
+          message: 'Official Tournament Organizer',
+          child: Padding(
+            padding: EdgeInsets.only(left: 4),
+            child: Icon(
+              Icons.verified_rounded,
+              size: 18,
+              color: Color(0xFFFFB300), // amber / gold
+            ),
+          ),
         ),
       );
     }
 
-    return const SizedBox.shrink();
+    // 3. Green verified badge (from new badge system)
+    if (badges.isGreenActive) {
+      icons.add(
+        const Tooltip(
+          message: 'Verified User',
+          child: Padding(
+            padding: EdgeInsets.only(left: 4),
+            child: Icon(
+              Icons.verified_rounded,
+              size: 18,
+              color: Color(0xFF00C853), // app green accent
+            ),
+          ),
+        ),
+      );
+    } else if (!badges.isGreenActive &&
+        badges.greenSource == null) {
+      // 4. Legacy isVerified fallback (backward compatibility
+      //    for users verified before the new badge system).
+      if (profile.verifiedActive) {
+        icons.add(
+          const Tooltip(
+            message: 'Verified account',
+            child: Padding(
+              padding: EdgeInsets.only(left: 4),
+              child: Icon(
+                Icons.verified_rounded,
+                size: 18,
+                color: Color(0xFF1D9BF0), // legacy blue
+              ),
+            ),
+          ),
+        );
+      } else if (profile.verificationPending) {
+        // 5. Pending verification
+        icons.add(
+          const Tooltip(
+            message: 'Verification pending',
+            child: Padding(
+              padding: EdgeInsets.only(left: 4),
+              child: Icon(
+                Icons.verified_outlined,
+                size: 18,
+                color: Color(0xFFF59E0B), // amber
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    if (icons.isEmpty) return const SizedBox.shrink();
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: icons,
+    );
   }
 
   @override
@@ -949,7 +1214,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final themeState = ref.watch(themeControllerProvider);
 
-    final isPricingAdmin = AppAdminsService.instance.isPricingAdminUid(uid);
+    final isPricingAdmin =
+        AppAdminsService.instance.isPricingAdminUid(uid);
 
     final repo = UserProfileRepository();
 
@@ -966,7 +1232,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               physics: const BouncingScrollPhysics(
                 parent: AlwaysScrollableScrollPhysics(),
               ),
-              padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 110),
+              padding: const EdgeInsetsDirectional.fromSTEB(
+                16,
+                12,
+                16,
+                110,
+              ),
               children: [
                 const SizedBox(height: 8),
                 Glass(
@@ -981,28 +1252,32 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     builder: (context, snap) {
                       final profile = snap.data;
 
-                      final teamName =
-                          (profile != null && profile.teamName.trim().isNotEmpty)
-                              ? profile.teamName.trim()
-                              : (user?.displayName ??
-                                  l10n.tr('profile_team_placeholder'));
+                      final teamName = (profile != null &&
+                              profile.teamName.trim().isNotEmpty)
+                          ? profile.teamName.trim()
+                          : (user?.displayName ??
+                              l10n.tr(
+                                  'profile_team_placeholder'));
 
                       final shortUserId = (profile != null)
                           ? profile.effectiveShareId
                           : (uid.isEmpty
                               ? ''
-                              : UserProfile.deriveShareIdFromUid(uid));
+                              : UserProfile
+                                  .deriveShareIdFromUid(uid));
 
-                      final rawAvatarUrl = _readProfileImageUrl(profile, user);
-                      final avatarUrl = rawAvatarUrl.isNotEmpty &&
-                              _looksLikeHttpUrl(rawAvatarUrl)
-                          ? _cloudinaryOptimizedUrl(
-                              rawAvatarUrl,
-                              width: 256,
-                              height: 256,
-                              crop: 'fill',
-                            )
-                          : rawAvatarUrl;
+                      final rawAvatarUrl =
+                          _readProfileImageUrl(profile, user);
+                      final avatarUrl =
+                          rawAvatarUrl.isNotEmpty &&
+                                  _looksLikeHttpUrl(rawAvatarUrl)
+                              ? _cloudinaryOptimizedUrl(
+                                  rawAvatarUrl,
+                                  width: 256,
+                                  height: 256,
+                                  crop: 'fill',
+                                )
+                              : rawAvatarUrl;
 
                       return Column(
                         children: [
@@ -1011,58 +1286,76 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               Container(
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  boxShadow: AppTheme.fabGlow(brightness),
+                                  boxShadow:
+                                      AppTheme.fabGlow(brightness),
                                 ),
                                 child: Stack(
                                   alignment: Alignment.center,
                                   children: [
                                     InkWell(
-                                      borderRadius: BorderRadius.circular(999),
+                                      borderRadius:
+                                          BorderRadius.circular(
+                                              999),
                                       onTap: uid.isEmpty
                                           ? null
-                                          : () => _pickAndUploadAvatar(context),
+                                          : () =>
+                                              _pickAndUploadAvatar(
+                                                  context),
                                       onLongPress: uid.isEmpty
                                           ? null
-                                          : () => _clearAvatar(context),
+                                          : () =>
+                                              _clearAvatar(context),
                                       child: CircleAvatar(
                                         radius: 34,
-                                        backgroundColor:
-                                            AppTheme.iconCircleBackground(
+                                        backgroundColor: AppTheme
+                                            .iconCircleBackground(
                                                 brightness),
                                         child: ClipOval(
                                           child: SizedBox(
                                             width: 68,
                                             height: 68,
-                                            child: (avatarUrl.trim().isNotEmpty &&
-                                                    _looksLikeHttpUrl(avatarUrl))
+                                            child: (avatarUrl
+                                                        .trim()
+                                                        .isNotEmpty &&
+                                                    _looksLikeHttpUrl(
+                                                        avatarUrl))
                                                 ? Image.network(
                                                     avatarUrl,
-                                                    fit: BoxFit.cover,
-                                                    gaplessPlayback: true,
+                                                    fit: BoxFit
+                                                        .cover,
+                                                    gaplessPlayback:
+                                                        true,
                                                     filterQuality:
-                                                        FilterQuality.low,
+                                                        FilterQuality
+                                                            .low,
                                                     errorBuilder:
                                                         (_, __, ___) =>
                                                             const Icon(
                                                       Icons.person,
-                                                      color: AppTheme.darkText,
+                                                      color: AppTheme
+                                                          .darkText,
                                                       size: 30,
                                                     ),
-                                                    loadingBuilder: (context,
-                                                        child, event) {
-                                                      if (event == null) {
+                                                    loadingBuilder:
+                                                        (context,
+                                                            child,
+                                                            event) {
+                                                      if (event ==
+                                                          null) {
                                                         return child;
                                                       }
                                                       return const Icon(
                                                         Icons.person,
-                                                        color: AppTheme.darkText,
+                                                        color: AppTheme
+                                                            .darkText,
                                                         size: 30,
                                                       );
                                                     },
                                                   )
                                                 : const Icon(
                                                     Icons.person,
-                                                    color: AppTheme.darkText,
+                                                    color: AppTheme
+                                                        .darkText,
                                                     size: 30,
                                                   ),
                                           ),
@@ -1073,14 +1366,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       const Positioned.fill(
                                         child: DecoratedBox(
                                           decoration: BoxDecoration(
-                                            color: Color(0x66000000),
+                                            color:
+                                                Color(0x66000000),
                                             shape: BoxShape.circle,
                                           ),
                                           child: Center(
                                             child: SizedBox(
                                               width: 18,
                                               height: 18,
-                                              child: CircularProgressIndicator(
+                                              child:
+                                                  CircularProgressIndicator(
                                                 strokeWidth: 2,
                                                 color: Colors.white,
                                               ),
@@ -1094,38 +1389,54 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               const SizedBox(width: 16),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                   children: [
                                     Row(
                                       children: [
                                         Expanded(
                                           child: AnimatedSwitcher(
-                                            duration: const Duration(
+                                            duration:
+                                                const Duration(
                                               milliseconds: 200,
                                             ),
                                             child: Row(
+                                              // Key includes badge
+                                              // state so AnimatedSwitcher
+                                              // re-animates when badges
+                                              // change.
                                               key: ValueKey(
-                                                '${teamName}_${profile?.isVerified}_${profile?.verificationStatus}',
+                                                '${teamName}_'
+                                                '${profile?.isVerified}_'
+                                                '${profile?.verificationStatus}_'
+                                                '${profile?.verificationBadges.isGreenActive}_'
+                                                '${profile?.verificationBadges.isOrganizerActive}_'
+                                                '${profile?.verificationBadges.isStaffActive}',
                                               ),
-                                              mainAxisSize: MainAxisSize.min,
+                                              mainAxisSize:
+                                                  MainAxisSize.min,
                                               children: [
                                                 Flexible(
                                                   child: Text(
                                                     teamName,
-                                                    style: t.titleLarge?.copyWith(
+                                                    style: t.titleLarge
+                                                        ?.copyWith(
                                                       fontWeight:
-                                                          FontWeight.w900,
+                                                          FontWeight
+                                                              .w900,
                                                       fontSize: 20,
-                                                      letterSpacing: -0.3,
-                                                      color: AppTheme.primaryText(
+                                                      letterSpacing:
+                                                          -0.3,
+                                                      color: AppTheme
+                                                          .primaryText(
                                                         brightness,
                                                       ),
                                                     ),
                                                     overflow:
-                                                        TextOverflow.ellipsis,
+                                                        TextOverflow
+                                                            .ellipsis,
                                                   ),
                                                 ),
-                                                const SizedBox(width: 6),
                                                 _verificationBadge(
                                                   context,
                                                   profile,
@@ -1146,12 +1457,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                           onPressed: uid.isEmpty
                                               ? null
                                               : () {
-                                                  HapticFeedback.selectionClick();
+                                                  HapticFeedback
+                                                      .selectionClick();
                                                   _editTeamName(
                                                     context,
                                                     userId: uid,
-                                                    current:
-                                                        profile?.teamName ?? '',
+                                                    current: profile
+                                                            ?.teamName ??
+                                                        '',
                                                   );
                                                 },
                                         ),
@@ -1175,25 +1488,34 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                 : shortUserId,
                                             style: TextStyle(
                                               color: muted,
-                                              fontWeight: FontWeight.w700,
+                                              fontWeight:
+                                                  FontWeight.w700,
                                               fontSize: 12,
                                             ),
-                                            overflow: TextOverflow.ellipsis,
+                                            overflow:
+                                                TextOverflow.ellipsis,
                                           ),
                                         ),
                                         InkWell(
                                           borderRadius:
-                                              BorderRadius.circular(10),
+                                              BorderRadius.circular(
+                                                  10),
                                           onTap: uid.isEmpty
                                               ? null
                                               : () async {
-                                                  HapticFeedback.lightImpact();
-                                                  await Clipboard.setData(
+                                                  HapticFeedback
+                                                      .lightImpact();
+                                                  await Clipboard
+                                                      .setData(
                                                     ClipboardData(
-                                                      text: shortUserId,
+                                                      text:
+                                                          shortUserId,
                                                     ),
                                                   );
-                                                  if (!context.mounted) return;
+                                                  if (!context
+                                                      .mounted) {
+                                                    return;
+                                                  }
                                                   _snack(
                                                     context,
                                                     l10n.tr(
@@ -1202,7 +1524,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   );
                                                 },
                                           child: Padding(
-                                            padding: const EdgeInsets.all(6),
+                                            padding:
+                                                const EdgeInsets.all(
+                                                    6),
                                             child: Icon(
                                               Icons.copy_rounded,
                                               size: 16,
@@ -1218,22 +1542,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          Divider(color: AppTheme.cardBorder(brightness), height: 1),
+                          Divider(
+                            color: AppTheme.cardBorder(brightness),
+                            height: 1,
+                          ),
                           const SizedBox(height: 14),
                           Row(
                             children: [
                               Expanded(
                                 child: _ProfileActionChip(
-                                  icon: themeState.mode == ThemeMode.dark
+                                  icon: themeState.mode ==
+                                          ThemeMode.dark
                                       ? Icons.light_mode_rounded
                                       : Icons.dark_mode_rounded,
-                                  label: themeState.mode == ThemeMode.dark
+                                  label: themeState.mode ==
+                                          ThemeMode.dark
                                       ? 'Light'
                                       : 'Dark',
                                   onTap: () {
                                     HapticFeedback.selectionClick();
                                     ref
-                                        .read(themeControllerProvider.notifier)
+                                        .read(themeControllerProvider
+                                            .notifier)
                                         .toggleTheme();
                                   },
                                 ),
@@ -1243,7 +1573,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 child: _ProfileActionChip(
                                   icon: Icons.settings_rounded,
                                   label: 'Settings',
-                                  onTap: () => context.push('/settings'),
+                                  onTap: () =>
+                                      context.push('/settings'),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -1253,7 +1584,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   label: 'Logout',
                                   isDestructive: true,
                                   onTap: () async {
-                                    final ok = await _confirmLogout(context);
+                                    final ok =
+                                        await _confirmLogout(
+                                            context);
                                     if (!ok) return;
                                     try {
                                       await AuthService().signOut();
@@ -1261,10 +1594,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       if (context.mounted) {
                                         _snack(
                                           context,
-                                          UserFriendlyError.toMessage(
+                                          UserFriendlyError
+                                              .toMessage(
                                             e is Object
                                                 ? e
-                                                : Exception('unknown'),
+                                                : Exception(
+                                                    'unknown'),
                                           ),
                                         );
                                       }
@@ -1294,7 +1629,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     icon: Icons.qr_code_scanner_rounded,
                     title: 'Link Desktop Web',
                     subtitle:
-                        'Open the mobile QR scanner to pair with eSportlyic Web.',
+                        'Open the mobile QR scanner to pair with '
+                        'eSportlyic Web.',
                     onTap: () => _openDesktopScanner(context),
                   ),
                 ),
@@ -1317,14 +1653,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       children: [
                         Icon(
                           Icons.lock_outline_rounded,
-                          color: AppTheme.secondaryText(brightness),
+                          color:
+                              AppTheme.secondaryText(brightness),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             'Sign in to view your coupons.',
                             style: TextStyle(
-                              color: AppTheme.secondaryText(brightness),
+                              color:
+                                  AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -1338,7 +1676,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     padding: const EdgeInsets.all(14),
                     fill: AppTheme.cardColor(brightness),
                     borderColor: AppTheme.cardBorder(brightness),
-                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    child: StreamBuilder<
+                        QuerySnapshot<Map<String, dynamic>>>(
                       stream: FirebaseFirestore.instance
                           .collection('leagues')
                           .where('organizerUid', isEqualTo: uid)
@@ -1347,9 +1686,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       builder: (context, snap) {
                         if (snap.hasError) {
                           return Text(
-                            UserFriendlyError.toMessage(snap.error as Object),
+                            UserFriendlyError.toMessage(
+                                snap.error as Object),
                             style: t.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.error,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .error,
                               fontWeight: FontWeight.w700,
                             ),
                           );
@@ -1364,13 +1706,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         }
 
                         final leagues = snap.data!.docs
-                            .map((d) => <String, dynamic>{...d.data(), 'id': d.id})
+                            .map((d) => <String, dynamic>{
+                                  ...d.data(),
+                                  'id': d.id,
+                                })
                             .where((m) {
-                              final enabled = (m['couponsEnabled'] == true ||
-                                  m['couponsEnabled'] == 1);
+                              final enabled =
+                                  (m['couponsEnabled'] == true ||
+                                      m['couponsEnabled'] == 1);
                               if (!enabled) return false;
                               final dp =
-                                  (m['couponDiscountPercent'] as num?)?.toInt() ??
+                                  (m['couponDiscountPercent']
+                                              as num?)
+                                          ?.toInt() ??
                                       0;
                               return dp >= 0;
                             })
@@ -1380,15 +1728,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           return Row(
                             children: [
                               Icon(
-                                Icons.confirmation_number_outlined,
-                                color: AppTheme.secondaryText(brightness),
+                                Icons
+                                    .confirmation_number_outlined,
+                                color: AppTheme.secondaryText(
+                                    brightness),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'No coupons found. Enable coupons during league creation payment.',
+                                  'No coupons found. Enable coupons '
+                                  'during league creation payment.',
                                   style: TextStyle(
-                                    color: AppTheme.secondaryText(brightness),
+                                    color:
+                                        AppTheme.secondaryText(
+                                            brightness),
                                     fontWeight: FontWeight.w600,
                                     height: 1.35,
                                   ),
@@ -1402,19 +1755,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           children: [
                             for (final m in leagues) ...[
                               _OrganizerLeagueCouponsTile(
-                                leagueName: (m['name'] as String?) ?? 'League',
+                                leagueName: (m['name']
+                                        as String?) ??
+                                    'League',
                                 subtitle: _couponLeagueSubtitle(
                                   enabled: true,
                                   discountPercent:
-                                      ((m['couponDiscountPercent'] as num?)
+                                      ((m['couponDiscountPercent']
+                                                  as num?)
                                               ?.toInt() ??
                                           0),
                                 ),
-                                onView: () => _showCouponConfigSheet(
+                                onView: () =>
+                                    _showCouponConfigSheet(
                                   context,
-                                  leagueId: (m['id'] as String?) ?? '',
-                                  leagueName:
-                                      (m['name'] as String?) ?? 'League',
+                                  leagueId: (m['id']
+                                          as String?) ??
+                                      '',
+                                  leagueName: (m['name']
+                                          as String?) ??
+                                      'League',
                                 ),
                               ),
                               const SizedBox(height: 10),
@@ -1438,41 +1798,56 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         icon: Icons.privacy_tip_outlined,
                         title: 'Privacy Policy',
                         subtitle:
-                            'How we collect, use, and protect information.',
+                            'How we collect, use, and protect '
+                            'information.',
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => const PrivacyPolicyScreen(),
+                            builder: (_) =>
+                                const PrivacyPolicyScreen(),
                           ),
                         ),
                       ),
-                      Divider(color: AppTheme.cardBorder(brightness), height: 1),
+                      Divider(
+                        color: AppTheme.cardBorder(brightness),
+                        height: 1,
+                      ),
                       _LegalNavRow(
                         icon: Icons.article_outlined,
                         title: 'Terms of Service',
-                        subtitle: 'Rules and conditions for using the app.',
+                        subtitle:
+                            'Rules and conditions for using the app.',
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => const TermsOfServiceScreen(),
+                            builder: (_) =>
+                                const TermsOfServiceScreen(),
                           ),
                         ),
                       ),
-                      Divider(color: AppTheme.cardBorder(brightness), height: 1),
+                      Divider(
+                        color: AppTheme.cardBorder(brightness),
+                        height: 1,
+                      ),
                       _LegalNavRow(
                         icon: Icons.support_agent_outlined,
                         title: 'Contact',
-                        subtitle: 'Get help or report an issue.',
+                        subtitle:
+                            'Get help or report an issue.',
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) => const ContactScreen(),
                           ),
                         ),
                       ),
-                      Divider(color: AppTheme.cardBorder(brightness), height: 1),
+                      Divider(
+                        color: AppTheme.cardBorder(brightness),
+                        height: 1,
+                      ),
                       _LegalNavRow(
                         icon: Icons.link_outlined,
                         title: 'Affiliate Disclosure',
                         subtitle:
-                            'How affiliate links work in the marketplace.',
+                            'How affiliate links work in the '
+                            'marketplace.',
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) =>
@@ -1496,9 +1871,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       children: [
                         if (isSuperAdmin) ...[
                           _AdminRow(
-                            icon: Icons.store_mall_directory_rounded,
+                            icon: Icons
+                                .store_mall_directory_rounded,
                             title: 'Marketplace Upload',
-                            onTap: () => Navigator.of(context).push(
+                            onTap: () =>
+                                Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) =>
                                     const AdminMarketplaceUploadScreen(),
@@ -1507,7 +1884,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                           if (isPricingAdmin)
                             Divider(
-                              color: AppTheme.cardBorder(brightness),
+                              color:
+                                  AppTheme.cardBorder(brightness),
                               height: 1,
                             ),
                         ],
@@ -1515,16 +1893,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           _AdminRow(
                             icon: Icons.price_change_rounded,
                             title: 'Pricing (Quick Editor)',
-                            onTap: () => showPricingQuickEditorSheet(context),
-                          ),
-                          Divider(color: AppTheme.cardBorder(brightness), height: 1),
-                          _AdminRow(
-                            icon: Icons.admin_panel_settings_rounded,
-                            title: 'Pricing Admin',
                             onTap: () =>
-                                GoRouter.of(context).push('/admin/pricing'),
+                                showPricingQuickEditorSheet(
+                                    context),
                           ),
-                          Divider(color: AppTheme.cardBorder(brightness), height: 1),
+                          Divider(
+                            color: AppTheme.cardBorder(brightness),
+                            height: 1,
+                          ),
+                          _AdminRow(
+                            icon: Icons
+                                .admin_panel_settings_rounded,
+                            title: 'Pricing Admin',
+                            onTap: () => GoRouter.of(context)
+                                .push('/admin/pricing'),
+                          ),
+                          Divider(
+                            color: AppTheme.cardBorder(brightness),
+                            height: 1,
+                          ),
                           _AdminRow(
                             icon: Icons.group_add_rounded,
                             title: 'Manage Pricing Admins',
@@ -1607,8 +1994,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       builder: (ctx) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 24,
+          ),
           child: Glass(
             borderRadius: 26,
             padding: const EdgeInsets.all(20),
@@ -1625,10 +2014,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: Colors.amber.withOpacity(0.14),
-                          borderRadius: BorderRadius.circular(14),
+                          color:
+                              Colors.amber.withOpacity(0.14),
+                          borderRadius:
+                              BorderRadius.circular(14),
                           border: Border.all(
-                            color: Colors.amber.withOpacity(0.35),
+                            color:
+                                Colors.amber.withOpacity(0.35),
                           ),
                         ),
                         child: const Icon(
@@ -1640,19 +2032,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       const SizedBox(width: 14),
                       Expanded(
                         child: Text(
-                          l10n.tr('profile_logout_dialog_title'),
+                          l10n.tr(
+                              'profile_logout_dialog_title'),
                           style: t.titleLarge?.copyWith(
-                            color: AppTheme.primaryText(brightness),
+                            color:
+                                AppTheme.primaryText(brightness),
                             fontWeight: FontWeight.w900,
                             fontSize: 20,
                           ),
                         ),
                       ),
                       IconButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
+                        onPressed: () =>
+                            Navigator.of(ctx).pop(false),
                         icon: Icon(
                           Icons.close,
-                          color: AppTheme.secondaryText(brightness),
+                          color:
+                              AppTheme.secondaryText(brightness),
                         ),
                       ),
                     ],
@@ -1661,9 +2057,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   Align(
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
-                      l10n.tr('profile_logout_dialog_message'),
+                      l10n.tr(
+                          'profile_logout_dialog_message'),
                       style: TextStyle(
-                        color: AppTheme.secondaryText(brightness),
+                        color:
+                            AppTheme.secondaryText(brightness),
                         height: 1.4,
                       ),
                     ),
@@ -1674,26 +2072,37 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.primaryText(brightness),
+                            foregroundColor:
+                                AppTheme.primaryText(brightness),
                             side: BorderSide(
-                              color: AppTheme.cardBorder(brightness),
+                              color:
+                                  AppTheme.cardBorder(brightness),
                             ),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding:
+                                const EdgeInsets.symmetric(
+                                    vertical: 12),
                           ),
-                          onPressed: () => Navigator.of(ctx).pop(false),
-                          child: Text(l10n.tr('common_cancel')),
+                          onPressed: () =>
+                              Navigator.of(ctx).pop(false),
+                          child: Text(
+                              l10n.tr('common_cancel')),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFFE53935),
+                            backgroundColor:
+                                const Color(0xFFE53935),
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding:
+                                const EdgeInsets.symmetric(
+                                    vertical: 12),
                           ),
-                          onPressed: () => Navigator.of(ctx).pop(true),
-                          child: Text(l10n.tr('profile_logout_button')),
+                          onPressed: () =>
+                              Navigator.of(ctx).pop(true),
+                          child: Text(l10n.tr(
+                              'profile_logout_button')),
                         ),
                       ),
                     ],
@@ -1727,15 +2136,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
           return Dialog(
             backgroundColor: Colors.transparent,
-            insetPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 24,
+            ),
             child: Glass(
               borderRadius: 26,
               padding: const EdgeInsets.all(18),
               fill: AppTheme.cardColor(brightness),
               borderColor: AppTheme.cardBorder(brightness),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
+                constraints:
+                    const BoxConstraints(maxWidth: 480),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1745,10 +2157,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            color: AppTheme.iconCircleBackground(brightness),
+                            borderRadius:
+                                BorderRadius.circular(14),
+                            color: AppTheme.iconCircleBackground(
+                                brightness),
                             border: Border.all(
-                              color: AppTheme.cardBorder(brightness),
+                              color:
+                                  AppTheme.cardBorder(brightness),
                             ),
                           ),
                           child: Icon(
@@ -1759,18 +2174,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(width: 14),
                         Expanded(
                           child: Text(
-                            l10n.tr('profile_edit_team_dialog_title'),
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: AppTheme.primaryText(brightness),
+                            l10n.tr(
+                              'profile_edit_team_dialog_title',
+                            ),
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(
+                              color: AppTheme.primaryText(
+                                  brightness),
                               fontWeight: FontWeight.w900,
                             ),
                           ),
                         ),
                         IconButton(
-                          onPressed: () => Navigator.of(ctx).pop(null),
+                          onPressed: () =>
+                              Navigator.of(ctx).pop(null),
                           icon: Icon(
                             Icons.close,
-                            color: AppTheme.secondaryText(brightness),
+                            color: AppTheme.secondaryText(
+                                brightness),
                           ),
                         ),
                       ],
@@ -1784,9 +2205,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         fontWeight: FontWeight.w700,
                       ),
                       decoration: InputDecoration(
-                        hintText: l10n.tr('profile_team_name_hint'),
+                        hintText: l10n.tr(
+                            'profile_team_name_hint'),
                         hintStyle: TextStyle(
-                          color: AppTheme.secondaryText(brightness),
+                          color: AppTheme.secondaryText(
+                              brightness),
                         ),
                       ),
                     ),
@@ -1795,20 +2218,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => Navigator.of(ctx).pop(null),
-                            child: Text(l10n.tr('common_cancel')),
+                            onPressed: () =>
+                                Navigator.of(ctx).pop(null),
+                            child: Text(
+                                l10n.tr('common_cancel')),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton(
                             style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.limeAccent,
-                              foregroundColor: AppTheme.darkText,
+                              backgroundColor:
+                                  AppTheme.limeAccent,
+                              foregroundColor:
+                                  AppTheme.darkText,
                             ),
                             onPressed: () =>
-                                Navigator.of(ctx).pop(controller.text.trim()),
-                            child: Text(l10n.tr('common_save')),
+                                Navigator.of(ctx).pop(
+                                    controller.text.trim()),
+                            child:
+                                Text(l10n.tr('common_save')),
                           ),
                         ),
                       ],
@@ -1828,12 +2257,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       try {
         await ConnectivityService.instance
             .requireOnline(timeout: const Duration(seconds: 4));
-        await repo.updateTeamName(userId: userId, teamName: cleaned);
+        await repo.updateTeamName(
+            userId: userId, teamName: cleaned);
       } catch (e) {
         if (context.mounted) {
           _snack(
             context,
-            UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+            UserFriendlyError.toMessage(
+              e is Object ? e : Exception('unknown'),
+            ),
           );
         }
         return;
@@ -1841,13 +2273,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.tr('profile_team_name_updated'))),
+        SnackBar(
+          content: Text(
+              l10n.tr('profile_team_name_updated')),
+        ),
       );
     } finally {
       controller.dispose();
     }
   }
 }
+
+// ── Supporting widgets ────────────────────────────────────────────────────────
+// All widgets below are UNCHANGED from the original file.
 
 class _SuperAdminRewardsPanel extends StatefulWidget {
   const _SuperAdminRewardsPanel({
@@ -1861,34 +2299,48 @@ class _SuperAdminRewardsPanel extends StatefulWidget {
       _SuperAdminRewardsPanelState();
 }
 
-class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
-  final RewardFirestoreService _rewardsService = RewardFirestoreService();
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+class _SuperAdminRewardsPanelState
+    extends State<_SuperAdminRewardsPanel> {
+  final RewardFirestoreService _rewardsService =
+      RewardFirestoreService();
+  final FirebaseFirestore _firestore =
+      FirebaseFirestore.instance;
 
   static const int _limit = 40;
 
-  final Map<String, Future<_LeagueProgressStatus>> _statusFutures =
+  final Map<String, Future<_LeagueProgressStatus>>
+      _statusFutures =
       <String, Future<_LeagueProgressStatus>>{};
 
-  Future<_LeagueProgressStatus> _statusFuture(String leagueId) {
+  Future<_LeagueProgressStatus> _statusFuture(
+      String leagueId) {
     return _statusFutures.putIfAbsent(
       leagueId,
       () => _fetchLeagueProgress(leagueId),
     );
   }
 
-  Future<_LeagueProgressStatus> _fetchLeagueProgress(String leagueId) async {
+  Future<_LeagueProgressStatus> _fetchLeagueProgress(
+      String leagueId) async {
     try {
-      final matchesCol =
-          _firestore.collection('leagues').doc(leagueId).collection('matches');
+      final matchesCol = _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('matches');
 
       final any = await matchesCol.limit(1).get();
-      if (any.docs.isEmpty) return _LeagueProgressStatus.notStarted;
+      if (any.docs.isEmpty) {
+        return _LeagueProgressStatus.notStarted;
+      }
 
       try {
-        final unplayed =
-            await matchesCol.where('isPlayed', isEqualTo: false).limit(1).get();
-        if (unplayed.docs.isNotEmpty) return _LeagueProgressStatus.inProgress;
+        final unplayed = await matchesCol
+            .where('isPlayed', isEqualTo: false)
+            .limit(1)
+            .get();
+        if (unplayed.docs.isNotEmpty) {
+          return _LeagueProgressStatus.inProgress;
+        }
         return _LeagueProgressStatus.finished;
       } catch (_) {
         return _LeagueProgressStatus.unknown;
@@ -1910,7 +2362,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
     return s.trim().isEmpty ? fallback : s.trim();
   }
 
-  int? _scoreFromMap(Map<String, dynamic> m, List<String> keys) {
+  int? _scoreFromMap(
+      Map<String, dynamic> m, List<String> keys) {
     for (final k in keys) {
       if (!m.containsKey(k)) continue;
       final v = m[k];
@@ -1925,7 +2378,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
   }
 
   bool _isPlayedFromMap(Map<String, dynamic> m) {
-    final v = m['isPlayed'] ?? m['played'] ?? m['isComplete'] ?? m['completed'];
+    final v = m['isPlayed'] ??
+        m['played'] ??
+        m['isComplete'] ??
+        m['completed'];
     if (v is bool) return v;
     if (v is int) return v == 1;
     if (v is String) {
@@ -1936,7 +2392,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
     return false;
   }
 
-  Future<_WinnerResult?> _computeWinner(String leagueId) async {
+  Future<_WinnerResult?> _computeWinner(
+      String leagueId) async {
     final teamsSnap = await _firestore
         .collection('leagues')
         .doc(leagueId)
@@ -1964,7 +2421,10 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
 
     final stats = <String, _TeamStats>{
       for (final id in teamNames.keys)
-        id: _TeamStats(teamId: id, teamName: teamNames[id] ?? id),
+        id: _TeamStats(
+          teamId: id,
+          teamName: teamNames[id] ?? id,
+        ),
     };
 
     bool anyPlayed = false;
@@ -1972,36 +2432,56 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
     for (final md in matchesSnap.docs) {
       final m = md.data();
 
-      final homeId =
-          _stringFrom(m['homeTeamId'] ?? m['homeId'] ?? m['homeTeam'] ?? '');
-      final awayId =
-          _stringFrom(m['awayTeamId'] ?? m['awayId'] ?? m['awayTeam'] ?? '');
+      final homeId = _stringFrom(
+        m['homeTeamId'] ??
+            m['homeId'] ??
+            m['homeTeam'] ??
+            '',
+      );
+      final awayId = _stringFrom(
+        m['awayTeamId'] ??
+            m['awayId'] ??
+            m['awayTeam'] ??
+            '',
+      );
 
       if (homeId.isEmpty || awayId.isEmpty) continue;
 
       final played = _isPlayedFromMap(m);
       if (!played) continue;
 
-      final hs = _scoreFromMap(
-        m,
-        const ['homeScore', 'homeGoals', 'homeTeamScore', 'scoreHome', 'home'],
-      );
-      final as = _scoreFromMap(
-        m,
-        const ['awayScore', 'awayGoals', 'awayTeamScore', 'scoreAway', 'away'],
-      );
+      final hs = _scoreFromMap(m, const [
+        'homeScore',
+        'homeGoals',
+        'homeTeamScore',
+        'scoreHome',
+        'home',
+      ]);
+      final as_ = _scoreFromMap(m, const [
+        'awayScore',
+        'awayGoals',
+        'awayTeamScore',
+        'scoreAway',
+        'away',
+      ]);
 
-      if (hs == null || as == null) continue;
+      if (hs == null || as_ == null) continue;
 
       anyPlayed = true;
 
       stats.putIfAbsent(
         homeId,
-        () => _TeamStats(teamId: homeId, teamName: teamNames[homeId] ?? homeId),
+        () => _TeamStats(
+          teamId: homeId,
+          teamName: teamNames[homeId] ?? homeId,
+        ),
       );
       stats.putIfAbsent(
         awayId,
-        () => _TeamStats(teamId: awayId, teamName: teamNames[awayId] ?? awayId),
+        () => _TeamStats(
+          teamId: awayId,
+          teamName: teamNames[awayId] ?? awayId,
+        ),
       );
 
       final home = stats[homeId]!;
@@ -2011,16 +2491,16 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
       away.played++;
 
       home.goalsFor += hs;
-      home.goalsAgainst += as;
+      home.goalsAgainst += as_;
 
-      away.goalsFor += as;
+      away.goalsFor += as_;
       away.goalsAgainst += hs;
 
-      if (hs > as) {
+      if (hs > as_) {
         home.points += 3;
         home.wins++;
         away.losses++;
-      } else if (hs < as) {
+      } else if (hs < as_) {
         away.points += 3;
         away.wins++;
         home.losses++;
@@ -2042,7 +2522,9 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
         if (gd != 0) return gd;
         final gf = b.goalsFor.compareTo(a.goalsFor);
         if (gf != 0) return gf;
-        return a.teamName.toLowerCase().compareTo(b.teamName.toLowerCase());
+        return a.teamName
+            .toLowerCase()
+            .compareTo(b.teamName.toLowerCase());
       });
 
     final top = rows.first;
@@ -2125,8 +2607,8 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                   statusFuture: _statusFuture(d.id),
                   onOpenLeague: () =>
                       GoRouter.of(context).push('/leagues/${d.id}'),
-                  onOpenStandings: () =>
-                      GoRouter.of(context).push('/leagues/${d.id}/standings'),
+                  onOpenStandings: () => GoRouter.of(context)
+                      .push('/leagues/${d.id}/standings'),
                   onComputeWinner: () async {
                     await showDialog<void>(
                       context: context,
@@ -2137,17 +2619,22 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
 
                         return Dialog(
                           backgroundColor: Colors.transparent,
-                          insetPadding: const EdgeInsets.symmetric(
+                          insetPadding:
+                              const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 24,
                           ),
                           child: Glass(
                             borderRadius: 24,
                             padding: const EdgeInsets.all(16),
-                            fill: AppTheme.cardColor(brightness),
-                            borderColor: AppTheme.cardBorder(brightness),
+                            fill:
+                                AppTheme.cardColor(brightness),
+                            borderColor:
+                                AppTheme.cardBorder(brightness),
                             child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 520),
+                              constraints: const BoxConstraints(
+                                maxWidth: 520,
+                              ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -2156,38 +2643,53 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                       Container(
                                         width: 42,
                                         height: 42,
-                                        decoration: BoxDecoration(
+                                        decoration:
+                                            BoxDecoration(
                                           borderRadius:
-                                              BorderRadius.circular(14),
-                                          color: AppTheme.iconCircleBackground(
+                                              BorderRadius
+                                                  .circular(14),
+                                          color: AppTheme
+                                              .iconCircleBackground(
                                             brightness,
                                           ),
                                           border: Border.all(
-                                            color: AppTheme.cardBorder(brightness),
+                                            color: AppTheme
+                                                .cardBorder(
+                                                    brightness),
                                           ),
                                         ),
                                         child: Icon(
-                                          Icons.emoji_events_outlined,
-                                          color: AppTheme.limeAccentDark,
+                                          Icons
+                                              .emoji_events_outlined,
+                                          color: AppTheme
+                                              .limeAccentDark,
                                         ),
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Text(
                                           'Compute Winner',
-                                          style: t.textTheme.titleMedium
+                                          style: t
+                                              .textTheme
+                                              .titleMedium
                                               ?.copyWith(
                                             color:
-                                                AppTheme.primaryText(brightness),
-                                            fontWeight: FontWeight.w900,
+                                                AppTheme.primaryText(
+                                              brightness,
+                                            ),
+                                            fontWeight:
+                                                FontWeight.w900,
                                           ),
                                         ),
                                       ),
                                       IconButton(
-                                        onPressed: () => Navigator.of(ctx).pop(),
+                                        onPressed: () =>
+                                            Navigator.of(ctx)
+                                                .pop(),
                                         icon: Icon(
                                           Icons.close,
-                                          color: AppTheme.secondaryText(
+                                          color: AppTheme
+                                              .secondaryText(
                                             brightness,
                                           ),
                                         ),
@@ -2196,12 +2698,15 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                   ),
                                   const SizedBox(height: 10),
                                   FutureBuilder<_WinnerResult?>(
-                                    future: _computeWinner(d.id),
+                                    future:
+                                        _computeWinner(d.id),
                                     builder: (context, ws) {
                                       if (ws.connectionState !=
                                           ConnectionState.done) {
                                         return Padding(
-                                          padding: const EdgeInsets.symmetric(
+                                          padding:
+                                              const EdgeInsets
+                                                  .symmetric(
                                             vertical: 18,
                                           ),
                                           child: Row(
@@ -2209,23 +2714,30 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                               SizedBox(
                                                 width: 18,
                                                 height: 18,
-                                                child: CircularProgressIndicator(
-                                                  strokeWidth: 2.4,
-                                                  color:
-                                                      AppTheme.limeAccentDark,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth:
+                                                      2.4,
+                                                  color: AppTheme
+                                                      .limeAccentDark,
                                                 ),
                                               ),
-                                              const SizedBox(width: 12),
+                                              const SizedBox(
+                                                  width: 12),
                                               Expanded(
                                                 child: Text(
                                                   'Computing from matches...',
-                                                  style: t.textTheme.bodyMedium
+                                                  style: t
+                                                      .textTheme
+                                                      .bodyMedium
                                                       ?.copyWith(
-                                                    color:
-                                                        AppTheme.secondaryText(
+                                                    color: AppTheme
+                                                        .secondaryText(
                                                       brightness,
                                                     ),
-                                                    fontWeight: FontWeight.w700,
+                                                    fontWeight:
+                                                        FontWeight
+                                                            .w700,
                                                   ),
                                                 ),
                                               ),
@@ -2238,33 +2750,53 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                       if (res == null) {
                                         return Column(
                                           crossAxisAlignment:
-                                              CrossAxisAlignment.stretch,
+                                              CrossAxisAlignment
+                                                  .stretch,
                                           children: [
                                             Text(
                                               'Winner unavailable',
-                                              style: t.textTheme.bodyMedium
+                                              style: t
+                                                  .textTheme
+                                                  .bodyMedium
                                                   ?.copyWith(
-                                                color:
-                                                    AppTheme.primaryText(brightness),
-                                                fontWeight: FontWeight.w900,
+                                                color: AppTheme
+                                                    .primaryText(
+                                                  brightness,
+                                                ),
+                                                fontWeight:
+                                                    FontWeight
+                                                        .w900,
                                               ),
                                             ),
-                                            const SizedBox(height: 6),
+                                            const SizedBox(
+                                                height: 6),
                                             Text(
-                                              'Not enough played matches or missing scores. Open Standings to confirm.',
-                                              style: t.textTheme.bodySmall
+                                              'Not enough played matches '
+                                              'or missing scores. Open '
+                                              'Standings to confirm.',
+                                              style: t
+                                                  .textTheme
+                                                  .bodySmall
                                                   ?.copyWith(
-                                                color:
-                                                    AppTheme.secondaryText(brightness),
-                                                fontWeight: FontWeight.w600,
+                                                color: AppTheme
+                                                    .secondaryText(
+                                                  brightness,
+                                                ),
+                                                fontWeight:
+                                                    FontWeight
+                                                        .w600,
                                                 height: 1.3,
                                               ),
                                             ),
-                                            const SizedBox(height: 12),
+                                            const SizedBox(
+                                                height: 12),
                                             FilledButton.tonal(
                                               onPressed: () {
-                                                Navigator.of(ctx).pop();
-                                                GoRouter.of(context).push(
+                                                Navigator.of(ctx)
+                                                    .pop();
+                                                GoRouter.of(
+                                                        context)
+                                                    .push(
                                                   '/leagues/${d.id}/standings',
                                                 );
                                               },
@@ -2278,21 +2810,31 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
 
                                       return Column(
                                         crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
+                                            CrossAxisAlignment
+                                                .stretch,
                                         children: [
                                           Text(
                                             'Winner: ${res.teamName}',
-                                            style: t.textTheme.titleMedium
+                                            style: t
+                                                .textTheme
+                                                .titleMedium
                                                 ?.copyWith(
                                               color:
-                                                  AppTheme.primaryText(brightness),
-                                              fontWeight: FontWeight.w900,
+                                                  AppTheme.primaryText(
+                                                brightness,
+                                              ),
+                                              fontWeight:
+                                                  FontWeight.w900,
                                             ),
                                           ),
-                                          const SizedBox(height: 10),
-                                          _kvRow(ctx, 'Team', res.teamName),
-                                          _kvRow(ctx, 'Points', '${res.points}'),
-                                          _kvRow(ctx, 'Played', '${res.played}'),
+                                          const SizedBox(
+                                              height: 10),
+                                          _kvRow(ctx, 'Team',
+                                              res.teamName),
+                                          _kvRow(ctx, 'Points',
+                                              '${res.points}'),
+                                          _kvRow(ctx, 'Played',
+                                              '${res.played}'),
                                           _kvRow(
                                             ctx,
                                             'Goal Diff',
@@ -2303,19 +2845,29 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                             'W-D-L',
                                             '${res.wins}-${res.draws}-${res.losses}',
                                           ),
-                                          const SizedBox(height: 12),
+                                          const SizedBox(
+                                              height: 12),
                                           Row(
                                             children: [
                                               Expanded(
-                                                child: OutlinedButton.icon(
-                                                  onPressed: () async {
-                                                    await Clipboard.setData(
+                                                child:
+                                                    OutlinedButton
+                                                        .icon(
+                                                  onPressed:
+                                                      () async {
+                                                    await Clipboard
+                                                        .setData(
                                                       ClipboardData(
-                                                        text: res.teamName,
+                                                        text: res
+                                                            .teamName,
                                                       ),
                                                     );
-                                                    if (!context.mounted) return;
-                                                    ScaffoldMessenger.of(context)
+                                                    if (!context
+                                                        .mounted) {
+                                                      return;
+                                                    }
+                                                    ScaffoldMessenger
+                                                        .of(context)
                                                         .showSnackBar(
                                                       const SnackBar(
                                                         content: Text(
@@ -2324,27 +2876,38 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
                                                       ),
                                                     );
                                                   },
-                                                  icon: const Icon(Icons.copy),
-                                                  label:
-                                                      const Text('Copy Team'),
+                                                  icon: const Icon(
+                                                      Icons.copy),
+                                                  label: const Text(
+                                                      'Copy Team'),
                                                 ),
                                               ),
-                                              const SizedBox(width: 10),
+                                              const SizedBox(
+                                                  width: 10),
                                               Expanded(
-                                                child: FilledButton(
-                                                  style: FilledButton.styleFrom(
+                                                child:
+                                                    FilledButton(
+                                                  style: FilledButton
+                                                      .styleFrom(
                                                     backgroundColor:
-                                                        AppTheme.limeAccent,
+                                                        AppTheme
+                                                            .limeAccent,
                                                     foregroundColor:
-                                                        AppTheme.darkText,
+                                                        AppTheme
+                                                            .darkText,
                                                   ),
                                                   onPressed: () {
-                                                    Navigator.of(ctx).pop();
-                                                    GoRouter.of(context).push(
+                                                    Navigator.of(
+                                                            ctx)
+                                                        .pop();
+                                                    GoRouter.of(
+                                                            context)
+                                                        .push(
                                                       '/leagues/${d.id}/standings',
                                                     );
                                                   },
-                                                  child: const Text('Standings'),
+                                                  child: const Text(
+                                                      'Standings'),
                                                 ),
                                               ),
                                             ],
@@ -2437,7 +3000,8 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
     final code = _s(leagueData['code']);
 
     return FutureBuilder<String?>(
-      future: rewardsService.fetchTopRewardName(leagueId: leagueId),
+      future:
+          rewardsService.fetchTopRewardName(leagueId: leagueId),
       builder: (context, rs) {
         if (rs.hasError) {
           return Glass(
@@ -2459,7 +3023,10 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                 Text(
                   'Rewards: unavailable (${rs.error})',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.error.withOpacity(0.9),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .error
+                        .withOpacity(0.9),
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -2476,7 +3043,8 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                     Expanded(
                       child: FilledButton(
                         style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.limeAccent,
+                          backgroundColor:
+                              AppTheme.limeAccent,
                           foregroundColor: AppTheme.darkText,
                         ),
                         onPressed: onOpenStandings,
@@ -2493,7 +3061,8 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
         final topReward = (rs.data ?? '').trim();
         final hasRewards = topReward.isNotEmpty;
 
-        if (!hasRewards && rs.connectionState == ConnectionState.done) {
+        if (!hasRewards &&
+            rs.connectionState == ConnectionState.done) {
           return const SizedBox.shrink();
         }
 
@@ -2510,7 +3079,8 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                   Expanded(
                     child: Text(
                       name,
-                      style: theme.textTheme.bodyMedium?.copyWith(
+                      style:
+                          theme.textTheme.bodyMedium?.copyWith(
                         color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w900,
                       ),
@@ -2519,19 +3089,25 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(999),
                       gradient: const LinearGradient(
-                        colors: [Color(0xFFFFD54F), Color(0xFFFF8A65)],
+                        colors: [
+                          Color(0xFFFFD54F),
+                          Color(0xFFFF8A65),
+                        ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                     ),
                     child: Text(
                       'Rewards',
-                      style: theme.textTheme.labelMedium?.copyWith(
+                      style:
+                          theme.textTheme.labelMedium?.copyWith(
                         color: Colors.black.withOpacity(0.86),
                         fontWeight: FontWeight.w900,
                       ),
@@ -2562,12 +3138,17 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
               FutureBuilder<_LeagueProgressStatus>(
                 future: statusFuture,
                 builder: (context, ss) {
-                  final status = ss.data ?? _LeagueProgressStatus.unknown;
+                  final status =
+                      ss.data ?? _LeagueProgressStatus.unknown;
                   final text = switch (status) {
-                    _LeagueProgressStatus.notStarted => 'Status: Not started',
-                    _LeagueProgressStatus.inProgress => 'Status: In progress',
-                    _LeagueProgressStatus.finished => 'Status: Finished',
-                    _LeagueProgressStatus.unknown => 'Status: Unknown',
+                    _LeagueProgressStatus.notStarted =>
+                      'Status: Not started',
+                    _LeagueProgressStatus.inProgress =>
+                      'Status: In progress',
+                    _LeagueProgressStatus.finished =>
+                      'Status: Finished',
+                    _LeagueProgressStatus.unknown =>
+                      'Status: Unknown',
                   };
                   final color = switch (status) {
                     _LeagueProgressStatus.notStarted =>
@@ -2607,7 +3188,8 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                         foregroundColor: AppTheme.darkText,
                       ),
                       onPressed: onOpenStandings,
-                      icon: const Icon(Icons.leaderboard_outlined),
+                      icon:
+                          const Icon(Icons.leaderboard_outlined),
                       label: const Text('Standings'),
                     ),
                   ),
@@ -2619,7 +3201,8 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                   Expanded(
                     child: FilledButton.tonalIcon(
                       onPressed: onComputeWinner,
-                      icon: const Icon(Icons.emoji_events_outlined),
+                      icon: const Icon(
+                          Icons.emoji_events_outlined),
                       label: const Text('Winner'),
                     ),
                   ),
@@ -2627,10 +3210,16 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () async {
-                        await Clipboard.setData(ClipboardData(text: name));
+                        await Clipboard.setData(
+                          ClipboardData(text: name),
+                        );
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Copied league name')),
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(
+                          const SnackBar(
+                            content:
+                                Text('Copied league name'),
+                          ),
                         );
                       },
                       icon: const Icon(Icons.copy),
@@ -2657,7 +3246,12 @@ class _SuperAdminRewardLeagueTile extends StatelessWidget {
   }
 }
 
-enum _LeagueProgressStatus { notStarted, inProgress, finished, unknown }
+enum _LeagueProgressStatus {
+  notStarted,
+  inProgress,
+  finished,
+  unknown,
+}
 
 class _TeamStats {
   _TeamStats({
@@ -2670,11 +3264,9 @@ class _TeamStats {
 
   int points = 0;
   int played = 0;
-
   int wins = 0;
   int draws = 0;
   int losses = 0;
-
   int goalsFor = 0;
   int goalsAgainst = 0;
 
@@ -2697,14 +3289,11 @@ class _WinnerResult {
 
   final String teamId;
   final String teamName;
-
   final int points;
   final int played;
-
   final int goalDiff;
   final int goalsFor;
   final int goalsAgainst;
-
   final int wins;
   final int draws;
   final int losses;
@@ -2736,13 +3325,15 @@ class _ProfileActionChip extends StatelessWidget {
     final border = isDestructive
         ? color.withOpacity(0.20)
         : AppTheme.searchOutline(brightness);
-    final fg = isDestructive ? color : AppTheme.limeAccentDark;
+    final fg =
+        isDestructive ? color : AppTheme.limeAccentDark;
 
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding:
+            const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(14),
@@ -2783,15 +3374,20 @@ class _DesktopWebRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
-    final chevron =
-        isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
+    final isRtl =
+        Directionality.of(context) == TextDirection.rtl;
+    final chevron = isRtl
+        ? Icons.chevron_left_rounded
+        : Icons.chevron_right_rounded;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 14,
+        ),
         child: Row(
           children: [
             Container(
@@ -2799,7 +3395,8 @@ class _DesktopWebRow extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppTheme.iconCircleBackground(brightness),
+                color:
+                    AppTheme.iconCircleBackground(brightness),
               ),
               child: Icon(
                 icon,
@@ -2810,20 +3407,26 @@ class _DesktopWebRow extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: AppTheme.primaryText(brightness),
+                          color: AppTheme.primaryText(
+                              brightness),
                         ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: AppTheme.secondaryText(brightness),
+                      color:
+                          AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                       height: 1.25,
@@ -2860,15 +3463,20 @@ class _LegalNavRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
-    final chevron =
-        isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
+    final isRtl =
+        Directionality.of(context) == TextDirection.rtl;
+    final chevron = isRtl
+        ? Icons.chevron_left_rounded
+        : Icons.chevron_right_rounded;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 14,
+        ),
         child: Row(
           children: [
             Container(
@@ -2876,27 +3484,38 @@ class _LegalNavRow extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppTheme.iconCircleBackground(brightness),
+                color:
+                    AppTheme.iconCircleBackground(brightness),
               ),
-              child: Icon(icon, color: AppTheme.limeAccentDark, size: 18),
+              child: Icon(
+                icon,
+                color: AppTheme.limeAccentDark,
+                size: 18,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(
                           fontWeight: FontWeight.w900,
-                          color: AppTheme.primaryText(brightness),
+                          color: AppTheme.primaryText(
+                              brightness),
                         ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: AppTheme.secondaryText(brightness),
+                      color:
+                          AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                       height: 1.25,
@@ -2931,15 +3550,20 @@ class _AdminRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final isRtl = Directionality.of(context) == TextDirection.rtl;
-    final chevron =
-        isRtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded;
+    final isRtl =
+        Directionality.of(context) == TextDirection.rtl;
+    final chevron = isRtl
+        ? Icons.chevron_left_rounded
+        : Icons.chevron_right_rounded;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 14,
+        ),
         child: Row(
           children: [
             Container(
@@ -2947,17 +3571,26 @@ class _AdminRow extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppTheme.iconCircleBackground(brightness),
+                color:
+                    AppTheme.iconCircleBackground(brightness),
               ),
-              child: Icon(icon, color: AppTheme.limeAccentDark, size: 18),
+              child: Icon(
+                icon,
+                color: AppTheme.limeAccentDark,
+                size: 18,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 title,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(
                       fontWeight: FontWeight.w900,
-                      color: AppTheme.primaryText(brightness),
+                      color:
+                          AppTheme.primaryText(brightness),
                     ),
               ),
             ),
@@ -2990,7 +3623,10 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
 
     return Glass(
       borderRadius: 18,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 12,
+      ),
       fill: AppTheme.cardColor(brightness),
       borderColor: AppTheme.cardBorder(brightness),
       child: Row(
@@ -3017,9 +3653,13 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
                   leagueName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(
                         fontWeight: FontWeight.w900,
-                        color: AppTheme.primaryText(brightness),
+                        color:
+                            AppTheme.primaryText(brightness),
                       ),
                 ),
                 const SizedBox(height: 2),

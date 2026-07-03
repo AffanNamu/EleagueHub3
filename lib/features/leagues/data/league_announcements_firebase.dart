@@ -21,10 +21,15 @@ class LeagueAnnouncementsFirebase {
         .where('leagueId', isEqualTo: leagueId.trim())
         .orderBy('createdAtMs', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) =>
-                LeagueAnnouncement.fromMap((doc.data()).cast<String, dynamic>()))
-            .toList(growable: false));
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (doc) => LeagueAnnouncement.fromMap(
+                  (doc.data()).cast<String, dynamic>(),
+                ),
+              )
+              .toList(growable: false),
+        );
   }
 
   Stream<List<LeagueAnnouncement>> watchMasterLeagueAnnouncements(
@@ -34,10 +39,15 @@ class LeagueAnnouncementsFirebase {
         .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
         .orderBy('createdAtMs', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) =>
-                LeagueAnnouncement.fromMap((doc.data()).cast<String, dynamic>()))
-            .toList(growable: false));
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (doc) => LeagueAnnouncement.fromMap(
+                  (doc.data()).cast<String, dynamic>(),
+                ),
+              )
+              .toList(growable: false),
+        );
   }
 
   Stream<LeagueAnnouncement?> watchPinnedMasterLeagueAnnouncement(
@@ -100,7 +110,8 @@ class LeagueAnnouncementsFirebase {
     } catch (_) {}
 
     try {
-      await SupabaseEdgeNotificationsService.instance.notifyFollowedOrganizerUpdate(
+      await SupabaseEdgeNotificationsService.instance
+          .notifyFollowedOrganizerUpdate(
         masterLeagueId: masterLeagueId,
         organizerName: authorName,
         title: 'New organizer announcement',

@@ -1,6 +1,9 @@
+// lib/features/auth/models/user_profile.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../master_leagues/domain/master_league_plan.dart';
+import '../../verification/domain/badge_model.dart';
 
 class UserProfile {
   const UserProfile({
@@ -26,6 +29,9 @@ class UserProfile {
     required this.planExpiresAtMs,
     required this.planReceiptId,
     required this.planProvider,
+    // Badge system — defaults to empty so all existing
+    // call-sites that do not pass this compile unchanged.
+    this.verificationBadges = VerificationBadges.empty,
   });
 
   final String userId;
@@ -52,8 +58,32 @@ class UserProfile {
   final String planReceiptId;
   final String planProvider;
 
+  /// Badge ownership state.
+  ///
+  /// Populated from the nested "verification" map in the Firestore
+  /// user document.  Defaults to [VerificationBadges.empty] so that
+  /// all existing code that constructs [UserProfile] without this
+  /// field continues to compile and behave correctly.
+  final VerificationBadges verificationBadges;
+
+  // ── Badge convenience getters ─────────────────────────────────────────────
+
+  /// True when the green verified badge is active (not expired).
+  bool get isGreenVerified => verificationBadges.isGreenActive;
+
+  /// True when the gold organizer badge is active (not expired).
+  bool get isOrganizerVerified =>
+      verificationBadges.isOrganizerActive;
+
+  /// True when the staff / ambassador badge is active (not expired).
+  bool get isStaffVerified => verificationBadges.isStaffActive;
+
+  // ── Existing getters — unchanged ──────────────────────────────────────────
+
   String get effectivePhotoUrl {
-    if (profileImageUrl.trim().isNotEmpty) return profileImageUrl.trim();
+    if (profileImageUrl.trim().isNotEmpty) {
+      return profileImageUrl.trim();
+    }
     if (teamImageUrl.trim().isNotEmpty) return teamImageUrl.trim();
     return photoUrl.trim();
   }
@@ -69,13 +99,15 @@ class UserProfile {
   bool get premiumActive {
     if (!isPremium) return false;
     if (premiumExpiresAtMs <= 0) return isPremium;
-    return premiumExpiresAtMs > DateTime.now().millisecondsSinceEpoch;
+    return premiumExpiresAtMs >
+        DateTime.now().millisecondsSinceEpoch;
   }
 
   bool get verifiedActive {
     if (!isVerified) return false;
     if (verificationExpiresAtMs <= 0) return true;
-    return verificationExpiresAtMs > DateTime.now().millisecondsSinceEpoch;
+    return verificationExpiresAtMs >
+        DateTime.now().millisecondsSinceEpoch;
   }
 
   bool get verificationPending =>
@@ -84,10 +116,12 @@ class UserProfile {
   bool get hasStoredPlanId => activePlanId.trim().isNotEmpty;
 
   bool get hasPlanActive {
-    final storedPlan = MasterLeaguePlan.tryFromString(activePlanId);
+    final storedPlan =
+        MasterLeaguePlan.tryFromString(activePlanId);
     if (storedPlan != null) {
       if (storedPlan.isFree) return true;
-      return planExpiresAtMs > DateTime.now().millisecondsSinceEpoch;
+      return planExpiresAtMs >
+          DateTime.now().millisecondsSinceEpoch;
     }
 
     // backward compatibility: old premium user gets league access
@@ -97,10 +131,12 @@ class UserProfile {
   }
 
   MasterLeaguePlan? get activePlan {
-    final storedPlan = MasterLeaguePlan.tryFromString(activePlanId);
+    final storedPlan =
+        MasterLeaguePlan.tryFromString(activePlanId);
     if (storedPlan != null) {
       if (storedPlan.isFree) return storedPlan;
-      if (planExpiresAtMs > DateTime.now().millisecondsSinceEpoch) {
+      if (planExpiresAtMs >
+          DateTime.now().millisecondsSinceEpoch) {
         return storedPlan;
       }
     }
@@ -115,7 +151,8 @@ class UserProfile {
     final plan = activePlan;
     if (plan == null) return null;
 
-    final stored = PlanDuration.fromString(activePlanDurationId);
+    final stored =
+        PlanDuration.fromString(activePlanDurationId);
     if (activePlanDurationId.trim().isNotEmpty) return stored;
 
     if (plan.isFree) return PlanDuration.threeMonths;
@@ -128,13 +165,14 @@ class UserProfile {
     final duration = activePlanDuration;
     if (plan == null || duration == null) return null;
 
-    final purchasedAt = planPurchasedAtMs > 0
-        ? planPurchasedAtMs
-        : createdAtMs;
+    final purchasedAt =
+        planPurchasedAtMs > 0 ? planPurchasedAtMs : createdAtMs;
 
     final expiresAt = plan.isFree
         ? 0
-        : (planExpiresAtMs > 0 ? planExpiresAtMs : premiumExpiresAtMs);
+        : (planExpiresAtMs > 0
+            ? planExpiresAtMs
+            : premiumExpiresAtMs);
 
     return UserPlanSubscription(
       plan: plan,
@@ -169,6 +207,8 @@ class UserProfile {
     return 'User';
   }
 
+  // ── copyWith ──────────────────────────────────────────────────────────────
+
   UserProfile copyWith({
     String? userId,
     String? teamName,
@@ -192,6 +232,7 @@ class UserProfile {
     int? planExpiresAtMs,
     String? planReceiptId,
     String? planProvider,
+    VerificationBadges? verificationBadges,
   }) {
     return UserProfile(
       userId: userId ?? this.userId,
@@ -200,25 +241,34 @@ class UserProfile {
       createdAtMs: createdAtMs ?? this.createdAtMs,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
       shareId: shareId ?? this.shareId,
-      quickMessagesCustom: quickMessagesCustom ?? this.quickMessagesCustom,
+      quickMessagesCustom:
+          quickMessagesCustom ?? this.quickMessagesCustom,
       photoUrl: photoUrl ?? this.photoUrl,
       profileImageUrl: profileImageUrl ?? this.profileImageUrl,
       teamImageUrl: teamImageUrl ?? this.teamImageUrl,
       isPremium: isPremium ?? this.isPremium,
-      premiumExpiresAtMs: premiumExpiresAtMs ?? this.premiumExpiresAtMs,
+      premiumExpiresAtMs:
+          premiumExpiresAtMs ?? this.premiumExpiresAtMs,
       isVerified: isVerified ?? this.isVerified,
       verifiedAtMs: verifiedAtMs ?? this.verifiedAtMs,
       verificationExpiresAtMs:
           verificationExpiresAtMs ?? this.verificationExpiresAtMs,
-      verificationStatus: verificationStatus ?? this.verificationStatus,
+      verificationStatus:
+          verificationStatus ?? this.verificationStatus,
       activePlanId: activePlanId ?? this.activePlanId,
-      activePlanDurationId: activePlanDurationId ?? this.activePlanDurationId,
-      planPurchasedAtMs: planPurchasedAtMs ?? this.planPurchasedAtMs,
+      activePlanDurationId:
+          activePlanDurationId ?? this.activePlanDurationId,
+      planPurchasedAtMs:
+          planPurchasedAtMs ?? this.planPurchasedAtMs,
       planExpiresAtMs: planExpiresAtMs ?? this.planExpiresAtMs,
       planReceiptId: planReceiptId ?? this.planReceiptId,
       planProvider: planProvider ?? this.planProvider,
+      verificationBadges:
+          verificationBadges ?? this.verificationBadges,
     );
   }
+
+  // ── toJson ────────────────────────────────────────────────────────────────
 
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
@@ -230,10 +280,12 @@ class UserProfile {
       if (shareId.trim().isNotEmpty) 'shareId': shareId.trim(),
       if (quickMessagesCustom.isNotEmpty)
         'quickMessagesCustom': quickMessagesCustom,
-      if (photoUrl.trim().isNotEmpty) 'photoUrl': photoUrl.trim(),
+      if (photoUrl.trim().isNotEmpty)
+        'photoUrl': photoUrl.trim(),
       if (profileImageUrl.trim().isNotEmpty)
         'profileImageUrl': profileImageUrl.trim(),
-      if (teamImageUrl.trim().isNotEmpty) 'teamImageUrl': teamImageUrl.trim(),
+      if (teamImageUrl.trim().isNotEmpty)
+        'teamImageUrl': teamImageUrl.trim(),
       'isPremium': isPremium,
       'premiumExpiresAtMs': premiumExpiresAtMs,
       'isVerified': isVerified,
@@ -246,60 +298,99 @@ class UserProfile {
       'planExpiresAtMs': planExpiresAtMs,
       'planReceiptId': planReceiptId,
       'planProvider': planProvider,
+      // Badge state is stored separately by BadgeRepository
+      // and should NOT be written here to avoid overwriting it.
+      // We include it read-only for completeness.
+      'verification': verificationBadges.toMap(),
     };
   }
 
-  factory UserProfile.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  // ── fromDoc / fromMap ─────────────────────────────────────────────────────
+
+  factory UserProfile.fromDoc(
+      DocumentSnapshot<Map<String, dynamic>> doc) {
     return UserProfile.fromMap(
       doc.id,
       doc.data() ?? <String, dynamic>{},
     );
   }
 
-  factory UserProfile.fromMap(String fallbackUserId, Map<String, dynamic> map) {
-    final userId = (map['userId'] as String? ?? fallbackUserId).trim();
+  factory UserProfile.fromMap(
+    String fallbackUserId,
+    Map<String, dynamic> map,
+  ) {
+    final userId =
+        (map['userId'] as String? ?? fallbackUserId).trim();
 
     final bool verifiedFlag = map['isVerified'] == true ||
         map['verifiedBadge'] == true ||
         (map['verificationStatus'] as String? ?? '')
-            .trim()
-            .toLowerCase() ==
+                .trim()
+                .toLowerCase() ==
             'approved';
+
+    // ── Parse badge state from the nested "verification" map ──────────────
+    VerificationBadges badges = VerificationBadges.empty;
+    final rawVerification = map['verification'];
+    if (rawVerification is Map) {
+      try {
+        badges = VerificationBadges.fromMap(
+          rawVerification.cast<String, dynamic>(),
+        );
+      } catch (_) {
+        // Malformed data — fall back to empty badges.
+        badges = VerificationBadges.empty;
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
 
     return UserProfile(
       userId: userId,
       teamName: (map['teamName'] as String? ?? '').trim(),
-      authProvider: (map['authProvider'] as String? ?? '').trim(),
+      authProvider:
+          (map['authProvider'] as String? ?? '').trim(),
       createdAtMs: _readMs(map['createdAt']),
       updatedAtMs: _readMs(map['updatedAt']),
       shareId: (map['shareId'] as String? ?? '').trim(),
-      quickMessagesCustom: _readStringList(map['quickMessagesCustom']),
+      quickMessagesCustom:
+          _readStringList(map['quickMessagesCustom']),
       photoUrl: (map['photoUrl'] as String? ?? '').trim(),
-      profileImageUrl: (map['profileImageUrl'] as String? ?? '').trim(),
-      teamImageUrl: (map['teamImageUrl'] as String? ?? '').trim(),
+      profileImageUrl:
+          (map['profileImageUrl'] as String? ?? '').trim(),
+      teamImageUrl:
+          (map['teamImageUrl'] as String? ?? '').trim(),
       isPremium: map['isPremium'] == true,
       premiumExpiresAtMs: _readMs(map['premiumExpiresAtMs']),
       isVerified: verifiedFlag,
       verifiedAtMs: _readMs(map['verifiedAtMs']),
       verificationExpiresAtMs: _readMs(
-        map['verificationExpiresAtMs'] ?? map['verifiedExpiresAtMs'],
+        map['verificationExpiresAtMs'] ??
+            map['verifiedExpiresAtMs'],
       ),
       verificationStatus:
           (map['verificationStatus'] as String? ?? '').trim(),
-      activePlanId: (map['activePlanId'] as String? ?? '').trim(),
+      activePlanId:
+          (map['activePlanId'] as String? ?? '').trim(),
       activePlanDurationId:
           (map['activePlanDurationId'] as String? ?? '').trim(),
       planPurchasedAtMs: _readMs(map['planPurchasedAtMs']),
       planExpiresAtMs: _readMs(map['planExpiresAtMs']),
-      planReceiptId: (map['planReceiptId'] as String? ?? '').trim(),
-      planProvider: (map['planProvider'] as String? ?? '').trim(),
+      planReceiptId:
+          (map['planReceiptId'] as String? ?? '').trim(),
+      planProvider:
+          (map['planProvider'] as String? ?? '').trim(),
+      verificationBadges: badges,
     );
   }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
 
   static int _readMs(dynamic raw) {
     if (raw is int) return raw;
     if (raw is num) return raw.toInt();
-    if (raw is Timestamp) return raw.toDate().millisecondsSinceEpoch;
+    if (raw is Timestamp) {
+      return raw.toDate().millisecondsSinceEpoch;
+    }
     if (raw is DateTime) return raw.millisecondsSinceEpoch;
     return 0;
   }
@@ -315,7 +406,8 @@ class UserProfile {
   }
 
   static String deriveShareIdFromUid(String uid) {
-    final clean = uid.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').trim();
+    final clean =
+        uid.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').trim();
     if (clean.isEmpty) return '';
 
     final base = clean.length >= 8

@@ -1,4 +1,5 @@
 // lib/features/master_leagues/logic/master_league_payment_service.dart
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
+import '../../../features/verification/logic/badge_service.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
 import 'master_league_pricing_service.dart';
@@ -115,7 +117,8 @@ abstract class MasterLeaguePaymentService {
     required String masterLeagueName,
   });
 
-  Future<MasterLeaguePaymentResult> payForOrganizerVerificationRenewal({
+  Future<MasterLeaguePaymentResult>
+      payForOrganizerVerificationRenewal({
     required BuildContext context,
     required String userId,
     required String masterLeagueId,
@@ -211,6 +214,99 @@ class FlutterwaveMasterLeaguePaymentService
     return raw;
   }
 
+  // ── Badge grant helpers ───────────────────────────────────────────────────
+
+  /// Grants plan badges (Green for Pro, Green + Organizer for Elite)
+  /// after a successful plan subscription purchase.
+  Future<void> _grantPlanBadges({
+    required String userId,
+    required MasterLeaguePlan plan,
+    required PlanDuration duration,
+  }) async {
+    if (userId.trim().isEmpty) return;
+
+    try {
+      final expiresAt =
+          DateTime.now().add(Duration(days: duration.days));
+
+      if (plan == MasterLeaguePlan.elite) {
+        await BadgeService.instance.onEliteSubscriptionPurchased(
+          userId: userId,
+          expiresAt: expiresAt,
+        );
+        if (kDebugMode) {
+          debugPrint(
+            '[MasterLeaguePayment] Elite badges granted '
+            'for $userId (expires $expiresAt)',
+          );
+        }
+      } else if (plan == MasterLeaguePlan.pro) {
+        await BadgeService.instance.onProSubscriptionPurchased(
+          userId: userId,
+          expiresAt: expiresAt,
+        );
+        if (kDebugMode) {
+          debugPrint(
+            '[MasterLeaguePayment] Pro badge granted '
+            'for $userId (expires $expiresAt)',
+          );
+        }
+      }
+    } catch (e) {
+      // Badge grant must never fail the payment flow.
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeaguePayment] _grantPlanBadges error: $e',
+        );
+      }
+    }
+  }
+
+  /// Grants organizer badge after a successful verification purchase.
+  Future<void> _grantOrganizerBadge(String userId) async {
+    if (userId.trim().isEmpty) return;
+    try {
+      await BadgeService.instance
+          .onOrganizerVerificationPurchased(userId: userId);
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeaguePayment] Organizer badge granted '
+          'for $userId',
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeaguePayment] _grantOrganizerBadge error: $e',
+        );
+      }
+    }
+  }
+
+  /// Grants organizer badge renewal after a successful renewal purchase.
+  Future<void> _grantOrganizerBadgeRenewal(String userId) async {
+    if (userId.trim().isEmpty) return;
+    try {
+      await BadgeService.instance
+          .onOrganizerVerificationRenewalPurchased(
+        userId: userId,
+      );
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeaguePayment] Organizer badge renewal granted '
+          'for $userId',
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeaguePayment] _grantOrganizerBadgeRenewal '
+          'error: $e',
+        );
+      }
+    }
+  }
+
   // ── Google Play Billing paths ─────────────────────────────────────────────
 
   Future<MasterLeaguePaymentResult> _purchasePlanViaGooglePlay({
@@ -289,6 +385,16 @@ class FlutterwaveMasterLeaguePaymentService
       );
     }
 
+    // Grant badges — GooglePlayBillingService._grantBadgesForProduct
+    // already handles this via the purchase stream, but we call here
+    // as well for immediate consistency via the Flutterwave-equivalent
+    // path. The grant is idempotent so double-calling is safe.
+    await _grantPlanBadges(
+      userId: uid,
+      plan: plan,
+      duration: duration,
+    );
+
     final now = DateTime.now().millisecondsSinceEpoch;
     return MasterLeaguePaymentResult.paid(
       receiptId: gpResult.orderId.isNotEmpty
@@ -363,6 +469,10 @@ class FlutterwaveMasterLeaguePaymentService
         paymentId: gpResult.paymentId,
       );
     }
+
+    // Grant organizer badge (Google Play stream also does this,
+    // but we call explicitly for immediate UI consistency).
+    await _grantOrganizerBadge(uid);
 
     final now = DateTime.now().millisecondsSinceEpoch;
     return MasterLeaguePaymentResult.paid(
@@ -440,6 +550,8 @@ class FlutterwaveMasterLeaguePaymentService
       );
     }
 
+    await _grantOrganizerBadgeRenewal(uid);
+
     final now = DateTime.now().millisecondsSinceEpoch;
     return MasterLeaguePaymentResult.paid(
       receiptId: gpResult.orderId.isNotEmpty
@@ -474,6 +586,8 @@ class FlutterwaveMasterLeaguePaymentService
     required String analyticsKind,
     String planId = '',
     String planDurationId = '',
+    // Badge grant callbacks invoked on verified success.
+    Future<void> Function(String uid)? onSuccessBadgeGrant,
   }) async {
     String attemptId = '';
     final effectiveUserId = _resolveEffectiveUserId(userId);
@@ -659,6 +773,12 @@ class FlutterwaveMasterLeaguePaymentService
             txRef: resolvedTxRef,
           );
         }
+
+        // ── Grant badges after verified payment ───────────────────────
+        if (onSuccessBadgeGrant != null) {
+          await onSuccessBadgeGrant(authUid);
+        }
+        // ─────────────────────────────────────────────────────────────
 
         await AppAnalyticsService.instance.logPaymentResult(
           kind: analyticsKind,
@@ -853,6 +973,12 @@ class FlutterwaveMasterLeaguePaymentService
         amount: price.amount,
         currency: currencyUsed,
         analyticsKind: 'plan_subscription',
+        // Badge grant callback for Flutterwave path.
+        onSuccessBadgeGrant: (String uid) => _grantPlanBadges(
+          userId: uid,
+          plan: plan,
+          duration: duration,
+        ),
       );
     } catch (e) {
       return MasterLeaguePaymentResult.failed(
@@ -953,8 +1079,7 @@ class FlutterwaveMasterLeaguePaymentService
         leagueId: safeMasterLeagueId,
         leagueName: safeMasterLeagueName,
         productType: 'organizer_verification',
-        productSubType:
-            'master_league_organizer_verification',
+        productSubType: 'master_league_organizer_verification',
         metadata: <String, dynamic>{
           'masterLeagueId': safeMasterLeagueId,
           'masterLeagueName': safeMasterLeagueName,
@@ -975,6 +1100,9 @@ class FlutterwaveMasterLeaguePaymentService
         amount: fee,
         currency: currencyUsed,
         analyticsKind: 'organizer_verification',
+        // Grant organizer badge on Flutterwave success.
+        onSuccessBadgeGrant: (String uid) =>
+            _grantOrganizerBadge(uid),
       );
     } catch (e) {
       return MasterLeaguePaymentResult.failed(
@@ -1100,6 +1228,9 @@ class FlutterwaveMasterLeaguePaymentService
         amount: fee,
         currency: currencyUsed,
         analyticsKind: 'organizer_verification_renewal',
+        // Grant renewal badge on Flutterwave success.
+        onSuccessBadgeGrant: (String uid) =>
+            _grantOrganizerBadgeRenewal(uid),
       );
     } catch (e) {
       return MasterLeaguePaymentResult.failed(
