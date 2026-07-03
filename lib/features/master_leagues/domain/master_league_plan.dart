@@ -38,7 +38,27 @@ enum PlanDuration {
 
   bool get hasDiscount => discountLabel.isNotEmpty;
 
+  /// Approximate duration in days (30 days per month).
+  /// Used in several places for UI and non-authoritative expiry estimation.
   int get durationDays => months * 30;
+
+  /// BACKWARD-COMPATIBILITY ALIAS:
+  /// Some parts of the app (and prior agent changes) reference `duration.days`.
+  /// This getter keeps the code compiling and provides a reasonable value.
+  ///
+  /// We compute the number of days until the "month-based expiry date"
+  /// to better align with [expiryMsFromNow] instead of using a fixed 30-day
+  /// multiplier only.
+  int get days {
+    final now = DateTime.now();
+    final expiry = DateTime(now.year, now.month + months, now.day);
+
+    final hours = expiry.difference(now).inHours;
+    final computed = (hours / 24).ceil();
+
+    // Safety: if DateTime math yields something weird, fall back to durationDays.
+    return computed > 0 ? computed : durationDays;
+  }
 
   int expiryMsFromNow() {
     final now = DateTime.now();

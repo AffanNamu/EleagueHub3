@@ -1,51 +1,155 @@
-import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:uuid/uuid.dart';
+/// LeagueAnnouncement supports BOTH:
+/// 1) League announcements:
+///    - scope: 'league'
+///    - leagueId: non-empty
+///    - masterLeagueId: ''
+///
+/// 2) Organizer / Master League announcements:
+///    - scope: 'master_league'
+///    - masterLeagueId: non-empty
+///    - leagueId: '' (by convention in your current implementation)
+///
+/// IMPORTANT: This model is intentionally backward compatible.
+/// Older call-sites may construct LeagueAnnouncement without:
+/// - masterLeagueId
+/// - scope
+/// - pinned fields
+class LeagueAnnouncement {
+  const LeagueAnnouncement({
+    required this.id,
+    required this.leagueId,
+    required this.title,
+    required this.message,
+    required this.createdAtMs,
+    required this.authorId,
+    required this.authorName,
+    this.scope = 'league',
+    this.masterLeagueId = '',
+    this.pinned = false,
+    this.pinnedAtMs = 0,
+    this.pinnedBy = '',
+  });
 
-import '../../../core/persistence/prefs_service.dart';
-import '../../../core/services/sync_queue_service.dart';
-import '../models/league_announcement.dart';
+  final String id;
 
-/// Local cache for announcements (per league) stored in SharedPreferences.
-/// Also enqueues changes for Firestore sync.
-class LeagueAnnouncementsFirebase {
-  final PreferencesService _prefs;
-  final SyncQueueService _queue = SyncQueueService.instance;
-  final Uuid _uuid = const Uuid();
+  /// Non-empty for league announcements.
+  final String leagueId;
 
-  LeagueAnnouncementsFirebase(this._prefs);
+  /// Non-empty for master league announcements.
+  final String masterLeagueId;
 
-  String _key(String leagueId) => 'league_announcements_$leagueId';
+  /// 'league' or 'master_league'
+  final String scope;
 
-  Future<List<LeagueAnnouncement>> listForLeague(String leagueId) async {
-    final raw = _prefs.getString(_key(leagueId));
-    if (raw == null || raw.trim().isEmpty) return [];
-    try {
-      final List decoded = jsonDecode(raw);
-      return decoded
-          .map((e) => LeagueAnnouncement.fromMap((e as Map).cast<String, dynamic>()))
-          .toList();
-    } catch (_) {
-      return [];
-    }
+  final String title;
+  final String message;
+
+  final int createdAtMs;
+
+  final String authorId;
+  final String authorName;
+
+  final bool pinned;
+  final int pinnedAtMs;
+  final String pinnedBy;
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Serialization
+  // ───────────────────────────────────────────────────────────────────────────
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'id': id.trim(),
+      'leagueId': leagueId.trim(),
+      'masterLeagueId': masterLeagueId.trim(),
+      'scope': scope.trim().isEmpty ? 'league' : scope.trim(),
+      'title': title.trim(),
+      'message': message.trim(),
+      'createdAtMs': createdAtMs,
+      'authorId': authorId.trim(),
+      'authorName': authorName.trim(),
+      'pinned': pinned,
+      'pinnedAtMs': pinnedAtMs,
+      'pinnedBy': pinnedBy.trim(),
+    };
   }
 
-  Future<void> addAnnouncement(LeagueAnnouncement ann) async {
-    final list = await listForLeague(ann.leagueId);
-    list.add(ann);
-
-    final encoded = jsonEncode(list.map((a) => a.toMap()).toList());
-    await _prefs.setString(_key(ann.leagueId), encoded);
-
-    // Enqueue for cloud
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await _queue.enqueue(
-      id: _uuid.v4(),
-      entityType: 'announcement',
-      entityId: ann.id,
-      action: 'create',
-      lastModified: now,
-      payload: ann.toMap(),
+  factory LeagueAnnouncement.fromMap(Map<String, dynamic> map) {
+    return LeagueAnnouncement(
+      id: (map['id'] as String? ?? '').trim(),
+      leagueId: (map['leagueId'] as String? ?? '').trim(),
+      masterLeagueId: (map['masterLeagueId'] as String? ?? '').trim(),
+      scope: (map['scope'] as String? ?? 'league').trim().isEmpty
+          ? 'league'
+          : (map['scope'] as String? ?? 'league').trim(),
+      title: (map['title'] as String? ?? '').trim(),
+      message: (map['message'] as String? ?? '').trim(),
+      createdAtMs: _readMs(map['createdAtMs']),
+      authorId: (map['authorId'] as String? ?? '').trim(),
+      authorName: (map['authorName'] as String? ?? '').trim(),
+      pinned: (map['pinned'] as bool?) ?? false,
+      pinnedAtMs: _readMs(map['pinnedAtMs']),
+      pinnedBy: (map['pinnedBy'] as String? ?? '').trim(),
     );
   }
+
+  static int _readMs(dynamic raw) {
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    if (raw is Timestamp) {
+      return raw.toDate().millisecondsSinceEpoch;
+    }
+    if (raw is DateTime) return raw.millisecondsSinceEpoch;
+    return 0;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // copyWith
+  // ───────────────────────────────────────────────────────────────────────────
+
+  LeagueAnnouncement copyWith({
+    String? id,
+    String? leagueId,
+    String? masterLeagueId,
+    String? scope,
+    String? title,
+    String? message,
+    int? createdAtMs,
+    String? authorId,
+    String? authorName,
+    bool? pinned,
+    int? pinnedAtMs,
+    String? pinnedBy,
+  }) {
+    return LeagueAnnouncement(
+      id: id ?? this.id,
+      leagueId: leagueId ?? this.leagueId,
+      masterLeagueId: masterLeagueId ?? this.masterLeagueId,
+      scope: scope ?? this.scope,
+      title: title ?? this.title,
+      message: message ?? this.message,
+      createdAtMs: createdAtMs ?? this.createdAtMs,
+      authorId: authorId ?? this.authorId,
+      authorName: authorName ?? this.authorName,
+      pinned: pinned ?? this.pinned,
+      pinnedAtMs: pinnedAtMs ?? this.pinnedAtMs,
+      pinnedBy: pinnedBy ?? this.pinnedBy,
+    );
+  }
+
+  @override
+  String toString() {
+    return 'LeagueAnnouncement(id=$id, scope=$scope, leagueId=$leagueId, masterLeagueId=$masterLeagueId, pinned=$pinned)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is LeagueAnnouncement && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
 }
