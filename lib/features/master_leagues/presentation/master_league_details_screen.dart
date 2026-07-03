@@ -20,6 +20,7 @@ import '../../leagues/models/enums.dart';
 import '../../leagues/models/league.dart';
 import '../../leagues/models/league_announcement.dart';
 import '../../leagues/models/league_format.dart';
+import '../../leagues/models/league_settings.dart';
 import '../../leagues/models/membership.dart';
 import '../../leagues/presentation/widgets/join_league_mode_sheet.dart';
 import '../domain/competition_template.dart';
@@ -66,6 +67,9 @@ class _MasterLeagueDetailsScreenState
 
   final LeagueAnnouncementsFirebase _announcements =
       LeagueAnnouncementsFirebase();
+
+  // ── World Cup gold accent — matches league_creation_dashboard.dart ─────────
+  static const Color _worldCupGold = Color(0xFFD97706);
 
   // ── identity ───────────────────────────────────────────────────────────────
 
@@ -150,7 +154,6 @@ class _MasterLeagueDetailsScreenState
         return await repo.getMembership(
             leagueId: leagueId, userId: uid);
       } catch (_) {
-        // Permission denied or network error — treat as not joined
         return null;
       }
     });
@@ -158,11 +161,6 @@ class _MasterLeagueDetailsScreenState
 
   // ── streams ────────────────────────────────────────────────────────────────
 
-  /// Watches the master league document.
-  ///
-  /// The Firestore rule allows [signedIn()] to read any master_league doc,
-  /// so this should never throw permission-denied for an authenticated user.
-  /// We add a handleError fallback for safety.
   Stream<MasterLeague?> _watchMasterLeague(String id) {
     return FirebaseFirestore.instance
         .collection('master_leagues')
@@ -182,16 +180,6 @@ class _MasterLeagueDetailsScreenState
         });
   }
 
-  /// Watches leagues that belong to this master league.
-  ///
-  /// KEY FIX: The Firestore rule allows `list` on /leagues for any signed-in
-  /// user, so the query snapshot itself will succeed. However, if the Flutter
-  /// SDK internally tries to do a `get` on individual docs (which it does NOT
-  /// for collection queries — a query uses `list` semantics), we still guard
-  /// with handleError and return whatever docs succeeded.
-  ///
-  /// The real guard is: we parse each document defensively inside a try/catch
-  /// so a single malformed or inaccessible document never kills the stream.
   Stream<List<League>> _watchCompetitions(String masterId) {
     return FirebaseFirestore.instance
         .collection('leagues')
@@ -208,7 +196,6 @@ class _MasterLeagueDetailsScreenState
                       : d.id;
               list.add(League.fromRemoteMap(map));
             } catch (e) {
-              // Skip docs that fail to parse or are inaccessible
               debugPrint(
                 '[MasterLeagueDetails] skipping league doc ${d.id}: $e',
               );
@@ -218,8 +205,6 @@ class _MasterLeagueDetailsScreenState
           return list;
         })
         .handleError((Object e) {
-          // If the entire query is denied (e.g. user signed out mid-session)
-          // return an empty list so the UI degrades gracefully.
           debugPrint('[MasterLeagueDetails] _watchCompetitions error: $e');
           return <League>[];
         });
@@ -389,8 +374,6 @@ class _MasterLeagueDetailsScreenState
 
       if (!mounted) return;
 
-      // Invalidate cached membership for this league so the
-      // next FutureBuilder call gets fresh data
       _membershipCache.remove(league.id);
 
       _snack(
@@ -407,6 +390,15 @@ class _MasterLeagueDetailsScreenState
   }
 
   // ── create competition sheet ───────────────────────────────────────────────
+  //
+  // MODIFIED: Added World Cup option to the bottom sheet.
+  // The World Cup card uses the gold accent to match the creation dashboard.
+  // Selecting it navigates to /leagues/create with:
+  //   - initialFormat: LeagueFormat.worldCup
+  //   - type: 'worldcup'
+  //   - worldCupFormat: the sub-format chosen in the secondary picker
+  //
+  // ALL existing options (classic, uclSwiss, uclGroup) are UNCHANGED.
 
   Future<void> _showCreateCompetitionSheet(
     BuildContext context,
@@ -431,168 +423,53 @@ class _MasterLeagueDetailsScreenState
 
     final brightness = Theme.of(context).brightness;
 
-    final selected = await showModalBottomSheet<LeagueFormat>(
+    // ── Result type: either a LeagueFormat or a _WorldCupSelection ────────
+    // We use a sealed-style wrapper so the bottom sheet can return either
+    // a standard format OR a World Cup format with a sub-format.
+    final result = await showModalBottomSheet<_CompetitionTypeResult>(
       context:         context,
       showDragHandle:  true,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        final sheetTheme = Theme.of(ctx);
-
-        Widget option({
-          required IconData    icon,
-          required String      title,
-          required String      subtitle,
-          required LeagueFormat format,
-          Color?               tint,
-        }) {
-          final c = tint ?? AppTheme.limeAccentDark;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: InkWell(
-              onTap: () => Navigator.of(ctx).pop(format),
-              borderRadius: BorderRadius.circular(20),
-              child: Glass(
-                borderRadius: 20,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 12),
-                fill:        AppTheme.cardColor(brightness),
-                borderColor: AppTheme.cardBorder(brightness),
-                child: Row(
-                  children: [
-                    Container(
-                      width:  42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        shape:  BoxShape.circle,
-                        color:  c.withOpacity(0.12),
-                        border: Border.all(
-                            color: c.withOpacity(0.30)),
-                      ),
-                      child: Icon(icon, color: c, size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            style: sheetTheme.textTheme
-                                .titleSmall
-                                ?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              color: AppTheme.primaryText(
-                                  brightness),
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            subtitle,
-                            style: sheetTheme.textTheme
-                                .bodySmall
-                                ?.copyWith(
-                              color: AppTheme.secondaryText(
-                                  brightness),
-                              fontWeight: FontWeight.w700,
-                              height: 1.2,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color:
-                          AppTheme.secondaryText(brightness),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }
-
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsetsDirectional.fromSTEB(
-                16, 12, 16, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Glass(
-                  borderRadius: 24,
-                  padding:     const EdgeInsets.all(14),
-                  fill:        AppTheme.cardColor(brightness),
-                  borderColor: AppTheme.cardBorder(brightness),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.add_circle_outline_rounded,
-                        color: AppTheme.limeAccentDark,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Create Competition',
-                          style: sheetTheme.textTheme
-                              .titleMedium
-                              ?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: AppTheme.primaryText(
-                                brightness),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                option(
-                  icon:     Icons.emoji_events_outlined,
-                  title:    'Classic League',
-                  subtitle: 'Round-robin style competition',
-                  format:   LeagueFormat.classic,
-                  tint:     AppTheme.limeAccentDark,
-                ),
-                option(
-                  icon:     Icons.grid_view_rounded,
-                  title:    'Swiss League',
-                  subtitle: 'Swiss/Series format',
-                  format:   LeagueFormat.uclSwiss,
-                  tint:     const Color(0xFF8B5CF6),
-                ),
-                option(
-                  icon:     Icons.groups_rounded,
-                  title:    'UCL Group League',
-                  subtitle: 'Group stage competition',
-                  format:   LeagueFormat.uclGroup,
-                  tint:     const Color(0xFF22C55E),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      builder: (ctx) => _CreateCompetitionSheet(
+        brightness: brightness,
+        masterLeagueId: widget.masterLeagueId,
+      ),
     );
 
-    if (selected == null) return;
+    if (result == null) return;
     if (!mounted) return;
 
-    _safePush(
-      '/leagues/create',
-      extra: <String, dynamic>{
-        'masterLeagueId': widget.masterLeagueId.trim(),
-        'initialFormat':  selected,
-        'type': selected == LeagueFormat.classic
-            ? 'classic'
-            : (selected == LeagueFormat.uclSwiss
-                ? 'swiss'
-                : 'ucl'),
-        if (ml.maxTeamsPerLeague > 0)
-          'maxTeams': ml.maxTeamsPerLeague,
-      },
-    );
+    // Build the extra map for the creation route.
+    final Map<String, dynamic> extra = {
+      'masterLeagueId': widget.masterLeagueId.trim(),
+      'initialFormat':  result.format,
+      'type': _typeStringFor(result.format),
+      if (ml.maxTeamsPerLeague > 0)
+        'maxTeams': result.format == LeagueFormat.worldCup
+            ? result.worldCupFormat!.teamCount
+            : ml.maxTeamsPerLeague,
+      // Pass World Cup sub-format when applicable.
+      if (result.format == LeagueFormat.worldCup &&
+          result.worldCupFormat != null)
+        'worldCupFormat': result.worldCupFormat!.firestoreKey,
+    };
+
+    _safePush('/leagues/create', extra: extra);
+  }
+
+  /// Maps a LeagueFormat to the type string expected by the creation route.
+  String _typeStringFor(LeagueFormat format) {
+    switch (format) {
+      case LeagueFormat.classic:
+        return 'classic';
+      case LeagueFormat.uclSwiss:
+        return 'swiss';
+      case LeagueFormat.uclGroup:
+        return 'ucl';
+      case LeagueFormat.worldCup:
+        return 'worldcup';
+    }
   }
 
   // ── announcement composer ──────────────────────────────────────────────────
@@ -989,6 +866,11 @@ class _MasterLeagueDetailsScreenState
   }
 
   // ── template composer ──────────────────────────────────────────────────────
+  //
+  // MODIFIED: Added WorldCup to the format dropdown.
+  // When WorldCup is selected, a sub-format picker appears for fifa2022/fifa2026.
+  // maxTeams is automatically locked to the World Cup format's team count.
+  // homeAwayEnabled is forced to false for World Cup (single round-robin).
 
   Future<void> _showTemplateComposer(MasterLeague ml) async {
     if (!_isOwner(ml)) {
@@ -999,11 +881,12 @@ class _MasterLeagueDetailsScreenState
 
     final nameCtrl    = TextEditingController();
     final descCtrl    = TextEditingController();
-    LeagueFormat  format          = LeagueFormat.classic;
-    LeaguePrivacy privacy         = LeaguePrivacy.private;
-    bool          homeAwayEnabled = false;
-    bool          containsRewards = false;
-    int           maxTeams        = 20;
+    LeagueFormat  format           = LeagueFormat.classic;
+    WorldCupFormat worldCupFormat  = WorldCupFormat.fifa2022;
+    LeaguePrivacy privacy          = LeaguePrivacy.private;
+    bool          homeAwayEnabled  = false;
+    bool          containsRewards  = false;
+    int           maxTeams         = 20;
 
     final save = await showDialog<bool>(
       context: context,
@@ -1011,22 +894,29 @@ class _MasterLeagueDetailsScreenState
         final brightness = Theme.of(ctx).brightness;
         return StatefulBuilder(
           builder: (ctx, setModalState) {
+
+            // Determine allowed team counts for the current format.
             List<int> allowedTeams() {
               switch (format) {
                 case LeagueFormat.uclGroup:
                   return const [16, 32];
                 case LeagueFormat.uclSwiss:
                   return const [18, 36];
+                case LeagueFormat.worldCup:
+                  // Locked by sub-format — only one value.
+                  return [worldCupFormat.teamCount];
                 case LeagueFormat.classic:
                 default:
                   return const [20];
               }
             }
 
+            // Sync maxTeams when format changes.
             if (!allowedTeams().contains(maxTeams)) {
               maxTeams = allowedTeams().first;
             }
 
+            // World Cup never supports home/away.
             final supportsHomeAway =
                 format == LeagueFormat.classic ||
                     format == LeagueFormat.uclGroup;
@@ -1042,6 +932,7 @@ class _MasterLeagueDetailsScreenState
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // ── Name ──────────────────────────────────────────
                     TextField(
                       controller: nameCtrl,
                       maxLength:  80,
@@ -1052,6 +943,8 @@ class _MasterLeagueDetailsScreenState
                       ),
                     ),
                     const SizedBox(height: 10),
+
+                    // ── Description ───────────────────────────────────
                     TextField(
                       controller: descCtrl,
                       maxLines:   4,
@@ -1064,6 +957,8 @@ class _MasterLeagueDetailsScreenState
                       ),
                     ),
                     const SizedBox(height: 10),
+
+                    // ── Format picker — now includes World Cup ─────────
                     DropdownButtonFormField<LeagueFormat>(
                       value: format,
                       decoration: const InputDecoration(
@@ -1082,43 +977,134 @@ class _MasterLeagueDetailsScreenState
                         ),
                         DropdownMenuItem(
                           value: LeagueFormat.uclSwiss,
-                          child:
-                              Text('Swiss / Series League'),
+                          child: Text('Swiss / Series League'),
+                        ),
+                        // NEW: World Cup option
+                        DropdownMenuItem(
+                          value: LeagueFormat.worldCup,
+                          child: Text('🌍 World Cup'),
                         ),
                       ],
                       onChanged: (v) {
                         if (v == null) return;
-                        setModalState(() => format = v);
+                        setModalState(() {
+                          format   = v;
+                          maxTeams = allowedTeams().first;
+                          if (!supportsHomeAway) {
+                            homeAwayEnabled = false;
+                          }
+                        });
                       },
                     ),
                     const SizedBox(height: 10),
-                    DropdownButtonFormField<int>(
-                      value: maxTeams,
-                      decoration: const InputDecoration(
-                        labelText: 'Max Teams',
-                        prefixIcon:
-                            Icon(Icons.groups_outlined),
+
+                    // ── World Cup sub-format picker ────────────────────
+                    // NEW: Only shown when format == worldCup.
+                    if (format == LeagueFormat.worldCup) ...[
+                      DropdownButtonFormField<WorldCupFormat>(
+                        value: worldCupFormat,
+                        decoration: InputDecoration(
+                          labelText: 'World Cup Format',
+                          prefixIcon: Icon(
+                            Icons.public_rounded,
+                            color: _worldCupGold,
+                          ),
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: WorldCupFormat.fifa2022,
+                            child: Text(
+                                WorldCupFormat.fifa2022.displayName),
+                          ),
+                          DropdownMenuItem(
+                            value: WorldCupFormat.fifa2026,
+                            child: Text(
+                                WorldCupFormat.fifa2026.displayName),
+                          ),
+                        ],
+                        onChanged: (v) {
+                          if (v == null) return;
+                          setModalState(() {
+                            worldCupFormat = v;
+                            // Sync maxTeams to new sub-format.
+                            maxTeams = v.teamCount;
+                          });
+                        },
                       ),
-                      items: allowedTeams()
-                          .map(
-                            (e) => DropdownMenuItem<int>(
-                              value: e,
-                              child: Text('$e teams'),
+                      const SizedBox(height: 10),
+                      // Info chip showing the locked team count.
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          borderRadius:
+                              BorderRadius.circular(12),
+                          color: _worldCupGold.withOpacity(
+                              brightness == Brightness.dark
+                                  ? 0.10
+                                  : 0.08),
+                          border: Border.all(
+                            color: _worldCupGold
+                                .withOpacity(0.28),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.lock_outline_rounded,
+                              color: _worldCupGold,
+                              size: 16,
                             ),
-                          )
-                          .toList(growable: false),
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setModalState(() => maxTeams = v);
-                      },
-                    ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${worldCupFormat.teamCount} teams '
+                                '• ${worldCupFormat.groupCount} groups '
+                                '• Single round-robin',
+                                style: TextStyle(
+                                  color: _worldCupGold,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
+                    // ── Max Teams (hidden for World Cup — locked) ──────
+                    if (format != LeagueFormat.worldCup)
+                      DropdownButtonFormField<int>(
+                        value: maxTeams,
+                        decoration: const InputDecoration(
+                          labelText: 'Max Teams',
+                          prefixIcon:
+                              Icon(Icons.groups_outlined),
+                        ),
+                        items: allowedTeams()
+                            .map(
+                              (e) => DropdownMenuItem<int>(
+                                value: e,
+                                child: Text('$e teams'),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: (v) {
+                          if (v == null) return;
+                          setModalState(() => maxTeams = v);
+                        },
+                      ),
+
                     const SizedBox(height: 10),
+
+                    // ── Privacy ───────────────────────────────────────
                     DropdownButtonFormField<LeaguePrivacy>(
                       value: privacy,
                       decoration: const InputDecoration(
                         labelText:  'Privacy',
-                        prefixIcon:
-                            Icon(Icons.lock_outline),
+                        prefixIcon: Icon(Icons.lock_outline),
                       ),
                       items: const [
                         DropdownMenuItem(
@@ -1136,14 +1122,17 @@ class _MasterLeagueDetailsScreenState
                       },
                     ),
                     const SizedBox(height: 10),
+
+                    // ── Rewards toggle ────────────────────────────────
                     SwitchListTile.adaptive(
                       activeColor: AppTheme.limeAccentDark,
                       value:       containsRewards,
                       onChanged: (v) => setModalState(
                           () => containsRewards = v),
-                      title:
-                          const Text('Contains rewards'),
+                      title: const Text('Contains rewards'),
                     ),
+
+                    // ── Home/Away toggle (hidden for World Cup) ────────
                     if (supportsHomeAway)
                       SwitchListTile.adaptive(
                         activeColor: AppTheme.limeAccentDark,
@@ -1157,36 +1146,26 @@ class _MasterLeagueDetailsScreenState
                           '(home and away).',
                         ),
                       ),
+
+                    // ── Format-specific hints ─────────────────────────
                     if (format == LeagueFormat.uclSwiss) ...[
                       const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(12),
-                          color: brightness == Brightness.dark
-                              ? AppTheme.limeAccentDark
-                                  .withOpacity(0.10)
-                              : const Color(0xFFECFCCB),
-                          border: Border.all(
-                            color: brightness ==
-                                    Brightness.dark
-                                ? AppTheme.limeAccentDark
-                                    .withOpacity(0.22)
-                                : const Color(0xFFD9F99D),
-                          ),
-                        ),
-                        child: Text(
-                          'Swiss / Series templates are '
-                          'ideal for repeat tournament '
-                          'structures.',
-                          style: TextStyle(
-                            color: AppTheme.primaryText(
-                                brightness),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                      _formatHintBox(
+                        brightness,
+                        'Swiss / Series templates are ideal '
+                        'for repeat tournament structures.',
+                        color: AppTheme.limeAccentDark,
+                      ),
+                    ],
+                    if (format == LeagueFormat.worldCup) ...[
+                      const SizedBox(height: 8),
+                      _formatHintBox(
+                        brightness,
+                        '🌍 World Cup templates include group '
+                        'stage, knockout rounds, third place '
+                        'match, and final. Home/away is not '
+                        'supported.',
+                        color: _worldCupGold,
                       ),
                     ],
                   ],
@@ -1200,8 +1179,11 @@ class _MasterLeagueDetailsScreenState
                 ),
                 FilledButton(
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.limeAccent,
-                    foregroundColor: AppTheme.darkText,
+                    backgroundColor:
+                        format == LeagueFormat.worldCup
+                            ? _worldCupGold
+                            : AppTheme.limeAccent,
+                    foregroundColor: Colors.white,
                   ),
                   onPressed: () =>
                       Navigator.of(ctx).pop(true),
@@ -1235,6 +1217,11 @@ class _MasterLeagueDetailsScreenState
       final repo = ref.read(masterLeaguesRepositoryProvider);
       final now  = DateTime.now().millisecondsSinceEpoch;
 
+      // Effective maxTeams — World Cup is locked to format.
+      final effectiveMaxTeams = format == LeagueFormat.worldCup
+          ? worldCupFormat.teamCount
+          : maxTeams;
+
       final template = CompetitionTemplate(
         id:             '',
         masterLeagueId: ml.id,
@@ -1242,12 +1229,18 @@ class _MasterLeagueDetailsScreenState
         description:    description,
         format:         format,
         privacy:        privacy,
-        maxTeams:       maxTeams,
+        maxTeams:       effectiveMaxTeams,
         homeAwayEnabled: homeAwayEnabled,
         containsRewards: containsRewards,
         createdAtMs:    now,
         updatedAtMs:    now,
         createdBy:      _currentUid,
+        // NEW: persist world cup format in template.
+        // CompetitionTemplate must expose this field —
+        // see CompetitionTemplate model note below.
+        worldCupFormat: format == LeagueFormat.worldCup
+            ? worldCupFormat
+            : null,
       );
 
       await repo.saveCompetitionTemplate(
@@ -1261,6 +1254,33 @@ class _MasterLeagueDetailsScreenState
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Small colored hint box used inside the template composer dialog.
+  Widget _formatHintBox(
+    Brightness brightness,
+    String text, {
+    required Color color,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: color.withOpacity(
+            brightness == Brightness.dark ? 0.10 : 0.08),
+        border: Border.all(
+            color: color.withOpacity(0.28)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color:      color,
+          fontWeight: FontWeight.w700,
+          height:     1.35,
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmDeleteTemplate(
@@ -1571,25 +1591,28 @@ class _MasterLeagueDetailsScreenState
   }
 
   // ── use template ───────────────────────────────────────────────────────────
+  //
+  // MODIFIED: Passes worldCupFormat into the route extra when
+  // the template format is worldCup.
 
   void _useCompetitionTemplate(CompetitionTemplate template) {
     _safePush(
       '/leagues/create',
       extra: <String, dynamic>{
-        'masterLeagueId':   widget.masterLeagueId.trim(),
-        'initialFormat':    template.format,
-        'type': template.format == LeagueFormat.classic
-            ? 'classic'
-            : (template.format == LeagueFormat.uclSwiss
-                ? 'swiss'
-                : 'ucl'),
-        'maxTeams':         template.maxTeams,
-        'templateId':       template.id,
-        'templateName':     template.name,
+        'masterLeagueId':      widget.masterLeagueId.trim(),
+        'initialFormat':       template.format,
+        'type':                _typeStringFor(template.format),
+        'maxTeams':            template.maxTeams,
+        'templateId':          template.id,
+        'templateName':        template.name,
         'templateDescription': template.description,
-        'privacy':          template.privacy.name,
-        'homeAwayEnabled':  template.homeAwayEnabled,
-        'containsRewards':  template.containsRewards,
+        'privacy':             template.privacy.name,
+        'homeAwayEnabled':     template.homeAwayEnabled,
+        'containsRewards':     template.containsRewards,
+        // NEW: pass World Cup format if template is a World Cup type.
+        if (template.format == LeagueFormat.worldCup &&
+            template.worldCupFormat != null)
+          'worldCupFormat': template.worldCupFormat!.firestoreKey,
       },
     );
   }
@@ -1803,6 +1826,19 @@ class _MasterLeagueDetailsScreenState
                                             CrossAxisAlignment
                                                 .stretch,
                                         children: [
+                                          // World Cup badge on card
+                                          if (l.format ==
+                                              LeagueFormat
+                                                  .worldCup)
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets
+                                                      .only(
+                                                      bottom:
+                                                          8),
+                                              child:
+                                                  _worldCupBadge(),
+                                            ),
                                           SizedBox(
                                             height: 230,
                                             child: LeagueFlipCard(
@@ -1940,6 +1976,43 @@ class _MasterLeagueDetailsScreenState
     );
   }
 
+  // ── World Cup badge widget ─────────────────────────────────────────────────
+  //
+  // NEW: Small pill badge shown on World Cup competition cards
+  // in the competitions list and "all competitions" sheet.
+
+  Widget _worldCupBadge() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color:  _worldCupGold.withOpacity(0.12),
+          border: Border.all(
+              color: _worldCupGold.withOpacity(0.30)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.public_rounded,
+                color: _worldCupGold, size: 14),
+            const SizedBox(width: 6),
+            Text(
+              '🌍 World Cup',
+              style: TextStyle(
+                color:      _worldCupGold,
+                fontWeight: FontWeight.w900,
+                fontSize:   12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── build ──────────────────────────────────────────────────────────────────
 
   @override
@@ -1953,11 +2026,6 @@ class _MasterLeagueDetailsScreenState
         final master  = masterSnap.data;
         final isOwner = _isOwner(master);
 
-        // ── Detect permission-denied specifically ──────────────────────────
-        // When a FirebaseException with code 'permission-denied' arrives,
-        // masterSnap.hasError is true and masterSnap.data is null.
-        // We show a friendly "no access" state instead of the generic
-        // "not found" state so users understand why they see no content.
         final hasPermissionError = masterSnap.hasError &&
             masterSnap.error is FirebaseException &&
             (masterSnap.error as FirebaseException).code ==
@@ -2021,7 +2089,6 @@ class _MasterLeagueDetailsScreenState
             children: [
               SafeArea(
                 child: () {
-                  // ── Permission denied ──────────────────────────────────
                   if (hasPermissionError) {
                     return Center(
                       child: EmptyState(
@@ -2047,7 +2114,6 @@ class _MasterLeagueDetailsScreenState
                     );
                   }
 
-                  // ── Loading ────────────────────────────────────────────
                   if (masterSnap.connectionState ==
                           ConnectionState.waiting &&
                       !masterSnap.hasData) {
@@ -2055,7 +2121,6 @@ class _MasterLeagueDetailsScreenState
                         child: CircularProgressIndicator());
                   }
 
-                  // ── Not found ──────────────────────────────────────────
                   if (master == null) {
                     return Center(
                       child: EmptyState(
@@ -2081,7 +2146,6 @@ class _MasterLeagueDetailsScreenState
                     );
                   }
 
-                  // ── Content ────────────────────────────────────────────
                   return StreamBuilder<List<League>>(
                     stream: _watchCompetitions(
                         widget.masterLeagueId),
@@ -2137,7 +2201,6 @@ class _MasterLeagueDetailsScreenState
                   );
                 }(),
               ),
-              // ── Global busy overlay ──────────────────────────────────
               if (_busy)
                 Positioned.fill(
                   child: Container(
@@ -2499,6 +2562,11 @@ class _MasterLeagueDetailsScreenState
     final followersCountAsync =
         ref.watch(masterLeagueFollowersCountProvider(master.id));
 
+    // NEW: Count World Cup competitions for the stats grid.
+    final worldCupCount = leagues
+        .where((l) => l.format == LeagueFormat.worldCup)
+        .length;
+
     final stats = <_DashboardStat>[
       _DashboardStat(
         icon:  Icons.emoji_events_outlined,
@@ -2521,24 +2589,34 @@ class _MasterLeagueDetailsScreenState
         ),
         tint: const Color(0xFFEF4444),
       ),
-      _DashboardStat(
-        icon: master.isVerifiedOrganizer
-            ? Icons.verified_rounded
-            : (master.isVerificationPending
-                ? Icons.hourglass_top_rounded
-                : Icons.shield_outlined),
-        label: 'Organizer',
-        value: master.isVerifiedOrganizer
-            ? 'Verified'
-            : (master.isVerificationPending
-                ? 'Pending'
-                : 'Public'),
-        tint: master.isVerifiedOrganizer
-            ? const Color(0xFF1D9BF0)
-            : (master.isVerificationPending
-                ? const Color(0xFFF59E0B)
-                : AppTheme.limeAccentDark),
-      ),
+      // NEW: Replace old 4th stat with World Cup count when > 0,
+      // otherwise fall back to the Organizer status stat.
+      if (worldCupCount > 0)
+        _DashboardStat(
+          icon:  Icons.public_rounded,
+          label: 'World Cup',
+          value: '$worldCupCount',
+          tint:  _worldCupGold,
+        )
+      else
+        _DashboardStat(
+          icon: master.isVerifiedOrganizer
+              ? Icons.verified_rounded
+              : (master.isVerificationPending
+                  ? Icons.hourglass_top_rounded
+                  : Icons.shield_outlined),
+          label: 'Organizer',
+          value: master.isVerifiedOrganizer
+              ? 'Verified'
+              : (master.isVerificationPending
+                  ? 'Pending'
+                  : 'Public'),
+          tint: master.isVerifiedOrganizer
+              ? const Color(0xFF1D9BF0)
+              : (master.isVerificationPending
+                  ? const Color(0xFFF59E0B)
+                  : AppTheme.limeAccentDark),
+        ),
     ];
 
     return GridView.builder(
@@ -2642,8 +2720,7 @@ class _MasterLeagueDetailsScreenState
                   border: Border.all(
                       color: tint.withOpacity(0.26)),
                 ),
-                child:
-                    Icon(icon, color: tint),
+                child: Icon(icon, color: tint),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -2676,8 +2753,7 @@ class _MasterLeagueDetailsScreenState
               ),
               Icon(
                 Icons.chevron_right_rounded,
-                color:
-                    AppTheme.secondaryText(brightness),
+                color: AppTheme.secondaryText(brightness),
               ),
             ],
           ),
@@ -2731,8 +2807,18 @@ class _MasterLeagueDetailsScreenState
           icon:     Icons.bookmarks_outlined,
           title:    'Competition Templates',
           subtitle: 'Save reusable competition setups and launch faster',
-          onTap: null,
-          tint:  const Color(0xFF14B8A6),
+          onTap:    () => _showTemplateComposer(master),
+          tint:     const Color(0xFF14B8A6),
+        ),
+        const SizedBox(height: 12),
+        // NEW: World Cup quick-action tile (owner only).
+        tile(
+          icon:     Icons.public_rounded,
+          title:    '🌍 Create World Cup',
+          subtitle: 'Launch a FIFA 2022 (32-team) or FIFA 2026 '
+                    '(48-team) tournament inside this workspace',
+          onTap: () => _showCreateCompetitionSheet(context, master),
+          tint:  _worldCupGold,
         ),
         const SizedBox(height: 12),
         tile(
@@ -3448,30 +3534,44 @@ class _MasterLeagueDetailsScreenState
 
               return Column(
                 children: templates.map((template) {
+                  // NEW: Detect World Cup templates for gold styling.
+                  final isWC =
+                      template.format == LeagueFormat.worldCup;
+
                   return Padding(
                     padding:
                         const EdgeInsets.only(bottom: 10),
                     child: Glass(
                       borderRadius: 20,
-                      padding:
-                          const EdgeInsets.all(14),
+                      padding:      const EdgeInsets.all(14),
                       fill: AppTheme.cardColor(brightness),
-                      borderColor:
-                          AppTheme.cardBorder(brightness),
+                      borderColor: isWC
+                          ? _worldCupGold.withOpacity(0.30)
+                          : AppTheme.cardBorder(brightness),
                       child: Column(
                         crossAxisAlignment:
                             CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
+                              // NEW: Globe icon for World Cup templates.
+                              if (isWC) ...[
+                                Icon(
+                                  Icons.public_rounded,
+                                  color: _worldCupGold,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                              ],
                               Expanded(
                                 child: Text(
                                   template.name,
                                   style: theme.textTheme
                                       .bodyMedium
                                       ?.copyWith(
-                                    color:
-                                        AppTheme.primaryText(
+                                    color: isWC
+                                        ? _worldCupGold
+                                        : AppTheme.primaryText(
                                             brightness),
                                     fontWeight:
                                         FontWeight.w900,
@@ -3521,12 +3621,14 @@ class _MasterLeagueDetailsScreenState
                                     .auto_awesome_outlined,
                                 label: template
                                     .format.displayName,
+                                active: isWC,
                               ),
                               _templateChip(
                                 brightness,
                                 icon:  Icons.groups_outlined,
                                 label:
                                     '${template.maxTeams} teams',
+                                active: isWC,
                               ),
                               _templateChip(
                                 brightness,
@@ -3536,12 +3638,27 @@ class _MasterLeagueDetailsScreenState
                                         'private'
                                     ? 'Private'
                                     : 'Public',
+                                active: isWC,
                               ),
+                              // NEW: Show World Cup sub-format chip.
+                              if (isWC &&
+                                  template.worldCupFormat !=
+                                      null)
+                                _templateChip(
+                                  brightness,
+                                  icon: Icons
+                                      .emoji_events_outlined,
+                                  label: template
+                                      .worldCupFormat!
+                                      .displayName,
+                                  active: true,
+                                ),
                               if (template.homeAwayEnabled)
                                 _templateChip(
                                   brightness,
                                   icon:  Icons.swap_horiz,
                                   label: 'Home & Away',
+                                  active: false,
                                 ),
                               if (template.containsRewards)
                                 _templateChip(
@@ -3549,6 +3666,7 @@ class _MasterLeagueDetailsScreenState
                                   icon: Icons
                                       .card_giftcard_outlined,
                                   label: 'Rewards',
+                                  active: false,
                                 ),
                             ],
                           ),
@@ -3556,14 +3674,27 @@ class _MasterLeagueDetailsScreenState
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.tonalIcon(
+                              style: isWC
+                                  ? FilledButton.styleFrom(
+                                      backgroundColor:
+                                          _worldCupGold
+                                              .withOpacity(
+                                                  0.15),
+                                      foregroundColor:
+                                          _worldCupGold,
+                                    )
+                                  : null,
                               onPressed: () =>
                                   _useCompetitionTemplate(
                                       template),
-                              icon: const Icon(
-                                  Icons.bolt_rounded),
-                              label: const Text(
-                                'Use Template',
-                                style: TextStyle(
+                              icon: Icon(isWC
+                                  ? Icons.public_rounded
+                                  : Icons.bolt_rounded),
+                              label: Text(
+                                isWC
+                                    ? 'Use World Cup Template'
+                                    : 'Use Template',
+                                style: const TextStyle(
                                     fontWeight:
                                         FontWeight.w900),
                               ),
@@ -3582,25 +3713,31 @@ class _MasterLeagueDetailsScreenState
     );
   }
 
+  /// Template chip — now accepts [active] to apply World Cup gold tint.
   Widget _templateChip(
     Brightness brightness, {
     required IconData icon,
     required String   label,
+    bool active = false,
   }) {
+    final color = active ? _worldCupGold : AppTheme.limeAccentDark;
     return Container(
       padding: const EdgeInsets.symmetric(
           horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color:  AppTheme.searchBackground(brightness),
+        color:  active
+            ? _worldCupGold.withOpacity(0.10)
+            : AppTheme.searchBackground(brightness),
         border: Border.all(
-            color: AppTheme.searchOutline(brightness)),
+            color: active
+                ? _worldCupGold.withOpacity(0.28)
+                : AppTheme.searchOutline(brightness)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14,
-              color: AppTheme.limeAccentDark),
+          Icon(icon, size: 14, color: color),
           const SizedBox(width: 6),
           Text(
             label,
@@ -3698,8 +3835,7 @@ class _MasterLeagueDetailsScreenState
             )
           else
             FutureBuilder<Membership?>(
-              future:
-                  _membershipForLeague(preview.id),
+              future: _membershipForLeague(preview.id),
               builder: (context, membershipSnap) {
                 final joined =
                     membershipSnap.data != null;
@@ -3708,6 +3844,14 @@ class _MasterLeagueDetailsScreenState
 
                 return Column(
                   children: [
+                    // NEW: Show World Cup badge above card if applicable.
+                    if (preview.format ==
+                        LeagueFormat.worldCup)
+                      Padding(
+                        padding:
+                            const EdgeInsets.only(bottom: 8),
+                        child: _worldCupBadge(),
+                      ),
                     SizedBox(
                       height: 236,
                       child: LeagueFlipCard(
@@ -3825,6 +3969,494 @@ class _MasterLeagueDetailsScreenState
               },
             ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _CompetitionTypeResult
+// ---------------------------------------------------------------------------
+//
+// NEW: Return type for _CreateCompetitionSheet.
+// Wraps either a standard LeagueFormat or a World Cup format + sub-format.
+
+class _CompetitionTypeResult {
+  const _CompetitionTypeResult({
+    required this.format,
+    this.worldCupFormat,
+  });
+
+  final LeagueFormat    format;
+  final WorldCupFormat? worldCupFormat;
+}
+
+// ---------------------------------------------------------------------------
+// _CreateCompetitionSheet
+// ---------------------------------------------------------------------------
+//
+// NEW: Extracted bottom sheet widget that replaces the inline showModalBottomSheet
+// builder in the original _showCreateCompetitionSheet method.
+//
+// Why extracted?
+//   The World Cup option needs its own StatefulWidget so the sub-format
+//   picker can call setState() without affecting the parent screen.
+//   Inline builders cannot easily manage their own local state in Flutter.
+//
+// EXISTING options (classic, uclSwiss, uclGroup) are rendered exactly
+// as before — same icons, same colors, same subtitles.
+// World Cup is appended as a NEW fourth option with a gold-themed card.
+
+class _CreateCompetitionSheet extends StatefulWidget {
+  const _CreateCompetitionSheet({
+    required this.brightness,
+    required this.masterLeagueId,
+  });
+
+  final Brightness brightness;
+  final String     masterLeagueId;
+
+  @override
+  State<_CreateCompetitionSheet> createState() =>
+      _CreateCompetitionSheetState();
+}
+
+class _CreateCompetitionSheetState
+    extends State<_CreateCompetitionSheet> {
+
+  static const Color _worldCupGold = Color(0xFFD97706);
+
+  /// When non-null, the World Cup card is expanded and showing
+  /// the sub-format picker. When null, no expansion is shown.
+  bool _worldCupExpanded = false;
+
+  /// Currently selected World Cup sub-format.
+  WorldCupFormat _worldCupFormat = WorldCupFormat.fifa2022;
+
+  void _selectFormat(LeagueFormat format) {
+    if (format == LeagueFormat.worldCup) {
+      setState(() => _worldCupExpanded = !_worldCupExpanded);
+      return;
+    }
+    Navigator.of(context).pop(
+      _CompetitionTypeResult(format: format),
+    );
+  }
+
+  void _confirmWorldCup() {
+    Navigator.of(context).pop(
+      _CompetitionTypeResult(
+        format:         LeagueFormat.worldCup,
+        worldCupFormat: _worldCupFormat,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sheetTheme = Theme.of(context);
+    final brightness = widget.brightness;
+
+    Widget option({
+      required IconData    icon,
+      required String      title,
+      required String      subtitle,
+      required LeagueFormat format,
+      Color?               tint,
+    }) {
+      final c = tint ?? AppTheme.limeAccentDark;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: InkWell(
+          onTap: () => _selectFormat(format),
+          borderRadius: BorderRadius.circular(20),
+          child: Glass(
+            borderRadius: 20,
+            padding: const EdgeInsets.symmetric(
+                horizontal: 14, vertical: 12),
+            fill:        AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
+            child: Row(
+              children: [
+                Container(
+                  width:  42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    shape:  BoxShape.circle,
+                    color:  c.withOpacity(0.12),
+                    border: Border.all(
+                        color: c.withOpacity(0.30)),
+                  ),
+                  child: Icon(icon, color: c, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: sheetTheme.textTheme
+                            .titleSmall
+                            ?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.primaryText(
+                              brightness),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: sheetTheme.textTheme
+                            .bodySmall
+                            ?.copyWith(
+                          color: AppTheme.secondaryText(
+                              brightness),
+                          fontWeight: FontWeight.w700,
+                          height: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color:
+                      AppTheme.secondaryText(brightness),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsetsDirectional.fromSTEB(
+            16, 12, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Header ───────────────────────────────────────────────
+            Glass(
+              borderRadius: 24,
+              padding:      const EdgeInsets.all(14),
+              fill:         AppTheme.cardColor(brightness),
+              borderColor:  AppTheme.cardBorder(brightness),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.add_circle_outline_rounded,
+                    color: AppTheme.limeAccentDark,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Create Competition',
+                      style: sheetTheme.textTheme
+                          .titleMedium
+                          ?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: AppTheme.primaryText(
+                            brightness),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ── Classic (UNCHANGED) ───────────────────────────────────
+            option(
+              icon:     Icons.emoji_events_outlined,
+              title:    'Classic League',
+              subtitle: 'Round-robin style competition',
+              format:   LeagueFormat.classic,
+              tint:     AppTheme.limeAccentDark,
+            ),
+
+            // ── Swiss (UNCHANGED) ─────────────────────────────────────
+            option(
+              icon:     Icons.grid_view_rounded,
+              title:    'Swiss League',
+              subtitle: 'Swiss/Series format',
+              format:   LeagueFormat.uclSwiss,
+              tint:     const Color(0xFF8B5CF6),
+            ),
+
+            // ── UCL Group (UNCHANGED) ─────────────────────────────────
+            option(
+              icon:     Icons.groups_rounded,
+              title:    'UCL Group League',
+              subtitle: 'Group stage competition',
+              format:   LeagueFormat.uclGroup,
+              tint:     const Color(0xFF22C55E),
+            ),
+
+            // ── World Cup (NEW) ───────────────────────────────────────
+            // Uses a custom expandable card instead of the generic option()
+            // helper so the sub-format picker can appear inline.
+            _buildWorldCupOption(context, brightness, sheetTheme),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWorldCupOption(
+    BuildContext context,
+    Brightness   brightness,
+    ThemeData    sheetTheme,
+  ) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 250),
+      curve:    Curves.easeOut,
+      child: Glass(
+        borderRadius: 20,
+        padding:      const EdgeInsets.all(14),
+        fill: _worldCupExpanded
+            ? (_worldCupGold.withOpacity(
+                brightness == Brightness.dark ? 0.08 : 0.05))
+            : AppTheme.cardColor(brightness),
+        borderColor: _worldCupExpanded
+            ? _worldCupGold.withOpacity(0.35)
+            : AppTheme.cardBorder(brightness),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── World Cup header row ──────────────────────────────────
+            InkWell(
+              onTap: () => setState(
+                  () => _worldCupExpanded = !_worldCupExpanded),
+              borderRadius: BorderRadius.circular(16),
+              child: Row(
+                children: [
+                  Container(
+                    width:  42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _worldCupGold
+                          .withOpacity(0.12),
+                      border: Border.all(
+                          color: _worldCupGold
+                              .withOpacity(0.30)),
+                    ),
+                    child: Icon(
+                      Icons.public_rounded,
+                      color: _worldCupGold,
+                      size:  20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '🌍 World Cup',
+                                style: sheetTheme.textTheme
+                                    .titleSmall
+                                    ?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: _worldCupGold,
+                                ),
+                              ),
+                            ),
+                            // Premium badge.
+                            Container(
+                              padding:
+                                  const EdgeInsets.symmetric(
+                                      horizontal: 7,
+                                      vertical: 3),
+                              decoration: BoxDecoration(
+                                color: _worldCupGold
+                                    .withOpacity(0.12),
+                                borderRadius:
+                                    BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: _worldCupGold
+                                      .withOpacity(0.30),
+                                ),
+                              ),
+                              child: Text(
+                                'PREMIUM',
+                                style: TextStyle(
+                                  color:
+                                      _worldCupGold,
+                                  fontWeight:
+                                      FontWeight.w900,
+                                  fontSize: 9,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'FIFA 2022 (32 teams) or FIFA 2026 '
+                          '(48 teams) format',
+                          style: sheetTheme.textTheme
+                              .bodySmall
+                              ?.copyWith(
+                            color: AppTheme.secondaryText(
+                                brightness),
+                            fontWeight: FontWeight.w700,
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    _worldCupExpanded
+                        ? Icons.expand_less_rounded
+                        : Icons.chevron_right_rounded,
+                    color: _worldCupGold,
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Expandable sub-format picker ──────────────────────────
+            if (_worldCupExpanded) ...[
+              const SizedBox(height: 14),
+              Divider(
+                  color: _worldCupGold.withOpacity(0.20)),
+              const SizedBox(height: 12),
+              Text(
+                'Select World Cup Format',
+                style: sheetTheme.textTheme.bodySmall
+                    ?.copyWith(
+                  color: _worldCupGold,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // FIFA 2022 option.
+              _wcFormatTile(
+                brightness:  brightness,
+                sheetTheme:  sheetTheme,
+                format:      WorldCupFormat.fifa2022,
+                selected:
+                    _worldCupFormat == WorldCupFormat.fifa2022,
+              ),
+              const SizedBox(height: 8),
+
+              // FIFA 2026 option.
+              _wcFormatTile(
+                brightness:  brightness,
+                sheetTheme:  sheetTheme,
+                format:      WorldCupFormat.fifa2026,
+                selected:
+                    _worldCupFormat == WorldCupFormat.fifa2026,
+              ),
+              const SizedBox(height: 14),
+
+              // Confirm button.
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _worldCupGold,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 14),
+                  ),
+                  onPressed: _confirmWorldCup,
+                  icon:  const Icon(Icons.public_rounded),
+                  label: Text(
+                    'Create ${_worldCupFormat.displayName}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Single World Cup sub-format tile (radio style).
+  Widget _wcFormatTile({
+    required Brightness    brightness,
+    required ThemeData     sheetTheme,
+    required WorldCupFormat format,
+    required bool          selected,
+  }) {
+    return InkWell(
+      onTap: () => setState(() => _worldCupFormat = format),
+      borderRadius: BorderRadius.circular(14),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: selected
+              ? _worldCupGold.withOpacity(
+                  brightness == Brightness.dark ? 0.12 : 0.08)
+              : AppTheme.searchBackground(brightness),
+          border: Border.all(
+            color: selected
+                ? _worldCupGold.withOpacity(0.40)
+                : AppTheme.searchOutline(brightness),
+            width: selected ? 1.4 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off,
+              color: selected
+                  ? _worldCupGold
+                  : AppTheme.secondaryText(brightness),
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    format.displayName,
+                    style: sheetTheme.textTheme.bodyMedium
+                        ?.copyWith(
+                      color: selected
+                          ? _worldCupGold
+                          : AppTheme.primaryText(brightness),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${format.teamCount} teams • '
+                    '${format.groupCount} groups',
+                    style: sheetTheme.textTheme.bodySmall
+                        ?.copyWith(
+                      color:
+                          AppTheme.secondaryText(brightness),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
