@@ -1,3 +1,11 @@
+// lib/features/master_leagues/data/master_leagues_repository_firebase.dart
+//
+// MODIFIED: saveCompetitionTemplate now enforces World Cup invariants:
+// - maxTeams is derived from worldCupFormat when format == worldCup
+// - homeAwayEnabled is forced to false for World Cup templates
+// - worldCupFormat is carried through copyWith to Firestore
+// All other methods are UNCHANGED.
+
 import 'dart:async';
 import 'dart:io';
 
@@ -7,6 +15,7 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../leagues/models/league_format.dart';
 import '../domain/competition_template.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
@@ -389,14 +398,32 @@ class MasterLeaguesRepositoryFirebase {
           template.id.trim().isEmpty ? _uuid.v4() : template.id.trim();
       final now = _nowMs();
 
+      // MODIFIED: For World Cup templates, maxTeams must match the sub-format's
+      // team count. We re-derive it here as a safety guard.
+      final effectiveMaxTeams =
+          template.format == LeagueFormat.worldCup &&
+                  template.worldCupFormat != null
+              ? template.worldCupFormat!.teamCount
+              : template.maxTeams;
+
+      // MODIFIED: World Cup never supports home/away — enforce at persistence layer.
+      final effectiveHomeAway =
+          template.format == LeagueFormat.worldCup
+              ? false
+              : template.homeAwayEnabled;
+
       final safeTemplate = template.copyWith(
         id: templateId,
         masterLeagueId: id,
         name: _trimText(template.name, 80),
         description: _trimText(template.description, 500),
+        maxTeams: effectiveMaxTeams,
+        homeAwayEnabled: effectiveHomeAway,
         createdAtMs: template.createdAtMs == 0 ? now : template.createdAtMs,
         updatedAtMs: now,
         createdBy: uid,
+        // worldCupFormat is carried through unchanged via copyWith.
+        // It will be written to Firestore by toMap() only when format==worldCup.
       );
 
       if (safeTemplate.name.trim().isEmpty) {
