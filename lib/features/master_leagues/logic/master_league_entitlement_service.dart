@@ -76,6 +76,19 @@ class MasterLeagueEntitlementService {
     return uid;
   }
 
+  /// Google Play Billing purchases are confirmed directly by the Play
+  /// Billing purchase stream (see [GooglePlayBillingService]) and their
+  /// raw receipt is already recorded to Firestore's `payments` collection
+  /// for later async server-side reconciliation.
+  ///
+  /// They must NEVER be routed through [_activateUri], because that
+  /// remote worker endpoint exists solely to verify Flutterwave web
+  /// payments and does not recognize `google_play_billing` as a valid
+  /// provider — doing so previously produced an "unsupported provider"
+  /// error and left the plan un-activated in Firestore.
+  bool _isGooglePlayProvider(String provider) =>
+      provider.trim().toLowerCase() == 'google_play_billing';
+
   Future<OrganizerProEntitlement> _readFromProfile({
     bool forceRefresh = false,
   }) async {
@@ -375,14 +388,6 @@ class MasterLeagueEntitlementService {
       );
     }
 
-    final idToken = await user.getIdToken(true);
-    final safeIdToken = (idToken ?? '').trim();
-    if (safeIdToken.isEmpty) {
-      throw const MasterLeagueEntitlementException(
-        'Please sign in again and try once more.',
-      );
-    }
-
     if (plan.isFree) {
       await _profileRepo.activatePlanSubscription(
         plan: plan,
@@ -391,6 +396,39 @@ class MasterLeagueEntitlementService {
         provider: provider,
       );
       return;
+    }
+
+    // ── Google Play Billing: activate directly, skip the remote worker ────
+    // See _isGooglePlayProvider doc comment above for why this branch
+    // exists. The purchase itself was already confirmed by Google Play
+    // (GooglePlayBillingService.purchaseStream) before this method is
+    // ever called, so no further server round-trip is required here to
+    // unlock the plan. Server-side receipt verification (Play Developer
+    // API / RTDN) happens asynchronously against the `payments` document
+    // already written by GooglePlayBillingService, independent of this
+    // activation step.
+    if (_isGooglePlayProvider(provider)) {
+      await _profileRepo.activatePlanSubscription(
+        plan: plan,
+        duration: duration,
+        receiptId: receiptId,
+        provider: provider,
+      );
+
+      try {
+        await _auth.currentUser?.getIdToken(true);
+      } catch (_) {}
+
+      return;
+    }
+
+    // ── Flutterwave / web path: verify with the remote worker ─────────────
+    final idToken = await user.getIdToken(true);
+    final safeIdToken = (idToken ?? '').trim();
+    if (safeIdToken.isEmpty) {
+      throw const MasterLeagueEntitlementException(
+        'Please sign in again and try once more.',
+      );
     }
 
     final parsed = await _postJson(
