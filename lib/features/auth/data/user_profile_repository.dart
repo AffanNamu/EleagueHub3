@@ -1,5 +1,3 @@
-// lib/features/auth/data/user_profile_repository.dart
-
 import 'dart:async';
 import 'dart:io';
 
@@ -34,8 +32,6 @@ class UserProfileRepository {
   CollectionReference<Map<String, dynamic>> get _usersCol =>
       _firestore.collection('users');
 
-  // ── Auth helpers ──────────────────────────────────────────────────────────
-
   String _requireAuthUid() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
@@ -51,8 +47,7 @@ class UserProfileRepository {
 
     if (error is SocketException) {
       throw const UserProfileRepositoryException(
-        'Your network appears to be offline. '
-        'Please check your connection and try again.',
+        'Your network appears to be offline. Please check your connection and try again.',
       );
     }
 
@@ -75,8 +70,7 @@ class UserProfileRepository {
         case 'unavailable':
         case 'deadline-exceeded':
           throw const UserProfileRepositoryException(
-            'Your network appears to be offline. '
-            'Please check your connection and try again.',
+            'Your network appears to be offline. Please check your connection and try again.',
           );
         default:
           throw const UserProfileRepositoryException(
@@ -89,97 +83,6 @@ class UserProfileRepository {
       'Something went wrong. Please try again.',
     );
   }
-
-  // ── Badge auto-sync ───────────────────────────────────────────────────────
-
-  /// Inspects [profile]'s active plan and ensures the correct badges
-  /// are present in Firestore.
-  ///
-  /// Called:
-  ///   • After every successful [activatePlanSubscription] write.
-  ///   • At app start via [syncBadgesForCurrentUser].
-  ///
-  /// Rules:
-  ///   Pro  active  → green badge  (expires with plan)
-  ///   Elite active → green + gold organizer badge (expires with plan)
-  ///   No / expired plan → subscription badges revoked
-  ///                       (manual / admin badges are preserved)
-  ///
-  /// Errors are caught and logged — they never block the caller.
-  Future<void> _syncBadgesForProfile(UserProfile profile) async {
-    try {
-      final sub = profile.planSubscription;
-
-      if (sub == null || !sub.isActive) {
-        // No active plan — revoke any subscription-sourced badges.
-        await BadgeService.instance
-            .onProSubscriptionExpired(profile.userId);
-        await BadgeService.instance
-            .onEliteSubscriptionExpired(profile.userId);
-        return;
-      }
-
-      // Free plans get no verification badge.
-      if (sub.plan.isFree) return;
-
-      final expiresAt =
-          DateTime.fromMillisecondsSinceEpoch(sub.expiresAtMs);
-
-      if (sub.plan == MasterLeaguePlan.elite) {
-        await BadgeService.instance.onEliteSubscriptionPurchased(
-          userId: profile.userId,
-          expiresAt: expiresAt,
-        );
-      } else if (sub.plan == MasterLeaguePlan.pro) {
-        await BadgeService.instance.onProSubscriptionPurchased(
-          userId: profile.userId,
-          expiresAt: expiresAt,
-        );
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint(
-          '[UserProfileRepository] _syncBadgesForProfile error '
-          'for ${profile.userId}: $e',
-        );
-      }
-    }
-  }
-
-  /// Call once after every sign-in (including resumed sessions on cold
-  /// start) to ensure existing users who already have an active plan
-  /// receive the correct badge automatically.
-  ///
-  /// Safe to call on every cold start — all badge writes are idempotent.
-  Future<void> syncBadgesForCurrentUser() async {
-    try {
-      final uid = _auth.currentUser?.uid.trim() ?? '';
-      if (uid.isEmpty) return;
-
-      final profile = await fetchByUserIdForBootstrap(uid);
-      if (profile == null) return;
-
-      await _syncBadgesForProfile(profile);
-
-      if (kDebugMode) {
-        debugPrint(
-          '[UserProfileRepository] syncBadgesForCurrentUser '
-          'completed for $uid '
-          'plan=${profile.activePlanId} '
-          'expires=${profile.planExpiresAtMs}',
-        );
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint(
-          '[UserProfileRepository] syncBadgesForCurrentUser '
-          'error: $e',
-        );
-      }
-    }
-  }
-
-  // ── Display name helpers ──────────────────────────────────────────────────
 
   String displayNameFromData(
     Map<String, dynamic>? data, {
@@ -211,10 +114,8 @@ class UserProfileRepository {
     return 'User';
   }
 
-  String displayNameForProfile(
-    UserProfile? profile, {
-    String fallbackUserId = '',
-  }) {
+  String displayNameForProfile(UserProfile? profile,
+      {String fallbackUserId = ''}) {
     if (profile != null && profile.displayName.trim().isNotEmpty) {
       return profile.displayName.trim();
     }
@@ -241,8 +142,7 @@ class UserProfileRepository {
   }
 
   Future<Map<String, String>> fetchDisplayNamesByUserIds(
-    List<String> userIds,
-  ) async {
+      List<String> userIds) async {
     final out = <String, String>{};
     final ids = userIds
         .map((e) => e.trim())
@@ -269,8 +169,6 @@ class UserProfileRepository {
       return out;
     }
   }
-
-  // ── Fetch ─────────────────────────────────────────────────────────────────
 
   Future<UserProfile?> fetchByUserId(String userId) async {
     try {
@@ -307,8 +205,7 @@ class UserProfileRepository {
     } catch (e) {
       if (kDebugMode) {
         debugPrint(
-          'UserProfileRepository.fetchByUserIdForBootstrap '
-          'server read failed: $e',
+          'UserProfileRepository.fetchByUserIdForBootstrap server read failed: $e',
         );
       }
     }
@@ -325,13 +222,28 @@ class UserProfileRepository {
     } catch (e) {
       if (kDebugMode) {
         debugPrint(
-          'UserProfileRepository.fetchByUserIdForBootstrap '
-          'cache read failed: $e',
+          'UserProfileRepository.fetchByUserIdForBootstrap cache read failed: $e',
         );
       }
     }
 
     return null;
+  }
+
+  Stream<UserProfile?> watchByUserId(String userId) {
+    try {
+      _requireAuthUid();
+
+      final uid = userId.trim();
+      if (uid.isEmpty) return Stream<UserProfile?>.value(null);
+
+      return _usersCol.doc(uid).snapshots().map((snap) {
+        if (!snap.exists) return null;
+        return UserProfile.fromDoc(snap);
+      });
+    } catch (_) {
+      return const Stream<UserProfile?>.empty();
+    }
   }
 
   Future<UserProfile?> fetchByShareId(String shareId) async {
@@ -368,9 +280,7 @@ class UserProfileRepository {
     }
   }
 
-  Future<Map<String, UserProfile>> fetchByUserIds(
-    List<String> userIds,
-  ) async {
+  Future<Map<String, UserProfile>> fetchByUserIds(List<String> userIds) async {
     try {
       _requireAuthUid();
 
@@ -386,9 +296,7 @@ class UserProfileRepository {
 
       const int chunkSize = 10;
       for (int i = 0; i < ids.length; i += chunkSize) {
-        final end = (i + chunkSize < ids.length)
-            ? i + chunkSize
-            : ids.length;
+        final end = (i + chunkSize < ids.length) ? i + chunkSize : ids.length;
         final chunk = ids.sublist(i, end);
 
         final snap = await _usersCol
@@ -427,8 +335,7 @@ class UserProfileRepository {
       if (hasAnyIdentitySignal) {
         if (kDebugMode) {
           debugPrint(
-            'UserProfileRepository.profileExists fallback=true '
-            'for existing auth user: $uid',
+            'UserProfileRepository.profileExists fallback=true for existing auth user: $uid',
           );
         }
         return true;
@@ -436,24 +343,6 @@ class UserProfileRepository {
     }
 
     return false;
-  }
-
-  // ── Streams ───────────────────────────────────────────────────────────────
-
-  Stream<UserProfile?> watchByUserId(String userId) {
-    try {
-      _requireAuthUid();
-
-      final uid = userId.trim();
-      if (uid.isEmpty) return Stream<UserProfile?>.value(null);
-
-      return _usersCol.doc(uid).snapshots().map((snap) {
-        if (!snap.exists) return null;
-        return UserProfile.fromDoc(snap);
-      });
-    } catch (_) {
-      return const Stream<UserProfile?>.empty();
-    }
   }
 
   Stream<bool> watchIsPremium(String userId) {
@@ -502,8 +391,6 @@ class UserProfileRepository {
     }
   }
 
-  // ── Writes ────────────────────────────────────────────────────────────────
-
   Future<void> saveOrUpdateSelf(UserProfile profile) async {
     try {
       final authUid = _requireAuthUid();
@@ -533,21 +420,6 @@ class UserProfileRepository {
     }
   }
 
-  /// Activates the plan subscription in Firestore then auto-grants
-  /// the correct verification badge.
-  ///
-  /// The write is intentionally split into THREE separate atomic
-  /// set(merge:true) calls so that each call matches exactly ONE
-  /// of the allowed key-sets in the Firestore security rules:
-  ///
-  ///   Write 1 — plan fields only          → rule branch 1f
-  ///   Write 2 — isPremium compat fields   → rule branch 1e  (Pro/Elite)
-  ///   Write 3 — verification badge map    → rule branch 1h  (isBadgeSelfWrite)
-  ///
-  /// Combining writes 1 + 2 into a single call is also permitted by
-  /// rule branch 1g, but splitting is safer because it avoids the
-  /// Firestore SDK's merge-ordering edge cases when offline cache is
-  /// involved.
   Future<void> activatePlanSubscription({
     required MasterLeaguePlan plan,
     required PlanDuration duration,
@@ -557,10 +429,9 @@ class UserProfileRepository {
     try {
       final authUid = _requireAuthUid();
       final now = DateTime.now().millisecondsSinceEpoch;
-      final int expiresAtMs =
-          plan.isFree ? 0 : duration.expiryMsFromNow();
 
-      // ── Write 1: Plan fields only (rule branch 1f) ────────────────────
+      final int expiresAtMs = plan.isFree ? 0 : duration.expiryMsFromNow();
+
       await _usersCol.doc(authUid).set(
         <String, dynamic>{
           'userId': authUid,
@@ -571,69 +442,120 @@ class UserProfileRepository {
           'planReceiptId': receiptId,
           'planProvider': provider,
           'updatedAt': now,
+          // backward compatibility with old premium-only screens
+          if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
+            'isPremium': true,
+          if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
+            'premiumExpiresAtMs': expiresAtMs,
         },
         SetOptions(merge: true),
       ).timeout(const Duration(seconds: 20));
 
-      // ── Write 2: isPremium backward-compat (rule branch 1e) ───────────
-      // Only written for paid plans (Pro / Elite). Basic / free plans
-      // never set isPremium.
-      if (plan == MasterLeaguePlan.pro ||
-          plan == MasterLeaguePlan.elite) {
-        await _usersCol.doc(authUid).set(
-          <String, dynamic>{
-            'userId': authUid,
-            'isPremium': true,
-            'premiumExpiresAtMs': expiresAtMs,
-            'updatedAt': now,
-          },
-          SetOptions(merge: true),
-        ).timeout(const Duration(seconds: 20));
-      }
-
-      // ── Write 3: Verification badge (rule branch 1h) ──────────────────
-      // Build a minimal synthetic profile from the data we just wrote so
-      // that _syncBadgesForProfile can decide which badge to grant without
-      // a second Firestore round-trip. Badge grant errors are caught
-      // inside _syncBadgesForProfile and never propagate here.
-      final syntheticProfile = UserProfile(
-        userId: authUid,
-        teamName: '',
-        authProvider: provider,
-        createdAtMs: now,
-        updatedAtMs: now,
-        shareId: '',
-        quickMessagesCustom: const [],
-        photoUrl: '',
-        profileImageUrl: '',
-        teamImageUrl: '',
-        isPremium: plan == MasterLeaguePlan.pro ||
-            plan == MasterLeaguePlan.elite,
-        premiumExpiresAtMs: expiresAtMs,
-        isVerified: false,
-        verifiedAtMs: 0,
-        verificationExpiresAtMs: 0,
-        verificationStatus: '',
-        activePlanId: plan.id,
-        activePlanDurationId: duration.id,
-        planPurchasedAtMs: now,
-        planExpiresAtMs: expiresAtMs,
-        planReceiptId: receiptId,
-        planProvider: provider,
-      );
-
-      await _syncBadgesForProfile(syntheticProfile);
-
-      if (kDebugMode) {
-        debugPrint(
-          '[UserProfileRepository] activatePlanSubscription '
-          'completed for $authUid '
-          'plan=${plan.id} duration=${duration.id} '
-          'provider=$provider expiresAtMs=$expiresAtMs',
-        );
+      // ── Sync verification badges right after activation ──────────────
+      // Ensures the green/gold badge appears immediately for the user
+      // who just paid, without waiting for a separate screen visit.
+      if (!plan.isFree) {
+        try {
+          if (plan == MasterLeaguePlan.elite) {
+            await BadgeService.instance.onEliteSubscriptionPurchased(
+              userId: authUid,
+              expiresAt: DateTime.fromMillisecondsSinceEpoch(expiresAtMs),
+            );
+          } else if (plan == MasterLeaguePlan.pro) {
+            await BadgeService.instance.onProSubscriptionPurchased(
+              userId: authUid,
+              expiresAt: DateTime.fromMillisecondsSinceEpoch(expiresAtMs),
+            );
+          }
+        } catch (e) {
+          // Badge sync must never fail the plan activation itself.
+          if (kDebugMode) {
+            debugPrint(
+              '[UserProfileRepository] activatePlanSubscription badge sync error: $e',
+            );
+          }
+        }
       }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// ── NEW: Backfills verification badges for the CURRENTLY signed-in user
+  ///        based on the plan already recorded on their Firestore profile.
+  ///
+  /// This is the missing piece that `MasterLeaguesListScreen.initState()`
+  /// was already calling (`syncBadgesForCurrentUser()`) but which did not
+  /// exist yet — meaning the file could not compile, and existing Pro/Elite
+  /// users who purchased before the badge system existed (or whose badge
+  /// write silently failed) never got their green/gold badge applied.
+  ///
+  /// Logic:
+  ///   • No signed-in user            → no-op.
+  ///   • No profile / no active plan  → no-op.
+  ///   • Plan is 'elite' and active   → grant Elite badges (green + organizer).
+  ///   • Plan is 'pro' and active     → grant Pro badge (green only), unless
+  ///     the user already has an Elite-sourced green badge (never downgrade).
+  ///
+  /// Errors are swallowed — this must never crash the screen that calls it.
+  Future<void> syncBadgesForCurrentUser() async {
+    final uid = _auth.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) return;
+
+    try {
+      final profile = await fetchByUserIdForBootstrap(uid);
+      if (profile == null) return;
+
+      final planId = profile.activePlanId.trim().toLowerCase();
+      if (planId != 'pro' && planId != 'elite') return;
+
+      final expiresAtMs = profile.planExpiresAtMs;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (expiresAtMs <= nowMs) return; // expired — nothing to backfill
+
+      final expiresAt = DateTime.fromMillisecondsSinceEpoch(expiresAtMs);
+
+      if (planId == 'elite') {
+        await BadgeService.instance.onEliteSubscriptionPurchased(
+          userId: uid,
+          expiresAt: expiresAt,
+        );
+        if (kDebugMode) {
+          debugPrint(
+            '[UserProfileRepository] syncBadgesForCurrentUser: '
+            'Elite badges backfilled for $uid (expires $expiresAt)',
+          );
+        }
+        return;
+      }
+
+      // planId == 'pro'
+      final current = await BadgeService.instance.getBadges(uid);
+      final alreadyEliteGreen =
+          current.greenSource == BadgeSource.eliteSubscription &&
+              current.isGreenActive;
+      if (alreadyEliteGreen) {
+        // Never downgrade an Elite-sourced green badge to Pro.
+        return;
+      }
+
+      await BadgeService.instance.onProSubscriptionPurchased(
+        userId: uid,
+        expiresAt: expiresAt,
+      );
+      if (kDebugMode) {
+        debugPrint(
+          '[UserProfileRepository] syncBadgesForCurrentUser: '
+          'Pro badge backfilled for $uid (expires $expiresAt)',
+        );
+      }
+    } catch (e) {
+      // Must never affect the calling screen.
+      if (kDebugMode) {
+        debugPrint(
+          '[UserProfileRepository] syncBadgesForCurrentUser error: $e',
+        );
+      }
     }
   }
 
@@ -683,8 +605,7 @@ class UserProfileRepository {
       final current = (data['shareId'] as String? ?? '').trim();
       if (current.isNotEmpty) return;
 
-      final derived =
-          UserProfile.deriveShareIdFromUid(authUid).trim();
+      final derived = UserProfile.deriveShareIdFromUid(authUid).trim();
       if (derived.isEmpty) return;
 
       await _usersCol.doc(authUid).set(
@@ -700,9 +621,7 @@ class UserProfileRepository {
     }
   }
 
-  Future<void> updateQuickMessages(
-    List<String> quickMessages,
-  ) async {
+  Future<void> updateQuickMessages(List<String> quickMessages) async {
     try {
       final authUid = _requireAuthUid();
       final values = quickMessages
@@ -769,15 +688,11 @@ class UserProfileRepository {
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       };
 
-      if (photoUrl != null) {
-        payload['photoUrl'] = photoUrl.trim();
-      }
+      if (photoUrl != null) payload['photoUrl'] = photoUrl.trim();
       if (profileImageUrl != null) {
         payload['profileImageUrl'] = profileImageUrl.trim();
       }
-      if (teamImageUrl != null) {
-        payload['teamImageUrl'] = teamImageUrl.trim();
-      }
+      if (teamImageUrl != null) payload['teamImageUrl'] = teamImageUrl.trim();
 
       await _usersCol
           .doc(authUid)
