@@ -1,10 +1,12 @@
 // lib/features/leagues/logic/league_premium_upgrade_helper.dart
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/payment_platform_config.dart';
+import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../master_leagues/domain/master_league_plan.dart';
 import '../../master_leagues/logic/master_leagues_providers.dart';
@@ -103,6 +105,12 @@ class _InlinePlanPurchaseSheetState
     }
   }
 
+  // ── Payment Logic ─────────────────────────────────────────────────────────
+  //
+  // FIXED: Now correctly routes to GooglePlayBillingService when
+  // _useGooglePlay is true, instead of blindly calling the Flutterwave
+  // service (which was causing the "Unsupported provider" error).
+
   Future<void> _pay() async {
     if (_processing) return;
 
@@ -121,8 +129,6 @@ class _InlinePlanPurchaseSheetState
     });
 
     try {
-      final paymentSvc =
-          ref.read(masterLeaguePaymentServiceProvider);
       final entitlementSvc =
           ref.read(masterLeagueEntitlementServiceProvider);
 
@@ -133,30 +139,64 @@ class _InlinePlanPurchaseSheetState
         );
       }
 
-      final result = await paymentSvc.payForPlanSubscription(
-        context: context,
-        userId: uid,
-        plan: _selectedPlan,
-        duration: _selectedDuration,
-      );
+      String receiptId = '';
+      String provider = '';
+      bool success = false;
+      String? errorMessage;
+
+      if (_useGooglePlay) {
+        // ── Google Play Billing Path ────────────────────────────────
+        final gpb = GooglePlayBillingService.instance;
+        final attemptId =
+            'gpb_${DateTime.now().millisecondsSinceEpoch}';
+
+        final result = await gpb.purchasePlanSubscription(
+          plan: _selectedPlan,
+          duration: _selectedDuration,
+          userId: uid,
+          attemptId: attemptId,
+        );
+
+        success = result.success;
+        errorMessage = result.errorMessage;
+        receiptId = result.orderId;
+        provider = result.provider;
+      } else {
+        // ── Flutterwave / Web Path ─────────────────────────────────
+        final paymentSvc =
+            ref.read(masterLeaguePaymentServiceProvider);
+
+        final result = await paymentSvc.payForPlanSubscription(
+          context: context,
+          userId: uid,
+          plan: _selectedPlan,
+          duration: _selectedDuration,
+        );
+
+        success = result.success;
+        errorMessage = result.errorMessage;
+        receiptId = result.receiptId ?? '';
+        provider = result.provider;
+      }
 
       if (!mounted) return;
 
-      if (!result.success) {
+      if (!success) {
         setState(() {
           _processing = false;
-          _error = result.errorMessage?.trim().isNotEmpty == true
-              ? result.errorMessage
+          _error = errorMessage?.trim().isNotEmpty == true
+              ? errorMessage
               : 'Payment failed.';
         });
         return;
       }
 
+      // Activate the plan in Firestore / Backend
       await entitlementSvc.activateAfterPayment(
         plan: _selectedPlan,
         duration: _selectedDuration,
-        receiptId: result.receiptId ?? '',
-        provider: result.provider,
+        receiptId: receiptId,
+        provider: provider,
       );
 
       if (!mounted) return;
