@@ -1,78 +1,76 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:uuid/uuid.dart';
 
-import '../../../core/services/supabase_edge_notifications_service.dart';
-import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../models/league_announcement.dart';
 
+/// Firestore-backed announcements for master league workspaces.
 class LeagueAnnouncementsFirebase {
-  LeagueAnnouncementsFirebase({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  LeagueAnnouncementsFirebase();
 
-  final FirebaseFirestore _firestore;
-  final Uuid _uuid = const Uuid();
-  final OrganizerFeedFirebase _feed = OrganizerFeedFirebase();
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  CollectionReference<Map<String, dynamic>> get _annCol =>
-      _firestore.collection('announcements');
+  // ── Master-league announcement collection path ──────────────────────────
+  CollectionReference<Map<String, dynamic>> _masterCol(String masterLeagueId) =>
+      _db
+          .collection('master_leagues')
+          .doc(masterLeagueId.trim())
+          .collection('announcements');
 
-  Stream<List<LeagueAnnouncement>> watchLeagueAnnouncements(String leagueId) {
-    return _annCol
-        .where('leagueId', isEqualTo: leagueId.trim())
-        .orderBy('createdAtMs', descending: true)
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map(
-                (doc) => LeagueAnnouncement.fromMap(
-                  (doc.data()).cast<String, dynamic>(),
-                ),
-              )
-              .toList(growable: false),
-        );
-  }
-
+  // ── Watch all announcements (ordered newest first) ──────────────────────
   Stream<List<LeagueAnnouncement>> watchMasterLeagueAnnouncements(
-      String masterLeagueId) {
-    return _annCol
-        .where('scope', isEqualTo: 'master_league')
-        .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
+    String masterLeagueId,
+  ) {
+    if (masterLeagueId.trim().isEmpty) {
+      return Stream.value(const <LeagueAnnouncement>[]);
+    }
+
+    return _masterCol(masterLeagueId)
         .orderBy('createdAtMs', descending: true)
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map(
-                (doc) => LeagueAnnouncement.fromMap(
-                  (doc.data()).cast<String, dynamic>(),
-                ),
-              )
-              .toList(growable: false),
-        );
+        .snapshots(includeMetadataChanges: false)
+        .map((snap) {
+          final list = <LeagueAnnouncement>[];
+          for (final doc in snap.docs) {
+            try {
+              final data = <String, dynamic>{...doc.data(), 'id': doc.id};
+              list.add(LeagueAnnouncement.fromMap(data));
+            } catch (e) {
+              // skip malformed docs
+            }
+          }
+          return list;
+        })
+        .handleError((Object e) {
+          return <LeagueAnnouncement>[];
+        });
   }
 
+  // ── Watch the single pinned announcement ────────────────────────────────
   Stream<LeagueAnnouncement?> watchPinnedMasterLeagueAnnouncement(
-      String masterLeagueId) {
-    return _annCol
-        .where('scope', isEqualTo: 'master_league')
-        .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
+    String masterLeagueId,
+  ) {
+    if (masterLeagueId.trim().isEmpty) {
+      return Stream.value(null);
+    }
+
+    return _masterCol(masterLeagueId)
         .where('pinned', isEqualTo: true)
         .limit(1)
-        .snapshots()
-        .map((snapshot) {
-      if (snapshot.docs.isEmpty) return null;
-      return LeagueAnnouncement.fromMap(
-        (snapshot.docs.first.data()).cast<String, dynamic>(),
-      );
-    });
+        .snapshots(includeMetadataChanges: false)
+        .map((snap) {
+          if (snap.docs.isEmpty) return null;
+          try {
+            final doc = snap.docs.first;
+            final data = <String, dynamic>{...doc.data(), 'id': doc.id};
+            return LeagueAnnouncement.fromMap(data);
+          } catch (_) {
+            return null;
+          }
+        })
+        .handleError((Object e) {
+          return null;
+        });
   }
 
-  Future<void> addAnnouncement(LeagueAnnouncement announcement) async {
-    final id = announcement.id.isEmpty ? _uuid.v4() : announcement.id;
-    await _annCol.doc(id).set(
-          announcement.copyWith(id: id).toMap(),
-        );
-  }
-
+  // ── Add a new master league announcement ────────────────────────────────
   Future<void> addMasterLeagueAnnouncement({
     required String masterLeagueId,
     required String title,
@@ -80,100 +78,76 @@ class LeagueAnnouncementsFirebase {
     required String authorId,
     required String authorName,
   }) async {
-    final id = _uuid.v4();
     final now = DateTime.now().millisecondsSinceEpoch;
+    final data = <String, dynamic>{
+      'masterLeagueId': masterLeagueId.trim(),
+      'leagueId': '',
+      'title': title.trim(),
+      'message': message.trim(),
+      'authorId': authorId.trim(),
+      'authorName': authorName.trim(),
+      'pinned': false,
+      'pinnedBy': '',
+      'pinnedAtMs': 0,
+      'createdAtMs': now,
+      'updatedAtMs': now,
+    };
 
-    final ann = LeagueAnnouncement(
-      id: id,
-      leagueId: '',
-      title: title.trim(),
-      message: message.trim(),
-      createdAtMs: now,
-      authorId: authorId.trim(),
-      authorName: authorName.trim(),
-      scope: 'master_league',
-      masterLeagueId: masterLeagueId.trim(),
-      pinned: false,
-      pinnedAtMs: 0,
-      pinnedBy: '',
-    );
-
-    await _annCol.doc(id).set(ann.toMap());
-
-    try {
-      await _feed.addAnnouncementPostedEvent(
-        masterLeagueId: masterLeagueId,
-        actorId: authorId,
-        actorName: authorName,
-        title: title,
-      );
-    } catch (_) {}
-
-    try {
-      await SupabaseEdgeNotificationsService.instance
-          .notifyFollowedOrganizerUpdate(
-        masterLeagueId: masterLeagueId,
-        organizerName: authorName,
-        title: 'New organizer announcement',
-        message: title,
-        route: '/master-leagues/${masterLeagueId.trim()}',
-        eventType: 'announcement',
-        actorId: authorId,
-      );
-    } catch (_) {}
+    await _masterCol(masterLeagueId).add(data);
   }
 
+  // ── Pin an announcement ─────────────────────────────────────────────────
   Future<void> pinMasterLeagueAnnouncement({
     required String masterLeagueId,
     required String announcementId,
     required String pinnedBy,
   }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final scope = 'master_league';
-    final mlId = masterLeagueId.trim();
-    final annId = announcementId.trim();
-    final adminUid = pinnedBy.trim();
+    // First unpin any existing pinned announcements
+    final existing = await _masterCol(masterLeagueId)
+        .where('pinned', isEqualTo: true)
+        .get();
 
-    await _firestore.runTransaction((txn) async {
-      final existingPinned = await _annCol
-          .where('scope', isEqualTo: scope)
-          .where('masterLeagueId', isEqualTo: mlId)
-          .where('pinned', isEqualTo: true)
-          .get();
-
-      for (final doc in existingPinned.docs) {
-        txn.update(doc.reference, <String, dynamic>{
-          'pinned': false,
-          'pinnedAtMs': 0,
-          'pinnedBy': '',
-        });
-      }
-
-      final targetRef = _annCol.doc(annId);
-      final targetSnap = await txn.get(targetRef);
-      if (!targetSnap.exists) {
-        throw StateError('Announcement not found.');
-      }
-
-      txn.update(targetRef, <String, dynamic>{
-        'pinned': true,
-        'pinnedAtMs': now,
-        'pinnedBy': adminUid,
+    final batch = _db.batch();
+    for (final doc in existing.docs) {
+      batch.update(doc.reference, <String, dynamic>{
+        'pinned': false,
+        'pinnedBy': '',
+        'pinnedAtMs': 0,
       });
-    });
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    batch.update(
+      _masterCol(masterLeagueId).doc(announcementId),
+      <String, dynamic>{
+        'pinned': true,
+        'pinnedBy': pinnedBy.trim(),
+        'pinnedAtMs': now,
+      },
+    );
+
+    await batch.commit();
   }
 
+  // ── Unpin an announcement ───────────────────────────────────────────────
   Future<void> unpinMasterLeagueAnnouncement({
     required String announcementId,
+    required String masterLeagueId,
   }) async {
-    await _annCol.doc(announcementId.trim()).update(<String, dynamic>{
+    await _masterCol(masterLeagueId)
+        .doc(announcementId)
+        .update(<String, dynamic>{
       'pinned': false,
-      'pinnedAtMs': 0,
       'pinnedBy': '',
+      'pinnedAtMs': 0,
     });
   }
 
-  Future<void> deleteAnnouncement(String id) async {
-    await _annCol.doc(id.trim()).delete();
+  // ── Delete an announcement ──────────────────────────────────────────────
+  Future<void> deleteAnnouncement(
+    String announcementId, {
+    required String masterLeagueId,
+  }) async {
+    await _masterCol(masterLeagueId).doc(announcementId).delete();
   }
 }

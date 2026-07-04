@@ -31,13 +31,171 @@ import '../logic/master_leagues_providers.dart';
 import 'organizer_profile_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Breakpoints — self-contained
+// Breakpoints
 // ---------------------------------------------------------------------------
 
 class _BP {
   static const double tablet = 760;
   static const double desktop = 900;
   static const double wide = 1200;
+}
+
+// ---------------------------------------------------------------------------
+// Glass-styled loading indicator
+// ---------------------------------------------------------------------------
+
+class _GlassLoader extends StatefulWidget {
+  const _GlassLoader({this.size = 36, this.message});
+  final double size;
+  final String? message;
+
+  @override
+  State<_GlassLoader> createState() => _GlassLoaderState();
+}
+
+class _GlassLoaderState extends State<_GlassLoader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+    _pulse = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (_, __) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Glass(
+            borderRadius: widget.size / 2,
+            padding: EdgeInsets.all(widget.size * 0.22),
+            fill: AppTheme.cardColor(brightness)
+                .withOpacity(0.6 + _pulse.value * 0.4),
+            borderColor:
+                AppTheme.limeAccentDark.withOpacity(_pulse.value * 0.5),
+            child: SizedBox(
+              width: widget.size,
+              height: widget.size,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: widget.size,
+                    height: widget.size,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.0,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppTheme.limeAccentDark
+                            .withOpacity(0.25 + _pulse.value * 0.35),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    width: widget.size * 0.28,
+                    height: widget.size * 0.28,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppTheme.limeAccentDark
+                          .withOpacity(0.5 + _pulse.value * 0.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.limeAccentDark
+                              .withOpacity(_pulse.value * 0.4),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (widget.message != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              widget.message!,
+              style: TextStyle(
+                color: AppTheme.secondaryText(brightness),
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Glass shimmer row
+// ---------------------------------------------------------------------------
+
+class _GlassShimmerRow extends StatefulWidget {
+  const _GlassShimmerRow({this.height = 20, this.width = double.infinity});
+  final double height;
+  final double width;
+
+  @override
+  State<_GlassShimmerRow> createState() => _GlassShimmerRowState();
+}
+
+class _GlassShimmerRowState extends State<_GlassShimmerRow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Glass(
+        borderRadius: widget.height / 2,
+        padding: EdgeInsets.zero,
+        fill: AppTheme.cardColor(brightness)
+            .withOpacity(0.3 + _anim.value * 0.4),
+        borderColor: AppTheme.cardBorder(brightness)
+            .withOpacity(0.3 + _anim.value * 0.3),
+        child: SizedBox(width: widget.width, height: widget.height),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -63,13 +221,11 @@ class _MasterLeagueDetailsScreenState
   bool _followBusy = false;
   String? _joiningLeagueId;
 
-  // Cache for membership futures — prevents repeated DB reads on scroll
   final Map<String, Future<Membership?>> _membershipCache = {};
 
   final LeagueAnnouncementsFirebase _announcements =
       LeagueAnnouncementsFirebase();
 
-  // ── World Cup gold accent — matches league_creation_dashboard.dart ─────────
   static const Color _worldCupGold = Color(0xFFD97706);
 
   // ── identity ───────────────────────────────────────────────────────────────
@@ -82,12 +238,9 @@ class _MasterLeagueDetailsScreenState
     return ml.ownerId.trim() == _currentUid && _currentUid.isNotEmpty;
   }
 
-  /// Paid plan = Pro or Elite. Basic is free.
-  /// Used to hide "PREMIUM" label for paid users.
   bool _userIsPaidPlan() {
     final uid = _currentUid.trim();
     if (uid.isEmpty) return false;
-
     final profileAsync = ref.read(currentUserProfileProvider);
     return profileAsync.maybeWhen(
       data: (profile) {
@@ -159,7 +312,6 @@ class _MasterLeagueDetailsScreenState
     return 'Organizer';
   }
 
-  // Cached membership lookup — prevents repeated reads on list scroll
   Future<Membership?> _membershipForLeague(String leagueId) {
     return _membershipCache.putIfAbsent(leagueId, () async {
       final uid = _currentUid.trim();
@@ -225,14 +377,14 @@ class _MasterLeagueDetailsScreenState
   Stream<List<LeagueAnnouncement>> _watchWorkspaceAnnouncements(
     String masterLeagueId,
   ) =>
-      _announcements.watchMasterLeagueAnnouncements(masterLeagueId).handleError(
-            (Object e) {
-              debugPrint(
-                '[MasterLeagueDetails] _watchWorkspaceAnnouncements error: $e',
-              );
-              return <LeagueAnnouncement>[];
-            },
-          );
+      _announcements
+          .watchMasterLeagueAnnouncements(masterLeagueId)
+          .handleError((Object e) {
+        debugPrint(
+          '[MasterLeagueDetails] _watchWorkspaceAnnouncements error: $e',
+        );
+        return <LeagueAnnouncement>[];
+      });
 
   Stream<LeagueAnnouncement?> _watchPinnedWorkspaceAnnouncement(
     String masterLeagueId,
@@ -264,27 +416,23 @@ class _MasterLeagueDetailsScreenState
 
   // ── chat access ────────────────────────────────────────────────────────────
 
-  Future<bool> _hasJoinedAnyCompetitionInWorkspace(String masterLeagueId) async {
+  Future<bool> _hasJoinedAnyCompetitionInWorkspace(
+      String masterLeagueId) async {
     final uid = _currentUid.trim();
     if (uid.isEmpty) return false;
-
     try {
       final repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
       final memberships = await repo.listMemberships();
-
       final leagueIds = memberships
           .where((m) => m.userId == uid)
           .map((m) => m.leagueId.trim())
           .where((id) => id.isNotEmpty)
           .toSet();
-
       if (leagueIds.isEmpty) return false;
-
       final leaguesSnap = await FirebaseFirestore.instance
           .collection('leagues')
           .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
           .get();
-
       for (final d in leaguesSnap.docs) {
         if (leagueIds.contains(d.id.trim())) return true;
         final remoteId = (d.data()['id'] ?? '').toString().trim();
@@ -295,7 +443,6 @@ class _MasterLeagueDetailsScreenState
         '[MasterLeagueDetails] _hasJoinedAnyCompetitionInWorkspace: $e',
       );
     }
-
     return false;
   }
 
@@ -303,26 +450,20 @@ class _MasterLeagueDetailsScreenState
     if (_isOwner(master)) return true;
     final uid = _currentUid.trim();
     if (uid.isEmpty) return false;
-
     try {
       final repo = ref.read(masterLeaguesRepositoryProvider);
       final isFollowing = await repo.isFollowingWorkspace(master.id);
       if (isFollowing) return true;
     } catch (_) {}
-
     return _hasJoinedAnyCompetitionInWorkspace(master.id);
   }
 
   Future<void> _openOrganizerChatIfAllowed(MasterLeague master) async {
     final uid = _currentUid.trim();
     if (uid.isEmpty) {
-      _snack(
-        'Please sign in to access organizer chat.',
-        error: true,
-      );
+      _snack('Please sign in to access organizer chat.', error: true);
       return;
     }
-
     final allowed = await _canAccessOrganizerChat(master);
     if (!allowed) {
       _snack(
@@ -331,7 +472,6 @@ class _MasterLeagueDetailsScreenState
       );
       return;
     }
-
     if (!mounted) return;
     _safePush('/master-leagues/${master.id}/chat');
   }
@@ -345,38 +485,26 @@ class _MasterLeagueDetailsScreenState
       return;
     }
     if (_joiningLeagueId == league.id) return;
-
     final repo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
-
     Membership? existing;
     try {
       existing = await repo.getMembership(leagueId: league.id, userId: uid);
     } catch (_) {}
-
     if (existing != null) {
       _snack('You already joined this competition.');
       return;
     }
-
     final selectedMode = await showJoinLeagueModeSheet(
       context,
       league: league,
       title: 'Join Competition',
     );
     if (selectedMode == null) return;
-
     if (mounted) setState(() => _joiningLeagueId = league.id);
-
     try {
-      await repo.joinLeagueDirect(
-        leagueId: league.id,
-        mode: selectedMode,
-      );
-
+      await repo.joinLeagueDirect(leagueId: league.id, mode: selectedMode);
       if (!mounted) return;
-
       _membershipCache.remove(league.id);
-
       _snack(
         selectedMode == LeagueJoinMode.viewer
             ? 'Competition added to your list as viewer.'
@@ -403,7 +531,6 @@ class _MasterLeagueDetailsScreenState
       );
       return;
     }
-
     try {
       final repo = ref.read(masterLeaguesRepositoryProvider);
       await repo.checkLeagueLimitOrThrow(widget.masterLeagueId);
@@ -411,9 +538,7 @@ class _MasterLeagueDetailsScreenState
       _snack('$e', error: true);
       return;
     }
-
     final brightness = Theme.of(context).brightness;
-
     final result = await showModalBottomSheet<_CompetitionTypeResult>(
       context: context,
       showDragHandle: true,
@@ -425,10 +550,8 @@ class _MasterLeagueDetailsScreenState
         userIsPaid: _userIsPaidPlan(),
       ),
     );
-
     if (result == null) return;
     if (!mounted) return;
-
     final Map<String, dynamic> extra = {
       'masterLeagueId': widget.masterLeagueId.trim(),
       'initialFormat': result.format,
@@ -437,10 +560,10 @@ class _MasterLeagueDetailsScreenState
         'maxTeams': result.format == LeagueFormat.worldCup
             ? result.worldCupFormat!.teamCount
             : ml.maxTeamsPerLeague,
-      if (result.format == LeagueFormat.worldCup && result.worldCupFormat != null)
+      if (result.format == LeagueFormat.worldCup &&
+          result.worldCupFormat != null)
         'worldCupFormat': result.worldCupFormat!.firestoreKey,
     };
-
     _safePush('/leagues/create', extra: extra);
   }
 
@@ -462,7 +585,6 @@ class _MasterLeagueDetailsScreenState
   Future<void> _showAnnouncementComposer(MasterLeague ml) async {
     final titleCtrl = TextEditingController();
     final messageCtrl = TextEditingController();
-
     final shouldPost = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -511,23 +633,19 @@ class _MasterLeagueDetailsScreenState
         ],
       ),
     );
-
     if (shouldPost != true) {
       titleCtrl.dispose();
       messageCtrl.dispose();
       return;
     }
-
     final title = titleCtrl.text.trim();
     final message = messageCtrl.text.trim();
     titleCtrl.dispose();
     messageCtrl.dispose();
-
     if (title.isEmpty || message.isEmpty) {
       _snack('Please enter both title and message.', error: true);
       return;
     }
-
     setState(() => _busy = true);
     try {
       final ownerProfile =
@@ -536,7 +654,6 @@ class _MasterLeagueDetailsScreenState
           ownerProfile?.displayName.trim().isNotEmpty == true
               ? ownerProfile!.displayName.trim()
               : 'Organizer';
-
       await _announcements.addMasterLeagueAnnouncement(
         masterLeagueId: ml.id,
         title: title,
@@ -544,7 +661,6 @@ class _MasterLeagueDetailsScreenState
         authorId: _currentUid,
         authorName: authorName,
       );
-
       _snack('Announcement posted.');
     } catch (e) {
       _snack('$e', error: true);
@@ -576,6 +692,7 @@ class _MasterLeagueDetailsScreenState
     try {
       await _announcements.unpinMasterLeagueAnnouncement(
         announcementId: ann.id,
+        masterLeagueId: ann.masterLeagueId,
       );
       _snack('Announcement unpinned.');
     } catch (e) {
@@ -611,12 +728,13 @@ class _MasterLeagueDetailsScreenState
         ],
       ),
     );
-
     if (confirmed != true) return;
-
     setState(() => _busy = true);
     try {
-      await _announcements.deleteAnnouncement(ann.id);
+      await _announcements.deleteAnnouncement(
+        ann.id,
+        masterLeagueId: ann.masterLeagueId,
+      );
       _snack('Announcement deleted.');
     } catch (e) {
       _snack('$e', error: true);
@@ -630,7 +748,6 @@ class _MasterLeagueDetailsScreenState
   Future<void> _showRenameDialog(MasterLeague ml) async {
     final brightness = Theme.of(context).brightness;
     final ctrl = TextEditingController(text: ml.name);
-
     final newName = await showDialog<String>(
       context: context,
       barrierColor: Colors.black.withOpacity(0.35),
@@ -698,9 +815,7 @@ class _MasterLeagueDetailsScreenState
       ),
     );
     ctrl.dispose();
-
     if (newName == null || newName.isEmpty || newName == ml.name.trim()) return;
-
     setState(() => _busy = true);
     try {
       await ref.read(masterLeaguesRepositoryProvider).rename(
@@ -717,12 +832,9 @@ class _MasterLeagueDetailsScreenState
 
   // ── add staff ──────────────────────────────────────────────────────────────
 
-  Future<void> _showAddStaffDialog({
-    required String role,
-  }) async {
+  Future<void> _showAddStaffDialog({required String role}) async {
     final brightness = Theme.of(context).brightness;
     final ctrl = TextEditingController();
-
     final shortId = await showDialog<String>(
       context: context,
       barrierColor: Colors.black.withOpacity(0.35),
@@ -801,10 +913,8 @@ class _MasterLeagueDetailsScreenState
         ),
       ),
     );
-
     ctrl.dispose();
     if (shortId == null || shortId.isEmpty) return;
-
     setState(() => _busy = true);
     try {
       await ref.read(masterLeaguesRepositoryProvider).addStaffByShortId(
@@ -827,7 +937,6 @@ class _MasterLeagueDetailsScreenState
       _snack('Only the owner can create templates.', error: true);
       return;
     }
-
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     LeagueFormat format = LeagueFormat.classic;
@@ -860,12 +969,9 @@ class _MasterLeagueDetailsScreenState
             if (!allowedTeams().contains(maxTeams)) {
               maxTeams = allowedTeams().first;
             }
-
-            final supportsHomeAway =
-                format == LeagueFormat.classic || format == LeagueFormat.uclGroup;
-            if (!supportsHomeAway) {
-              homeAwayEnabled = false;
-            }
+            final supportsHomeAway = format == LeagueFormat.classic ||
+                format == LeagueFormat.uclGroup;
+            if (!supportsHomeAway) homeAwayEnabled = false;
 
             return AlertDialog(
               backgroundColor: AppTheme.cardColor(brightness),
@@ -934,7 +1040,8 @@ class _MasterLeagueDetailsScreenState
                         value: worldCupFormat,
                         decoration: InputDecoration(
                           labelText: 'World Cup Format',
-                          prefixIcon: Icon(Icons.public_rounded, color: _worldCupGold),
+                          prefixIcon: Icon(Icons.public_rounded,
+                              color: _worldCupGold),
                         ),
                         items: [
                           DropdownMenuItem(
@@ -969,7 +1076,8 @@ class _MasterLeagueDetailsScreenState
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.lock_outline_rounded, color: _worldCupGold, size: 16),
+                            Icon(Icons.lock_outline_rounded,
+                                color: _worldCupGold, size: 16),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -1030,14 +1138,16 @@ class _MasterLeagueDetailsScreenState
                     SwitchListTile.adaptive(
                       activeColor: AppTheme.limeAccentDark,
                       value: containsRewards,
-                      onChanged: (v) => setModalState(() => containsRewards = v),
+                      onChanged: (v) =>
+                          setModalState(() => containsRewards = v),
                       title: const Text('Contains rewards'),
                     ),
                     if (supportsHomeAway)
                       SwitchListTile.adaptive(
                         activeColor: AppTheme.limeAccentDark,
                         value: homeAwayEnabled,
-                        onChanged: (v) => setModalState(() => homeAwayEnabled = v),
+                        onChanged: (v) =>
+                            setModalState(() => homeAwayEnabled = v),
                         title: const Text('Home & Away matches'),
                         subtitle: const Text(
                           'Each team plays twice (home and away).',
@@ -1069,8 +1179,9 @@ class _MasterLeagueDetailsScreenState
                 ),
                 FilledButton(
                   style: FilledButton.styleFrom(
-                    backgroundColor:
-                        format == LeagueFormat.worldCup ? _worldCupGold : AppTheme.limeAccent,
+                    backgroundColor: format == LeagueFormat.worldCup
+                        ? _worldCupGold
+                        : AppTheme.limeAccent,
                     foregroundColor: Colors.white,
                   ),
                   onPressed: () => Navigator.of(ctx).pop(true),
@@ -1088,25 +1199,20 @@ class _MasterLeagueDetailsScreenState
       descCtrl.dispose();
       return;
     }
-
     final name = nameCtrl.text.trim();
     final description = descCtrl.text.trim();
     nameCtrl.dispose();
     descCtrl.dispose();
-
     if (name.isEmpty) {
       _snack('Template name is required.', error: true);
       return;
     }
-
     setState(() => _busy = true);
     try {
       final repo = ref.read(masterLeaguesRepositoryProvider);
       final now = DateTime.now().millisecondsSinceEpoch;
-
       final effectiveMaxTeams =
           format == LeagueFormat.worldCup ? worldCupFormat.teamCount : maxTeams;
-
       final template = CompetitionTemplate(
         id: '',
         masterLeagueId: ml.id,
@@ -1122,12 +1228,10 @@ class _MasterLeagueDetailsScreenState
         createdBy: _currentUid,
         worldCupFormat: format == LeagueFormat.worldCup ? worldCupFormat : null,
       );
-
       await repo.saveCompetitionTemplate(
         masterLeagueId: ml.id,
         template: template,
       );
-
       _snack('Competition template saved.');
     } catch (e) {
       _snack('$e', error: true);
@@ -1189,12 +1293,12 @@ class _MasterLeagueDetailsScreenState
         ],
       ),
     );
-
     if (confirmed != true) return;
-
     setState(() => _busy = true);
     try {
-      await ref.read(masterLeaguesRepositoryProvider).deleteCompetitionTemplate(
+      await ref
+          .read(masterLeaguesRepositoryProvider)
+          .deleteCompetitionTemplate(
             masterLeagueId: ml.id,
             templateId: template.id,
           );
@@ -1213,7 +1317,6 @@ class _MasterLeagueDetailsScreenState
     final confirmationName = master.name.trim().isNotEmpty
         ? master.name.trim()
         : await _ownerDisplayName(master.ownerId);
-
     final ctrl = TextEditingController();
     String typed = '';
     bool deleting = false;
@@ -1226,7 +1329,6 @@ class _MasterLeagueDetailsScreenState
           builder: (ctx, setModalState) {
             final matches = typed.trim() == confirmationName;
             final showMismatch = typed.isNotEmpty && !matches;
-
             return Dialog(
               backgroundColor: Colors.transparent,
               insetPadding:
@@ -1286,8 +1388,10 @@ class _MasterLeagueDetailsScreenState
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color:
-                              Theme.of(ctx).colorScheme.error.withOpacity(0.08),
+                          color: Theme.of(ctx)
+                              .colorScheme
+                              .error
+                              .withOpacity(0.08),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
                             color: Theme.of(ctx)
@@ -1298,12 +1402,11 @@ class _MasterLeagueDetailsScreenState
                         ),
                         child: Text(
                           '⚠️ This action will permanently delete your workspace, including all leagues, players, and data. This cannot be undone.',
-                          style:
-                              Theme.of(ctx).textTheme.bodyMedium?.copyWith(
-                                    color: Theme.of(ctx).colorScheme.error,
-                                    fontWeight: FontWeight.w900,
-                                    height: 1.35,
-                                  ),
+                          style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(ctx).colorScheme.error,
+                                fontWeight: FontWeight.w900,
+                                height: 1.35,
+                              ),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -1345,7 +1448,8 @@ class _MasterLeagueDetailsScreenState
                         decoration: InputDecoration(
                           labelText: 'Type exact name to confirm',
                           prefixIcon: const Icon(Icons.edit_outlined),
-                          errorText: showMismatch ? 'Name does not match' : null,
+                          errorText:
+                              showMismatch ? 'Name does not match' : null,
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -1394,10 +1498,8 @@ class _MasterLeagueDetailsScreenState
         );
       },
     );
-
     ctrl.dispose();
     if (confirmed != true) return;
-
     setState(() => _busy = true);
     try {
       await ref.read(masterLeaguesRepositoryProvider).delete(master.id);
@@ -1448,7 +1550,6 @@ class _MasterLeagueDetailsScreenState
 
   Future<void> _showOwnerMenu(MasterLeague master) async {
     final brightness = Theme.of(context).brightness;
-
     final selected = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -1495,9 +1596,7 @@ class _MasterLeagueDetailsScreenState
         ),
       ),
     );
-
     if (!mounted || selected == null) return;
-
     switch (selected) {
       case 'rename':
         await _showRenameDialog(master);
@@ -1531,7 +1630,6 @@ class _MasterLeagueDetailsScreenState
       builder: (ctx) {
         final brightness = Theme.of(ctx).brightness;
         final sheetTheme = Theme.of(ctx);
-
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
@@ -1547,10 +1645,8 @@ class _MasterLeagueDetailsScreenState
                   children: [
                     Row(
                       children: [
-                        Icon(
-                          Icons.emoji_events_outlined,
-                          color: AppTheme.limeAccentDark,
-                        ),
+                        Icon(Icons.emoji_events_outlined,
+                            color: AppTheme.limeAccentDark),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -1590,10 +1686,10 @@ class _MasterLeagueDetailsScreenState
                                 return FutureBuilder<Membership?>(
                                   future: _membershipForLeague(l.id),
                                   builder: (context, membershipSnap) {
-                                    final joined = membershipSnap.data != null;
+                                    final joined =
+                                        membershipSnap.data != null;
                                     final joiningThis =
                                         _joiningLeagueId == l.id;
-
                                     return Glass(
                                       borderRadius: 22,
                                       padding: const EdgeInsets.all(12),
@@ -1607,8 +1703,8 @@ class _MasterLeagueDetailsScreenState
                                           if (l.format ==
                                               LeagueFormat.worldCup)
                                             Padding(
-                                              padding:
-                                                  const EdgeInsets.only(bottom: 8),
+                                              padding: const EdgeInsets.only(
+                                                  bottom: 8),
                                               child: _worldCupBadge(),
                                             ),
                                           SizedBox(
@@ -1622,11 +1718,13 @@ class _MasterLeagueDetailsScreenState
                                                   '${l.format.displayName} • ${l.season}',
                                               subtitle: l.region,
                                               imageUrl: l.leagueImageUrl,
-                                              isOwner: _currentUid.isNotEmpty &&
+                                              isOwner: _currentUid
+                                                      .isNotEmpty &&
                                                   l.organizerUid.trim() ==
                                                       _currentUid,
                                               onDoubleTap: () =>
-                                                  _safePush('/leagues/${l.id}'),
+                                                  _safePush(
+                                                      '/leagues/${l.id}'),
                                             ),
                                           ),
                                           const SizedBox(height: 10),
@@ -1634,15 +1732,15 @@ class _MasterLeagueDetailsScreenState
                                             children: [
                                               Expanded(
                                                 child: OutlinedButton.icon(
-                                                  onPressed: () =>
-                                                      _safePush('/leagues/${l.id}'),
-                                                  icon: const Icon(
-                                                    Icons.open_in_new_rounded,
-                                                  ),
+                                                  onPressed: () => _safePush(
+                                                      '/leagues/${l.id}'),
+                                                  icon: const Icon(Icons
+                                                      .open_in_new_rounded),
                                                   label: const Text(
                                                     'Open',
                                                     style: TextStyle(
-                                                      fontWeight: FontWeight.w900,
+                                                      fontWeight:
+                                                          FontWeight.w900,
                                                     ),
                                                   ),
                                                 ),
@@ -1657,37 +1755,50 @@ class _MasterLeagueDetailsScreenState
                                                         label: const Text(
                                                           'Joined',
                                                           style: TextStyle(
-                                                            fontWeight: FontWeight.w900,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w900,
                                                           ),
                                                         ),
                                                       )
                                                     : FilledButton.icon(
-                                                        style: FilledButton.styleFrom(
+                                                        style: FilledButton
+                                                            .styleFrom(
                                                           backgroundColor:
-                                                              AppTheme.limeAccent,
+                                                              AppTheme
+                                                                  .limeAccent,
                                                           foregroundColor:
-                                                              AppTheme.darkText,
+                                                              AppTheme
+                                                                  .darkText,
                                                         ),
                                                         onPressed: joiningThis
                                                             ? null
-                                                            : () => _promptJoinCompetition(l),
+                                                            : () =>
+                                                                _promptJoinCompetition(
+                                                                    l),
                                                         icon: joiningThis
                                                             ? const SizedBox(
                                                                 width: 16,
                                                                 height: 16,
                                                                 child:
                                                                     CircularProgressIndicator(
-                                                                  strokeWidth: 2,
-                                                                  color: AppTheme.darkText,
+                                                                  strokeWidth:
+                                                                      2,
+                                                                  color: AppTheme
+                                                                      .darkText,
                                                                 ),
                                                               )
-                                                            : const Icon(Icons.login_rounded),
+                                                            : const Icon(Icons
+                                                                .login_rounded),
                                                         label: Text(
                                                           joiningThis
                                                               ? 'Joining...'
                                                               : 'Join',
-                                                          style: const TextStyle(
-                                                            fontWeight: FontWeight.w900,
+                                                          style:
+                                                              const TextStyle(
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w900,
                                                           ),
                                                         ),
                                                       ),
@@ -1780,7 +1891,8 @@ class _MasterLeagueDetailsScreenState
               if (isOwner)
                 IconButton(
                   tooltip: 'Create Competition',
-                  onPressed: () => _showCreateCompetitionSheet(context, master),
+                  onPressed: () =>
+                      _showCreateCompetitionSheet(context, master),
                   icon: const Icon(Icons.add_circle_outline_rounded),
                 ),
               if (isOwner && master != null)
@@ -1833,7 +1945,12 @@ class _MasterLeagueDetailsScreenState
 
                   if (masterSnap.connectionState == ConnectionState.waiting &&
                       !masterSnap.hasData) {
-                    return const Center(child: CircularProgressIndicator());
+                    return Center(
+                      child: _GlassLoader(
+                        size: 48,
+                        message: 'Loading workspace…',
+                      ),
+                    );
                   }
 
                   if (master == null) {
@@ -1859,20 +1976,21 @@ class _MasterLeagueDetailsScreenState
                   return StreamBuilder<List<League>>(
                     stream: _watchCompetitions(widget.masterLeagueId),
                     builder: (context, leaguesSnap) {
-                      final leagues = leaguesSnap.data ?? const <League>[];
+                      final leagues =
+                          leaguesSnap.data ?? const <League>[];
 
                       return StreamBuilder<List<LeagueAnnouncement>>(
                         stream: _watchWorkspaceAnnouncements(master.id),
                         builder: (context, announcementsSnap) {
-                          final announcements = announcementsSnap.data ??
-                              const <LeagueAnnouncement>[];
+                          final announcements =
+                              announcementsSnap.data ??
+                                  const <LeagueAnnouncement>[];
 
                           return LayoutBuilder(
                             builder: (context, constraints) {
                               final w = constraints.maxWidth;
                               final isDesktop = w >= _BP.desktop;
-                              final hPad =
-                                  w < _BP.tablet ? 16.0 : 24.0;
+                              final hPad = w < _BP.tablet ? 16.0 : 24.0;
 
                               if (isDesktop) {
                                 return _buildDesktopLayout(
@@ -1901,13 +2019,40 @@ class _MasterLeagueDetailsScreenState
                   );
                 }(),
               ),
+              // ── Glass overlay busy indicator ─────────────────────────────
               if (_busy)
                 Positioned.fill(
                   child: Container(
                     color: Colors.black.withOpacity(
-                      brightness == Brightness.dark ? 0.22 : 0.10,
+                      brightness == Brightness.dark ? 0.30 : 0.12,
                     ),
-                    child: const Center(child: CircularProgressIndicator()),
+                    child: Center(
+                      child: Glass(
+                        borderRadius: 28,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 28,
+                        ),
+                        fill: AppTheme.cardColor(brightness)
+                            .withOpacity(0.85),
+                        borderColor: AppTheme.cardBorder(brightness),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _GlassLoader(size: 44),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Please wait…',
+                              style: TextStyle(
+                                color: AppTheme.secondaryText(brightness),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -1955,7 +2100,10 @@ class _MasterLeagueDetailsScreenState
                 flex: 2,
                 child: Column(
                   children: [
-                    if (isOwner) _buildOwnerQuickActions(master) else _buildVisitorOverview(master),
+                    if (isOwner)
+                      _buildOwnerQuickActions(master)
+                    else
+                      _buildVisitorOverview(master),
                     const SizedBox(height: 16),
                     _buildPinnedAnnouncementSection(master),
                     const SizedBox(height: 16),
@@ -1994,7 +2142,10 @@ class _MasterLeagueDetailsScreenState
         const SizedBox(height: 16),
         _buildStatsGrid(master, leagues, announcements),
         const SizedBox(height: 16),
-        if (isOwner) _buildOwnerQuickActions(master) else _buildVisitorOverview(master),
+        if (isOwner)
+          _buildOwnerQuickActions(master)
+        else
+          _buildVisitorOverview(master),
         const SizedBox(height: 16),
         _buildPinnedAnnouncementSection(master),
         const SizedBox(height: 16),
@@ -2023,7 +2174,9 @@ class _MasterLeagueDetailsScreenState
 
     final trustLabel = master.isVerifiedOrganizer
         ? 'Verified Organizer'
-        : (master.isVerificationPending ? 'Verification Pending' : 'Unverified');
+        : (master.isVerificationPending
+            ? 'Verification Pending'
+            : 'Unverified');
 
     return FutureBuilder<String>(
       future: _ownerDisplayName(master.ownerId),
@@ -2082,8 +2235,12 @@ class _MasterLeagueDetailsScreenState
                         radius: 34,
                         backgroundColor:
                             AppTheme.iconCircleBackground(brightness),
-                        backgroundImage: master.organizerProfile.logoUrl.trim().isNotEmpty
-                            ? NetworkImage(master.organizerProfile.logoUrl.trim())
+                        backgroundImage: master
+                                .organizerProfile.logoUrl
+                                .trim()
+                                .isNotEmpty
+                            ? NetworkImage(
+                                master.organizerProfile.logoUrl.trim())
                             : null,
                         child: master.organizerProfile.logoUrl.trim().isEmpty
                             ? Icon(
@@ -2113,17 +2270,19 @@ class _MasterLeagueDetailsScreenState
                                     color: AppTheme.primaryText(brightness),
                                   ),
                                 ),
-                                _heroPill(text: trustLabel, color: trustColor),
-                                if (master.organizerProfile.badge.trim().isNotEmpty)
+                                _heroPill(
+                                    text: trustLabel, color: trustColor),
+                                if (master.organizerProfile.badge
+                                    .trim()
+                                    .isNotEmpty)
                                   _heroPill(
-                                    text: master.organizerProfile.badge.trim(),
+                                    text: master.organizerProfile.badge
+                                        .trim(),
                                     color: const Color(0xFFF59E0B),
                                   ),
                               ],
                             ),
                             const SizedBox(height: 8),
-
-                            // UPDATED: show verification badge next to owner name
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -2131,7 +2290,8 @@ class _MasterLeagueDetailsScreenState
                                   child: Text(
                                     'Managed by $ownerName',
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      color: AppTheme.secondaryText(brightness),
+                                      color:
+                                          AppTheme.secondaryText(brightness),
                                       fontWeight: FontWeight.w800,
                                     ),
                                   ),
@@ -2147,7 +2307,6 @@ class _MasterLeagueDetailsScreenState
                                   ),
                               ],
                             ),
-
                             const SizedBox(height: 8),
                             Text(
                               master.organizerProfile.bio.trim().isEmpty
@@ -2175,10 +2334,7 @@ class _MasterLeagueDetailsScreenState
     );
   }
 
-  Widget _heroPill({
-    required String text,
-    required Color color,
-  }) {
+  Widget _heroPill({required String text, required Color color}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -2209,7 +2365,6 @@ class _MasterLeagueDetailsScreenState
 
     final followersCountAsync =
         ref.watch(masterLeagueFollowersCountProvider(master.id));
-
     final worldCupCount =
         leagues.where((l) => l.format == LeagueFormat.worldCup).length;
 
@@ -2419,8 +2574,10 @@ class _MasterLeagueDetailsScreenState
         tile(
           icon: Icons.gavel_rounded,
           title: 'Organizer Discipline',
-          subtitle: 'Warnings, point deductions, and organizer chat sanctions',
-          onTap: () => _safePush('/master-leagues/${master.id}/discipline'),
+          subtitle:
+              'Warnings, point deductions, and organizer chat sanctions',
+          onTap: () =>
+              _safePush('/master-leagues/${master.id}/discipline'),
           tint: const Color(0xFFDC2626),
         ),
         const SizedBox(height: 12),
@@ -2606,15 +2763,9 @@ class _MasterLeagueDetailsScreenState
           followStateAsync.when(
             loading: () => const SizedBox(
               width: double.infinity,
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2.2),
-                  ),
-                ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Center(child: _GlassLoader(size: 28)),
               ),
             ),
             error: (_, __) => SizedBox(
@@ -2637,19 +2788,22 @@ class _MasterLeagueDetailsScreenState
                 width: double.infinity,
                 child: isFollowing
                     ? FilledButton.tonalIcon(
-                        onPressed:
-                            _followBusy ? null : () => _toggleFollow(master),
+                        onPressed: _followBusy
+                            ? null
+                            : () => _toggleFollow(master),
                         icon: _followBusy
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2),
                               )
-                            : const Icon(Icons.check_circle_outline_rounded),
+                            : const Icon(
+                                Icons.check_circle_outline_rounded),
                         label: Text(
                           _followBusy ? 'Please wait...' : 'Following',
-                          style: const TextStyle(fontWeight: FontWeight.w900),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w900),
                         ),
                       )
                     : FilledButton.icon(
@@ -2657,8 +2811,9 @@ class _MasterLeagueDetailsScreenState
                           backgroundColor: AppTheme.limeAccent,
                           foregroundColor: AppTheme.darkText,
                         ),
-                        onPressed:
-                            _followBusy ? null : () => _toggleFollow(master),
+                        onPressed: _followBusy
+                            ? null
+                            : () => _toggleFollow(master),
                         icon: _followBusy
                             ? const SizedBox(
                                 width: 16,
@@ -2670,8 +2825,11 @@ class _MasterLeagueDetailsScreenState
                               )
                             : const Icon(Icons.person_add_alt_1_rounded),
                         label: Text(
-                          _followBusy ? 'Please wait...' : 'Follow Organizer',
-                          style: const TextStyle(fontWeight: FontWeight.w900),
+                          _followBusy
+                              ? 'Please wait...'
+                              : 'Follow Organizer',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w900),
                         ),
                       ),
               );
@@ -2691,11 +2849,11 @@ class _MasterLeagueDetailsScreenState
     return StreamBuilder<LeagueAnnouncement?>(
       stream: _watchPinnedWorkspaceAnnouncement(master.id),
       builder: (context, snap) {
-        // FIX: prevent "always loading" look
-        if (snap.connectionState == ConnectionState.waiting) {
+        // Never show loading — just hide until data arrives
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData) {
           return const SizedBox.shrink();
         }
-
         final pinned = snap.data;
         if (pinned == null) return const SizedBox.shrink();
 
@@ -2788,6 +2946,10 @@ class _MasterLeagueDetailsScreenState
       builder: (context, snap) {
         final announcements = snap.data ?? const <LeagueAnnouncement>[];
 
+        // Only show shimmer on TRUE first load before any data arrives
+        final isFirstLoad =
+            snap.connectionState == ConnectionState.waiting && !snap.hasData;
+
         return Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(16),
@@ -2814,24 +2976,56 @@ class _MasterLeagueDetailsScreenState
                       ),
               ),
               const SizedBox(height: 10),
-              if (snap.connectionState == ConnectionState.waiting &&
-                  announcements.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Center(child: CircularProgressIndicator()),
+              if (isFirstLoad)
+                // Glass shimmer rows — only on true first load
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      _GlassShimmerRow(
+                          height: 18, width: double.infinity),
+                      const SizedBox(height: 10),
+                      _GlassShimmerRow(height: 14, width: 220),
+                      const SizedBox(height: 10),
+                      _GlassShimmerRow(height: 14, width: 180),
+                    ],
+                  ),
                 )
               else if (announcements.isEmpty)
-                Text(
-                  'No organizer announcements yet.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppTheme.secondaryText(brightness),
-                    fontWeight: FontWeight.w700,
+                // ── Empty state — clearly visible, never stuck loading ──────
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Glass(
+                    borderRadius: 16,
+                    padding: const EdgeInsets.all(14),
+                    fill: AppTheme.cardColor(brightness).withOpacity(0.5),
+                    borderColor: AppTheme.cardBorder(brightness),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.campaign_outlined,
+                          color: AppTheme.secondaryText(brightness),
+                          size: 22,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'No organizer announcements yet.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppTheme.secondaryText(brightness),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 )
               else
                 ...announcements.take(6).map((ann) {
-                  final isMyAnnouncement = ann.authorId.trim().isNotEmpty &&
-                      ann.authorId.trim() == _currentUid;
+                  final isMyAnnouncement =
+                      ann.authorId.trim().isNotEmpty &&
+                          ann.authorId.trim() == _currentUid;
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
@@ -2854,7 +3048,8 @@ class _MasterLeagueDetailsScreenState
                                 const SizedBox(width: 8),
                                 Text(
                                   'Pinned',
-                                  style: theme.textTheme.labelMedium?.copyWith(
+                                  style:
+                                      theme.textTheme.labelMedium?.copyWith(
                                     color: AppTheme.limeAccentDark,
                                     fontWeight: FontWeight.w900,
                                   ),
@@ -2868,7 +3063,8 @@ class _MasterLeagueDetailsScreenState
                               Expanded(
                                 child: Text(
                                   ann.title,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                  style:
+                                      theme.textTheme.bodyMedium?.copyWith(
                                     fontWeight: FontWeight.w900,
                                     color: AppTheme.primaryText(brightness),
                                   ),
@@ -2878,7 +3074,8 @@ class _MasterLeagueDetailsScreenState
                                 if (ann.pinned)
                                   IconButton(
                                     tooltip: 'Unpin announcement',
-                                    onPressed: () => _unpinAnnouncement(ann),
+                                    onPressed: () =>
+                                        _unpinAnnouncement(ann),
                                     icon: Icon(
                                       Icons.push_pin_outlined,
                                       color: AppTheme.limeAccentDark,
@@ -2899,7 +3096,8 @@ class _MasterLeagueDetailsScreenState
                               if (_isOwner(master) || isMyAnnouncement)
                                 IconButton(
                                   tooltip: 'Delete announcement',
-                                  onPressed: () => _confirmDeleteAnnouncement(ann),
+                                  onPressed: () =>
+                                      _confirmDeleteAnnouncement(ann),
                                   icon: Icon(
                                     Icons.delete_outline_rounded,
                                     color: theme.colorScheme.error,
@@ -2935,7 +3133,11 @@ class _MasterLeagueDetailsScreenState
                                 label: ann.createdAtMs > 0
                                     ? DateTime.fromMillisecondsSinceEpoch(
                                         ann.createdAtMs,
-                                      ).toLocal().toString().split('.').first
+                                      )
+                                        .toLocal()
+                                        .toString()
+                                        .split('.')
+                                        .first
                                     : 'Unknown time',
                               ),
                             ],
@@ -3023,9 +3225,17 @@ class _MasterLeagueDetailsScreenState
           ),
           const SizedBox(height: 12),
           templatesAsync.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.all(8),
-              child: Center(child: CircularProgressIndicator()),
+            loading: () => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                children: [
+                  _GlassShimmerRow(height: 18, width: double.infinity),
+                  const SizedBox(height: 10),
+                  _GlassShimmerRow(height: 14, width: 200),
+                  const SizedBox(height: 10),
+                  _GlassShimmerRow(height: 14, width: 160),
+                ],
+              ),
             ),
             error: (e, _) => Text(
               '$e',
@@ -3044,11 +3254,9 @@ class _MasterLeagueDetailsScreenState
                   ),
                 );
               }
-
               return Column(
                 children: templates.map((template) {
                   final isWC = template.format == LeagueFormat.worldCup;
-
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Glass(
@@ -3071,7 +3279,8 @@ class _MasterLeagueDetailsScreenState
                               Expanded(
                                 child: Text(
                                   template.name,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                  style:
+                                      theme.textTheme.bodyMedium?.copyWith(
                                     color: isWC
                                         ? _worldCupGold
                                         : AppTheme.primaryText(brightness),
@@ -3081,8 +3290,8 @@ class _MasterLeagueDetailsScreenState
                               ),
                               IconButton(
                                 tooltip: 'Delete template',
-                                onPressed: () =>
-                                    _confirmDeleteTemplate(master, template),
+                                onPressed: () => _confirmDeleteTemplate(
+                                    master, template),
                                 icon: Icon(
                                   Icons.delete_outline_rounded,
                                   color: theme.colorScheme.error,
@@ -3131,7 +3340,8 @@ class _MasterLeagueDetailsScreenState
                                 _templateChip(
                                   brightness,
                                   icon: Icons.emoji_events_outlined,
-                                  label: template.worldCupFormat!.displayName,
+                                  label:
+                                      template.worldCupFormat!.displayName,
                                   active: true,
                                 ),
                               if (template.homeAwayEnabled)
@@ -3161,12 +3371,15 @@ class _MasterLeagueDetailsScreenState
                                       foregroundColor: _worldCupGold,
                                     )
                                   : null,
-                              onPressed: () => _useCompetitionTemplate(template),
+                              onPressed: () =>
+                                  _useCompetitionTemplate(template),
                               icon: Icon(isWC
                                   ? Icons.public_rounded
                                   : Icons.bolt_rounded),
                               label: Text(
-                                isWC ? 'Use World Cup Template' : 'Use Template',
+                                isWC
+                                    ? 'Use World Cup Template'
+                                    : 'Use Template',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w900),
                               ),
@@ -3322,7 +3535,8 @@ class _MasterLeagueDetailsScreenState
                         imageUrl: preview.leagueImageUrl,
                         isOwner: _currentUid.isNotEmpty &&
                             preview.organizerUid.trim() == _currentUid,
-                        onDoubleTap: () => _safePush('/leagues/${preview.id}'),
+                        onDoubleTap: () =>
+                            _safePush('/leagues/${preview.id}'),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -3335,7 +3549,8 @@ class _MasterLeagueDetailsScreenState
                             icon: const Icon(Icons.open_in_new_rounded),
                             label: const Text(
                               'Open Competition',
-                              style: TextStyle(fontWeight: FontWeight.w900),
+                              style:
+                                  TextStyle(fontWeight: FontWeight.w900),
                             ),
                           ),
                         ),
@@ -3351,7 +3566,8 @@ class _MasterLeagueDetailsScreenState
                                   Icons.check_circle_outline_rounded),
                               label: const Text(
                                 'Already Joined',
-                                style: TextStyle(fontWeight: FontWeight.w900),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w900),
                               ),
                             )
                           : FilledButton.icon(
@@ -3361,7 +3577,8 @@ class _MasterLeagueDetailsScreenState
                               ),
                               onPressed: joiningThis
                                   ? null
-                                  : () => _promptJoinCompetition(preview),
+                                  : () =>
+                                      _promptJoinCompetition(preview),
                               icon: joiningThis
                                   ? const SizedBox(
                                       width: 16,
@@ -3373,7 +3590,9 @@ class _MasterLeagueDetailsScreenState
                                     )
                                   : const Icon(Icons.login_rounded),
                               label: Text(
-                                joiningThis ? 'Joining...' : 'Join Competition',
+                                joiningThis
+                                    ? 'Joining...'
+                                    : 'Join Competition',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w900),
                               ),
@@ -3384,8 +3603,8 @@ class _MasterLeagueDetailsScreenState
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.tonalIcon(
-                          onPressed: () =>
-                              _showAllCompetitionsSheet(master, leagues),
+                          onPressed: () => _showAllCompetitionsSheet(
+                              master, leagues),
                           icon: const Icon(Icons.view_carousel_outlined),
                           label: Text(
                             remaining == 1
@@ -3434,8 +3653,6 @@ class _CreateCompetitionSheet extends StatefulWidget {
 
   final Brightness brightness;
   final String masterLeagueId;
-
-  /// True for Pro/Elite, false for Basic.
   final bool userIsPaid;
 
   @override
@@ -3454,9 +3671,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
       setState(() => _worldCupExpanded = !_worldCupExpanded);
       return;
     }
-    Navigator.of(context).pop(
-      _CompetitionTypeResult(format: format),
-    );
+    Navigator.of(context).pop(_CompetitionTypeResult(format: format));
   }
 
   void _confirmWorldCup() {
@@ -3488,7 +3703,8 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
           borderRadius: BorderRadius.circular(20),
           child: Glass(
             borderRadius: 20,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             fill: AppTheme.cardColor(brightness),
             borderColor: AppTheme.cardBorder(brightness),
             child: Row(
@@ -3542,6 +3758,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // ── Header ─────────────────────────────────────────────────────
             Glass(
               borderRadius: 24,
               padding: const EdgeInsets.all(14),
@@ -3593,6 +3810,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
     );
   }
 
+  /// World Cup option — glass card styling, NO solid orange background.
   Widget _buildWorldCupOption(
     BuildContext context,
     Brightness brightness,
@@ -3604,13 +3822,11 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
       child: Glass(
         borderRadius: 20,
         padding: const EdgeInsets.all(14),
-        fill: _worldCupExpanded
-            ? (_worldCupGold.withOpacity(
-                brightness == Brightness.dark ? 0.08 : 0.05))
-            : AppTheme.cardColor(brightness),
+        // Glass card fill — gold border only, no solid fill
+        fill: AppTheme.cardColor(brightness),
         borderColor: _worldCupExpanded
-            ? _worldCupGold.withOpacity(0.35)
-            : AppTheme.cardBorder(brightness),
+            ? _worldCupGold.withOpacity(0.45)
+            : _worldCupGold.withOpacity(0.22),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -3627,7 +3843,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                       shape: BoxShape.circle,
                       color: _worldCupGold.withOpacity(0.12),
                       border: Border.all(
-                          color: _worldCupGold.withOpacity(0.30)),
+                          color: _worldCupGold.withOpacity(0.35)),
                     ),
                     child: Icon(Icons.public_rounded,
                         color: _worldCupGold, size: 20),
@@ -3642,13 +3858,13 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                             Expanded(
                               child: Text(
                                 '🌍 World Cup',
-                                style: sheetTheme.textTheme.titleSmall?.copyWith(
+                                style: sheetTheme.textTheme.titleSmall
+                                    ?.copyWith(
                                   fontWeight: FontWeight.w900,
                                   color: _worldCupGold,
                                 ),
                               ),
                             ),
-                            // UPDATED: Only show PREMIUM for Basic/free users
                             if (!widget.userIsPaid)
                               Container(
                                 padding: const EdgeInsets.symmetric(
@@ -3657,7 +3873,8 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                                   color: _worldCupGold.withOpacity(0.12),
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                    color: _worldCupGold.withOpacity(0.30),
+                                    color:
+                                        _worldCupGold.withOpacity(0.30),
                                   ),
                                 ),
                                 child: Text(
@@ -3697,10 +3914,43 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
               const SizedBox(height: 14),
               Divider(color: _worldCupGold.withOpacity(0.20)),
               const SizedBox(height: 12),
+              // ── Info hint ────────────────────────────────────────────────
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: _worldCupGold.withOpacity(
+                    brightness == Brightness.dark ? 0.08 : 0.06,
+                  ),
+                  border: Border.all(
+                    color: _worldCupGold.withOpacity(0.22),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded,
+                        color: _worldCupGold, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Group stage → Knockouts → Final. Home/away not supported.',
+                        style: TextStyle(
+                          color: _worldCupGold,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
               Text(
                 'Select World Cup Format',
                 style: sheetTheme.textTheme.bodySmall?.copyWith(
-                  color: _worldCupGold,
+                  color: AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w900,
                   letterSpacing: 0.3,
                 ),
@@ -3720,12 +3970,18 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                 selected: _worldCupFormat == WorldCupFormat.fifa2026,
               ),
               const SizedBox(height: 14),
+              // ── Confirm button — glass-aware, not solid orange ────────────
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
-                    backgroundColor: _worldCupGold,
-                    foregroundColor: Colors.white,
+                    backgroundColor: _worldCupGold.withOpacity(
+                      brightness == Brightness.dark ? 0.22 : 0.18,
+                    ),
+                    foregroundColor: _worldCupGold,
+                    side: BorderSide(
+                      color: _worldCupGold.withOpacity(0.45),
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                   onPressed: _confirmWorldCup,
@@ -3759,7 +4015,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
           borderRadius: BorderRadius.circular(14),
           color: selected
               ? _worldCupGold.withOpacity(
-                  brightness == Brightness.dark ? 0.12 : 0.08)
+                  brightness == Brightness.dark ? 0.10 : 0.07)
               : AppTheme.searchBackground(brightness),
           border: Border.all(
             color: selected
@@ -3771,7 +4027,9 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
         child: Row(
           children: [
             Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off,
               color: selected
                   ? _worldCupGold
                   : AppTheme.secondaryText(brightness),
