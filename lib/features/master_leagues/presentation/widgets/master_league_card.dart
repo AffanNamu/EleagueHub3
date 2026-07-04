@@ -22,10 +22,6 @@ class _BP {
 // ---------------------------------------------------------------------------
 // MasterLeagueCard
 // ---------------------------------------------------------------------------
-// Changed from StatelessWidget → ConsumerWidget so it can read
-// masterLeagueOwnerProfileProvider to display the owner's name + badges.
-// All existing layout, colours, and animation are preserved.
-// ---------------------------------------------------------------------------
 
 class MasterLeagueCard extends ConsumerWidget {
   const MasterLeagueCard({
@@ -169,11 +165,6 @@ class MasterLeagueCard extends ConsumerWidget {
   }
 
   // ── Owner badge icons ─────────────────────────────────────────────────────
-  //
-  // Shows the verification badges of the workspace owner inline
-  // next to the workspace name.
-  // Priority: Staff > Organizer (gold) > Green
-  // Colours match ProfileScreen and MasterLeaguesListScreen exactly.
 
   Widget _ownerBadges(VerificationBadges badges) {
     final icons = <Widget>[];
@@ -238,10 +229,8 @@ class MasterLeagueCard extends ConsumerWidget {
     final isPending = masterLeague.isVerificationPending;
 
     // Fetch owner profile for display name + badges.
-    // ownerUid comes from masterLeague.ownerUid — falls back to
-    // empty string if the field is absent, which returns null profile.
-    final ownerUid =
-        (masterLeague.ownerUid ?? '').trim();
+    // FIXED: Use ownerId (not ownerUid).
+    final ownerUid = masterLeague.ownerId.trim();
     final ownerProfileAsync = ref.watch(
       masterLeagueOwnerProfileProvider(ownerUid),
     );
@@ -249,18 +238,11 @@ class MasterLeagueCard extends ConsumerWidget {
     final ownerProfile = ownerProfileAsync.valueOrNull;
 
     // Resolved owner display name:
-    //   1. Profile teamName
-    //   2. Organizer profile name stored on the workspace itself
-    //   3. Empty (no label shown)
-    final ownerName = () {
-      final pName =
-          (ownerProfile?.teamName ?? '').trim();
-      if (pName.isNotEmpty) return pName;
-      final fallback =
-          (masterLeague.organizerProfile.name ?? '')
-              .trim();
-      return fallback;
-    }();
+    //   1. Profile teamName (from fetched owner profile)
+    //   2. Empty string if not available
+    // FIXED: Removed fallback to organizerProfile.name (doesn't exist).
+    final ownerName =
+        (ownerProfile?.teamName ?? '').trim();
 
     final ownerBadges = ownerProfile?.verificationBadges ??
         VerificationBadges.empty;
@@ -301,7 +283,6 @@ class MasterLeagueCard extends ConsumerWidget {
                         ),
                       ),
                       // Legacy organizer verified badge
-                      // (blue — preserved for backward compat).
                       if (isVerified)
                         const Icon(
                           Icons.verified_rounded,
@@ -318,6 +299,7 @@ class MasterLeagueCard extends ConsumerWidget {
                   ),
 
                   // Owner name + new badge icons
+                  // Only show if ownerName is not empty.
                   if (ownerName.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Row(
