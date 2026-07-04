@@ -1,3 +1,5 @@
+// lib/features/master_leagues/logic/master_league_entitlement_service.dart
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -76,18 +78,13 @@ class MasterLeagueEntitlementService {
     return uid;
   }
 
-  /// Google Play Billing purchases are confirmed directly by the Play
-  /// Billing purchase stream (see [GooglePlayBillingService]) and their
-  /// raw receipt is already recorded to Firestore's `payments` collection
-  /// for later async server-side reconciliation.
-  ///
-  /// They must NEVER be routed through [_activateUri], because that
-  /// remote worker endpoint exists solely to verify Flutterwave web
-  /// payments and does not recognize `google_play_billing` as a valid
-  /// provider — doing so previously produced an "unsupported provider"
-  /// error and left the plan un-activated in Firestore.
+  /// Google Play Billing purchases must NEVER be routed through
+  /// [_activateUri] — that endpoint only accepts Flutterwave receipts
+  /// and returns "unsupported provider" for anything else.
   bool _isGooglePlayProvider(String provider) =>
       provider.trim().toLowerCase() == 'google_play_billing';
+
+  // ── Read from profile ─────────────────────────────────────────────────────
 
   Future<OrganizerProEntitlement> _readFromProfile({
     bool forceRefresh = false,
@@ -95,10 +92,27 @@ class MasterLeagueEntitlementService {
     final uid = _uidOrThrow();
 
     UserProfile? profile;
-    if (forceRefresh) {
-      profile = await _profileRepo.fetchByUserId(uid);
-    } else {
-      profile = await _profileRepo.fetchByUserIdForBootstrap(uid);
+    try {
+      if (forceRefresh) {
+        profile = await _profileRepo.fetchByUserId(uid);
+      } else {
+        profile = await _profileRepo.fetchByUserIdForBootstrap(uid);
+      }
+    } catch (e) {
+      // Network / permission errors — fall through to claims fallback.
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeagueEntitlementService] _readFromProfile '
+          'fetch error (will try claims): $e',
+        );
+      }
+      return const OrganizerProEntitlement(
+        active: false,
+        plan: null,
+        duration: null,
+        expiryMs: 0,
+        daysRemaining: 0,
+      );
     }
 
     if (profile == null) {
@@ -130,6 +144,8 @@ class MasterLeagueEntitlementService {
       daysRemaining: subscription.daysRemaining,
     );
   }
+
+  // ── Read from Firebase ID token claims ───────────────────────────────────
 
   Future<OrganizerProEntitlement> _readFromClaims() async {
     final user = _auth.currentUser;
@@ -171,7 +187,8 @@ class MasterLeagueEntitlementService {
           : null;
 
       final durationRaw = claims['organizerProDuration'];
-      final duration = (durationRaw is String && durationRaw.trim().isNotEmpty)
+      final duration = (durationRaw is String &&
+              durationRaw.trim().isNotEmpty)
           ? PlanDuration.fromString(durationRaw)
           : (plan == MasterLeaguePlan.basic
               ? PlanDuration.threeMonths
@@ -200,7 +217,8 @@ class MasterLeagueEntitlementService {
       final days = plan.isFree
           ? 999
           : (expiryMs > nowMs
-              ? ((expiryMs - nowMs) / (1000 * 60 * 60 * 24)).ceil()
+              ? ((expiryMs - nowMs) / (1000 * 60 * 60 * 24))
+                  .ceil()
               : 0);
 
       return OrganizerProEntitlement(
@@ -221,12 +239,33 @@ class MasterLeagueEntitlementService {
     }
   }
 
+  // ── Public entitlement read ───────────────────────────────────────────────
+
+  /// Returns the user's current entitlement.
+  ///
+  /// Priority order:
+  ///   1. Firestore profile (planExpiresAtMs / activePlanId)
+  ///   2. Firebase ID token custom claims (organizerPro)
+  ///
+  /// Never throws — returns inactive entitlement on any error so that
+  /// the UI degrades gracefully instead of showing a crash.
   Future<OrganizerProEntitlement> getEntitlement({
     bool forceRefresh = false,
   }) async {
-    _uidOrThrow();
+    try {
+      _uidOrThrow();
+    } catch (_) {
+      return const OrganizerProEntitlement(
+        active: false,
+        plan: null,
+        duration: null,
+        expiryMs: 0,
+        daysRemaining: 0,
+      );
+    }
 
-    final fromProfile = await _readFromProfile(forceRefresh: forceRefresh);
+    final fromProfile =
+        await _readFromProfile(forceRefresh: forceRefresh);
     if (fromProfile.active) return fromProfile;
 
     final fromClaims = await _readFromClaims();
@@ -236,71 +275,105 @@ class MasterLeagueEntitlementService {
   Stream<bool> watchUnlocked() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) return Stream.value(false);
-
     return _profileRepo.watchHasActivePlan(uid);
   }
 
   Future<bool> isUnlocked({bool forceRefresh = false}) async {
-    final ent = await getEntitlement(forceRefresh: forceRefresh);
+    final ent =
+        await getEntitlement(forceRefresh: forceRefresh);
     return ent.active;
   }
 
-  Future<MasterLeaguePlan?> getActivePlan({bool forceRefresh = false}) async {
-    final ent = await getEntitlement(forceRefresh: forceRefresh);
+  Future<MasterLeaguePlan?> getActivePlan(
+      {bool forceRefresh = false}) async {
+    final ent =
+        await getEntitlement(forceRefresh: forceRefresh);
     return ent.plan;
   }
 
-  Future<PlanDuration?> getActiveDuration({bool forceRefresh = false}) async {
-    final ent = await getEntitlement(forceRefresh: forceRefresh);
+  Future<PlanDuration?> getActiveDuration(
+      {bool forceRefresh = false}) async {
+    final ent =
+        await getEntitlement(forceRefresh: forceRefresh);
     return ent.duration;
   }
+
+  // ── Workspace / competition counts ────────────────────────────────────────
 
   Future<int> countOwnedWorkspaces() async {
     final uid = _uidOrThrow();
 
-    final snap = await _firestore
-        .collection('master_leagues')
-        .where('ownerUid', isEqualTo: uid)
-        .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 15));
+    try {
+      final snap = await _firestore
+          .collection('master_leagues')
+          .where('ownerUid', isEqualTo: uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
 
-    return snap.docs.length;
+      return snap.docs.length;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeagueEntitlementService] countOwnedWorkspaces '
+          'error: $e',
+        );
+      }
+      // Return 0 on error so canCreateWorkspace defaults to permissive.
+      return 0;
+    }
   }
 
-  Future<int> countCompetitionsInWorkspace(String masterLeagueId) async {
+  Future<int> countCompetitionsInWorkspace(
+      String masterLeagueId) async {
     _uidOrThrow();
 
-    final snap = await _firestore
-        .collection('leagues')
-        .where('masterLeagueId', isEqualTo: masterLeagueId.trim())
-        .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 15));
+    try {
+      final snap = await _firestore
+          .collection('leagues')
+          .where(
+            'masterLeagueId',
+            isEqualTo: masterLeagueId.trim(),
+          )
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
 
-    return snap.docs.length;
+      return snap.docs.length;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeagueEntitlementService] '
+          'countCompetitionsInWorkspace error: $e',
+        );
+      }
+      return 0;
+    }
   }
 
   Future<bool> canCreateWorkspace() async {
     final ent = await getEntitlement();
     if (!ent.active || ent.plan == null) return false;
-
     final count = await countOwnedWorkspaces();
     return ent.plan!.canCreateWorkspace(count);
   }
 
-  Future<bool> canCreateCompetitionInWorkspace(String masterLeagueId) async {
+  Future<bool> canCreateCompetitionInWorkspace(
+      String masterLeagueId) async {
     final ent = await getEntitlement();
     if (!ent.active || ent.plan == null) return false;
-
-    final count = await countCompetitionsInWorkspace(masterLeagueId);
+    final count =
+        await countCompetitionsInWorkspace(masterLeagueId);
     return ent.plan!.canCreateCompetition(count);
   }
+
+  // ── Activation ────────────────────────────────────────────────────────────
 
   Uri _activateUri() {
     final fromConfig = BackendConfig.organizerProActivateUrl();
     if (fromConfig != null) return fromConfig;
 
     throw const MasterLeagueEntitlementException(
-      'Organizer Pro activation service is not configured.',
+      'Organizer Pro activation service is not configured. '
+      'Please contact support.',
     );
   }
 
@@ -315,8 +388,14 @@ class MasterLeagueEntitlementService {
 
     try {
       final req = await client.postUrl(uri).timeout(timeout);
-      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $idToken');
-      req.headers.set(HttpHeaders.contentTypeHeader, ContentType.json.mimeType);
+      req.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer $idToken',
+      );
+      req.headers.set(
+        HttpHeaders.contentTypeHeader,
+        ContentType.json.mimeType,
+      );
       req.add(utf8.encode(jsonEncode(body)));
 
       final res = await req.close().timeout(timeout);
@@ -333,7 +412,10 @@ class MasterLeagueEntitlementService {
       }
 
       if (kDebugMode) {
-        debugPrint('[OrganizerProActivate] POST $uri -> ${res.statusCode} $raw');
+        debugPrint(
+          '[OrganizerProActivate] POST $uri '
+          '-> ${res.statusCode} $raw',
+        );
       }
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -341,7 +423,8 @@ class MasterLeagueEntitlementService {
         throw MasterLeagueEntitlementException(
           msg?.isNotEmpty == true
               ? msg!
-              : 'Activation failed (${res.statusCode}). Please try again.',
+              : 'Activation failed (${res.statusCode}). '
+                  'Please try again.',
         );
       }
 
@@ -350,7 +433,8 @@ class MasterLeagueEntitlementService {
       rethrow;
     } on SocketException {
       throw const MasterLeagueEntitlementException(
-        'Your network appears to be offline. Please check your connection and try again.',
+        'Your network appears to be offline. '
+        'Please check your connection and try again.',
       );
     } on HandshakeException {
       throw const MasterLeagueEntitlementException(
@@ -358,17 +442,30 @@ class MasterLeagueEntitlementService {
       );
     } on TimeoutException {
       throw const MasterLeagueEntitlementException(
-        "We couldn't activate Organizer Pro right now. Please try again.",
+        "We couldn't activate Organizer Pro right now. "
+        'Please try again.',
       );
     } catch (_) {
       throw const MasterLeagueEntitlementException(
-        "We couldn't activate Organizer Pro right now. Please try again.",
+        "We couldn't activate Organizer Pro right now. "
+        'Please try again.',
       );
     } finally {
       client.close(force: true);
     }
   }
 
+  /// Activates the plan after a confirmed payment.
+  ///
+  /// Routing:
+  ///   • Free plans       → write directly to Firestore (no payment).
+  ///   • Google Play      → write directly to Firestore (already verified
+  ///                        by the Play Billing purchase stream).
+  ///   • Flutterwave/web  → POST to the remote worker for server-side
+  ///                        verification, then write to Firestore.
+  ///
+  /// Badges are granted automatically inside
+  /// [UserProfileRepository.activatePlanSubscription].
   Future<void> activateAfterPayment({
     required MasterLeaguePlan plan,
     required PlanDuration duration,
@@ -378,7 +475,9 @@ class MasterLeagueEntitlementService {
     _uidOrThrow();
 
     if (plan.requiresPayment && receiptId.trim().isEmpty) {
-      throw const MasterLeagueEntitlementException('Missing receipt ID.');
+      throw const MasterLeagueEntitlementException(
+        'Missing receipt ID.',
+      );
     }
 
     final user = _auth.currentUser;
@@ -388,6 +487,7 @@ class MasterLeagueEntitlementService {
       );
     }
 
+    // ── Free plan: no payment verification needed ─────────────────────────
     if (plan.isFree) {
       await _profileRepo.activatePlanSubscription(
         plan: plan,
@@ -398,15 +498,12 @@ class MasterLeagueEntitlementService {
       return;
     }
 
-    // ── Google Play Billing: activate directly, skip the remote worker ────
-    // See _isGooglePlayProvider doc comment above for why this branch
-    // exists. The purchase itself was already confirmed by Google Play
-    // (GooglePlayBillingService.purchaseStream) before this method is
-    // ever called, so no further server round-trip is required here to
-    // unlock the plan. Server-side receipt verification (Play Developer
-    // API / RTDN) happens asynchronously against the `payments` document
-    // already written by GooglePlayBillingService, independent of this
-    // activation step.
+    // ── Google Play Billing: already verified by Play SDK ─────────────────
+    // The purchase was confirmed by the Play Billing purchase stream
+    // BEFORE this method is called. We only need to persist the plan
+    // locally and grant the badge (done inside activatePlanSubscription).
+    // Routing this through the Flutterwave worker would cause an
+    // "unsupported provider" error.
     if (_isGooglePlayProvider(provider)) {
       await _profileRepo.activatePlanSubscription(
         plan: plan,
@@ -415,6 +512,8 @@ class MasterLeagueEntitlementService {
         provider: provider,
       );
 
+      // Refresh the ID token so any cloud-function custom claims
+      // set by server-side RTDN are picked up immediately.
       try {
         await _auth.currentUser?.getIdToken(true);
       } catch (_) {}
@@ -422,7 +521,7 @@ class MasterLeagueEntitlementService {
       return;
     }
 
-    // ── Flutterwave / web path: verify with the remote worker ─────────────
+    // ── Flutterwave / web: verify with remote worker ──────────────────────
     final idToken = await user.getIdToken(true);
     final safeIdToken = (idToken ?? '').trim();
     if (safeIdToken.isEmpty) {
@@ -446,11 +545,14 @@ class MasterLeagueEntitlementService {
     if (!success) {
       final msg = (parsed['error'] as String?)?.trim();
       throw MasterLeagueEntitlementException(
-        msg?.isNotEmpty == true ? msg! : 'Organizer Pro activation failed.',
+        msg?.isNotEmpty == true
+            ? msg!
+            : 'Organizer Pro activation failed.',
       );
     }
 
-    final workerPlan = (parsed['plan'] as String? ?? '').trim().toLowerCase();
+    final workerPlan =
+        (parsed['plan'] as String? ?? '').trim().toLowerCase();
     final workerDuration =
         (parsed['duration'] as String? ?? '').trim().toLowerCase();
 
@@ -466,6 +568,7 @@ class MasterLeagueEntitlementService {
       );
     }
 
+    // Persist locally and grant badges.
     await _profileRepo.activatePlanSubscription(
       plan: plan,
       duration: duration,
