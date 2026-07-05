@@ -171,6 +171,17 @@ class BadgeService {
     );
   }
 
+  /// ── NEW: Revokes the staff/ambassador badge for [userId].
+  Future<void> adminRevokeStaffBadge(String userId) async {
+    await _repo.revokeStaffBadge(userId);
+  }
+
+  /// ── NEW: Lists the userIds of everyone currently holding an active
+  /// staff/ambassador badge. Used to populate the admin roster screen.
+  Future<List<String>> listStaffUserIds({int limit = 200}) {
+    return _repo.listStaffUserIds(limit: limit);
+  }
+
   // ── Revoke on subscription expiry ────────────────────────────────────────
 
   /// Called when Pro subscription expires.

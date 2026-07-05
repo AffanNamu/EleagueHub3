@@ -13,8 +13,10 @@
 // No new routes are needed because the World Cup is a new format type
 // within existing screens, not a new screen hierarchy.
 //
-// This file does NOT require any update.
-// Returning it unchanged to confirm no modifications were made.
+// ADDED: /admin/staff-ambassadors route — super-admin-only screen for
+// granting/revoking the purple Staff/Ambassador verification badge by
+// UID. Guarded the same way as the other /admin/* routes: redirected
+// to '/' for anyone whose uid does not match _superAdminUid.
 
 import 'dart:async';
 
@@ -29,6 +31,7 @@ import '../../features/admin/developer_analytics_dashboard_screen.dart';
 import '../../features/admin/organizer_verification_requests_screen.dart';
 import '../../features/admin/pricing_admin_screen.dart';
 import '../../features/admin/pricing_admins_screen.dart';
+import '../../features/admin/staff_ambassador_admin_screen.dart';
 import '../../features/auth/data/user_profile_repository.dart';
 import '../../features/auth/presentation/bootstrap_screen.dart';
 import '../../features/auth/presentation/forgot_password_screen.dart';
@@ -1023,7 +1026,7 @@ const _publicRoutes = <String>{
 };
 
 // ---------------------------------------------------------------------------
-// App router (UNCHANGED — World Cup reuses existing routes)
+// App router
 // ---------------------------------------------------------------------------
 
 final appRouter = GoRouter(
@@ -1058,6 +1061,9 @@ final appRouter = GoRouter(
         loc == '/admin/marketplace-upload';
     final inGlobalChatRequestsAdmin =
         loc == '/admin/global-chat-requests';
+    // NEW: staff/ambassador badge admin screen.
+    final inStaffAmbassadorAdmin =
+        loc == '/admin/staff-ambassadors';
 
     if (kIsWeb) {
       if (loc.startsWith('/live') || loc == '/call') {
@@ -1135,6 +1141,11 @@ final appRouter = GoRouter(
     }
 
     if (inGlobalChatRequestsAdmin) {
+      if (uid != _superAdminUid) return '/';
+    }
+
+    // NEW: only the super admin can reach the staff/ambassador screen.
+    if (inStaffAmbassadorAdmin) {
       if (uid != _superAdminUid) return '/';
     }
 
@@ -1261,6 +1272,12 @@ final appRouter = GoRouter(
       path: '/admin/global-chat-requests',
       builder: (context, state) =>
           const GlobalChatAdminRequestsScreen(),
+    ),
+    // NEW: super-admin badge management screen.
+    GoRoute(
+      path: '/admin/staff-ambassadors',
+      builder: (context, state) =>
+          const StaffAmbassadorAdminScreen(),
     ),
     GoRoute(
       path: '/',

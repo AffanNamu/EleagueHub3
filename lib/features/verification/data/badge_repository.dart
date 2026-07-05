@@ -62,6 +62,29 @@ class BadgeRepository {
     });
   }
 
+  /// ── NEW: Lists all users currently holding an active staff/ambassador
+  /// badge, ordered by no particular guarantee (Firestore doesn't
+  /// preserve insertion order on equality queries).
+  ///
+  /// Used by the staff/ambassador admin screen to display the current
+  /// roster. Queries the nested `verification.staffVerified` field via
+  /// dot notation, which Firestore supports for map fields.
+  Future<List<String>> listStaffUserIds({int limit = 200}) async {
+    try {
+      final snap = await _users
+          .where('verification.staffVerified', isEqualTo: true)
+          .limit(limit)
+          .get(const GetOptions(source: Source.server));
+
+      return snap.docs.map((d) => d.id).toList(growable: false);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[BadgeRepository] listStaffUserIds error: $e');
+      }
+      return const <String>[];
+    }
+  }
+
   // ── Write ─────────────────────────────────────────────────────────────────
 
   /// Merges [badges] into the user document.
@@ -167,6 +190,30 @@ class BadgeRepository {
       debugPrint(
         '[BadgeRepository] grantStaffBadge → $userId '
         'source=${source.firestoreValue} expiresAt=$expiresAt',
+      );
+    }
+  }
+
+  /// ── NEW: Revokes the staff/ambassador badge for [userId].
+  ///
+  /// Unlike the subscription-badge revoke methods, this is always
+  /// admin-initiated (staffSource can only ever be 'admin_granted' per
+  /// the Firestore security rules' validVerificationMap check), so there
+  /// is no "preserve permanent ownership" branch to consider — an admin
+  /// revoking staff status should always take effect immediately.
+  Future<void> revokeStaffBadge(String userId) async {
+    final current = await fetchBadges(userId);
+    if (!current.staffVerified) return;
+
+    await _users.doc(userId).update(<String, dynamic>{
+      'verification.staffVerified': false,
+      'verification.staffSource': null,
+      'verification.staffExpiresAt': null,
+    });
+
+    if (kDebugMode) {
+      debugPrint(
+        '[BadgeRepository] revokeStaffBadge → $userId',
       );
     }
   }

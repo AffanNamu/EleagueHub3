@@ -1630,7 +1630,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     title: 'Link Desktop Web',
                     subtitle:
                         'Open the mobile QR scanner to pair with '
-                        'eSportlyic Web.',
+                        'eSportlyic Web at esportlyic.web.app.',
                     onTap: () => _openDesktopScanner(context),
                   ),
                 ),
@@ -1870,26 +1870,35 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     child: Column(
                       children: [
                         if (isSuperAdmin) ...[
-                          _AdminRow(
-                            icon: Icons
-                                .store_mall_directory_rounded,
-                            title: 'Marketplace Upload',
-                            onTap: () =>
-                                Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    const AdminMarketplaceUploadScreen(),
-                              ),
-                            ),
-                          ),
-                          if (isPricingAdmin)
-                            Divider(
-                              color:
-                                  AppTheme.cardBorder(brightness),
-                              height: 1,
-                            ),
-                        ],
-                        if (isPricingAdmin) ...[
+  _AdminRow(
+    icon: Icons
+        .store_mall_directory_rounded,
+    title: 'Marketplace Upload',
+    onTap: () =>
+        Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            const AdminMarketplaceUploadScreen(),
+      ),
+    ),
+  ),
+  Divider(
+    color: AppTheme.cardBorder(brightness),
+    height: 1,
+  ),
+  _AdminRow(
+    icon: Icons.shield_rounded,
+    title: 'Staff / Ambassadors',
+    onTap: () =>
+        GoRouter.of(context).push('/admin/staff-ambassadors'),
+  ),
+  if (isPricingAdmin)
+    Divider(
+      color:
+          AppTheme.cardBorder(brightness),
+      height: 1,
+    ),
+],   if (isPricingAdmin) ...[
                           _AdminRow(
                             icon: Icons.price_change_rounded,
                             title: 'Pricing (Quick Editor)',
