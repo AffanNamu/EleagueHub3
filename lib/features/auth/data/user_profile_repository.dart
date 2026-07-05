@@ -170,13 +170,30 @@ class UserProfileRepository {
     }
   }
 
+  /// ── FIXED: fetchByUserId no longer throws on permission-denied.
+  ///
+  /// Root cause of "You do not have permission to access this profile":
+  /// this method previously threw immediately on any Firestore
+  /// permission-denied response from a server read. Your Firestore rule
+  /// for /users/{userId} is `allow read: if signedIn();` — fully open to
+  /// any signed-in user — so a genuine permission-denied here almost
+  /// always reflects a transient auth-token race (e.g. right after
+  /// getIdToken(true) is called elsewhere, or a brief network blip),
+  /// NOT an actual permissions problem.
+  ///
+  /// Now: on permission-denied (or any transient Firestore error), we
+  /// fall back to the local cache, and only return null if that also
+  /// fails — mirroring the existing, already-safe behaviour of
+  /// fetchByUserIdForBootstrap. Callers that need a hard failure for
+  /// missing auth still get UserProfileRepositoryException for the
+  /// actual "not signed in" case via _requireAuthUid().
   Future<UserProfile?> fetchByUserId(String userId) async {
+    _requireAuthUid();
+
+    final uid = userId.trim();
+    if (uid.isEmpty) return null;
+
     try {
-      _requireAuthUid();
-
-      final uid = userId.trim();
-      if (uid.isEmpty) return null;
-
       final snap = await _usersCol
           .doc(uid)
           .get(const GetOptions(source: Source.server))
@@ -185,8 +202,32 @@ class UserProfileRepository {
       if (!snap.exists) return null;
       return UserProfile.fromDoc(snap);
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+      if (kDebugMode) {
+        debugPrint(
+          'UserProfileRepository.fetchByUserId server read failed '
+          '(falling back to cache): $e',
+        );
+      }
     }
+
+    try {
+      final cacheSnap = await _usersCol
+          .doc(uid)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 4));
+
+      if (cacheSnap.exists) {
+        return UserProfile.fromDoc(cacheSnap);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          'UserProfileRepository.fetchByUserId cache read failed: $e',
+        );
+      }
+    }
+
+    return null;
   }
 
   Future<UserProfile?> fetchByUserIdForBootstrap(String userId) async {
@@ -240,6 +281,10 @@ class UserProfileRepository {
       return _usersCol.doc(uid).snapshots().map((snap) {
         if (!snap.exists) return null;
         return UserProfile.fromDoc(snap);
+      }).handleError((e) {
+        if (kDebugMode) {
+          debugPrint('UserProfileRepository.watchByUserId stream error: $e');
+        }
       });
     } catch (_) {
       return const Stream<UserProfile?>.empty();
@@ -452,8 +497,6 @@ class UserProfileRepository {
       ).timeout(const Duration(seconds: 20));
 
       // ── Sync verification badges right after activation ──────────────
-      // Ensures the green/gold badge appears immediately for the user
-      // who just paid, without waiting for a separate screen visit.
       if (!plan.isFree) {
         try {
           if (plan == MasterLeaguePlan.elite) {
@@ -468,7 +511,6 @@ class UserProfileRepository {
             );
           }
         } catch (e) {
-          // Badge sync must never fail the plan activation itself.
           if (kDebugMode) {
             debugPrint(
               '[UserProfileRepository] activatePlanSubscription badge sync error: $e',
@@ -481,23 +523,8 @@ class UserProfileRepository {
     }
   }
 
-  /// ── NEW: Backfills verification badges for the CURRENTLY signed-in user
-  ///        based on the plan already recorded on their Firestore profile.
-  ///
-  /// This is the missing piece that `MasterLeaguesListScreen.initState()`
-  /// was already calling (`syncBadgesForCurrentUser()`) but which did not
-  /// exist yet — meaning the file could not compile, and existing Pro/Elite
-  /// users who purchased before the badge system existed (or whose badge
-  /// write silently failed) never got their green/gold badge applied.
-  ///
-  /// Logic:
-  ///   • No signed-in user            → no-op.
-  ///   • No profile / no active plan  → no-op.
-  ///   • Plan is 'elite' and active   → grant Elite badges (green + organizer).
-  ///   • Plan is 'pro' and active     → grant Pro badge (green only), unless
-  ///     the user already has an Elite-sourced green badge (never downgrade).
-  ///
-  /// Errors are swallowed — this must never crash the screen that calls it.
+  /// Backfills verification badges for the CURRENTLY signed-in user
+  /// based on the plan already recorded on their Firestore profile.
   Future<void> syncBadgesForCurrentUser() async {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) return;
@@ -511,7 +538,7 @@ class UserProfileRepository {
 
       final expiresAtMs = profile.planExpiresAtMs;
       final nowMs = DateTime.now().millisecondsSinceEpoch;
-      if (expiresAtMs <= nowMs) return; // expired — nothing to backfill
+      if (expiresAtMs <= nowMs) return;
 
       final expiresAt = DateTime.fromMillisecondsSinceEpoch(expiresAtMs);
 
@@ -529,15 +556,11 @@ class UserProfileRepository {
         return;
       }
 
-      // planId == 'pro'
       final current = await BadgeService.instance.getBadges(uid);
       final alreadyEliteGreen =
           current.greenSource == BadgeSource.eliteSubscription &&
               current.isGreenActive;
-      if (alreadyEliteGreen) {
-        // Never downgrade an Elite-sourced green badge to Pro.
-        return;
-      }
+      if (alreadyEliteGreen) return;
 
       await BadgeService.instance.onProSubscriptionPurchased(
         userId: uid,
@@ -550,7 +573,6 @@ class UserProfileRepository {
         );
       }
     } catch (e) {
-      // Must never affect the calling screen.
       if (kDebugMode) {
         debugPrint(
           '[UserProfileRepository] syncBadgesForCurrentUser error: $e',

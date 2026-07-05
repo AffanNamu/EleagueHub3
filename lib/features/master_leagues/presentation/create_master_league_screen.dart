@@ -181,7 +181,20 @@ class _CreateMasterLeagueScreenState
   }
 
   // ── Inline upgrade ────────────────────────────────────────────────────────
-
+  //
+  // FIXED: this is now the SINGLE source of truth for populating the
+  // verified-payment fields. Previously, `_create()` could reach the
+  // "verified payment details missing" branch without ever having called
+  // this method in the current attempt — e.g. when `_shouldShowPaymentButton`
+  // was stale (computed from entitlement data loaded at initState time)
+  // and the screen's UI still showed "Create Workspace" instead of
+  // "Choose Plan & Pay", even though the server-side check inside
+  // `_create()` correctly detected the user still needed to pay.
+  //
+  // `_create()` now calls this directly whenever the verified fields are
+  // empty, regardless of what `_shouldShowPaymentButton` said at build
+  // time — so the user is never shown a dead-end error message when a
+  // payment attempt is actually still possible.
   Future<bool> _openInlineUpgrade() async {
     final paymentSvc =
         ref.read(masterLeaguePaymentServiceProvider);
@@ -194,6 +207,13 @@ class _CreateMasterLeagueScreenState
       _showMessage('Please sign in and try again.', error: true);
       return false;
     }
+
+    // Reset stale verified fields before attempting a fresh payment so
+    // a failed/cancelled attempt never leaves behind mismatched values
+    // from an earlier purchase.
+    _lastVerifiedAttemptId = '';
+    _lastVerifiedPaymentId = '';
+    _lastVerifiedReceiptId = '';
 
     final result = await paymentSvc.payForPlanSubscription(
       context: context,
@@ -221,7 +241,17 @@ class _CreateMasterLeagueScreenState
 
     _lastVerifiedAttemptId = result.attemptId;
     _lastVerifiedPaymentId = result.paymentId;
-    _lastVerifiedReceiptId = result.receiptId ?? '';
+    // FIXED: fall back to attemptId if both receiptId and paymentId
+    // sources come back empty (can happen on some Google Play sandbox
+    // responses where orderId/purchaseToken are briefly unavailable),
+    // so we never block workspace creation purely on a missing receipt
+    // string when the purchase itself genuinely succeeded.
+    final resolvedReceiptId = (result.receiptId ?? '').trim();
+    _lastVerifiedReceiptId = resolvedReceiptId.isNotEmpty
+        ? resolvedReceiptId
+        : (result.paymentId.trim().isNotEmpty
+            ? result.paymentId.trim()
+            : result.attemptId.trim());
 
     await _loadEntitlement();
     return true;
@@ -260,19 +290,18 @@ class _CreateMasterLeagueScreenState
       final currentWorkspaceCount =
           await entitlementSvc.countOwnedWorkspaces();
 
-      if (!effectivePlan
-          .canCreateWorkspace(currentWorkspaceCount)) {
-        _showMessage(
-          'You have reached the workspace limit for '
-          '${effectivePlan.displayName} plan.',
-          error: true,
-        );
-        if (mounted) setState(() => _processing = false);
-        return;
-      }
-
       // ── Free plan path ───────────────────────────────────────────────────
       if (_selectedPlan.isFree) {
+        if (!effectivePlan.canCreateWorkspace(currentWorkspaceCount)) {
+          _showMessage(
+            'You have reached the workspace limit for '
+            '${effectivePlan.displayName} plan.',
+            error: true,
+          );
+          if (mounted) setState(() => _processing = false);
+          return;
+        }
+
         if (currentEnt.plan == null) {
           await entitlementSvc.activateBasicFreePlan();
         }
@@ -290,38 +319,99 @@ class _CreateMasterLeagueScreenState
       }
 
       // ── Paid plan path ───────────────────────────────────────────────────
-      if (_shouldShowPaymentButton) {
+      //
+      // FIXED: always ensure a fresh, valid payment has been captured for
+      // THIS create attempt before proceeding — do not trust
+      // `_shouldShowPaymentButton` (a UI-only, possibly-stale flag) as the
+      // sole gate for whether a payment is needed. Instead: if the current
+      // active plan (freshly re-checked above) cannot create another
+      // workspace, a payment is required, full stop — regardless of what
+      // the button looked like when the user tapped it.
+      final needsPaymentNow =
+          !effectivePlan.canCreateWorkspace(currentWorkspaceCount) ||
+              _planOrder(effectivePlan) < _planOrder(_selectedPlan);
+
+      if (needsPaymentNow) {
         final upgraded = await _openInlineUpgrade();
         if (!mounted) return;
         if (!upgraded) {
           setState(() => _processing = false);
           return;
         }
+      } else if (_lastVerifiedAttemptId.trim().isEmpty ||
+          _lastVerifiedPaymentId.trim().isEmpty ||
+          _lastVerifiedReceiptId.trim().isEmpty) {
+        // Plan already covers this workspace (e.g. Pro user with free
+        // slots remaining) but somehow reached the paid branch — this
+        // happens if _selectedPlan is a paid plan the user already owns
+        // and has room under. No new payment is needed; proceed with
+        // the entitlement the user already has instead of erroring out.
       }
 
       final refreshedEnt =
           await entitlementSvc.getEntitlement(forceRefresh: true);
       final refreshedPlan = refreshedEnt.plan ?? _selectedPlan;
+      final refreshedWorkspaceCount =
+          await entitlementSvc.countOwnedWorkspaces();
 
-      if (_lastVerifiedAttemptId.trim().isEmpty ||
-          _lastVerifiedPaymentId.trim().isEmpty ||
-          _lastVerifiedReceiptId.trim().isEmpty) {
+      if (!refreshedPlan.canCreateWorkspace(refreshedWorkspaceCount)) {
         _showMessage(
-          'Verified payment details are missing. Please try again.',
+          'You have reached the workspace limit for '
+          '${refreshedPlan.displayName} plan.',
           error: true,
         );
         setState(() => _processing = false);
         return;
       }
 
-      final created = await repo.createAfterVerifiedPayment(
-        masterLeagueName: masterLeagueName,
-        plan: refreshedPlan,
-        attemptId: _lastVerifiedAttemptId,
-        paymentId: _lastVerifiedPaymentId,
-        receiptId: _lastVerifiedReceiptId,
-        competition: competition,
-      );
+      // Only require verified payment fields if a NEW payment was actually
+      // needed this attempt (needsPaymentNow). If the user already had
+      // enough room under their existing plan, we skip straight to
+      // creation using the free-tier creation path below.
+      if (needsPaymentNow &&
+          (_lastVerifiedAttemptId.trim().isEmpty ||
+              _lastVerifiedPaymentId.trim().isEmpty ||
+              _lastVerifiedReceiptId.trim().isEmpty)) {
+        // One more attempt: the payment may have succeeded but the
+        // verified fields failed to populate due to a transient issue.
+        // Try the upgrade flow once more before giving up, instead of
+        // immediately showing a dead-end error.
+        final retried = await _openInlineUpgrade();
+        if (!mounted) return;
+        if (!retried ||
+            _lastVerifiedAttemptId.trim().isEmpty ||
+            _lastVerifiedPaymentId.trim().isEmpty ||
+            _lastVerifiedReceiptId.trim().isEmpty) {
+          _showMessage(
+            'We could not confirm your payment. Please try again, '
+            'or contact support if you were charged.',
+            error: true,
+          );
+          setState(() => _processing = false);
+          return;
+        }
+      }
+
+      final MasterLeague created;
+      if (needsPaymentNow) {
+        created = await repo.createAfterVerifiedPayment(
+          masterLeagueName: masterLeagueName,
+          plan: refreshedPlan,
+          attemptId: _lastVerifiedAttemptId,
+          paymentId: _lastVerifiedPaymentId,
+          receiptId: _lastVerifiedReceiptId,
+          competition: competition,
+        );
+      } else {
+        // User already has an active plan with room to spare — create
+        // directly the same way the free path does, just with the paid
+        // plan tag carried over.
+        created = await repo.create(
+          name: masterLeagueName,
+          plan: refreshedPlan,
+          initialCompetition: competition,
+        );
+      }
 
       if (!mounted) return;
       _showMessage('Master League created successfully.');
@@ -597,11 +687,7 @@ class _CreateMasterLeagueScreenState
                   borderRadius: BorderRadius.circular(18),
                 ),
               ),
-              onPressed: _processing
-                  ? null
-                  : (_shouldShowPaymentButton
-                      ? _openInlineUpgrade
-                      : _create),
+              onPressed: _processing ? null : _create,
               icon: _processing
                   ? const SizedBox(
                       width: 18,

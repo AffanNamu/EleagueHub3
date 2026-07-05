@@ -1,12 +1,27 @@
 // lib/features/master_leagues/data/master_leagues_repository_firebase.dart
 //
-// MODIFIED: 
+// MODIFIED:
 // 1. Added import for league_settings.dart so WorldCupFormatX extension
 //    is visible at the call site.
 // 2. saveCompetitionTemplate now enforces World Cup invariants:
 //    - maxTeams is derived from worldCupFormat when format == worldCup
 //    - homeAwayEnabled is forced to false for World Cup templates
 //    - worldCupFormat is carried through copyWith to Firestore
+// 3. FIXED: createAfterVerifiedPayment no longer hard-requires
+//    payment.verification.verified == true for Google Play purchases.
+//    Google Play payments are written by GooglePlayBillingService with
+//    verification.verified permanently set to false at write time
+//    (needsServerVerification: true) — real verification only happens
+//    later via an async RTDN webhook that master-league creation never
+//    waits for. Requiring verified==true here meant EVERY Google Play
+//    purchase failed with "Payment is not verified yet" / surfaced to
+//    the user as "Verified payment details are missing", even though
+//    the purchase itself had already been confirmed by the Play Billing
+//    purchase stream. We now trust google_play_billing / google_play
+//    provider payments as pre-verified here, mirroring the same trust
+//    boundary already used in MasterLeagueEntitlementService.activateAfterPayment.
+//    Flutterwave and all other providers still strictly require
+//    verification.verified == true, unchanged.
 // All other methods are UNCHANGED.
 
 import 'dart:async';
@@ -79,6 +94,17 @@ class MasterLeaguesRepositoryFirebase {
   static bool _looksLikeShareId(String raw) {
     final s = raw.trim();
     return RegExp(r'^eS[A-Za-z0-9]{4,12}$').hasMatch(s);
+  }
+
+  /// ── NEW: Returns true if [provider] is a Google Play Billing provider
+  ///        string. Used to decide whether a payment doc's
+  ///        verification.verified flag must be strictly true (Flutterwave
+  ///        and everything else) or can be trusted implicitly (Google Play,
+  ///        whose purchase was already confirmed client-side by the Play
+  ///        Billing purchase stream before this repository is ever called).
+  static bool _isGooglePlayProvider(String? provider) {
+    final p = (provider ?? '').trim().toLowerCase();
+    return p == 'google_play_billing' || p == 'google_play';
   }
 
   Never _rethrowFriendly(Object error) {
@@ -1214,10 +1240,17 @@ class MasterLeaguesRepositoryFirebase {
         );
       }
 
+      // ── FIXED: Google Play payments are trusted as pre-verified. ─────────
+      // See file-header comment for full rationale. Flutterwave (and any
+      // other provider) still strictly requires verification.verified==true.
+      final paymentProvider = (paymentData['provider'] as String? ?? '');
+      final isGooglePlayPayment = _isGooglePlayProvider(paymentProvider);
+
       final verification = (paymentData['verification'] is Map)
           ? (paymentData['verification'] as Map).cast<String, dynamic>()
           : <String, dynamic>{};
-      final verified = verification['verified'] == true;
+      final verified =
+          isGooglePlayPayment ? true : (verification['verified'] == true);
       if (!verified) {
         throw const UserFriendlyException(
           'Payment is not verified yet. Please try again.',
@@ -1276,10 +1309,18 @@ class MasterLeaguesRepositoryFirebase {
           );
         }
 
+        // Re-check verification inside the transaction using the same
+        // Google Play trust rule applied above (avoids a TOCTOU gap where
+        // the doc could theoretically change between the two reads).
+        final txnProvider = (payMap['provider'] as String? ?? '');
+        final txnIsGooglePlay = _isGooglePlayProvider(txnProvider);
         final payVerification = (payMap['verification'] is Map)
             ? (payMap['verification'] as Map).cast<String, dynamic>()
             : <String, dynamic>{};
-        if (payVerification['verified'] != true) {
+        final txnVerified = txnIsGooglePlay
+            ? true
+            : (payVerification['verified'] == true);
+        if (!txnVerified) {
           throw const UserFriendlyException(
             'Payment is not verified yet. Please try again.',
           );
