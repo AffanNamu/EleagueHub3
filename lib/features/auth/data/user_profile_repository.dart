@@ -172,23 +172,6 @@ class UserProfileRepository {
     }
   }
 
-  /// ── FIXED: fetchByUserId no longer throws on permission-denied.
-  ///
-  /// Root cause of "You do not have permission to access this profile":
-  /// this method previously threw immediately on any Firestore
-  /// permission-denied response from a server read. Your Firestore rule
-  /// for /users/{userId} is `allow read: if signedIn();` — fully open to
-  /// any signed-in user — so a genuine permission-denied here almost
-  /// always reflects a transient auth-token race (e.g. right after
-  /// getIdToken(true) is called elsewhere, or a brief network blip),
-  /// NOT an actual permissions problem.
-  ///
-  /// Now: on permission-denied (or any transient Firestore error), we
-  /// fall back to the local cache, and only return null if that also
-  /// fails — mirroring the existing, already-safe behaviour of
-  /// fetchByUserIdForBootstrap. Callers that need a hard failure for
-  /// missing auth still get UserProfileRepositoryException for the
-  /// actual "not signed in" case via _requireAuthUid().
   Future<UserProfile?> fetchByUserId(String userId) async {
     _requireAuthUid();
 
@@ -438,36 +421,126 @@ class UserProfileRepository {
     }
   }
 
-  /// ── NEW: Writes an arbitrary payload to /users/{authUid} and, if the
-  /// FIRST attempt fails with a Firestore `permission-denied` error,
-  /// forces a fresh ID token and retries exactly once before giving up.
+  /// ── NEW: ensures a payload will satisfy Firestore's `create` rule
+  /// for `/users/{userId}` when the document does not already exist.
   ///
-  /// ROOT CAUSE FIXED HERE (Pro/Elite plan purchase showing
-  /// "You do not have permission to access this profile"):
+  /// ── THE ACTUAL ROOT CAUSE OF "You do not have permission to access
+  /// this profile" DURING PLAN PURCHASES ──
   ///
-  /// activatePlanSubscription() below is called immediately after a
-  /// Google Play purchase completes (purchase stream callback) or right
-  /// after a Flutterwave charge is server-verified. At that exact moment
-  /// the Firebase ID token cached on the client can be stale/near-expiry,
-  /// and Firestore's backend rejects the write with permission-denied —
-  /// even though the security rule itself allows a signed-in user to
-  /// write their own /users/{uid} document. Previously this bubbled up
-  /// untouched through _rethrowFriendly() as the confusing permissions
-  /// message you saw, even though nothing was actually wrong with the
-  /// user's access rights.
+  /// A `.set(data, SetOptions(merge: true))` call is evaluated by
+  /// Firestore's `create` rule when the target document does not yet
+  /// exist, and by the `update` rule when it does. Your `create` rule
+  /// requires:
   ///
-  /// This mirrors the same "transient auth-token race" reasoning already
-  /// applied to fetchByUserId() above, but for writes: since a write
-  /// can't fall back to cache, we instead force-refresh the ID token and
-  /// retry the write once before surfacing any error to the caller.
+  ///   request.resource.data.keys().hasAll(
+  ///     ['userId','teamName','authProvider','createdAt','updatedAt']
+  ///   )
+  ///
+  /// But `activatePlanSubscription()` only ever sends plan-related
+  /// fields (activePlanId, planExpiresAtMs, etc.) plus userId/updatedAt
+  /// — never teamName, authProvider, or createdAt. So any time a user's
+  /// `/users/{uid}` document does not already exist at the moment they
+  /// buy Pro/Elite (fresh install, a profile-creation race, or an
+  /// account that never went through createIfMissing), this write is
+  /// evaluated as a `create`, fails `hasAll(...)`, and Firestore
+  /// rejects it with `permission-denied` — surfaced to the user as
+  /// "You do not have permission to access this profile" right after a
+  /// successful Google Play purchase.
+  ///
+  /// This never happened before migrating fully to Google Play Billing
+  /// because the old Flutterwave-via-Cloudflare-Worker flow wrote to
+  /// Firestore using admin/service-account credentials, which bypass
+  /// security rules (and thus this requirement) entirely.
+  ///
+  /// Fix: before any user-doc write, check whether the document exists.
+  /// If it doesn't, and the payload doesn't already carry the baseline
+  /// fields, fill them in with sane defaults so the write is accepted
+  /// as a valid `create` instead of silently failing.
+  Future<Map<String, dynamic>> _ensureCreateCompliantPayload(
+    String authUid,
+    Map<String, dynamic> payload,
+  ) async {
+    final alreadyHasBaseline = payload.containsKey('teamName') &&
+        payload.containsKey('authProvider') &&
+        payload.containsKey('createdAt');
+    if (alreadyHasBaseline) return payload;
+
+    bool docExists = true;
+    try {
+      final snap = await _usersCol
+          .doc(authUid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+      docExists = snap.exists;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          'UserProfileRepository._ensureCreateCompliantPayload: '
+          'server existence check failed, trying cache: $e',
+        );
+      }
+      try {
+        final cacheSnap = await _usersCol
+            .doc(authUid)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 4));
+        docExists = cacheSnap.exists;
+      } catch (_) {
+        // Unknown — default to "exists" so we don't unnecessarily
+        // overwrite a real profile's teamName/authProvider with
+        // fallback values. If it genuinely doesn't exist, the write
+        // will fail below and be retried/reported normally.
+        docExists = true;
+      }
+    }
+
+    if (docExists) return payload;
+
+    if (kDebugMode) {
+      debugPrint(
+        'UserProfileRepository._ensureCreateCompliantPayload: '
+        '/users/$authUid does not exist yet — injecting baseline '
+        'fields (teamName, authProvider, createdAt) so this write '
+        'is accepted under the create rule.',
+      );
+    }
+
+    final authUser = _auth.currentUser;
+    final fallbackTeamName = (authUser?.displayName ?? '').trim().isNotEmpty
+        ? authUser!.displayName!.trim()
+        : 'User';
+    final fallbackAuthProvider =
+        (authUser?.providerData.isNotEmpty ?? false)
+            ? authUser!.providerData.first.providerId.trim()
+            : 'unknown';
+
+    return <String, dynamic>{
+      'teamName': fallbackTeamName,
+      'authProvider':
+          fallbackAuthProvider.isNotEmpty ? fallbackAuthProvider : 'unknown',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      ...payload,
+    };
+  }
+
+  /// Writes an arbitrary payload to /users/{authUid}. If the target
+  /// document doesn't exist yet, baseline fields required by the
+  /// Firestore `create` rule are injected automatically (see
+  /// [_ensureCreateCompliantPayload]). If the FIRST write attempt still
+  /// fails with `permission-denied` (e.g. a stale ID token right after
+  /// a purchase), forces a fresh ID token and retries exactly once
+  /// before giving up.
   Future<void> _writeUserDocWithRetry(
     String authUid,
     Map<String, dynamic> payload,
   ) async {
+    final compliantPayload =
+        await _ensureCreateCompliantPayload(authUid, payload);
+
     try {
       await _usersCol
           .doc(authUid)
-          .set(payload, SetOptions(merge: true))
+          .set(compliantPayload, SetOptions(merge: true))
           .timeout(const Duration(seconds: 20));
     } on FirebaseException catch (e) {
       if (e.code != 'permission-denied') rethrow;
@@ -486,7 +559,7 @@ class UserProfileRepository {
 
       await _usersCol
           .doc(authUid)
-          .set(payload, SetOptions(merge: true))
+          .set(compliantPayload, SetOptions(merge: true))
           .timeout(const Duration(seconds: 20));
     }
   }
@@ -545,9 +618,12 @@ class UserProfileRepository {
           'premiumExpiresAtMs': expiresAtMs,
       };
 
-      // ── FIXED: was a bare .set(...) that surfaced a spurious
-      // permission-denied right after Pro/Elite purchases. Now retries
-      // once after a forced token refresh — see _writeUserDocWithRetry.
+      // FIXED: _writeUserDocWithRetry now automatically injects
+      // teamName/authProvider/createdAt when the profile doc doesn't
+      // exist yet, so this write is accepted under Firestore's create
+      // rule instead of failing with permission-denied. This was the
+      // actual cause of "You do not have permission to access this
+      // profile" appearing right after Google Play purchases.
       await _writeUserDocWithRetry(authUid, payload);
 
       // ── Sync verification badges right after activation ──────────────
@@ -835,4 +911,3 @@ class UserProfileRepository {
     } catch (_) {}
   }
 }
-
