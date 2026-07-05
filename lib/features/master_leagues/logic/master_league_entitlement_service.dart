@@ -460,9 +460,17 @@ class MasterLeagueEntitlementService {
   /// Routing:
   ///   • Free plans       → write directly to Firestore (no payment).
   ///   • Google Play      → write directly to Firestore (already verified
-  ///                        by the Play Billing purchase stream).
+  ///                        by the Play Billing purchase stream). This is
+  ///                        the ONLY persistence path for Google Play, so
+  ///                        failures here are surfaced — there is no
+  ///                        server-side fallback that already wrote the
+  ///                        entitlement.
   ///   • Flutterwave/web  → POST to the remote worker for server-side
-  ///                        verification, then write to Firestore.
+  ///                        verification. The worker activates the plan
+  ///                        authoritatively (custom claims + a Firestore
+  ///                        write using admin/service-account credentials
+  ///                        that bypass client security rules). Once that
+  ///                        succeeds, the purchase is already complete.
   ///
   /// Badges are granted automatically inside
   /// [UserProfileRepository.activatePlanSubscription].
@@ -504,6 +512,11 @@ class MasterLeagueEntitlementService {
     // locally and grant the badge (done inside activatePlanSubscription).
     // Routing this through the Flutterwave worker would cause an
     // "unsupported provider" error.
+    //
+    // This is the sole persistence path for Google Play purchases, so
+    // unlike the Flutterwave branch below, a failure here must still be
+    // surfaced to the caller — there is no admin-privileged write that
+    // already activated the plan elsewhere.
     if (_isGooglePlayProvider(provider)) {
       await _profileRepo.activatePlanSubscription(
         plan: plan,
@@ -568,13 +581,46 @@ class MasterLeagueEntitlementService {
       );
     }
 
-    // Persist locally and grant badges.
-    await _profileRepo.activatePlanSubscription(
-      plan: plan,
-      duration: duration,
-      receiptId: receiptId,
-      provider: provider,
-    );
+    // ── FIXED: the worker call above already activated the plan
+    // authoritatively — it wrote Firebase custom claims AND the
+    // `users/{uid}` Firestore document using admin/service-account
+    // credentials, which bypass client security rules entirely. By the
+    // time we get here, the purchase has already succeeded server-side.
+    //
+    // The client-side write below is only a "best effort" local sync —
+    // kept so that badge granting (which happens inside
+    // activatePlanSubscription) runs immediately instead of waiting for
+    // the next profile fetch/stream update.
+    //
+    // ROOT CAUSE FIXED: previously, if this redundant client-side write
+    // hit ANY transient Firestore error — most commonly a
+    // permission-denied caused by a stale ID token right after the
+    // purchase/verification round-trip — that error was thrown from
+    // here and surfaced to the purchase UI as a failed purchase, even
+    // though the user had already been charged and the plan was already
+    // active. This is what produced "You do not have permission to
+    // access this profile" immediately after a successful Pro/Elite
+    // purchase. We now log and swallow errors from this best-effort
+    // local sync instead of letting them abort a purchase that has
+    // already succeeded; the user's profile will reflect the correct
+    // plan on the next read/stream update regardless, since the
+    // Firestore document was already written by the worker.
+    try {
+      await _profileRepo.activatePlanSubscription(
+        plan: plan,
+        duration: duration,
+        receiptId: receiptId,
+        provider: provider,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeagueEntitlementService] activateAfterPayment: '
+          'best-effort local profile sync failed after successful '
+          'server-side activation (ignored): $e',
+        );
+      }
+    }
 
     try {
       await _auth.currentUser?.getIdToken(true);

@@ -1,3 +1,5 @@
+// lib/features/auth/data/user_profile_repository.dart
+
 import 'dart:async';
 import 'dart:io';
 
@@ -436,6 +438,59 @@ class UserProfileRepository {
     }
   }
 
+  /// ── NEW: Writes an arbitrary payload to /users/{authUid} and, if the
+  /// FIRST attempt fails with a Firestore `permission-denied` error,
+  /// forces a fresh ID token and retries exactly once before giving up.
+  ///
+  /// ROOT CAUSE FIXED HERE (Pro/Elite plan purchase showing
+  /// "You do not have permission to access this profile"):
+  ///
+  /// activatePlanSubscription() below is called immediately after a
+  /// Google Play purchase completes (purchase stream callback) or right
+  /// after a Flutterwave charge is server-verified. At that exact moment
+  /// the Firebase ID token cached on the client can be stale/near-expiry,
+  /// and Firestore's backend rejects the write with permission-denied —
+  /// even though the security rule itself allows a signed-in user to
+  /// write their own /users/{uid} document. Previously this bubbled up
+  /// untouched through _rethrowFriendly() as the confusing permissions
+  /// message you saw, even though nothing was actually wrong with the
+  /// user's access rights.
+  ///
+  /// This mirrors the same "transient auth-token race" reasoning already
+  /// applied to fetchByUserId() above, but for writes: since a write
+  /// can't fall back to cache, we instead force-refresh the ID token and
+  /// retry the write once before surfacing any error to the caller.
+  Future<void> _writeUserDocWithRetry(
+    String authUid,
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      await _usersCol
+          .doc(authUid)
+          .set(payload, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 20));
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') rethrow;
+
+      if (kDebugMode) {
+        debugPrint(
+          'UserProfileRepository._writeUserDocWithRetry: permission-denied '
+          'on first write attempt for $authUid — refreshing ID token and '
+          'retrying once.',
+        );
+      }
+
+      try {
+        await _auth.currentUser?.getIdToken(true);
+      } catch (_) {}
+
+      await _usersCol
+          .doc(authUid)
+          .set(payload, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 20));
+    }
+  }
+
   Future<void> saveOrUpdateSelf(UserProfile profile) async {
     try {
       final authUid = _requireAuthUid();
@@ -456,10 +511,7 @@ class UserProfileRepository {
         payload['createdAt'] = now;
       }
 
-      await _usersCol
-          .doc(authUid)
-          .set(payload, SetOptions(merge: true))
-          .timeout(const Duration(seconds: 20));
+      await _writeUserDocWithRetry(authUid, payload);
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -477,24 +529,26 @@ class UserProfileRepository {
 
       final int expiresAtMs = plan.isFree ? 0 : duration.expiryMsFromNow();
 
-      await _usersCol.doc(authUid).set(
-        <String, dynamic>{
-          'userId': authUid,
-          'activePlanId': plan.id,
-          'activePlanDurationId': duration.id,
-          'planPurchasedAtMs': now,
-          'planExpiresAtMs': expiresAtMs,
-          'planReceiptId': receiptId,
-          'planProvider': provider,
-          'updatedAt': now,
-          // backward compatibility with old premium-only screens
-          if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
-            'isPremium': true,
-          if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
-            'premiumExpiresAtMs': expiresAtMs,
-        },
-        SetOptions(merge: true),
-      ).timeout(const Duration(seconds: 20));
+      final payload = <String, dynamic>{
+        'userId': authUid,
+        'activePlanId': plan.id,
+        'activePlanDurationId': duration.id,
+        'planPurchasedAtMs': now,
+        'planExpiresAtMs': expiresAtMs,
+        'planReceiptId': receiptId,
+        'planProvider': provider,
+        'updatedAt': now,
+        // backward compatibility with old premium-only screens
+        if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
+          'isPremium': true,
+        if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
+          'premiumExpiresAtMs': expiresAtMs,
+      };
+
+      // ── FIXED: was a bare .set(...) that surfaced a spurious
+      // permission-denied right after Pro/Elite purchases. Now retries
+      // once after a forced token refresh — see _writeUserDocWithRetry.
+      await _writeUserDocWithRetry(authUid, payload);
 
       // ── Sync verification badges right after activation ──────────────
       if (!plan.isFree) {
@@ -602,14 +656,11 @@ class UserProfileRepository {
         );
       }
 
-      await _usersCol.doc(targetUid).set(
-        <String, dynamic>{
-          'userId': targetUid,
-          'teamName': value,
-          'updatedAt': DateTime.now().millisecondsSinceEpoch,
-        },
-        SetOptions(merge: true),
-      ).timeout(const Duration(seconds: 20));
+      await _writeUserDocWithRetry(targetUid, <String, dynamic>{
+        'userId': targetUid,
+        'teamName': value,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -630,14 +681,11 @@ class UserProfileRepository {
       final derived = UserProfile.deriveShareIdFromUid(authUid).trim();
       if (derived.isEmpty) return;
 
-      await _usersCol.doc(authUid).set(
-        <String, dynamic>{
-          'userId': authUid,
-          'shareId': derived,
-          'updatedAt': DateTime.now().millisecondsSinceEpoch,
-        },
-        SetOptions(merge: true),
-      ).timeout(const Duration(seconds: 20));
+      await _writeUserDocWithRetry(authUid, <String, dynamic>{
+        'userId': authUid,
+        'shareId': derived,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -652,14 +700,11 @@ class UserProfileRepository {
           .take(15)
           .toList(growable: false);
 
-      await _usersCol.doc(authUid).set(
-        <String, dynamic>{
-          'userId': authUid,
-          'quickMessagesCustom': values,
-          'updatedAt': DateTime.now().millisecondsSinceEpoch,
-        },
-        SetOptions(merge: true),
-      ).timeout(const Duration(seconds: 20));
+      await _writeUserDocWithRetry(authUid, <String, dynamic>{
+        'userId': authUid,
+        'quickMessagesCustom': values,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -685,14 +730,11 @@ class UserProfileRepository {
           .take(15)
           .toList(growable: false);
 
-      await _usersCol.doc(targetUid).set(
-        <String, dynamic>{
-          'userId': targetUid,
-          'quickMessagesCustom': values,
-          'updatedAt': DateTime.now().millisecondsSinceEpoch,
-        },
-        SetOptions(merge: true),
-      ).timeout(const Duration(seconds: 20));
+      await _writeUserDocWithRetry(targetUid, <String, dynamic>{
+        'userId': targetUid,
+        'quickMessagesCustom': values,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -716,10 +758,7 @@ class UserProfileRepository {
       }
       if (teamImageUrl != null) payload['teamImageUrl'] = teamImageUrl.trim();
 
-      await _usersCol
-          .doc(authUid)
-          .set(payload, SetOptions(merge: true))
-          .timeout(const Duration(seconds: 20));
+      await _writeUserDocWithRetry(authUid, payload);
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -796,3 +835,4 @@ class UserProfileRepository {
     } catch (_) {}
   }
 }
+
