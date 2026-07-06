@@ -10,6 +10,7 @@ import 'package:eleaguehub3/features/leagues/logic/league_access_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
 import 'package:eleaguehub3/features/leagues/models/enums.dart';
+import 'package:eleaguehub3/features/leagues/models/football_category.dart';
 import 'package:eleaguehub3/features/leagues/models/league.dart';
 import 'package:eleaguehub3/features/leagues/models/league_announcement.dart';
 import 'package:eleaguehub3/features/leagues/models/league_format.dart';
@@ -105,6 +106,9 @@ class _LeaguesListScreenState
   String? _removingLeagueId;
   String _searchQuery = '';
   _LeagueViewTab _selectedTab = _LeagueViewTab.leagues;
+
+  // ── NEW: Football category filter (null = All) ──────────────────────────
+  FootballCategory? _categoryFilter;
 
   // ── Monetization gate state ──────────────────────────────────────────────
   bool _rewardGateInProgress = false;
@@ -1628,16 +1632,19 @@ class _LeaguesListScreenState
     }
   }
 
+  // ── MODIFIED: category filter applied efficiently (O(n)) before search ──
   List<League> _filteredLeagues() {
     final q = _searchQuery.trim().toLowerCase();
 
-    final base = _selectedTab == _LeagueViewTab.leagues
-        ? _leagues
-            .where((l) => !l.isInsideMasterLeague)
-            .toList()
-        : _leagues
-            .where((l) => l.isInsideMasterLeague)
-            .toList();
+    var base = _selectedTab == _LeagueViewTab.leagues
+        ? _leagues.where((l) => !l.isInsideMasterLeague).toList()
+        : _leagues.where((l) => l.isInsideMasterLeague).toList();
+
+    // O(n) category filter — cheap even for large lists.
+    final catFilter = _categoryFilter;
+    if (catFilter != null) {
+      base = base.where((l) => l.footballCategory == catFilter).toList();
+    }
 
     if (q.isEmpty) return base;
 
@@ -1650,6 +1657,7 @@ class _LeaguesListScreenState
         league.description,
         league.code,
         league.masterLeagueId,
+        league.footballCategory.label,
         latestAnn?.title ?? '',
         latestAnn?.message ?? '',
       ].join(' ').toLowerCase();
@@ -2033,6 +2041,35 @@ class _LeaguesListScreenState
                     },
                   ),
                 ),
+                const SizedBox(height: 8),
+                // ── NEW: Football category filter chip row ────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _FilterChip(
+                          label: 'All',
+                          selected: _categoryFilter == null,
+                          onTap: () => setState(
+                              () => _categoryFilter = null),
+                        ),
+                        for (final cat
+                            in FootballCategoryUtil.all) ...[
+                          const SizedBox(width: 8),
+                          _FilterChip(
+                            label: cat.badgeLabel,
+                            selected: _categoryFilter == cat,
+                            onTap: () => setState(
+                                () => _categoryFilter = cat),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Expanded(
                   child: AnimatedSwitcher(
@@ -2256,6 +2293,22 @@ class _LeaguesListScreenState
                                     .withOpacity(0.40),
                               ),
                             ),
+                          // ── NEW: Football category badge ───────────────
+                          Padding(
+                            padding: const EdgeInsets.only(
+                                bottom: 6),
+                            child: _CardBadge(
+                              label: league
+                                  .footballCategory.badgeLabel,
+                              icon: league
+                                  .footballCategory.icon,
+                              color: AppTheme.limeAccentDark,
+                              bg: AppTheme.limeAccentDark
+                                  .withOpacity(0.12),
+                              border: AppTheme.limeAccentDark
+                                  .withOpacity(0.35),
+                            ),
+                          ),
                           if (isOwner)
                             _CardBadge(
                               label: l10n.tr(
@@ -3503,6 +3556,53 @@ class _ModeChip extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── NEW: Football category filter chip ──────────────────────────────────
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color: selected
+              ? AppTheme.limeAccent
+              : AppTheme.tabInactiveBackground(brightness),
+          border: Border.all(
+            color: selected
+                ? AppTheme.limeAccentDark
+                : AppTheme.cardBorder(brightness),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected
+                ? AppTheme.darkText
+                : AppTheme.tabInactiveText(brightness),
+            fontWeight: FontWeight.w900,
+            fontSize: 12,
+          ),
         ),
       ),
     );

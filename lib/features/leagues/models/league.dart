@@ -3,11 +3,20 @@
 // MODIFIED: worldCup leagues use format = LeagueFormat.worldCup (index 3).
 // The worldCupFormat (32 vs 48 teams) is stored inside LeagueSettings.
 // maxTeams is set to 32 or 48 depending on worldCupFormat at creation time.
-// ALL existing fields and behavior are unchanged.
+//
+// MODIFIED (Football Category feature):
+// - Added `footballCategory` field (FootballCategory enum), persisted to
+//   Firestore under `footballCategory` as a plain string.
+// - Backward compatible: old documents without this field automatically
+//   resolve to FootballCategory.localFootball via FootballCategoryUtil.
+//   No migration script is required.
+//
+// ALL other existing fields and behavior are unchanged.
 
 import 'dart:convert';
 
 import 'enums.dart';
+import 'football_category.dart';
 import 'league_format.dart';
 import 'league_settings.dart';
 
@@ -62,6 +71,17 @@ class League {
   /// homeAwayEnabled is forced to false for worldCup leagues.
   final bool homeAwayEnabled;
 
+  /// NEW (Football Category feature):
+  /// Which football category/game this league belongs to.
+  ///
+  /// Stored at the root of the league document as `footballCategory`
+  /// (a plain string, e.g. "EA SPORTS FC Mobile").
+  ///
+  /// Backward compatible: if the field is missing (older documents),
+  /// this resolves to [FootballCategory.localFootball] automatically —
+  /// no migration script required. See [FootballCategoryUtil.fromStorage].
+  final FootballCategory footballCategory;
+
   final LeagueFormat format;
   final LeaguePrivacy privacy;
   final String region;
@@ -104,6 +124,7 @@ class League {
     this.couponDiscountPercent = 0,
     this.couponCount = 0,
     this.homeAwayEnabled = false,
+    this.footballCategory = FootballCategory.localFootball,
     required this.format,
     required this.privacy,
     required this.region,
@@ -184,6 +205,11 @@ class League {
 
       // Home/Away matches toggle
       'homeAwayEnabled': homeAwayEnabled,
+
+      // Football Category (backward compatible; always written for new/
+      // updated documents; old documents without it resolve to
+      // "Local Football" automatically when read).
+      'footballCategory': footballCategory.storageValue,
 
       'format': format.index,
       'isPrivate': isPrivate,
@@ -322,6 +348,11 @@ class League {
                   )
                 : false);
 
+    // Football Category — null-safe. Missing/unknown values automatically
+    // resolve to FootballCategory.localFootball. No migration required.
+    final footballCategory =
+        FootballCategoryUtil.fromStorage(map['footballCategory'] as String?);
+
     // Deserialize format — worldCup is index 3.
     final LeagueFormat format =
         LeagueFormatX.fromInt((map['format'] as num?)?.toInt() ?? 0);
@@ -342,6 +373,7 @@ class League {
       couponDiscountPercent: couponDiscountPercent,
       couponCount: safeCouponCount,
       homeAwayEnabled: effectiveHomeAway,
+      footballCategory: footballCategory,
       format: format,
       privacy: isPrivate ? LeaguePrivacy.private : LeaguePrivacy.public,
       region: map['region'] as String? ?? 'Global',
@@ -369,6 +401,7 @@ class League {
     int? couponDiscountPercent,
     int? couponCount,
     bool? homeAwayEnabled,
+    FootballCategory? footballCategory,
     LeagueFormat? format,
     LeaguePrivacy? privacy,
     String? region,
@@ -395,6 +428,7 @@ class League {
           couponDiscountPercent ?? this.couponDiscountPercent,
       couponCount: couponCount ?? this.couponCount,
       homeAwayEnabled: homeAwayEnabled ?? this.homeAwayEnabled,
+      footballCategory: footballCategory ?? this.footballCategory,
       format: format ?? this.format,
       privacy: privacy ?? this.privacy,
       region: region ?? this.region,

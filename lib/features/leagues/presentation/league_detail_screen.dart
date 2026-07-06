@@ -8,6 +8,10 @@
 //    and seeds the correct bracket (R16 for 32 teams, R32 for 48 teams).
 // 5) Imported league_settings.dart for WorldCupFormat access.
 //
+// MODIFIED (Football Category support):
+// 6) Imported football_category.dart.
+// 7) Added a backward-compatible football category pill in _overviewCard.
+//
 // IMPORTANT:
 // - No existing flows were removed.
 // - Classic / UCL Group / UCL Swiss logic remains unchanged.
@@ -44,6 +48,7 @@ import '../domain/logic/tournament_controller.dart';
 import '../domain/standings/standings.dart';
 import '../domain/standings/standings_calculator.dart';
 import '../models/fixture_match.dart';
+import '../models/football_category.dart';
 import '../models/knockout_match.dart';
 import '../models/league.dart';
 import '../models/league_announcement.dart';
@@ -1034,6 +1039,12 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         _premiumSky,
       ),
     ];
+
+    // ── NEW: Football category pill (backward-compatible — resolves to
+    // Local Football for older documents that predate this field). ────────
+    rulePills.add(
+      _pill(league.footballCategory.badgeLabel, AppTheme.limeAccentDark),
+    );
 
     if (league.format == LeagueFormat.uclGroup) {
       rulePills.add(

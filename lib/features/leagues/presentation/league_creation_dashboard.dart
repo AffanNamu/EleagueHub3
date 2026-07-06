@@ -15,6 +15,15 @@
 // 12. Updated summary panel to show worldCupFormat.
 // 13. Updated didChangeDependencies to handle 'worldcup' type string.
 // ALL existing league types, flows, payment logic, and UI are untouched.
+//
+// MODIFIED (Football Category feature):
+// 14. Added Football Category section (chips) on the type/basics step.
+// 15. Default selection is Local Football; organizers can change it.
+// 16. Existing value is loaded when editing via didChangeDependencies extras.
+// 17. Selected category is shown in the side summary and confirm step.
+// 18. Selected category is passed into League on create.
+// Backward compatible: old leagues without a stored category default to
+// Local Football (handled inside League.fromRemoteMap / FootballCategoryUtil).
 
 import 'dart:async';
 import 'dart:convert';
@@ -49,6 +58,7 @@ import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
 import '../logic/league_premium_upgrade_helper.dart';
 import '../models/enums.dart';
+import '../models/football_category.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
@@ -103,6 +113,11 @@ class _LeagueCreationDashboardState
 
   /// World Cup sub-format selection. Only relevant when _type == worldCup.
   WorldCupFormat _worldCupFormat = WorldCupFormat.fifa2022;
+
+  /// Football Category selection. Defaults to Local Football and can be
+  /// edited freely by the organizer. Backward compatible with old leagues
+  /// that don't have this field stored (handled in League.fromRemoteMap).
+  FootballCategory _footballCategory = FootballCategory.localFootball;
 
   final TextEditingController _name = TextEditingController();
   final TextEditingController _description = TextEditingController();
@@ -358,6 +373,11 @@ class _LeagueCreationDashboardState
         ? WorldCupFormatX.fromString(wcFormatString)
         : null;
 
+    // Football Category — load existing value when editing a template/
+    // existing league. Falls back to Local Football if absent/unknown.
+    final String? templateFootballCategory =
+        extra['footballCategory'] as String?;
+
     LeagueCreationType? inferredType;
     if (initialFormat != null) {
       inferredType = _creationTypeFromFormat(initialFormat);
@@ -378,6 +398,11 @@ class _LeagueCreationDashboardState
           _privacy = LeaguePrivacy.private;
         }
         _containsRewards = templateContainsRewards;
+
+        if (templateFootballCategory != null) {
+          _footballCategory =
+              FootballCategoryUtil.fromStorage(templateFootballCategory);
+        }
 
         // Apply World Cup format from extra if provided.
         if (extraWorldCupFormat != null) {
@@ -1222,6 +1247,12 @@ class _LeagueCreationDashboardState
               valueColor: _worldCupGold,
             ),
           _summaryRow(
+            Icons.sports_soccer_rounded,
+            'Category',
+            _footballCategory.badgeLabel,
+            valueColor: AppTheme.limeAccentDark,
+          ),
+          _summaryRow(
             Icons.label,
             l10n.tr('league_create_summary_name_label'),
             _name.text.trim().isEmpty
@@ -1675,6 +1706,55 @@ class _LeagueCreationDashboardState
             ],
           ),
         ],
+
+        // ── NEW: Football Category section ────────────────────────────────
+        const SizedBox(height: 16),
+        _footballCategorySection(context),
+      ],
+    );
+  }
+
+  // ── NEW: Football Category section ──────────────────────────────────────
+  //
+  // Displayed as modern selectable chips. Only one category can be
+  // selected. Default is Local Football. Organizers can freely change it
+  // both on initial creation and later when editing (value is loaded via
+  // didChangeDependencies extras and saved on create/update).
+
+  Widget _footballCategorySection(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+    final locked = _checkingAccess || _submitting;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Football Category', Icons.sports_soccer_rounded),
+        const SizedBox(height: 6),
+        Text(
+          'Choose the football category or game this league is played on.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: AppTheme.secondaryText(brightness),
+            height: 1.35,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final cat in FootballCategoryUtil.all)
+              FootballCategoryChip(
+                category: cat,
+                selected: _footballCategory == cat,
+                onTap: locked
+                    ? null
+                    : () => setState(() => _footballCategory = cat),
+              ),
+          ],
+        ),
       ],
     );
   }
@@ -2635,6 +2715,12 @@ class _LeagueCreationDashboardState
             valueColor: _worldCupGold,
           ),
         _confirmRow(
+          Icons.sports_soccer_rounded,
+          'Football Category',
+          _footballCategory.badgeLabel,
+          valueColor: AppTheme.limeAccentDark,
+        ),
+        _confirmRow(
           Icons.lock,
           l10n.tr('league_create_confirm_privacy_label'),
           _privacy == LeaguePrivacy.private
@@ -3123,6 +3209,8 @@ class _LeagueCreationDashboardState
       }
       // Validate World Cup format selection is complete.
       // (It always has a default, so no extra validation needed.)
+      // Football Category always has a default (Local Football), so
+      // no extra validation is required here either.
       return true;
     }
     if (_step == 1) {
@@ -3145,7 +3233,7 @@ class _LeagueCreationDashboardState
     return true;
   }
 
-  // ── Create — extended to pass worldCupFormat into LeagueSettings ───────────
+  // ── Create — extended to pass worldCupFormat and footballCategory ─────────
 
   Future<void> _create(BuildContext context) async {
     final l10n = context.l10n;
@@ -3276,6 +3364,7 @@ class _LeagueCreationDashboardState
         couponDiscountPercent: 0,
         couponCount: 0,
         homeAwayEnabled: effectiveHomeAwayEnabled,
+        footballCategory: _footballCategory,
         format: _format,
         privacy: _privacy,
         region: 'Global',
