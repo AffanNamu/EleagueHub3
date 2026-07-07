@@ -1,4 +1,41 @@
 // lib/features/master_leagues/logic/master_league_entitlement_service.dart
+//
+// FIXED (root cause of "works only for super admin" / "free/basic users
+// can't create a master league even though they've never paid"):
+//
+// Previously, getEntitlement() returned `active: false, plan: null`
+// whenever:
+//   - the user had no Firestore profile yet (brand-new sign-up), OR
+//   - the profile had no plan recorded / an expired plan, AND
+//   - the ID token had no organizerPro custom claims.
+//
+// Basic is a FREE plan — every signed-in user is entitled to it with
+// zero payment required (see MasterLeaguePlan.basic.isFree == true and
+// freeBasicMasterLeagueCreate() in firestore.rules, which never checks
+// entitlement/claims at all, only that plan == 'basic' and the target
+// masterLeagueId matches the user's slot).
+//
+// The problem was entirely client-side: isUnlocked() / canCreateWorkspace()
+// / watchUnlocked() all funnel through getEntitlement(), and anything in
+// the UI that gates "show the Create Master League option" on those
+// calls was treating "no explicit active plan yet" as "locked out" —
+// which only happened to be masked for the hardcoded super admin uid,
+// because that uid bypasses entitlement checks entirely at the Firestore
+// rules layer (isSuperAdmin()), never at the client/service layer.
+//
+// FIX: getEntitlement() now falls back to an implicit, active Basic
+// entitlement whenever neither the profile nor the claims show an
+// active paid plan. This also naturally covers a Pro/Elite subscription
+// that has expired: the user degrades to Basic instead of being fully
+// locked out, matching normal SaaS behavior ("free or basic plan to
+// create the working space").
+//
+// watchUnlocked() is updated the same way, since it previously bypassed
+// getEntitlement() entirely and read UserProfile.hasPlanActive directly,
+// which had the identical gap for brand-new / planless users.
+//
+// All other logic (activation, workspace/competition counting, Google
+// Play vs Flutterwave routing) is UNCHANGED.
 
 import 'dart:async';
 import 'dart:convert';
@@ -83,6 +120,29 @@ class MasterLeagueEntitlementService {
   /// and returns "unsupported provider" for anything else.
   bool _isGooglePlayProvider(String provider) =>
       provider.trim().toLowerCase() == 'google_play_billing';
+
+  /// ── NEW: every signed-in user is implicitly entitled to the free
+  ///        Basic plan (1 workspace / up to 3 competitions), with zero
+  ///        payment required. This is returned whenever neither the
+  ///        Firestore profile nor the ID token claims show an active
+  ///        paid (Pro/Elite) plan — covering brand-new users who have
+  ///        never purchased anything, as well as users whose paid plan
+  ///        has expired (they degrade to Basic instead of being locked
+  ///        out entirely).
+  ///
+  ///        This mirrors freeBasicMasterLeagueCreate() in firestore.rules,
+  ///        which likewise never requires any payment/claims for the
+  ///        Basic plan — only that the target masterLeagueId matches the
+  ///        user's deterministic ml_{uid}_1 slot.
+  OrganizerProEntitlement _implicitBasicEntitlement() {
+    return const OrganizerProEntitlement(
+      active: true,
+      plan: MasterLeaguePlan.basic,
+      duration: PlanDuration.threeMonths,
+      expiryMs: 0,
+      daysRemaining: 999,
+    );
+  }
 
   // ── Read from profile ─────────────────────────────────────────────────────
 
@@ -246,9 +306,15 @@ class MasterLeagueEntitlementService {
   /// Priority order:
   ///   1. Firestore profile (planExpiresAtMs / activePlanId)
   ///   2. Firebase ID token custom claims (organizerPro)
+  ///   3. FIXED: an implicit, active Basic entitlement — every signed-in
+  ///      user can always create their free workspace without paying,
+  ///      so we never report "inactive / locked out" just because no
+  ///      paid plan has ever been purchased (or a previous paid plan
+  ///      has expired).
   ///
-  /// Never throws — returns inactive entitlement on any error so that
-  /// the UI degrades gracefully instead of showing a crash.
+  /// Never throws — returns the implicit Basic entitlement (or, if the
+  /// user isn't signed in at all, an inactive entitlement) on any error
+  /// so that the UI degrades gracefully instead of showing a crash.
   Future<OrganizerProEntitlement> getEntitlement({
     bool forceRefresh = false,
   }) async {
@@ -269,13 +335,43 @@ class MasterLeagueEntitlementService {
     if (fromProfile.active) return fromProfile;
 
     final fromClaims = await _readFromClaims();
-    return fromClaims;
+    if (fromClaims.active) return fromClaims;
+
+    // FIXED: neither the profile nor the claims show an active paid
+    // plan — this is either a brand-new user who has never purchased
+    // anything, or a user whose Pro/Elite plan has expired. Either way,
+    // they are still entitled to the free Basic plan with no payment
+    // required, so report them as active on Basic instead of locked out.
+    return _implicitBasicEntitlement();
   }
 
+  /// FIXED: previously watched UserProfile.hasPlanActive directly, which
+  /// mirrored the exact same gap as getEntitlement() used to have — a
+  /// brand-new user with no profile doc (or a profile with no plan
+  /// recorded yet) streamed `false` forever, which any "Create Master
+  /// League" UI gated on this stream would read as "locked out", even
+  /// though Basic is free and always available. Now streams the same
+  /// implicit-Basic-fallback semantics as getEntitlement().
   Stream<bool> watchUnlocked() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) return Stream.value(false);
-    return _profileRepo.watchHasActivePlan(uid);
+
+    return _profileRepo.watchByUserId(uid).map((profile) {
+      // No profile yet (brand-new user) -> implicit Basic -> unlocked.
+      if (profile == null) return true;
+
+      final subscription = profile.planSubscription;
+      if (subscription != null && subscription.isActive) return true;
+
+      // No active plan recorded on the profile (or it expired) ->
+      // implicit Basic -> still unlocked, never locked out.
+      return true;
+    }).handleError((_) {
+      // Stream error (e.g. transient permission hiccup) -> still treat
+      // the user as unlocked on implicit Basic rather than showing them
+      // as locked out.
+      return true;
+    });
   }
 
   Future<bool> isUnlocked({bool forceRefresh = false}) async {
