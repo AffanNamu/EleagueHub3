@@ -17,6 +17,7 @@ import '../../auth/models/user_profile.dart';
 import '../../leagues/data/league_announcements_firebase.dart';
 import '../../leagues/data/leagues_repository_local.dart';
 import '../../leagues/models/enums.dart';
+import '../../leagues/models/football_category.dart';
 import '../../leagues/models/league.dart';
 import '../../leagues/models/league_announcement.dart';
 import '../../leagues/models/league_format.dart';
@@ -1700,13 +1701,19 @@ class _MasterLeagueDetailsScreenState
                                         crossAxisAlignment:
                                             CrossAxisAlignment.stretch,
                                         children: [
-                                          if (l.format ==
-                                              LeagueFormat.worldCup)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                  bottom: 8),
-                                              child: _worldCupBadge(),
-                                            ),
+                                          // ── Format / football category badges ──
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
+                                              if (l.format ==
+                                                  LeagueFormat.worldCup)
+                                                _worldCupBadge(),
+                                              _footballCategoryBadge(
+                                                  l.footballCategory),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
                                           SizedBox(
                                             height: 230,
                                             child: LeagueFlipCard(
@@ -1844,6 +1851,40 @@ class _MasterLeagueDetailsScreenState
               '🌍 World Cup',
               style: TextStyle(
                 color: _worldCupGold,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Football category badge widget (NEW) ──────────────────────────────────
+  //
+  // Backward-compatible: `league.footballCategory` always resolves (defaults
+  // to Local Football for older documents that predate this field), so this
+  // badge is safe to render unconditionally next to the World Cup badge.
+  Widget _footballCategoryBadge(FootballCategory category) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color: AppTheme.limeAccentDark.withOpacity(0.12),
+          border: Border.all(color: AppTheme.limeAccentDark.withOpacity(0.30)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(category.icon, color: AppTheme.limeAccentDark, size: 14),
+            const SizedBox(width: 6),
+            Text(
+              category.badgeLabel,
+              style: const TextStyle(
+                color: AppTheme.limeAccentDark,
                 fontWeight: FontWeight.w900,
                 fontSize: 12,
               ),
@@ -3517,11 +3558,17 @@ class _MasterLeagueDetailsScreenState
 
                 return Column(
                   children: [
-                    if (preview.format == LeagueFormat.worldCup)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _worldCupBadge(),
-                      ),
+                    // ── Format / football category badges ─────────────────
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (preview.format == LeagueFormat.worldCup)
+                          _worldCupBadge(),
+                        _footballCategoryBadge(preview.footballCategory),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     SizedBox(
                       height: 236,
                       child: LeagueFlipCard(
