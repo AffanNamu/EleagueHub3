@@ -1,4 +1,4 @@
-// lib/features/master_leagues/data/master_leagues_repository_firebase.dart
+//lib/features/master_leagues/data/master_leagues_repository_firebase.dart
 //
 // MODIFIED:
 // 1. Added import for league_settings.dart so WorldCupFormatX extension
@@ -22,23 +22,6 @@
 //    boundary already used in MasterLeagueEntitlementService.activateAfterPayment.
 //    Flutterwave and all other providers still strictly require
 //    verification.verified == true, unchanged.
-// 4. FIXED: create() now refreshes the Firebase ID token before writing
-//    to Firestore when the plan is Pro or Elite. This ensures the token
-//    used for the Firestore write has up-to-date custom claims
-//    (organizerPro == true, organizerProExpiryMs, etc.) that satisfy
-//    profilePlanActiveCreate() in firestore.rules. Without this, a user
-//    who just purchased Pro/Elite and immediately taps "Create Workspace"
-//    would use a stale token that has no organizerPro claims yet,
-//    causing Firestore to reject the write with permission-denied —
-//    displayed to the user as "You don't have access to this Master
-//    League. Please make sure your payment is completed and verified,
-//    then try again."
-// 5. FIXED: create() now also checks the raw Firestore planExpiresAtMs
-//    field (not just the UserProfile model's planSubscription getter)
-//    when evaluating whether a user's paid plan is active. This closes
-//    the race window described in #4 for cases where the token refresh
-//    succeeds but the Firestore rules rely on the profile document
-//    rather than claims.
 // All other methods are UNCHANGED.
 
 import 'dart:async';
@@ -113,42 +96,15 @@ class MasterLeaguesRepositoryFirebase {
     return RegExp(r'^eS[A-Za-z0-9]{4,12}$').hasMatch(s);
   }
 
-  /// Returns true if [provider] is a Google Play Billing provider string.
-  /// Used to decide whether a payment doc's verification.verified flag must
-  /// be strictly true (Flutterwave and everything else) or can be trusted
-  /// implicitly (Google Play, whose purchase was already confirmed
-  /// client-side by the Play Billing purchase stream before this repository
-  /// is ever called).
+  /// ── NEW: Returns true if [provider] is a Google Play Billing provider
+  ///        string. Used to decide whether a payment doc's
+  ///        verification.verified flag must be strictly true (Flutterwave
+  ///        and everything else) or can be trusted implicitly (Google Play,
+  ///        whose purchase was already confirmed client-side by the Play
+  ///        Billing purchase stream before this repository is ever called).
   static bool _isGooglePlayProvider(String? provider) {
     final p = (provider ?? '').trim().toLowerCase();
     return p == 'google_play_billing' || p == 'google_play';
-  }
-
-  /// ADDED: Forces a fresh Firebase ID token for the current user.
-  ///
-  /// Called before any Firestore write that requires up-to-date custom
-  /// claims (organizerPro, organizerProExpiryMs) to satisfy the
-  /// profilePlanActiveCreate() rule in firestore.rules. Without this,
-  /// a user who just purchased Pro/Elite and immediately taps "Create
-  /// Workspace" uses a stale token with no organizerPro claims, causing
-  /// Firestore to reject the write with permission-denied.
-  ///
-  /// Errors are swallowed — a failed token refresh is not fatal here
-  /// because the Firestore rules also accept writes where the profile
-  /// document's planExpiresAtMs is in the future (the "profile path"
-  /// in profilePlanActiveCreate()), so the create() will likely still
-  /// succeed via that path even without fresh claims.
-  Future<void> _refreshIdTokenSilently() async {
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint(
-          '[MasterLeaguesRepo] _refreshIdTokenSilently: token refresh '
-          'failed (ignored, write will proceed): $e',
-        );
-      }
-    }
   }
 
   Never _rethrowFriendly(Object error) {
@@ -472,15 +428,22 @@ class MasterLeaguesRepositoryFirebase {
           template.id.trim().isEmpty ? _uuid.v4() : template.id.trim();
       final now = _nowMs();
 
+      // For World Cup templates, maxTeams must match the sub-format's
+      // team count. We re-derive it here as a safety guard.
+      // NOTE: worldCupFormat!.teamCount is an extension getter from
+      // WorldCupFormatX in league_settings.dart. The extension is now
+      // visible because of the import added at the top of this file.
       final effectiveMaxTeams =
           template.format == LeagueFormat.worldCup &&
                   template.worldCupFormat != null
               ? template.worldCupFormat!.teamCount
               : template.maxTeams;
 
-      final effectiveHomeAway = template.format == LeagueFormat.worldCup
-          ? false
-          : template.homeAwayEnabled;
+      // World Cup never supports home/away — enforce at persistence layer.
+      final effectiveHomeAway =
+          template.format == LeagueFormat.worldCup
+              ? false
+              : template.homeAwayEnabled;
 
       final safeTemplate = template.copyWith(
         id: templateId,
@@ -492,6 +455,8 @@ class MasterLeaguesRepositoryFirebase {
         createdAtMs: template.createdAtMs == 0 ? now : template.createdAtMs,
         updatedAtMs: now,
         createdBy: uid,
+        // worldCupFormat is carried through unchanged via copyWith.
+        // It will be written to Firestore by toMap() only when format==worldCup.
       );
 
       if (safeTemplate.name.trim().isEmpty) {
@@ -1112,96 +1077,6 @@ class MasterLeaguesRepositoryFirebase {
     );
   }
 
-  /// ADDED: Resolves the effective plan for a Firestore write by reading
-  /// the user's profile document directly and comparing with the
-  /// requested plan. Returns the higher of the two — i.e. if the user's
-  /// stored plan is Pro/Elite and the UI passed Basic (e.g. stale UI
-  /// state), the stored plan wins so the Firestore rules see the correct
-  /// plan field in the new master_leagues document.
-  ///
-  /// This is important because firestore.rules checks the `plan` field
-  /// written into the new master_leagues document against what it reads
-  /// from /users/{uid}.planExpiresAtMs / ID token claims. If the UI
-  /// passes 'basic' but the user paid for 'pro', the rules may accept
-  /// 'basic' (via freeBasicMasterLeagueCreate) but only for the
-  /// deterministic ml_{uid}_1 slot. Writing 'pro' when the user actually
-  /// paid for pro is both more correct and satisfies profilePlanActiveCreate.
-  Future<MasterLeaguePlan> _resolveEffectivePlan(
-    MasterLeaguePlan requestedPlan,
-  ) async {
-    final uid = _auth.currentUser?.uid.trim() ?? '';
-    if (uid.isEmpty) return requestedPlan;
-
-    try {
-      final snap = await _firestore
-          .collection('users')
-          .doc(uid)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 10));
-
-      if (!snap.exists) return requestedPlan;
-
-      final data =
-          (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final rawPlanId =
-          (data['activePlanId'] as String? ?? '').trim().toLowerCase();
-      final rawExpiry = _readMs(data['planExpiresAtMs']);
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-
-      if (rawPlanId.isEmpty) return requestedPlan;
-
-      final storedPlan = MasterLeaguePlan.tryFromString(rawPlanId);
-      if (storedPlan == null) return requestedPlan;
-
-      // Free/basic plans don't expire.
-      if (storedPlan.isFree) {
-        return _higherPlan(requestedPlan, storedPlan);
-      }
-
-      // Paid plan must still be active.
-      if (rawExpiry > nowMs) {
-        return _higherPlan(requestedPlan, storedPlan);
-      }
-
-      return requestedPlan;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint(
-          '[MasterLeaguesRepo] _resolveEffectivePlan error (using '
-          'requestedPlan=$requestedPlan): $e',
-        );
-      }
-      return requestedPlan;
-    }
-  }
-
-  static int _readMs(dynamic raw) {
-    if (raw is int) return raw;
-    if (raw is num) return raw.toInt();
-    return 0;
-  }
-
-  /// Returns the "higher" of two plans in terms of entitlement level.
-  /// Order: elite > pro > basic.
-  static MasterLeaguePlan _higherPlan(
-    MasterLeaguePlan a,
-    MasterLeaguePlan b,
-  ) {
-    const order = <MasterLeaguePlan>[
-      MasterLeaguePlan.basic,
-      MasterLeaguePlan.pro,
-      MasterLeaguePlan.elite,
-    ];
-    final ai = order.indexOf(a);
-    final bi = order.indexOf(b);
-    // If a plan isn't in the list, treat it as lowest priority.
-    if (ai < 0) return b;
-    if (bi < 0) return a;
-    return ai >= bi ? a : b;
-  }
-
-  FirebaseAuth get _auth => FirebaseAuth.instance;
-
   Future<MasterLeague> create({
     required String name,
     MasterLeaguePlan plan = MasterLeaguePlan.basic,
@@ -1246,37 +1121,7 @@ class MasterLeaguesRepositoryFirebase {
         }
       }
 
-      // FIXED: Resolve the effective plan from the user's Firestore
-      // profile before allocating a slot. This ensures that if the user
-      // has an active Pro/Elite plan stored on their profile, we use
-      // that plan (not whatever the UI layer passed) when:
-      //   (a) writing the 'plan' field into the master_leagues document
-      //       (Firestore rules check this against the profile's plan),
-      //   (b) allocating the correct slot id / enforcing the right limit.
-      final effectivePlan = await _resolveEffectivePlan(plan);
-
-      if (kDebugMode && effectivePlan != plan) {
-        debugPrint(
-          '[MasterLeaguesRepo] create: UI passed plan=$plan but '
-          'profile shows $effectivePlan — using $effectivePlan.',
-        );
-      }
-
-      // FIXED: Refresh the ID token before writing to Firestore for
-      // paid plans. The Firestore rule profilePlanActiveCreate() checks
-      // both the profile's planExpiresAtMs AND the ID token claims
-      // (organizerPro / organizerProExpiryMs). A user who just
-      // purchased Pro/Elite may have a valid profile write but a stale
-      // token with no organizerPro claims, causing the rule to reject
-      // the master_leagues create with permission-denied even though
-      // they have paid. Refreshing the token here ensures the write
-      // uses up-to-date claims. Basic plan skips the refresh because
-      // freeBasicMasterLeagueCreate() never checks claims.
-      if (effectivePlan != MasterLeaguePlan.basic) {
-        await _refreshIdTokenSilently();
-      }
-
-      final id = await _allocateMasterLeagueIdForPlan(effectivePlan);
+      final id = await _allocateMasterLeagueIdForPlan(plan);
       final ref = _col.doc(id);
       final now = _nowMs();
 
@@ -1290,7 +1135,7 @@ class MasterLeaguesRepositoryFirebase {
         'roles': <String, String>{uid: 'owner'},
         'staffShareIds': <String, String>{},
         'updatedAtMs': now,
-        'plan': effectivePlan.id,
+        'plan': plan.id,
         'bannerUrl': '',
         'logoUrl': '',
         'bio': '',
@@ -1395,7 +1240,9 @@ class MasterLeaguesRepositoryFirebase {
         );
       }
 
-      // FIXED: Google Play payments are trusted as pre-verified.
+      // ── FIXED: Google Play payments are trusted as pre-verified. ─────────
+      // See file-header comment for full rationale. Flutterwave (and any
+      // other provider) still strictly requires verification.verified==true.
       final paymentProvider = (paymentData['provider'] as String? ?? '');
       final isGooglePlayPayment = _isGooglePlayProvider(paymentProvider);
 
@@ -1437,10 +1284,6 @@ class MasterLeaguesRepositoryFirebase {
         );
       }
 
-      // FIXED: Refresh ID token before the Firestore write for the same
-      // reason as in create() — stale tokens cause permission-denied.
-      await _refreshIdTokenSilently();
-
       final id = await _allocateMasterLeagueIdForPlan(plan);
       final ref = _col.doc(id);
       final now = _nowMs();
@@ -1466,13 +1309,17 @@ class MasterLeaguesRepositoryFirebase {
           );
         }
 
+        // Re-check verification inside the transaction using the same
+        // Google Play trust rule applied above (avoids a TOCTOU gap where
+        // the doc could theoretically change between the two reads).
         final txnProvider = (payMap['provider'] as String? ?? '');
         final txnIsGooglePlay = _isGooglePlayProvider(txnProvider);
         final payVerification = (payMap['verification'] is Map)
             ? (payMap['verification'] as Map).cast<String, dynamic>()
             : <String, dynamic>{};
-        final txnVerified =
-            txnIsGooglePlay ? true : (payVerification['verified'] == true);
+        final txnVerified = txnIsGooglePlay
+            ? true
+            : (payVerification['verified'] == true);
         if (!txnVerified) {
           throw const UserFriendlyException(
             'Payment is not verified yet. Please try again.',
@@ -1957,8 +1804,7 @@ class MasterLeaguesRepositoryFirebase {
           );
         }
 
-        final data =
-            (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final data = (doc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         final currentOwnerId =
             (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
                 .trim();
