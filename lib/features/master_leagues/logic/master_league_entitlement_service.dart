@@ -34,18 +34,28 @@
 // getEntitlement() entirely and read UserProfile.hasPlanActive directly,
 // which had the identical gap for brand-new / planless users.
 //
-// ADDITIONAL FIX (paid user sees permission-denied on create):
-// A paid Pro/Elite user whose Firestore profile write failed silently
-// during purchase (permission-denied on the best-effort local sync —
-// itself now fixed in user_profile_repository.dart) would have
-// planExpiresAtMs == 0 on their /users/{uid} doc, causing
-// profilePlanActiveCreate() in firestore.rules to fail. The client-side
-// getEntitlement() correctly reads from claims as a fallback, but the
-// plan passed to the repository's create() was coming from the UI layer
-// and could be stale/wrong. We now ensure the plan resolved by
-// getEntitlement() (which checks profile THEN claims THEN basic) is
-// always used as the authoritative source when the UI calls
-// canCreateWorkspace() and related gating functions.
+// ── ADDITIONAL FIX (this revision) ─────────────────────────────────────
+// countOwnedWorkspaces() previously filtered master_leagues by the
+// `ownerUid` field, while MasterLeaguesRepositoryFirebase's
+// checkMasterLeagueLimitOrThrow() and _allocateMasterLeagueIdForPlan()
+// both filter by `ownerId`. Both fields are written together by
+// MasterLeaguesRepositoryFirebase.create(), but relying on two different
+// field names for what is supposed to be the same concept ("who owns
+// this workspace") is a latent bug: any document that is ever missing
+// one of the two fields (legacy data, a future write path that only
+// sets one, a partial/failed write, etc.) makes the client-side
+// "do I have room to create another workspace" check silently disagree
+// with the server-side allocation logic. That disagreement is exactly
+// the kind of thing that can surface later as a confusing
+// "You don't have access to this Master League" permission error, since
+// the client may believe a slot is free (or taken) when the server's
+// canonical `ownerId`-based accounting disagrees.
+//
+// Standardized on `ownerId` everywhere (matching the repository), since
+// `ownerId` is also the field the Firestore security rules key off of
+// (see isMasterLeagueOwner() in firestore.rules, which checks 'ownerId'
+// first). `ownerUid` is left in the document purely for backward
+// compatibility with anything else that may still read it.
 //
 // All other logic (activation, workspace/competition counting, Google
 // Play vs Flutterwave routing) is UNCHANGED.
@@ -134,19 +144,19 @@ class MasterLeagueEntitlementService {
   bool _isGooglePlayProvider(String provider) =>
       provider.trim().toLowerCase() == 'google_play_billing';
 
-  /// ── Every signed-in user is implicitly entitled to the free
-  ///    Basic plan (1 workspace / up to 3 competitions), with zero
-  ///    payment required. This is returned whenever neither the
-  ///    Firestore profile nor the ID token claims show an active
-  ///    paid (Pro/Elite) plan — covering brand-new users who have
-  ///    never purchased anything, as well as users whose paid plan
-  ///    has expired (they degrade to Basic instead of being locked
-  ///    out entirely).
+  /// ── NEW: every signed-in user is implicitly entitled to the free
+  ///        Basic plan (1 workspace / up to 3 competitions), with zero
+  ///        payment required. This is returned whenever neither the
+  ///        Firestore profile nor the ID token claims show an active
+  ///        paid (Pro/Elite) plan — covering brand-new users who have
+  ///        never purchased anything, as well as users whose paid plan
+  ///        has expired (they degrade to Basic instead of being locked
+  ///        out entirely).
   ///
-  ///    This mirrors freeBasicMasterLeagueCreate() in firestore.rules,
-  ///    which likewise never requires any payment/claims for the
-  ///    Basic plan — only that the target masterLeagueId matches the
-  ///    user's deterministic ml_{uid}_1 slot.
+  ///        This mirrors freeBasicMasterLeagueCreate() in firestore.rules,
+  ///        which likewise never requires any payment/claims for the
+  ///        Basic plan — only that the target masterLeagueId matches the
+  ///        user's deterministic ml_{uid}_1 slot.
   OrganizerProEntitlement _implicitBasicEntitlement() {
     return const OrganizerProEntitlement(
       active: true,
@@ -200,44 +210,6 @@ class MasterLeagueEntitlementService {
 
     final subscription = profile.planSubscription;
     if (subscription == null || !subscription.isActive) {
-      // FIXED: Even when the profile exists but shows no active paid
-      // subscription, check whether the raw planExpiresAtMs field is
-      // still in the future. This handles the race where the server
-      // worker wrote planExpiresAtMs but activePlanId was not yet
-      // flushed to the local cache / the planSubscription getter
-      // returns null due to a parsing edge-case.
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final rawPlanId = profile.activePlanId.trim().toLowerCase();
-      final rawExpiry = profile.planExpiresAtMs;
-
-      if (rawPlanId.isNotEmpty &&
-          rawPlanId != 'basic' &&
-          rawExpiry > nowMs) {
-        final plan = MasterLeaguePlan.tryFromString(rawPlanId);
-        if (plan != null && !plan.isFree) {
-          final durationId = profile.activePlanDurationId.trim();
-          final duration = durationId.isNotEmpty
-              ? PlanDuration.fromString(durationId)
-              : PlanDuration.threeMonths;
-          final days =
-              ((rawExpiry - nowMs) / (1000 * 60 * 60 * 24)).ceil();
-          if (kDebugMode) {
-            debugPrint(
-              '[MasterLeagueEntitlementService] _readFromProfile: '
-              'planSubscription getter returned null but raw fields show '
-              'active $rawPlanId plan — using raw fields directly.',
-            );
-          }
-          return OrganizerProEntitlement(
-            active: true,
-            plan: plan,
-            duration: duration,
-            expiryMs: rawExpiry,
-            daysRemaining: days > 0 ? days : 1,
-          );
-        }
-      }
-
       return const OrganizerProEntitlement(
         active: false,
         plan: null,
@@ -298,12 +270,12 @@ class MasterLeagueEntitlementService {
           : null;
 
       final durationRaw = claims['organizerProDuration'];
-      final duration =
-          (durationRaw is String && durationRaw.trim().isNotEmpty)
-              ? PlanDuration.fromString(durationRaw)
-              : (plan == MasterLeaguePlan.basic
-                  ? PlanDuration.threeMonths
-                  : null);
+      final duration = (durationRaw is String &&
+              durationRaw.trim().isNotEmpty)
+          ? PlanDuration.fromString(durationRaw)
+          : (plan == MasterLeaguePlan.basic
+              ? PlanDuration.threeMonths
+              : null);
 
       if (plan == null) {
         return const OrganizerProEntitlement(
@@ -328,7 +300,8 @@ class MasterLeagueEntitlementService {
       final days = plan.isFree
           ? 999
           : (expiryMs > nowMs
-              ? ((expiryMs - nowMs) / (1000 * 60 * 60 * 24)).ceil()
+              ? ((expiryMs - nowMs) / (1000 * 60 * 60 * 24))
+                  .ceil()
               : 0);
 
       return OrganizerProEntitlement(
@@ -349,152 +322,18 @@ class MasterLeagueEntitlementService {
     }
   }
 
-  // ── Read from Firestore profile directly (bypasses UserProfile model) ────
-  //
-  // ADDED: A direct Firestore read used as a last resort before falling
-  // back to implicit Basic, specifically to handle the scenario where:
-  //   1. The user purchased Pro/Elite via Google Play.
-  //   2. The best-effort local profile sync in activateAfterPayment()
-  //      succeeded (writing planExpiresAtMs to /users/{uid}).
-  //   3. BUT the UserProfile model's planSubscription getter returns
-  //      null (e.g. activePlanId field was written but not yet flushed
-  //      to the Firestore SDK's local cache on this read path).
-  //   4. AND the Firebase ID token hasn't been updated with
-  //      organizerPro claims yet (RTDN webhook is async).
-  //
-  // In that narrow window, _readFromProfile() and _readFromClaims()
-  // both return inactive, and we'd incorrectly downgrade to Basic.
-  // This direct read catches that case by looking at the raw Firestore
-  // fields without going through the UserProfile model.
-  Future<OrganizerProEntitlement> _readFromFirestoreDirectly() async {
-    final uid = _auth.currentUser?.uid.trim() ?? '';
-    if (uid.isEmpty) {
-      return const OrganizerProEntitlement(
-        active: false,
-        plan: null,
-        duration: null,
-        expiryMs: 0,
-        daysRemaining: 0,
-      );
-    }
-
-    try {
-      final snap = await _firestore
-          .collection('users')
-          .doc(uid)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 10));
-
-      if (!snap.exists) {
-        return const OrganizerProEntitlement(
-          active: false,
-          plan: null,
-          duration: null,
-          expiryMs: 0,
-          daysRemaining: 0,
-        );
-      }
-
-      final data =
-          (snap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final rawPlanId =
-          (data['activePlanId'] as String? ?? '').trim().toLowerCase();
-      final rawExpiry = _readMs(data['planExpiresAtMs']);
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-
-      if (rawPlanId.isEmpty || rawPlanId == 'basic') {
-        return const OrganizerProEntitlement(
-          active: false,
-          plan: null,
-          duration: null,
-          expiryMs: 0,
-          daysRemaining: 0,
-        );
-      }
-
-      final plan = MasterLeaguePlan.tryFromString(rawPlanId);
-      if (plan == null || plan.isFree) {
-        return const OrganizerProEntitlement(
-          active: false,
-          plan: null,
-          duration: null,
-          expiryMs: 0,
-          daysRemaining: 0,
-        );
-      }
-
-      if (rawExpiry <= 0 || rawExpiry <= nowMs) {
-        return const OrganizerProEntitlement(
-          active: false,
-          plan: null,
-          duration: null,
-          expiryMs: 0,
-          daysRemaining: 0,
-        );
-      }
-
-      final durationId =
-          (data['activePlanDurationId'] as String? ?? '').trim();
-      final duration = durationId.isNotEmpty
-          ? PlanDuration.fromString(durationId)
-          : PlanDuration.threeMonths;
-
-      final days = ((rawExpiry - nowMs) / (1000 * 60 * 60 * 24)).ceil();
-
-      if (kDebugMode) {
-        debugPrint(
-          '[MasterLeagueEntitlementService] _readFromFirestoreDirectly: '
-          'found active $rawPlanId plan via direct Firestore read '
-          '(profile model and claims both missed it).',
-        );
-      }
-
-      return OrganizerProEntitlement(
-        active: true,
-        plan: plan,
-        duration: duration,
-        expiryMs: rawExpiry,
-        daysRemaining: days > 0 ? days : 1,
-      );
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint(
-          '[MasterLeagueEntitlementService] _readFromFirestoreDirectly '
-          'error (ignored): $e',
-        );
-      }
-      return const OrganizerProEntitlement(
-        active: false,
-        plan: null,
-        duration: null,
-        expiryMs: 0,
-        daysRemaining: 0,
-      );
-    }
-  }
-
-  static int _readMs(dynamic raw) {
-    if (raw is int) return raw;
-    if (raw is num) return raw.toInt();
-    return 0;
-  }
-
   // ── Public entitlement read ───────────────────────────────────────────────
 
   /// Returns the user's current entitlement.
   ///
   /// Priority order:
-  ///   1. Firestore profile via UserProfile model
-  ///      (planExpiresAtMs / activePlanId)
+  ///   1. Firestore profile (planExpiresAtMs / activePlanId)
   ///   2. Firebase ID token custom claims (organizerPro)
-  ///   3. Direct Firestore read (catches the narrow window where the
-  ///      profile model and claims are both stale but the raw Firestore
-  ///      fields are already correct — e.g. right after a Google Play
-  ///      purchase before the RTDN webhook fires)
-  ///   4. Implicit Basic entitlement — every signed-in user can always
-  ///      create their free workspace without paying, so we never report
-  ///      "inactive / locked out" just because no paid plan has ever
-  ///      been purchased (or a previous paid plan has expired).
+  ///   3. FIXED: an implicit, active Basic entitlement — every signed-in
+  ///      user can always create their free workspace without paying,
+  ///      so we never report "inactive / locked out" just because no
+  ///      paid plan has ever been purchased (or a previous paid plan
+  ///      has expired).
   ///
   /// Never throws — returns the implicit Basic entitlement (or, if the
   /// user isn't signed in at all, an inactive entitlement) on any error
@@ -514,30 +353,18 @@ class MasterLeagueEntitlementService {
       );
     }
 
-    // 1. Try profile model first.
     final fromProfile =
         await _readFromProfile(forceRefresh: forceRefresh);
     if (fromProfile.active) return fromProfile;
 
-    // 2. Try ID token claims.
     final fromClaims = await _readFromClaims();
     if (fromClaims.active) return fromClaims;
 
-    // 3. ADDED: Try direct Firestore read as a last resort before
-    //    falling back to Basic. This catches the race window right
-    //    after a Google Play purchase where the profile model's
-    //    planSubscription getter returns null but the raw fields are
-    //    already written, AND the RTDN webhook hasn't fired yet so
-    //    there are no organizerPro claims either.
-    final fromDirect = await _readFromFirestoreDirectly();
-    if (fromDirect.active) return fromDirect;
-
-    // 4. FIXED: neither the profile, the claims, nor the direct read
-    //    show an active paid plan — this is either a brand-new user
-    //    who has never purchased anything, or a user whose Pro/Elite
-    //    plan has expired. Either way, they are still entitled to the
-    //    free Basic plan with no payment required, so report them as
-    //    active on Basic instead of locked out.
+    // FIXED: neither the profile nor the claims show an active paid
+    // plan — this is either a brand-new user who has never purchased
+    // anything, or a user whose Pro/Elite plan has expired. Either way,
+    // they are still entitled to the free Basic plan with no payment
+    // required, so report them as active on Basic instead of locked out.
     return _implicitBasicEntitlement();
   }
 
@@ -559,19 +386,6 @@ class MasterLeagueEntitlementService {
       final subscription = profile.planSubscription;
       if (subscription != null && subscription.isActive) return true;
 
-      // ADDED: Check raw fields in case planSubscription getter
-      // returns null due to a parsing edge-case while the underlying
-      // Firestore data is actually correct (same race as in
-      // _readFromProfile).
-      final rawPlanId = profile.activePlanId.trim().toLowerCase();
-      final rawExpiry = profile.planExpiresAtMs;
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      if (rawPlanId.isNotEmpty &&
-          rawPlanId != 'basic' &&
-          rawExpiry > nowMs) {
-        return true;
-      }
-
       // No active plan recorded on the profile (or it expired) ->
       // implicit Basic -> still unlocked, never locked out.
       return true;
@@ -584,31 +398,42 @@ class MasterLeagueEntitlementService {
   }
 
   Future<bool> isUnlocked({bool forceRefresh = false}) async {
-    final ent = await getEntitlement(forceRefresh: forceRefresh);
+    final ent =
+        await getEntitlement(forceRefresh: forceRefresh);
     return ent.active;
   }
 
   Future<MasterLeaguePlan?> getActivePlan(
       {bool forceRefresh = false}) async {
-    final ent = await getEntitlement(forceRefresh: forceRefresh);
+    final ent =
+        await getEntitlement(forceRefresh: forceRefresh);
     return ent.plan;
   }
 
   Future<PlanDuration?> getActiveDuration(
       {bool forceRefresh = false}) async {
-    final ent = await getEntitlement(forceRefresh: forceRefresh);
+    final ent =
+        await getEntitlement(forceRefresh: forceRefresh);
     return ent.duration;
   }
 
   // ── Workspace / competition counts ────────────────────────────────────────
 
+  /// FIXED: was previously filtering on `ownerUid`. Every other piece of
+  /// code that determines workspace ownership/slot allocation
+  /// (MasterLeaguesRepositoryFirebase.checkMasterLeagueLimitOrThrow and
+  /// ._allocateMasterLeagueIdForPlan, plus isMasterLeagueOwner() in
+  /// firestore.rules) keys off `ownerId`. Standardizing on `ownerId`
+  /// here too so the client's "do I have room for another workspace"
+  /// check can never silently disagree with the server-side accounting
+  /// that actually gates workspace creation.
   Future<int> countOwnedWorkspaces() async {
     final uid = _uidOrThrow();
 
     try {
       final snap = await _firestore
           .collection('master_leagues')
-          .where('ownerUid', isEqualTo: uid)
+          .where('ownerId', isEqualTo: uid)
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
 
@@ -883,30 +708,18 @@ class MasterLeagueEntitlementService {
       );
     }
 
-    // ── FIXED: the worker call above already activated the plan
-    // authoritatively — it wrote Firebase custom claims AND the
-    // `users/{uid}` Firestore document using admin/service-account
-    // credentials, which bypass client security rules entirely. By the
-    // time we get here, the purchase has already succeeded server-side.
+    // ── The worker call above already activated the plan authoritatively —
+    // it wrote Firebase custom claims AND the `users/{uid}` Firestore
+    // document using admin/service-account credentials, which bypass
+    // client security rules entirely. By the time we get here, the
+    // purchase has already succeeded server-side.
     //
     // The client-side write below is only a "best effort" local sync —
     // kept so that badge granting (which happens inside
     // activatePlanSubscription) runs immediately instead of waiting for
-    // the next profile fetch/stream update.
-    //
-    // ROOT CAUSE FIXED: previously, if this redundant client-side write
-    // hit ANY transient Firestore error — most commonly a
-    // permission-denied caused by a stale ID token right after the
-    // purchase/verification round-trip — that error was thrown from
-    // here and surfaced to the purchase UI as a failed purchase, even
-    // though the user had already been charged and the plan was already
-    // active. This is what produced "You do not have permission to
-    // access this profile" immediately after a successful Pro/Elite
-    // purchase. We now log and swallow errors from this best-effort
-    // local sync instead of letting them abort a purchase that has
-    // already succeeded; the user's profile will reflect the correct
-    // plan on the next read/stream update regardless, since the
-    // Firestore document was already written by the worker.
+    // the next profile fetch/stream update. Errors here are logged and
+    // swallowed instead of aborting a purchase that has already
+    // succeeded server-side.
     try {
       await _profileRepo.activatePlanSubscription(
         plan: plan,
