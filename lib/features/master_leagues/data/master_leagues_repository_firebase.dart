@@ -7,21 +7,40 @@
 //    - maxTeams is derived from worldCupFormat when format == worldCup
 //    - homeAwayEnabled is forced to false for World Cup templates
 //    - worldCupFormat is carried through copyWith to Firestore
-// 3. FIXED: createAfterVerifiedPayment no longer hard-requires
-//    payment.verification.verified == true for Google Play purchases.
-//    Google Play payments are written by GooglePlayBillingService with
-//    verification.verified permanently set to false at write time
-//    (needsServerVerification: true) — real verification only happens
-//    later via an async RTDN webhook that master-league creation never
-//    waits for. Requiring verified==true here meant EVERY Google Play
-//    purchase failed with "Payment is not verified yet" / surfaced to
-//    the user as "Verified payment details are missing", even though
-//    the purchase itself had already been confirmed by the Play Billing
-//    purchase stream. We now trust google_play_billing / google_play
-//    provider payments as pre-verified here, mirroring the same trust
-//    boundary already used in MasterLeagueEntitlementService.activateAfterPayment.
-//    Flutterwave and all other providers still strictly require
-//    verification.verified == true, unchanged.
+// 3. createAfterVerifiedPayment trusts Google Play payments as
+//    pre-verified (see class comment near _isGooglePlayProvider).
+// 4. **ROOT-CAUSE FIX (this revision):** _allocateMasterLeagueIdForPlan
+//    no longer determines "is this slot free?" from a where('ownerId', ...)
+//    query result. It now does a direct get() on each candidate slot's
+//    document ID and only returns a slot whose document does NOT exist.
+//
+//    WHY THIS MATTERS: Firestore Security Rules decide whether a write
+//    is a `create` or an `update` based purely on whether the target
+//    document ALREADY EXISTS at write time — not on client intent, and
+//    not on SetOptions(merge:false). The previous implementation built
+//    a "taken" set from a where('ownerId', isEqualTo: uid) query, then
+//    picked the first slot id NOT in that set. Any document sitting at
+//    that slot id that the query didn't surface (a legacy doc missing
+//    the `ownerId` field, a doc written by an older code path, index
+//    lag, etc.) meant the "free" slot actually already had a document.
+//    The following .set(docData, SetOptions(merge:false)) call was then
+//    evaluated by Firestore as an UPDATE — which requires
+//    `resource.data.ownerId == request.auth.uid` plus valid claims/
+//    profile checks in the `update` rule — instead of the much more
+//    permissive `create` rule. When that pre-existing doc didn't satisfy
+//    the update rule (wrong/missing ownerId, stale claims, etc.), the
+//    write was rejected with permission-denied, surfaced to the user as
+//    "You don't have access to this Master League. Please make sure
+//    your payment is completed and verified, then try again." — even
+//    though the user's plan and workspace count were both fine. This
+//    disproportionately hit Pro/Elite users because they are the ones
+//    who ever try to allocate slot 2, 3, 4, 5 (Basic users only ever
+//    touch slot 1).
+//
+//    Fix: check each candidate slot id directly by document ID (get(),
+//    not a query) before returning it, so we can never mistake an
+//    existing-but-unindexed document for a free slot.
+//
 // All other methods are UNCHANGED.
 
 import 'dart:async';
@@ -96,12 +115,6 @@ class MasterLeaguesRepositoryFirebase {
     return RegExp(r'^eS[A-Za-z0-9]{4,12}$').hasMatch(s);
   }
 
-  /// ── NEW: Returns true if [provider] is a Google Play Billing provider
-  ///        string. Used to decide whether a payment doc's
-  ///        verification.verified flag must be strictly true (Flutterwave
-  ///        and everything else) or can be trusted implicitly (Google Play,
-  ///        whose purchase was already confirmed client-side by the Play
-  ///        Billing purchase stream before this repository is ever called).
   static bool _isGooglePlayProvider(String? provider) {
     final p = (provider ?? '').trim().toLowerCase();
     return p == 'google_play_billing' || p == 'google_play';
@@ -428,18 +441,12 @@ class MasterLeaguesRepositoryFirebase {
           template.id.trim().isEmpty ? _uuid.v4() : template.id.trim();
       final now = _nowMs();
 
-      // For World Cup templates, maxTeams must match the sub-format's
-      // team count. We re-derive it here as a safety guard.
-      // NOTE: worldCupFormat!.teamCount is an extension getter from
-      // WorldCupFormatX in league_settings.dart. The extension is now
-      // visible because of the import added at the top of this file.
       final effectiveMaxTeams =
           template.format == LeagueFormat.worldCup &&
                   template.worldCupFormat != null
               ? template.worldCupFormat!.teamCount
               : template.maxTeams;
 
-      // World Cup never supports home/away — enforce at persistence layer.
       final effectiveHomeAway =
           template.format == LeagueFormat.worldCup
               ? false
@@ -455,8 +462,6 @@ class MasterLeaguesRepositoryFirebase {
         createdAtMs: template.createdAtMs == 0 ? now : template.createdAtMs,
         updatedAtMs: now,
         createdBy: uid,
-        // worldCupFormat is carried through unchanged via copyWith.
-        // It will be written to Firestore by toMap() only when format==worldCup.
       );
 
       if (safeTemplate.name.trim().isEmpty) {
@@ -1045,29 +1050,35 @@ class MasterLeaguesRepositoryFirebase {
     return 'ml_${ownerUid}_$slot';
   }
 
+  /// ── FIXED (root cause of "paid user under their limit gets
+  ///        permission-denied when creating another workspace") ──
+  ///
+  /// See file-header comment for the full explanation. In short: we no
+  /// longer infer "is this slot free?" from a where('ownerId', ...)
+  /// query result — we check each candidate slot id's document
+  /// directly by ID, so we can never hand back a slot id that already
+  /// has a document sitting on it (which would silently turn the
+  /// caller's intended `create` into a security-rule `update`).
   Future<String> _allocateMasterLeagueIdForPlan(MasterLeaguePlan plan) async {
     final uid = _requireAuthUid();
 
     if (plan == MasterLeaguePlan.elite) {
+      // UUIDv4 collisions are astronomically unlikely; no existence
+      // check needed for Elite's unlimited, randomly-generated ids.
       return _uuid.v4();
     }
 
     await checkMasterLeagueLimitOrThrow(plan);
 
-    final ownedSnap = await _firestore
-        .collection('master_leagues')
-        .where('ownerId', isEqualTo: uid)
-        .get(const GetOptions(source: Source.server))
-        .timeout(const Duration(seconds: 15));
-
-    final existingIds = ownedSnap.docs
-        .map((d) => d.id.trim())
-        .where((s) => s.isNotEmpty)
-        .toSet();
-
     for (int slot = 1; slot <= plan.maxMasterLeagues; slot++) {
       final candidate = _masterLeagueSlotId(ownerUid: uid, slot: slot);
-      if (!existingIds.contains(candidate)) {
+
+      final candidateSnap = await _col
+          .doc(candidate)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      if (!candidateSnap.exists) {
         return candidate;
       }
     }
@@ -1240,9 +1251,6 @@ class MasterLeaguesRepositoryFirebase {
         );
       }
 
-      // ── FIXED: Google Play payments are trusted as pre-verified. ─────────
-      // See file-header comment for full rationale. Flutterwave (and any
-      // other provider) still strictly requires verification.verified==true.
       final paymentProvider = (paymentData['provider'] as String? ?? '');
       final isGooglePlayPayment = _isGooglePlayProvider(paymentProvider);
 
@@ -1309,9 +1317,6 @@ class MasterLeaguesRepositoryFirebase {
           );
         }
 
-        // Re-check verification inside the transaction using the same
-        // Google Play trust rule applied above (avoids a TOCTOU gap where
-        // the doc could theoretically change between the two reads).
         final txnProvider = (payMap['provider'] as String? ?? '');
         final txnIsGooglePlay = _isGooglePlayProvider(txnProvider);
         final payVerification = (payMap['verification'] is Map)
