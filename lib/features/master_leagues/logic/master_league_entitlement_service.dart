@@ -15,47 +15,68 @@
 // entitlement/claims at all, only that plan == 'basic' and the target
 // masterLeagueId matches the user's slot).
 //
-// The problem was entirely client-side: isUnlocked() / canCreateWorkspace()
-// / watchUnlocked() all funnel through getEntitlement(), and anything in
-// the UI that gates "show the Create Master League option" on those
-// calls was treating "no explicit active plan yet" as "locked out" —
-// which only happened to be masked for the hardcoded super admin uid,
-// because that uid bypasses entitlement checks entirely at the Firestore
-// rules layer (isSuperAdmin()), never at the client/service layer.
-//
-// FIX: getEntitlement() now falls back to an implicit, active Basic
+// FIX: getEntitlement() falls back to an implicit, active Basic
 // entitlement whenever neither the profile nor the claims show an
-// active paid plan. This also naturally covers a Pro/Elite subscription
-// that has expired: the user degrades to Basic instead of being fully
-// locked out, matching normal SaaS behavior ("free or basic plan to
-// create the working space").
+// active paid plan.
 //
-// watchUnlocked() is updated the same way, since it previously bypassed
-// getEntitlement() entirely and read UserProfile.hasPlanActive directly,
-// which had the identical gap for brand-new / planless users.
+// ── NEW, ACTUAL ROOT-CAUSE FIX FOR THIS REVISION ───────────────────────
+// THE REAL BUG (found by tracing the permission-denied reports where
+// EVERY Pro/Elite user was rejected creating a workspace — first one or
+// fifth one, didn't matter — while Basic/free and super admin worked):
 //
-// ── ADDITIONAL FIX (this revision) ─────────────────────────────────────
+// getEntitlement() has THREE possible sources, in priority order:
+//   1. Firestore profile          (profile.data.activePlanId)
+//   2. Firebase custom claims     (organizerPro / organizerProPlan)
+//   3. Implicit Basic fallback    (added by the fix above)
+//
+// firestore.rules' profilePlanActiveCreate() (and the claims-based gate)
+// require an EXACT match:
+//
+//     request.resource.data.plan == profile.data.activePlanId
+//
+// CreateMasterLeagueScreen._create() — for the common "I already have
+// an active paid plan with room under my limit, no new payment needed"
+// path — calls:
+//
+//     final refreshedPlan = refreshedEnt.plan ?? _selectedPlan;
+//     repo.create(plan: refreshedPlan, ...)
+//
+// where refreshedEnt comes from getEntitlement(). The problem: ANY
+// transient failure reading the Firestore profile (a timeout, a brief
+// permission hiccup, Source.server being momentarily unreachable) makes
+// _readFromProfile() report inactive. Google Play users NEVER get
+// organizerPro custom claims set client-side (only an async RTDN
+// webhook sets those, server-side) — so _readFromClaims() ALSO reports
+// inactive for them. getEntitlement() then silently falls through to
+// the implicit Basic entitlement (fix #1 above), and _create() happily
+// writes `'plan': 'basic'` to the new master_leagues document — while
+// `profile.data.activePlanId` on the user's own profile still says
+// 'pro' or 'elite'. Every plan-based Firestore rule gate then fails its
+// `plan == profilePlan` equality check (the write says 'basic', the
+// profile says 'pro'/'elite' — they can never match), and Firestore
+// rejects the write with permission-denied. This reproduces the exact
+// reported symptom: it doesn't matter whether the user has 0 workspaces
+// or 4 out of a 5-workspace Pro limit — a single transient profile read
+// blip picks the wrong plan value for the WRITE, independent of the
+// workspace count.
+//
+// FIX: added getProfilePlanStrict(), which reads ONLY the Firestore
+// profile — no claims fallback, no implicit-Basic fallback — and is now
+// the single source of truth CreateMasterLeagueScreen uses to decide
+// what `plan` value to write when no new payment is required. This
+// guarantees request.resource.data.plan always equals
+// profile.data.activePlanId exactly, which is precisely what the
+// security rules check. If the strict profile read itself fails, we
+// surface that as a clear, retryable error instead of silently writing
+// a mismatched 'basic' value that is guaranteed to be denied.
+//
+// ── ADDITIONAL FIX (earlier revision) ──────────────────────────────────
 // countOwnedWorkspaces() previously filtered master_leagues by the
 // `ownerUid` field, while MasterLeaguesRepositoryFirebase's
 // checkMasterLeagueLimitOrThrow() and _allocateMasterLeagueIdForPlan()
-// both filter by `ownerId`. Both fields are written together by
-// MasterLeaguesRepositoryFirebase.create(), but relying on two different
-// field names for what is supposed to be the same concept ("who owns
-// this workspace") is a latent bug: any document that is ever missing
-// one of the two fields (legacy data, a future write path that only
-// sets one, a partial/failed write, etc.) makes the client-side
-// "do I have room to create another workspace" check silently disagree
-// with the server-side allocation logic. That disagreement is exactly
-// the kind of thing that can surface later as a confusing
-// "You don't have access to this Master League" permission error, since
-// the client may believe a slot is free (or taken) when the server's
-// canonical `ownerId`-based accounting disagrees.
-//
-// Standardized on `ownerId` everywhere (matching the repository), since
-// `ownerId` is also the field the Firestore security rules key off of
-// (see isMasterLeagueOwner() in firestore.rules, which checks 'ownerId'
-// first). `ownerUid` is left in the document purely for backward
-// compatibility with anything else that may still read it.
+// both filter by `ownerId`. Standardized on `ownerId` everywhere
+// (matching the repository and the Firestore security rules, which key
+// off 'ownerId' first in isMasterLeagueOwner()).
 //
 // All other logic (activation, workspace/competition counting, Google
 // Play vs Flutterwave routing) is UNCHANGED.
@@ -144,19 +165,7 @@ class MasterLeagueEntitlementService {
   bool _isGooglePlayProvider(String provider) =>
       provider.trim().toLowerCase() == 'google_play_billing';
 
-  /// ── NEW: every signed-in user is implicitly entitled to the free
-  ///        Basic plan (1 workspace / up to 3 competitions), with zero
-  ///        payment required. This is returned whenever neither the
-  ///        Firestore profile nor the ID token claims show an active
-  ///        paid (Pro/Elite) plan — covering brand-new users who have
-  ///        never purchased anything, as well as users whose paid plan
-  ///        has expired (they degrade to Basic instead of being locked
-  ///        out entirely).
-  ///
-  ///        This mirrors freeBasicMasterLeagueCreate() in firestore.rules,
-  ///        which likewise never requires any payment/claims for the
-  ///        Basic plan — only that the target masterLeagueId matches the
-  ///        user's deterministic ml_{uid}_1 slot.
+  /// Every signed-in user is implicitly entitled to the free Basic plan.
   OrganizerProEntitlement _implicitBasicEntitlement() {
     return const OrganizerProEntitlement(
       active: true,
@@ -182,7 +191,6 @@ class MasterLeagueEntitlementService {
         profile = await _profileRepo.fetchByUserIdForBootstrap(uid);
       }
     } catch (e) {
-      // Network / permission errors — fall through to claims fallback.
       if (kDebugMode) {
         debugPrint(
           '[MasterLeagueEntitlementService] _readFromProfile '
@@ -324,20 +332,23 @@ class MasterLeagueEntitlementService {
 
   // ── Public entitlement read ───────────────────────────────────────────────
 
-  /// Returns the user's current entitlement.
+  /// Returns the user's current entitlement, for DISPLAY / UI-gating
+  /// purposes (e.g. "should I show the payment button").
   ///
   /// Priority order:
   ///   1. Firestore profile (planExpiresAtMs / activePlanId)
   ///   2. Firebase ID token custom claims (organizerPro)
-  ///   3. FIXED: an implicit, active Basic entitlement — every signed-in
-  ///      user can always create their free workspace without paying,
-  ///      so we never report "inactive / locked out" just because no
-  ///      paid plan has ever been purchased (or a previous paid plan
-  ///      has expired).
+  ///   3. An implicit, active Basic entitlement — every signed-in user
+  ///      can always create their free workspace without paying.
   ///
-  /// Never throws — returns the implicit Basic entitlement (or, if the
-  /// user isn't signed in at all, an inactive entitlement) on any error
-  /// so that the UI degrades gracefully instead of showing a crash.
+  /// IMPORTANT: this method is intentionally lenient/fallback-friendly
+  /// for display purposes and MUST NOT be used to decide the `plan`
+  /// value written to a new `master_leagues` document when no new
+  /// payment is being made. Use [getProfilePlanStrict] for that — see
+  /// the file-header comment for why: the fallback chain here can
+  /// legitimately diverge from `profile.data.activePlanId`, which is
+  /// exactly what the Firestore security rules compare the write
+  /// against.
   Future<OrganizerProEntitlement> getEntitlement({
     bool forceRefresh = false,
   }) async {
@@ -360,39 +371,71 @@ class MasterLeagueEntitlementService {
     final fromClaims = await _readFromClaims();
     if (fromClaims.active) return fromClaims;
 
-    // FIXED: neither the profile nor the claims show an active paid
-    // plan — this is either a brand-new user who has never purchased
-    // anything, or a user whose Pro/Elite plan has expired. Either way,
-    // they are still entitled to the free Basic plan with no payment
-    // required, so report them as active on Basic instead of locked out.
     return _implicitBasicEntitlement();
   }
 
-  /// FIXED: previously watched UserProfile.hasPlanActive directly, which
-  /// mirrored the exact same gap as getEntitlement() used to have — a
-  /// brand-new user with no profile doc (or a profile with no plan
-  /// recorded yet) streamed `false` forever, which any "Create Master
-  /// League" UI gated on this stream would read as "locked out", even
-  /// though Basic is free and always available. Now streams the same
-  /// implicit-Basic-fallback semantics as getEntitlement().
+  /// ── NEW: STRICT, profile-ONLY plan resolver. ──────────────────────────
+  ///
+  /// Reads exclusively from the Firestore `/users/{uid}` document —
+  /// no custom-claims fallback, no implicit-Basic fallback — so the
+  /// returned value is GUARANTEED to equal `profile.data.activePlanId`
+  /// (or be `null` if that document/field genuinely has no active paid
+  /// plan right now).
+  ///
+  /// This is the ONLY method that should be used to decide the `plan`
+  /// value written to a new `master_leagues` document whenever NO new
+  /// payment is being made for that creation (i.e. the user is relying
+  /// on an already-active plan with room under their workspace limit).
+  /// Using anything else (in particular [getEntitlement], which can
+  /// fall back to claims or an implicit Basic entitlement) risks
+  /// writing a `plan` value that does not match
+  /// `profile.data.activePlanId`, which the Firestore security rules'
+  /// `profilePlanActiveCreate()` / `googlePlayPlanActiveCreate()` gates
+  /// require to match EXACTLY — a mismatch here is denied with
+  /// permission-denied regardless of workspace count.
+  ///
+  /// Throws [MasterLeagueEntitlementException] if the profile document
+  /// cannot be read at all (rather than silently guessing), so the
+  /// caller can show a clear "please try again" message instead of
+  /// writing a doomed-to-be-rejected value.
+  Future<MasterLeaguePlan?> getProfilePlanStrict({
+    bool forceRefresh = true,
+  }) async {
+    final uid = _uidOrThrow();
+
+    UserProfile? profile;
+    try {
+      profile = forceRefresh
+          ? await _profileRepo.fetchByUserId(uid)
+          : await _profileRepo.fetchByUserIdForBootstrap(uid);
+    } catch (e) {
+      throw MasterLeagueEntitlementException(
+        "We couldn't confirm your active plan. Please check your "
+        'connection and try again. (${e.toString()})',
+      );
+    }
+
+    if (profile == null) return null;
+
+    final subscription = profile.planSubscription;
+    if (subscription == null || !subscription.isActive) return null;
+    if (subscription.plan.isFree) return null;
+
+    return subscription.plan;
+  }
+
   Stream<bool> watchUnlocked() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) return Stream.value(false);
 
     return _profileRepo.watchByUserId(uid).map((profile) {
-      // No profile yet (brand-new user) -> implicit Basic -> unlocked.
       if (profile == null) return true;
 
       final subscription = profile.planSubscription;
       if (subscription != null && subscription.isActive) return true;
 
-      // No active plan recorded on the profile (or it expired) ->
-      // implicit Basic -> still unlocked, never locked out.
       return true;
     }).handleError((_) {
-      // Stream error (e.g. transient permission hiccup) -> still treat
-      // the user as unlocked on implicit Basic rather than showing them
-      // as locked out.
       return true;
     });
   }
@@ -419,14 +462,6 @@ class MasterLeagueEntitlementService {
 
   // ── Workspace / competition counts ────────────────────────────────────────
 
-  /// FIXED: was previously filtering on `ownerUid`. Every other piece of
-  /// code that determines workspace ownership/slot allocation
-  /// (MasterLeaguesRepositoryFirebase.checkMasterLeagueLimitOrThrow and
-  /// ._allocateMasterLeagueIdForPlan, plus isMasterLeagueOwner() in
-  /// firestore.rules) keys off `ownerId`. Standardizing on `ownerId`
-  /// here too so the client's "do I have room for another workspace"
-  /// check can never silently disagree with the server-side accounting
-  /// that actually gates workspace creation.
   Future<int> countOwnedWorkspaces() async {
     final uid = _uidOrThrow();
 
@@ -445,7 +480,6 @@ class MasterLeagueEntitlementService {
           'error: $e',
         );
       }
-      // Return 0 on error so canCreateWorkspace defaults to permissive.
       return 0;
     }
   }
@@ -582,25 +616,6 @@ class MasterLeagueEntitlementService {
     }
   }
 
-  /// Activates the plan after a confirmed payment.
-  ///
-  /// Routing:
-  ///   • Free plans       → write directly to Firestore (no payment).
-  ///   • Google Play      → write directly to Firestore (already verified
-  ///                        by the Play Billing purchase stream). This is
-  ///                        the ONLY persistence path for Google Play, so
-  ///                        failures here are surfaced — there is no
-  ///                        server-side fallback that already wrote the
-  ///                        entitlement.
-  ///   • Flutterwave/web  → POST to the remote worker for server-side
-  ///                        verification. The worker activates the plan
-  ///                        authoritatively (custom claims + a Firestore
-  ///                        write using admin/service-account credentials
-  ///                        that bypass client security rules). Once that
-  ///                        succeeds, the purchase is already complete.
-  ///
-  /// Badges are granted automatically inside
-  /// [UserProfileRepository.activatePlanSubscription].
   Future<void> activateAfterPayment({
     required MasterLeaguePlan plan,
     required PlanDuration duration,
@@ -634,16 +649,6 @@ class MasterLeagueEntitlementService {
     }
 
     // ── Google Play Billing: already verified by Play SDK ─────────────────
-    // The purchase was confirmed by the Play Billing purchase stream
-    // BEFORE this method is called. We only need to persist the plan
-    // locally and grant the badge (done inside activatePlanSubscription).
-    // Routing this through the Flutterwave worker would cause an
-    // "unsupported provider" error.
-    //
-    // This is the sole persistence path for Google Play purchases, so
-    // unlike the Flutterwave branch below, a failure here must still be
-    // surfaced to the caller — there is no admin-privileged write that
-    // already activated the plan elsewhere.
     if (_isGooglePlayProvider(provider)) {
       await _profileRepo.activatePlanSubscription(
         plan: plan,
@@ -652,8 +657,6 @@ class MasterLeagueEntitlementService {
         provider: provider,
       );
 
-      // Refresh the ID token so any cloud-function custom claims
-      // set by server-side RTDN are picked up immediately.
       try {
         await _auth.currentUser?.getIdToken(true);
       } catch (_) {}
@@ -708,18 +711,6 @@ class MasterLeagueEntitlementService {
       );
     }
 
-    // ── The worker call above already activated the plan authoritatively —
-    // it wrote Firebase custom claims AND the `users/{uid}` Firestore
-    // document using admin/service-account credentials, which bypass
-    // client security rules entirely. By the time we get here, the
-    // purchase has already succeeded server-side.
-    //
-    // The client-side write below is only a "best effort" local sync —
-    // kept so that badge granting (which happens inside
-    // activatePlanSubscription) runs immediately instead of waiting for
-    // the next profile fetch/stream update. Errors here are logged and
-    // swallowed instead of aborting a purchase that has already
-    // succeeded server-side.
     try {
       await _profileRepo.activatePlanSubscription(
         plan: plan,
