@@ -1,4 +1,4 @@
-  // lib/features/master_leagues/presentation/create_master_league_screen.dart
+// lib/features/master_leagues/presentation/create_master_league_screen.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -181,20 +181,7 @@ class _CreateMasterLeagueScreenState
   }
 
   // ── Inline upgrade ────────────────────────────────────────────────────────
-  //
-  // FIXED: this is now the SINGLE source of truth for populating the
-  // verified-payment fields. Previously, `_create()` could reach the
-  // "verified payment details missing" branch without ever having called
-  // this method in the current attempt — e.g. when `_shouldShowPaymentButton`
-  // was stale (computed from entitlement data loaded at initState time)
-  // and the screen's UI still showed "Create Workspace" instead of
-  // "Choose Plan & Pay", even though the server-side check inside
-  // `_create()` correctly detected the user still needed to pay.
-  //
-  // `_create()` now calls this directly whenever the verified fields are
-  // empty, regardless of what `_shouldShowPaymentButton` said at build
-  // time — so the user is never shown a dead-end error message when a
-  // payment attempt is actually still possible.
+
   Future<bool> _openInlineUpgrade() async {
     final paymentSvc =
         ref.read(masterLeaguePaymentServiceProvider);
@@ -208,9 +195,6 @@ class _CreateMasterLeagueScreenState
       return false;
     }
 
-    // Reset stale verified fields before attempting a fresh payment so
-    // a failed/cancelled attempt never leaves behind mismatched values
-    // from an earlier purchase.
     _lastVerifiedAttemptId = '';
     _lastVerifiedPaymentId = '';
     _lastVerifiedReceiptId = '';
@@ -241,11 +225,6 @@ class _CreateMasterLeagueScreenState
 
     _lastVerifiedAttemptId = result.attemptId;
     _lastVerifiedPaymentId = result.paymentId;
-    // FIXED: fall back to attemptId if both receiptId and paymentId
-    // sources come back empty (can happen on some Google Play sandbox
-    // responses where orderId/purchaseToken are briefly unavailable),
-    // so we never block workspace creation purely on a missing receipt
-    // string when the purchase itself genuinely succeeded.
     final resolvedReceiptId = (result.receiptId ?? '').trim();
     _lastVerifiedReceiptId = resolvedReceiptId.isNotEmpty
         ? resolvedReceiptId
@@ -258,7 +237,27 @@ class _CreateMasterLeagueScreenState
   }
 
   // ── Create ────────────────────────────────────────────────────────────────
-
+  //
+  // FIXED (root cause of every Pro/Elite user being denied with
+  // "You don't have access to this Master League..." regardless of
+  // workspace count): this method used to decide the `plan` value it
+  // writes to the new master_leagues document from
+  // `entitlementSvc.getEntitlement()`, which is a DISPLAY-oriented
+  // resolver that can legitimately fall back from "Firestore profile"
+  // to "custom claims" to an "implicit Basic" default. Firestore's
+  // security rules compare `request.resource.data.plan` against
+  // `profile.data.activePlanId` (with a legacy-isPremium fallback of
+  // their own — see firestore.rules) EXACTLY. Any divergence between
+  // what getEntitlement() resolved to and what's actually on the
+  // profile document is a guaranteed permission-denied, independent of
+  // whether the user has room under their plan's workspace limit.
+  //
+  // Whenever no NEW payment is required for this creation (the user
+  // already has an active plan with room to spare), we now resolve the
+  // plan to write via `entitlementSvc.getProfilePlanStrict()` — which
+  // reads ONLY the Firestore profile (with the same legacy-premium
+  // fallback the rules apply) and nothing else. This guarantees the
+  // value written always matches what the rule checks.
   Future<void> _create() async {
     if (_processing) return;
 
@@ -319,14 +318,6 @@ class _CreateMasterLeagueScreenState
       }
 
       // ── Paid plan path ───────────────────────────────────────────────────
-      //
-      // FIXED: always ensure a fresh, valid payment has been captured for
-      // THIS create attempt before proceeding — do not trust
-      // `_shouldShowPaymentButton` (a UI-only, possibly-stale flag) as the
-      // sole gate for whether a payment is needed. Instead: if the current
-      // active plan (freshly re-checked above) cannot create another
-      // workspace, a payment is required, full stop — regardless of what
-      // the button looked like when the user tapped it.
       final needsPaymentNow =
           !effectivePlan.canCreateWorkspace(currentWorkspaceCount) ||
               _planOrder(effectivePlan) < _planOrder(_selectedPlan);
@@ -338,44 +329,69 @@ class _CreateMasterLeagueScreenState
           setState(() => _processing = false);
           return;
         }
-      } else if (_lastVerifiedAttemptId.trim().isEmpty ||
-          _lastVerifiedPaymentId.trim().isEmpty ||
-          _lastVerifiedReceiptId.trim().isEmpty) {
-        // Plan already covers this workspace (e.g. Pro user with free
-        // slots remaining) but somehow reached the paid branch — this
-        // happens if _selectedPlan is a paid plan the user already owns
-        // and has room under. No new payment is needed; proceed with
-        // the entitlement the user already has instead of erroring out.
       }
 
-      final refreshedEnt =
-          await entitlementSvc.getEntitlement(forceRefresh: true);
-      final refreshedPlan = refreshedEnt.plan ?? _selectedPlan;
+      // ── FIXED: resolve the plan to WRITE strictly from the Firestore
+      // profile whenever no new payment was just made this attempt.
+      // This is the value that must exactly equal profile.data.
+      // activePlanId (or its legacy-isPremium equivalent) for the
+      // Firestore security rules to accept the write.
+      MasterLeaguePlan? writePlan;
+      if (!needsPaymentNow) {
+        try {
+          writePlan = await entitlementSvc.getProfilePlanStrict(
+            forceRefresh: true,
+          );
+        } catch (e) {
+          if (!mounted) return;
+          _showMessage(
+            "We couldn't confirm your active plan. Please try again. "
+            '($e)',
+            error: true,
+          );
+          setState(() => _processing = false);
+          return;
+        }
+
+        if (writePlan == null ||
+            !(writePlan == MasterLeaguePlan.pro ||
+                writePlan == MasterLeaguePlan.elite)) {
+          // The profile genuinely has no active paid plan right now
+          // (expired, or was never activated) — a payment IS actually
+          // required, even though our earlier (looser) entitlement
+          // check thought otherwise. Fall through to the upgrade flow
+          // instead of writing a value that's guaranteed to be denied.
+          final upgraded = await _openInlineUpgrade();
+          if (!mounted) return;
+          if (!upgraded) {
+            setState(() => _processing = false);
+            return;
+          }
+          writePlan = _selectedPlan;
+        }
+      } else {
+        // A new payment was just verified this attempt — the plan the
+        // user just paid for is authoritative for this write.
+        writePlan = _selectedPlan;
+      }
+
       final refreshedWorkspaceCount =
           await entitlementSvc.countOwnedWorkspaces();
 
-      if (!refreshedPlan.canCreateWorkspace(refreshedWorkspaceCount)) {
+      if (!writePlan.canCreateWorkspace(refreshedWorkspaceCount)) {
         _showMessage(
           'You have reached the workspace limit for '
-          '${refreshedPlan.displayName} plan.',
+          '${writePlan.displayName} plan.',
           error: true,
         );
         setState(() => _processing = false);
         return;
       }
 
-      // Only require verified payment fields if a NEW payment was actually
-      // needed this attempt (needsPaymentNow). If the user already had
-      // enough room under their existing plan, we skip straight to
-      // creation using the free-tier creation path below.
       if (needsPaymentNow &&
           (_lastVerifiedAttemptId.trim().isEmpty ||
               _lastVerifiedPaymentId.trim().isEmpty ||
               _lastVerifiedReceiptId.trim().isEmpty)) {
-        // One more attempt: the payment may have succeeded but the
-        // verified fields failed to populate due to a transient issue.
-        // Try the upgrade flow once more before giving up, instead of
-        // immediately showing a dead-end error.
         final retried = await _openInlineUpgrade();
         if (!mounted) return;
         if (!retried ||
@@ -396,7 +412,7 @@ class _CreateMasterLeagueScreenState
       if (needsPaymentNow) {
         created = await repo.createAfterVerifiedPayment(
           masterLeagueName: masterLeagueName,
-          plan: refreshedPlan,
+          plan: writePlan,
           attemptId: _lastVerifiedAttemptId,
           paymentId: _lastVerifiedPaymentId,
           receiptId: _lastVerifiedReceiptId,
@@ -404,11 +420,11 @@ class _CreateMasterLeagueScreenState
         );
       } else {
         // User already has an active plan with room to spare — create
-        // directly the same way the free path does, just with the paid
-        // plan tag carried over.
+        // directly using the STRICT profile-resolved plan value, so it
+        // is guaranteed to match profile.data.activePlanId exactly.
         created = await repo.create(
           name: masterLeagueName,
-          plan: refreshedPlan,
+          plan: writePlan,
           initialCompetition: competition,
         );
       }
