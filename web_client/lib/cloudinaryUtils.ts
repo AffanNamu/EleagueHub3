@@ -1,3 +1,5 @@
+
+/*lib/CloudinaryUtils.ts*/
 export class CloudinaryUtils {
   private static UPLOAD_MARKER = '/image/upload/';
 

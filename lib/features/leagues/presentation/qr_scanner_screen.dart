@@ -20,6 +20,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/rewarded_ad_manager.dart';
+import '../../../core/services/plan_status_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -31,51 +32,6 @@ import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
 import '../models/membership.dart';
-
-// ---------------------------------------------------------------------------
-// # MONETIZATION GATE — HOW IT WORKS IN THIS FILE
-// ---------------------------------------------------------------------------
-// - On init, we load the user's plan from UserProfileRepository.
-// - _isPaidPlanUser = true  → user has an active paid plan → NO ad shown.
-// - _isPaidPlanUser = false → user is on free/basic plan  → MUST watch a
-//   rewarded video ad before joining via QR scan OR manual code entry.
-//
-// FLOW:
-//   _handleScan()
-//     → user selects join mode (_promptJoinMode)
-//     → IF free user:
-//         → show rewarded ad via RewardedAdManager.instance.showRewardedGate()
-//         → IF reward earned  → proceed with join
-//         → IF reward NOT earned → cancel join, reset scanner
-//     → IF paid user:
-//         → proceed with join immediately (no ad)
-//
-// Both entry points (QR scan + manual code) go through _handleScan(),
-// so a single gate covers both cases cleanly.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// # QR PAYLOAD PARSING — FIX SUMMARY
-// ---------------------------------------------------------------------------
-// The original _parseJoinPayload() only handled the custom scheme
-// "eleaguehub://" and plain 4-16 char alphanumeric codes.
-//
-// When QR codes are generated with HTTPS URLs (e.g. from the web version
-// or from share links), they were silently rejected and the scan appeared
-// to produce a "permission denied" error (because the join was never
-// actually attempted — null was returned and the error message shown was
-// the generic invalid-QR message, but in some flows it surfaced as the
-// permission-denied error from an earlier operation still in state).
-//
-// FIX: _parseJoinPayload() now also handles:
-//   - https://<any-host>/join?code=XXXXXX
-//   - https://<any-host>/join/<CODE>
-//   - https://<any-host>?code=XXXXXX
-//   - Any URI that has a "code" query parameter
-//
-// This covers deep links, web share links, and any future URL shapes,
-// while still accepting plain codes and the custom eleaguehub:// scheme.
-// ---------------------------------------------------------------------------
 
 class QRScannerScreen extends ConsumerStatefulWidget {
   final String initialJoinCode;
@@ -118,11 +74,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
   bool _desktopPairingApproved = false;
   String? _desktopPairingMessage;
 
-  // ── Monetization state ─────────────────────────────────────────────────────
   bool _isPaidPlanUser = false;
   bool _loadingPlanState = true;
   bool _rewardGateInProgress = false;
-  // ──────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -139,13 +93,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     _loadPlanState();
     _initScanner();
 
-    // Auto-trigger join if opened with a pre-filled code.
-    // This happens when the user opens the app via a deep link on mobile:
-    //   eleaguehub://join?code=ABC123
-    // The deep_link_gate routes to /join?code=ABC123 which opens
-    // QRScannerScreen with initialJoinCode pre-filled.
-    // We wait for the first frame so the widget tree is fully mounted
-    // before triggering the join flow.
     final autoCode = widget.initialJoinCode.trim();
     if (autoCode.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -156,6 +103,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     }
   }
 
+  // ── FIX: Strictly use PlanStatusService ──────────────────────────────────
   Future<void> _loadPlanState() async {
     final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
 
@@ -169,12 +117,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     }
 
     try {
-      final profile = await UserProfileRepository()
-          .fetchByUserId(uid)
-          .timeout(const Duration(seconds: 12));
-
-      final activePlan = profile?.activePlan;
-      final isPaid = activePlan != null && !activePlan.isFree;
+      final isPaid = await PlanStatusService.instance.isPaidPlanActive(uid, forceRefreshToken: true);
 
       if (!mounted) return;
       setState(() {
@@ -701,7 +644,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                 height: 1.3,
                               ),
                             ),
-                            const SizedBox(height: 14),
                             if (_isClassicFullViewerUnlockScenario(league))
                               Text(
                                 'Classic league is full. You can unlock '
@@ -1029,9 +971,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     _handleScan(raw);
   }
 
-  // ── _handleScan ────────────────────────────────────────────────────────────
-  // Central entry point for both QR scan and manual code entry.
-  // ──────────────────────────────────────────────────────────────────────────
   Future<void> _handleScan(String payload) async {
     if (_joining) return;
 
@@ -1066,7 +1005,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       return;
     }
 
-    // ── MONETIZATION GATE ──────────────────────────────────────────────────
     if (!_isPaidPlanUser) {
       setState(() {
         _rewardGateInProgress = true;
@@ -1099,7 +1037,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         return;
       }
     }
-    // ── END MONETIZATION GATE ──────────────────────────────────────────────
 
     setState(() {
       _joining = true;
@@ -1419,6 +1356,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                 },
                               ),
                             ),
+                            onSubmitted: (_) => Navigator.of(ctx)
+                                .pop(controller.text.trim()),
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -2296,37 +2235,19 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     );
   }
 
-  // ── _parseJoinPayload — FIXED ──────────────────────────────────────────────
-  //
-  // Now handles ALL of these payload shapes:
-  //
-  //   1. eleaguehub://join?code=XXXXXX       (custom scheme — original)
-  //   2. eleaguehub://?code=XXXXXX           (custom scheme, no path)
-  //   3. https://example.com/join?code=XXXX  (HTTPS deep link — NEW)
-  //   4. https://example.com/join/XXXXXX     (HTTPS path segment — NEW)
-  //   5. https://example.com?code=XXXXXX     (HTTPS query only — NEW)
-  //   6. XXXXXX                              (plain 4-16 char code — original)
-  //
-  // The web version and share-link QR codes produce shape 3 or 4.
-  // Without this fix those codes returned null → "invalid QR" error,
-  // which in some state combinations surfaced as "permission denied".
-  // ──────────────────────────────────────────────────────────────────────────
   _JoinParse? _parseJoinPayload(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return null;
 
-    // ── 1 & 2: Custom scheme (eleaguehub://) ──────────────────────────────
     if (trimmed.toLowerCase().startsWith('eleaguehub://')) {
       try {
         final uri = Uri.parse(trimmed);
 
-        // ?code= query parameter
         final codeParam = uri.queryParameters['code']?.trim() ?? '';
         if (codeParam.isNotEmpty) {
           return _JoinParse(code: codeParam.toUpperCase());
         }
 
-        // Path-segment fallback: eleaguehub://join/XXXXXX
         final segments = uri.pathSegments
             .map((s) => s.trim())
             .where((s) => s.isNotEmpty)
@@ -2341,13 +2262,11 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       return null;
     }
 
-    // ── 3, 4 & 5: HTTPS / HTTP URLs (web share links, deep links) ──────────
     if (trimmed.toLowerCase().startsWith('https://') ||
         trimmed.toLowerCase().startsWith('http://')) {
       try {
         final uri = Uri.parse(trimmed);
 
-        // ?code= query parameter (most common for web share links)
         final codeParam = uri.queryParameters['code']?.trim() ?? '';
         if (codeParam.isNotEmpty) {
           final normalized = codeParam.toUpperCase();
@@ -2356,8 +2275,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
           }
         }
 
-        // Path-segment: https://example.com/join/XXXXXX
-        // Take the last non-empty path segment and check if it looks like a code.
         final segments = uri.pathSegments
             .map((s) => s.trim())
             .where((s) => s.isNotEmpty)
@@ -2372,7 +2289,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       return null;
     }
 
-    // ── 6: Plain alphanumeric code (4-16 chars) ────────────────────────────
     final code = trimmed.toUpperCase();
     if (RegExp(r'^[A-Z0-9]{4,16}$').hasMatch(code)) {
       return _JoinParse(code: code);

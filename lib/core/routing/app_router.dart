@@ -1,6 +1,8 @@
 // lib/core/routing/app_router.dart
 //
-// MODIFIED: No new routes required.
+// MODIFIED: Added /messages and /chat/:threadId inside the '/' route
+// to support the premium-gated private messaging feature. Also added
+// profile/:userId and profile/:userId/squad.
 //
 // World Cup uses the existing routes:
 //   /leagues/:id/standings  → LeagueStandingsScreen (now handles worldCup format)
@@ -44,6 +46,8 @@ import '../../features/chat/presentation/global_chat_admin_requests_screen.dart'
 import '../../features/chat/presentation/global_chat_screen.dart';
 import '../../features/chat/presentation/league_chat_screen.dart';
 import '../../features/chat/presentation/organizer_chat_screen.dart';
+import '../../features/chat/presentation/private_chat_list_screen.dart';
+import '../../features/chat/presentation/private_chat_screen.dart';
 import '../../features/home/presentation/home_shell.dart';
 import '../../features/leagues/models/league_format.dart';
 import '../../features/leagues/presentation/add_teams_screen.dart';
@@ -77,7 +81,9 @@ import '../../features/master_leagues/presentation/master_leagues_list_screen.da
 import '../../features/master_leagues/presentation/organizer_discipline_screen.dart';
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/profile/presentation/public_team_profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
+import '../../features/profile/presentation/squad_screen.dart';
 import '../../web_app/presentation/web_desktop_session_store.dart';
 import '../../web_app/presentation/web_desktop_shell_screen.dart';
 import '../../web_app/presentation/web_pairing_screen.dart';
@@ -1302,6 +1308,20 @@ final appRouter = GoRouter(
           ],
         ),
         GoRoute(
+          path: 'profile/:userId',
+          builder: (context, state) => PublicTeamProfileScreen(
+            userId: state.pathParameters['userId']!,
+          ),
+        ),
+        GoRoute(
+          path: 'profile/:userId/squad',
+          builder: (context, state) => SquadScreen(
+            userId: state.pathParameters['userId']!,
+            isOwner: (FirebaseAuth.instance.currentUser?.uid.trim() ?? '') ==
+                state.pathParameters['userId'],
+          ),
+        ),
+        GoRoute(
           path: 'marketplace',
           builder: (context, state) =>
               const MarketplaceScreen(),
@@ -1310,6 +1330,20 @@ final appRouter = GoRouter(
           path: 'global-chat',
           builder: (context, state) =>
               const GlobalChatScreen(),
+        ),
+        GoRoute(
+          path: 'messages',
+          builder: (context, state) => const PrivateChatListScreen(),
+        ),
+        GoRoute(
+          path: 'chat/:threadId',
+          builder: (context, state) {
+            final extra = state.extra as Map<String, dynamic>? ?? {};
+            return PrivateChatScreen(
+              threadId: state.pathParameters['threadId']!,
+              otherUserName: (extra['otherName'] as String?) ?? 'User',
+            );
+          },
         ),
         GoRoute(
           path: 'live/join',

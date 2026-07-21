@@ -1,5 +1,3 @@
-// lib/features/profile/presentation/profile_screen.dart
-
 import 'dart:async';
 import 'dart:convert';
 
@@ -35,6 +33,7 @@ import '../../leagues/data/services/reward_firestore_service.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
 import '../../verification/domain/badge_model.dart';
+import '../../profile/data/trophy_service.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -902,7 +901,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                           final when = paidAtMs > 0
                                               ? DateTime
                                                       .fromMillisecondsSinceEpoch(
-                                                      paidAtMs)
+                                                          paidAtMs)
                                                   .toLocal()
                                                   .toString()
                                               : '—';
@@ -1551,20 +1550,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             children: [
                               Expanded(
                                 child: _ProfileActionChip(
-                                  icon: themeState.mode ==
-                                          ThemeMode.dark
-                                      ? Icons.light_mode_rounded
-                                      : Icons.dark_mode_rounded,
-                                  label: themeState.mode ==
-                                          ThemeMode.dark
-                                      ? 'Light'
-                                      : 'Dark',
+                                  icon: Icons.person_search_rounded,
+                                  label: 'Public View',
                                   onTap: () {
+                                    if (uid.isEmpty) return;
                                     HapticFeedback.selectionClick();
-                                    ref
-                                        .read(themeControllerProvider
-                                            .notifier)
-                                        .toggleTheme();
+                                    context.push('/profile/$uid');
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _ProfileActionChip(
+                                  icon: Icons.groups_rounded,
+                                  label: 'My Squad',
+                                  onTap: () {
+                                    if (uid.isEmpty) return;
+                                    HapticFeedback.selectionClick();
+                                    context.push('/profile/$uid/squad');
                                   },
                                 ),
                               ),
@@ -1573,40 +1576,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 child: _ProfileActionChip(
                                   icon: Icons.settings_rounded,
                                   label: 'Settings',
-                                  onTap: () =>
-                                      context.push('/settings'),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: _ProfileActionChip(
-                                  icon: Icons.logout_rounded,
-                                  label: 'Logout',
-                                  isDestructive: true,
-                                  onTap: () async {
-                                    final ok =
-                                        await _confirmLogout(
-                                            context);
-                                    if (!ok) return;
-                                    try {
-                                      await AuthService().signOut();
-                                    } catch (e) {
-                                      if (context.mounted) {
-                                        _snack(
-                                          context,
-                                          UserFriendlyError
-                                              .toMessage(
-                                            e is Object
-                                                ? e
-                                                : Exception(
-                                                    'unknown'),
-                                          ),
-                                        );
-                                      }
-                                      return;
-                                    }
-                                    if (!context.mounted) return;
-                                    context.go('/login');
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    context.push('/settings');
                                   },
                                 ),
                               ),
@@ -1717,8 +1689,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               if (!enabled) return false;
                               final dp =
                                   (m['couponDiscountPercent']
-                                              as num?)
-                                          ?.toInt() ??
+                                          as num?)
+                                      ?.toInt() ??
                                       0;
                               return dp >= 0;
                             })
@@ -1870,35 +1842,36 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     child: Column(
                       children: [
                         if (isSuperAdmin) ...[
-  _AdminRow(
-    icon: Icons
-        .store_mall_directory_rounded,
-    title: 'Marketplace Upload',
-    onTap: () =>
-        Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            const AdminMarketplaceUploadScreen(),
-      ),
-    ),
-  ),
-  Divider(
-    color: AppTheme.cardBorder(brightness),
-    height: 1,
-  ),
-  _AdminRow(
-    icon: Icons.shield_rounded,
-    title: 'Staff / Ambassadors',
-    onTap: () =>
-        GoRouter.of(context).push('/admin/staff-ambassadors'),
-  ),
-  if (isPricingAdmin)
-    Divider(
-      color:
-          AppTheme.cardBorder(brightness),
-      height: 1,
-    ),
-],   if (isPricingAdmin) ...[
+                          _AdminRow(
+                            icon: Icons
+                                .store_mall_directory_rounded,
+                            title: 'Marketplace Upload',
+                            onTap: () =>
+                                Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    const AdminMarketplaceUploadScreen(),
+                              ),
+                            ),
+                          ),
+                          Divider(
+                            color: AppTheme.cardBorder(brightness),
+                            height: 1,
+                          ),
+                          _AdminRow(
+                            icon: Icons.shield_rounded,
+                            title: 'Staff / Ambassadors',
+                            onTap: () =>
+                                GoRouter.of(context).push('/admin/staff-ambassadors'),
+                          ),
+                          if (isPricingAdmin)
+                            Divider(
+                              color:
+                                  AppTheme.cardBorder(brightness),
+                              height: 1,
+                            ),
+                        ],
+                        if (isPricingAdmin) ...[
                           _AdminRow(
                             icon: Icons.price_change_rounded,
                             title: 'Pricing (Quick Editor)',
@@ -1988,143 +1961,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ],
       ),
     );
-  }
-
-  Future<bool> _confirmLogout(BuildContext context) async {
-    final l10n = context.l10n;
-    final theme = Theme.of(context);
-    final t = theme.textTheme;
-    final brightness = theme.brightness;
-
-    final res = await showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      barrierColor: Colors.black.withOpacity(0.55),
-      builder: (ctx) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 24,
-          ),
-          child: Glass(
-            borderRadius: 26,
-            padding: const EdgeInsets.all(20),
-            fill: AppTheme.cardColor(brightness),
-            borderColor: AppTheme.cardBorder(brightness),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color:
-                              Colors.amber.withOpacity(0.14),
-                          borderRadius:
-                              BorderRadius.circular(14),
-                          border: Border.all(
-                            color:
-                                Colors.amber.withOpacity(0.35),
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.warning_amber_rounded,
-                          color: Colors.amber,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Text(
-                          l10n.tr(
-                              'profile_logout_dialog_title'),
-                          style: t.titleLarge?.copyWith(
-                            color:
-                                AppTheme.primaryText(brightness),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 20,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () =>
-                            Navigator.of(ctx).pop(false),
-                        icon: Icon(
-                          Icons.close,
-                          color:
-                              AppTheme.secondaryText(brightness),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Text(
-                      l10n.tr(
-                          'profile_logout_dialog_message'),
-                      style: TextStyle(
-                        color:
-                            AppTheme.secondaryText(brightness),
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor:
-                                AppTheme.primaryText(brightness),
-                            side: BorderSide(
-                              color:
-                                  AppTheme.cardBorder(brightness),
-                            ),
-                            padding:
-                                const EdgeInsets.symmetric(
-                                    vertical: 12),
-                          ),
-                          onPressed: () =>
-                              Navigator.of(ctx).pop(false),
-                          child: Text(
-                              l10n.tr('common_cancel')),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor:
-                                const Color(0xFFE53935),
-                            foregroundColor: Colors.white,
-                            padding:
-                                const EdgeInsets.symmetric(
-                                    vertical: 12),
-                          ),
-                          onPressed: () =>
-                              Navigator.of(ctx).pop(true),
-                          child: Text(l10n.tr(
-                              'profile_logout_button')),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-
-    return res ?? false;
   }
 
   Future<void> _editTeamName(
@@ -2428,6 +2264,11 @@ class _SuperAdminRewardsPanelState
         ),
     };
 
+    final teamOwnerIds = <String, String>{
+      for (final d in teamsSnap.docs)
+        d.id: _stringFrom(d.data()['ownerId'], fallback: d.id),
+    };
+
     final stats = <String, _TeamStats>{
       for (final id in teamNames.keys)
         id: _TeamStats(
@@ -2539,6 +2380,7 @@ class _SuperAdminRewardsPanelState
     final top = rows.first;
     return _WinnerResult(
       teamId: top.teamId,
+      ownerId: teamOwnerIds[top.teamId] ?? top.teamId,
       teamName: top.teamName,
       points: top.points,
       played: top.played,
@@ -2854,6 +2696,42 @@ class _SuperAdminRewardsPanelState
                                             'W-D-L',
                                             '${res.wins}-${res.draws}-${res.losses}',
                                           ),
+                                          const SizedBox(height: 10),
+                                          SizedBox(
+                                            width: double.infinity,
+                                            child: FilledButton.icon(
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor: const Color(0xFFFFD54F),
+                                                foregroundColor: Colors.black,
+                                              ),
+                                              onPressed: () async {
+                                                final leagueName = _stringFrom(
+                                                  leagueData['name'],
+                                                  fallback: 'League',
+                                                );
+                                                await TrophyService().awardTrophy(
+                                                  teamOwnerId: res.ownerId,
+                                                  trophyId: '${d.id}_final',
+                                                  leagueId: d.id,
+                                                  leagueName: leagueName,
+                                                  position: 1,
+                                                  season: DateTime.now().year.toString(),
+                                                );
+                                                if (!ctx.mounted) return;
+                                                ScaffoldMessenger.of(context)
+                                                    .showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Trophy awarded to winning team.',
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                              icon: const Icon(
+                                                  Icons.emoji_events_rounded),
+                                              label: const Text('Award Trophy'),
+                                            ),
+                                          ),
                                           const SizedBox(
                                               height: 12),
                                           Row(
@@ -2934,7 +2812,6 @@ class _SuperAdminRewardsPanelState
                     );
                   },
                 ),
-                const SizedBox(height: 10),
               ],
             ],
           );
@@ -2972,6 +2849,11 @@ class _SuperAdminRewardsPanelState
         ],
       ),
     );
+  }
+
+  String _stringFrom(dynamic v, {String fallback = ''}) {
+    final s = (v ?? '').toString();
+    return s.trim().isEmpty ? fallback : s.trim();
   }
 }
 
@@ -3285,6 +3167,7 @@ class _TeamStats {
 class _WinnerResult {
   const _WinnerResult({
     required this.teamId,
+    required this.ownerId,
     required this.teamName,
     required this.points,
     required this.played,
@@ -3297,6 +3180,7 @@ class _WinnerResult {
   });
 
   final String teamId;
+  final String ownerId;
   final String teamName;
   final int points;
   final int played;

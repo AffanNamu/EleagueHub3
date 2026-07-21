@@ -1,3 +1,5 @@
+
+/* app/(dashboard)/league/[id]/layout*/
 import { Metadata, ResolvingMetadata } from 'next';
 import { adminDb } from '@/lib/firebase-admin';
 

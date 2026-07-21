@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { League } from '@/types/league';
 import { useLeagueAccess } from '@/hooks/useLeagueAccess';
 import { useCouponRedemption } from '@/hooks/useCouponRedemption';
-import { useWebCheckout } from '@/hooks/useWebCheckout';
+import { payWithFlutterwave } from '@/lib/payments/flutterwavePay';
+import { getRemotePricingPlan } from '@/lib/payments/remotePricing';
 
 import { Glass } from '@/components/ui/Glass';
 import { Loader2, Lock, Key, ShieldAlert } from 'lucide-react';
@@ -12,31 +13,61 @@ export const LeagueAccessGate = ({ league, children }: { league: League, childre
   const { redeemCoupon, redeeming, error: couponError } = useCouponRedemption(league.id);
   const [code, setCode] = useState('');
 
-  const { initiateCheckout, processing: paying, error: payError } = useWebCheckout();
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
 
   const handlePayEntryFee = async () => {
-    // Determine fee based on your app's rules, hardcoded for demo
-    const fee = 10.00; 
-    
-    const success = await initiateCheckout({
-      provider: 'crossmint_web', // Upgraded from Stripe/Flutterwave placeholder
-      currency: 'USD',
-      amount: fee,
-      amountStr: fee.toString(),
-      leagueId: league.id,
-      leagueName: league.name,
-      productType: 'league_entry_fee',
-      productSubType: 'classic_participant',
-      items: [{
-        productType: 'league_entry',
-        productSubType: 'classic',
-        quantity: 1,
-        amount: fee
-      }]
-    });
+    setPaying(true);
+    setPayError(null);
 
-    if (success) {
+    try {
+      const plan = await getRemotePricingPlan();
+
+      if (!plan.paymentsEnabled) {
+        setPayError('Payments are temporarily disabled by the administrator.');
+        return;
+      }
+      if (!plan.flutterwaveEnabled) {
+        setPayError('Flutterwave payments are currently unavailable.');
+        return;
+      }
+
+      const fee = plan.accessFee;
+      if (fee <= 0) {
+        setPayError('League access price is not configured correctly.');
+        return;
+      }
+
+      const result = await payWithFlutterwave({
+        amount: fee,
+        currency: plan.currency,
+        leagueId: league.id,
+        leagueName: league.name,
+        productType: 'league_access',
+        productSubType: 'league_standard_access',
+        description: `League access: ${league.name}`,
+        items: [
+          {
+            productType: 'league_access',
+            productSubType: 'league_standard_access',
+            quantity: 1,
+            amount: fee,
+          },
+        ],
+        // Payment method (card vs googlepay) recorded for analytics only.
+        metadata: {},
+      });
+
+      if (!result.success) {
+        setPayError(result.errorMessage || 'Payment failed.');
+        return;
+      }
+
       window.location.reload(); // Reload to pass the access gate
+    } catch (e) {
+      setPayError(e instanceof Error ? e.message : 'Payment failed.');
+    } finally {
+      setPaying(false);
     }
   };
 
@@ -99,6 +130,7 @@ export const LeagueAccessGate = ({ league, children }: { league: League, childre
         >
           {paying ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Pay Entry Fee'}
         </button>
+        <p className="text-[10px] text-gray-500 mt-3">Card and Google Pay accepted via Flutterwave.</p>
     
       </Glass>
     </div>

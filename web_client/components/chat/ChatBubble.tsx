@@ -1,42 +1,145 @@
-import React from 'react';
-import { ChatMessage } from '@/types/chat';
-import { auth } from '@/lib/firebase';
-import { cn } from '@/lib/utils';
-import { Shield } from 'lucide-react';
+'use client';
 
-export const ChatBubble = ({ message }: { message: ChatMessage }) => {
-  const isMe = auth.currentUser?.uid === message.senderId;
+import React, { useEffect, useState } from 'react';
+import { ChatMessage } from '@/types/chat';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { cn } from '@/lib/utils';
+import { Shield, BadgeCheck, Pin } from 'lucide-react';
+
+type ExtendedChatMessage = ChatMessage & {
+  imageUrl?: string;
+  voiceUrl?: string;
+  type?: string;
+};
+
+export const ChatBubble = ({ message }: { message: ExtendedChatMessage }) => {
+  const isMine = auth.currentUser?.uid === message.senderId;
+  const [badges, setBadges] = useState({ staff: false, organizer: false, green: false });
+
+  // Safely fetch the sender's badge status from their user profile
+  useEffect(() => {
+    const fetchBadges = async () => {
+      if (!message.senderId) return;
+      try {
+        const userDoc = await getDoc(doc(db, 'users', message.senderId));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          const v = data.verification || {};
+          setBadges({
+            staff: v.staffVerified === true,
+            organizer: v.organizerVerified === true || data.isVerifiedOrganizer === true,
+            green: v.greenVerified === true || data.verifiedBadge === true,
+          });
+        }
+      } catch (err) {
+        // Silently ignore
+      }
+    };
+    fetchBadges();
+  }, [message.senderId]);
+
+  const renderBadge = () => {
+    if (badges.staff) {
+      return (
+        <span title="Staff / Ambassador" className="flex items-center ml-1">
+          <BadgeCheck className="w-3.5 h-3.5 text-[#E9D5FF] fill-[#9333EA] drop-shadow-[0_0_5px_rgba(147,51,234,0.9)]" />
+        </span>
+      );
+    }
+    if (badges.organizer) {
+      return (
+        <span title="Official Organizer" className="flex items-center ml-1">
+          <BadgeCheck className="w-3.5 h-3.5 text-[#FEF08A] fill-[#F59E0B] drop-shadow-[0_0_5px_rgba(245,158,11,0.9)]" />
+        </span>
+      );
+    }
+    if (badges.green) {
+      return (
+        <span title="Verified User" className="flex items-center ml-1">
+          <BadgeCheck className="w-3.5 h-3.5 text-[#BBF7D0] fill-[#22C55E] drop-shadow-[0_0_5px_rgba(34,197,94,0.9)]" />
+        </span>
+      );
+    }
+    return null;
+  };
 
   return (
-    <div className={cn("flex w-full mb-4", isMe ? "justify-end" : "justify-start")}>
-      <div className={cn("flex max-w-[75%] gap-2", isMe ? "flex-row-reverse" : "flex-row")}>
+    <div className={cn("flex w-full mb-4", isMine ? "justify-end" : "justify-start")}>
+      <div className={cn("flex max-w-[85%] md:max-w-[75%] gap-2.5", isMine ? "flex-row-reverse" : "flex-row")}>
         
         {/* Avatar */}
-        <div className="flex-shrink-0">
-          {message.senderPhoto ? (
-            <img src={message.senderPhoto} alt={message.senderName} className="w-8 h-8 rounded-full object-cover border border-white/10" />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-brand-surface border border-white/10 flex items-center justify-center">
-              <Shield className="w-4 h-4 text-gray-400" />
-            </div>
-          )}
-        </div>
+        {!isMine && (
+          <div className="flex-shrink-0 mt-4">
+            {message.senderPhoto ? (
+              <img src={message.senderPhoto} alt={message.senderName} className="w-8 h-8 rounded-full object-cover border border-[#1E293B]" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-[#1E293B] border border-white/10 flex items-center justify-center">
+                <Shield className="w-4 h-4 text-gray-400" />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Message Body */}
         <div className={cn(
           "flex flex-col", 
-          isMe ? "items-end" : "items-start"
+          isMine ? "items-end" : "items-start"
         )}>
-          <span className="text-xs text-gray-400 mb-1 px-1">{message.senderName}</span>
+          
+          {/* Name & Badge Container */}
+          {!isMine && (
+            <span className="text-[11px] font-bold text-gray-500 mb-1 px-1 flex items-center">
+              {message.senderName}
+              {renderBadge()}
+            </span>
+          )}
+          
           <div className={cn(
-            "px-4 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words",
-            isMe 
-              ? "bg-brand-lime text-brand-navy rounded-tr-sm font-medium" 
-              : "bg-brand-surface border border-white/5 text-white rounded-tl-sm"
+            "px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words flex flex-col gap-2 relative shadow-md",
+            isMine 
+              ? "bg-brand-lime text-brand-navy rounded-2xl rounded-tr-sm font-medium" 
+              : "bg-[#0B1221] border border-[#1E293B] text-white rounded-2xl rounded-tl-sm"
           )}>
-            {message.deleted ? <i className="text-opacity-50">Message deleted</i> : message.text}
+            {message.pinned && (
+              <Pin className={`w-3 h-3 absolute -top-1.5 -right-1.5 ${isMine ? 'text-brand-navy' : 'text-[#38BDF8]'}`} />
+            )}
+            
+            {message.deleted ? (
+              <i className="opacity-50 text-xs">Message deleted</i>
+            ) : (
+              <>
+                {/* Image Attachment Rendering */}
+                {message.imageUrl && message.type === 'image' && (
+                  <a href={message.imageUrl} target="_blank" rel="noopener noreferrer" className="block w-full">
+                    <img 
+                      src={message.imageUrl} 
+                      alt="Chat Attachment" 
+                      className="w-full max-w-[240px] md:max-w-xs rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity border border-black/10"
+                      loading="lazy"
+                    />
+                  </a>
+                )}
+
+                {/* Voice Note Rendering */}
+                {message.voiceUrl && message.type === 'voice' && (
+                  <audio 
+                    controls 
+                    src={message.voiceUrl} 
+                    className={cn(
+                      "h-10 w-[200px] md:w-[240px] outline-none rounded-lg",
+                      isMine ? "opacity-90 invert" : "opacity-100"
+                    )} 
+                  />
+                )}
+                
+                {/* Text Content */}
+                {message.text && <span>{message.text}</span>}
+              </>
+            )}
           </div>
-          <span className="text-[10px] text-gray-500 mt-1 px-1">
+          
+          <span className={cn("text-[10px] text-gray-500 mt-1 px-1", isMine ? "text-right" : "text-left")}>
             {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>

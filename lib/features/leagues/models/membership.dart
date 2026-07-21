@@ -1,3 +1,4 @@
+//membership.dart
 /// Defines the roles a user can have within a league.
 enum LeagueRole { organizer, member }
 

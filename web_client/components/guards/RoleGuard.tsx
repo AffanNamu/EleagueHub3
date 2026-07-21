@@ -6,6 +6,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { Loader2, ShieldAlert } from 'lucide-react';
 import { Glass } from '@/components/ui/Glass';
+import { leagueFromRemoteMap, isOwnerForViewer } from '@/lib/models/league';
 
 interface RoleGuardProps {
   leagueId: string;
@@ -19,27 +20,65 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({ leagueId, allowedRoles, ch
   const router = useRouter();
 
   useEffect(() => {
+    let cancelled = false;
+
     const checkRole = async () => {
-      if (!auth.currentUser || !leagueId) return;
+      const uid = auth.currentUser?.uid;
+      if (!uid || !leagueId) return;
+
       try {
-        // Fetch the user's specific role in this league
-        const memberDoc = await getDoc(doc(db, 'leagues', leagueId, 'members', auth.currentUser.uid));
-        
-        if (memberDoc.exists()) {
-          const userRole = memberDoc.data().role;
-          setHasAccess(allowedRoles.includes(userRole));
-        } else {
-          setHasAccess(false); // Not a member
+        // ── Single source of truth for ownership ──────────────────────────
+        // This mirrors exactly how fetchFullLeagueDetails / the league
+        // detail page determine ownership, so this guard never disagrees
+        // with what the rest of the app already showed the user:
+        //   1) league.organizerUid / organizerUserId matches the viewer, OR
+        //   2) a doc in leagues/{id}/memberships/{uid} with role === 0
+        // Previously this guard queried a non-existent "members" subcollection
+        // expecting string roles, which always failed and denied everyone.
+        const leagueRef = doc(db, 'leagues', leagueId);
+        const membershipRef = doc(db, 'leagues', leagueId, 'memberships', uid);
+
+        const [leagueSnap, membershipSnap] = await Promise.all([
+          getDoc(leagueRef),
+          getDoc(membershipRef),
+        ]);
+
+        if (!leagueSnap.exists()) {
+          if (!cancelled) setHasAccess(false);
+          return;
         }
+
+        const league = leagueFromRemoteMap({ ...leagueSnap.data(), id: leagueSnap.id });
+
+        const isOwnerByLeague = isOwnerForViewer(league, uid);
+        const isOwnerByMembership = membershipSnap.exists() && membershipSnap.data()?.role === 0;
+        const isOwner = isOwnerByLeague || isOwnerByMembership;
+
+        // The app currently only models organizer vs. member. Treat any of
+        // 'owner' / 'admin' / 'moderator' in allowedRoles as "requires
+        // organizer access" until distinct admin/moderator roles exist
+        // in Firestore.
+        const requiresOwner =
+          allowedRoles.includes('owner') ||
+          allowedRoles.includes('admin') ||
+          allowedRoles.includes('moderator');
+
+        const access = requiresOwner ? isOwner : false;
+
+        if (!cancelled) setHasAccess(access);
       } catch (error) {
-        console.error("Error checking role", error);
-        setHasAccess(false);
+        console.error('Error checking role', error);
+        if (!cancelled) setHasAccess(false);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     checkRole();
+    return () => {
+      cancelled = true;
+    };
+
   }, [leagueId, allowedRoles]);
 
   if (loading) {

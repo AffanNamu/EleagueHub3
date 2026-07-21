@@ -1,3 +1,5 @@
+/*type/league.ts*/
+
 export type LeagueFormat = 'classic' | 'uclGroup' | 'uclSwiss' | 'worldCup';
 export type LeaguePrivacy = 'public' | 'private';
 export type FootballCategory = 'localFootball' | 'proFootball' | 'esports'; // Matches your app's categories

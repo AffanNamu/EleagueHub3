@@ -1,268 +1,443 @@
+
+/*  LeaguesListPage */
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { doc, getDocs, collection, query, where, updateDoc, arrayUnion, setDoc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
-import { useLeagues } from '@/hooks/useLeagues';
-import { useEntitlements } from '@/hooks/useEntitlements';
-import { Glass } from '@/components/ui/Glass';
-import { Loader2, Search, Trophy, Network, Plus, Key, Eye, Users, ShieldAlert } from 'lucide-react';
-import Link from 'next/link';
+import { auth } from '@/lib/firebase';
+import {
+  LeagueData,
+  Membership,
+  leagueIsInsideMasterLeague,
+  isOwnerForViewer,
+} from '@/lib/models/league';
+import { FootballCategory, ALL_FOOTBALL_CATEGORIES } from '@/lib/models/footballCategory';
+import {
+  fetchLeaguesForUser,
+  fetchMembershipsForUser,
+  countParticipants,
+  fetchLatestAnnouncement,
+  LatestAnnouncement,
+  detectPremiumUser,
+  countCreatedLeagues,
+  leaveLeagueWeb,
+  joinLeagueByCode,
+} from '@/lib/leagues/leaguesRepository';
+import { LeagueCard, LeagueCardSkeleton } from '@/components/leagues/LeagueCard';
+import { FootballCategoryChip } from '@/components/leagues/FootballCategoryChip';
+import { JoinLeagueModal } from '@/components/leagues/JoinLeagueModal';
+import { Search, RefreshCw, Plus, Trophy, Network, X } from 'lucide-react';
 
-export default function LeaguesScreen() {
+const FREE_LEAGUE_LIST_LIMIT = 3;
+
+type ViewTab = 'leagues' | 'master';
+
+export default function LeaguesListPage() {
   const router = useRouter();
-  const { leagues, loading: leaguesLoading, error } = useLeagues();
-  const { activePlan, loading: planLoading } = useEntitlements();
 
-  // Mirrors mobile state
-  const [activeTab, setActiveTab] = useState<'normal' | 'master'>('normal');
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  // Join Modal State
-  const [showJoinModal, setShowJoinModal] = useState(false);
-  const [joinCode, setJoinCode] = useState('');
-  const [joinMode, setJoinMode] = useState<'participant' | 'viewer'>('participant');
-  const [joining, setJoining] = useState(false);
+  const [uid, setUid] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [leagues, setLeagues] = useState<LeagueData[]>([]);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
+  const [participantCounts, setParticipantCounts] = useState<Record<string, number>>({});
+  const [announcements, setAnnouncements] = useState<Record<string, LatestAnnouncement | null>>({});
+  const [isPremium, setIsPremium] = useState(false);
+  const [createdCount, setCreatedCount] = useState(0);
+  const [checkingAccess, setCheckingAccess] = useState(true);
 
-  const FREE_LEAGUE_LIMIT = 3;
-  
-  // Calculate total created to enforce limits
-  const createdLeaguesCount = leagues.filter(l => l.organizerId === auth.currentUser?.uid).length;
-  const isFreeLimitReached = activePlan === 'basic' && createdLeaguesCount >= FREE_LEAGUE_LIMIT;
+  const [tab, setTab] = useState<ViewTab>('leagues');
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<FootballCategory | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [joinModalOpen, setJoinModalOpen] = useState(false);
+  const [leaveTarget, setLeaveTarget] = useState<LeagueData | null>(null);
 
-  const handleJoinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!joinCode.trim() || !auth.currentUser) return;
-    setJoining(true);
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+      setUid(user.uid);
+    });
+    return () => unsubscribe();
+  }, [router]);
+
+  const loadAll = useCallback(async () => {
+    if (!uid) return;
+    setLoading(true);
+    setCheckingAccess(true);
 
     try {
-      const code = joinCode.trim().toUpperCase();
-      const q = query(collection(db, 'leagues'), where('id', '==', code)); // Using ID as code fallback for now
-      const snap = await getDocs(q);
+      const [fetchedLeagues, premium, created] = await Promise.all([
+        fetchLeaguesForUser(uid),
+        detectPremiumUser(uid),
+        countCreatedLeagues(uid),
+      ]);
 
-      if (snap.empty) throw new Error("No league found with that code.");
-      const leagueDoc = snap.docs[0];
-      const leagueId = leagueDoc.id;
-      const uid = auth.currentUser.uid;
+      const fetchedMemberships = await fetchMembershipsForUser(uid, fetchedLeagues);
 
-      // 1. Add to memberIds
-      await updateDoc(doc(db, 'leagues', leagueId), {
-        memberIds: arrayUnion(uid)
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        fetchedLeagues.map(async (l) => {
+          counts[l.id] = await countParticipants(l.id);
+        }),
+      );
+
+      setLeagues(fetchedLeagues);
+      setMemberships(fetchedMemberships);
+      setParticipantCounts(counts);
+      setIsPremium(premium);
+      setCreatedCount(created);
+      setCheckingAccess(false);
+      setLoading(false);
+
+      fetchedLeagues.forEach(async (l) => {
+        const ann = await fetchLatestAnnouncement(l.id);
+        setAnnouncements((prev) => ({ ...prev, [l.id]: ann }));
       });
+    } catch (e) {
+      console.error('[LeaguesListPage] load failed:', e);
+      setLoading(false);
+      setCheckingAccess(false);
+    }
+  }, [uid]);
 
-      // 2. Set membership document based on role
-      if (joinMode === 'participant') {
-        const memRef = doc(db, 'leagues', leagueId, 'memberships', uid);
-        await setDoc(memRef, {
-          userId: uid,
-          role: 'participant',
-          joinedAt: Date.now()
-        }, { merge: true });
-      } else {
-        const memRef = doc(db, 'leagues', leagueId, 'memberships', uid);
-        await setDoc(memRef, {
-          userId: uid,
-          role: 'viewer',
-          joinedAt: Date.now()
-        }, { merge: true });
-      }
+  useEffect(() => {
+    if (uid) loadAll();
+  }, [uid, loadAll]);
 
-      alert(`Successfully joined as ${joinMode}!`);
-      setShowJoinModal(false);
-      setJoinCode('');
-    } catch (err: any) {
-      alert(err.message);
+  const normalLeagues = useMemo(() => leagues.filter((l) => !leagueIsInsideMasterLeague(l)), [leagues]);
+  const masterLeagues = useMemo(() => leagues.filter((l) => leagueIsInsideMasterLeague(l)), [leagues]);
+
+  const filtered = useMemo(() => {
+    let base = tab === 'leagues' ? normalLeagues : masterLeagues;
+    if (categoryFilter) base = base.filter((l) => l.footballCategory === categoryFilter);
+
+    const q = search.trim().toLowerCase();
+    if (!q) return base;
+
+    return base.filter((league) => {
+      const ann = announcements[league.id];
+      const haystack = [
+        league.name,
+        league.region,
+        league.season,
+        league.description,
+        league.code,
+        league.masterLeagueId,
+        ann?.title ?? '',
+        ann?.message ?? '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [tab, normalLeagues, masterLeagues, categoryFilter, search, announcements]);
+
+  const freeLimitReached = !isPremium && createdCount >= FREE_LEAGUE_LIST_LIMIT;
+
+  const handleLeave = async () => {
+    if (!leaveTarget || !uid) return;
+    setRemovingId(leaveTarget.id);
+    try {
+      await leaveLeagueWeb(leaveTarget.id, uid);
+      setLeaveTarget(null);
+      await loadAll();
+    } catch (e) {
+      console.error('[LeaguesListPage] leave failed:', e);
     } finally {
-      setJoining(false);
+      setRemovingId(null);
     }
   };
 
-  const handleCreateClick = (e: React.MouseEvent) => {
-    if (isFreeLimitReached) {
-      e.preventDefault();
-      alert(`Basic users can create up to ${FREE_LEAGUE_LIMIT} total competitions. Please upgrade your plan to create more.`);
-    }
+  const handleJoin = async (code: string, mode: 'participant' | 'viewer') => {
+    if (!uid) return;
+    const leagueId = await joinLeagueByCode(code, uid, mode);
+    setJoinModalOpen(false);
+    await loadAll();
+    router.push(`/leagues/${leagueId}`);
   };
 
-  // Filter Logic (O(n) just like Dart _filteredLeagues)
-  const filteredLeagues = leagues.filter(l => {
-    const isMaster = !!(l.masterLeagueId && l.masterLeagueId.trim() !== '');
-    if (activeTab === 'normal' && isMaster) return false;
-    if (activeTab === 'master' && !isMaster) return false;
-    if (categoryFilter && l.footballCategory !== categoryFilter) return false;
-    if (searchQuery && !l.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    return true;
-  });
-
-  if (leaguesLoading || planLoading) return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 text-brand-lime animate-spin" /></div>;
+  if (!uid) return null;
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-10">
-      
-      {/* Top Header & Search */}
-      <Glass className="p-4 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-white flex items-center gap-2">
-            <Trophy className="w-6 h-6 text-brand-lime" />
-            My Leagues
-          </h1>
-          <p className="text-sm text-gray-400 mt-1">
-            {activePlan === 'basic' ? `Free Plan: ${createdLeaguesCount} / ${FREE_LEAGUE_LIMIT} slots used` : 'Pro Plan Active: Unlimited slots'}
-          </p>
-        </div>
-        
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input 
-              type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search leagues..." 
-              className="w-full pl-9 pr-4 py-2 bg-brand-surface border border-white/10 rounded-xl text-white focus:border-brand-lime text-sm"
-            />
+    <div className="min-h-screen bg-slate-50 dark:bg-[#081120] transition-colors duration-300">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-brand-lime/15 border border-brand-lime/30 flex items-center justify-center shrink-0">
+              <Trophy className="w-5 h-5 text-brand-lime" />
+            </div>
+            <div>
+              <h1 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">My Leagues</h1>
+              <p className="text-xs font-semibold text-slate-400">
+                {loading ? 'Loading...' : `${leagues.length} league${leagues.length === 1 ? '' : 's'}`}
+              </p>
+            </div>
           </div>
-          <button 
-            onClick={() => setShowJoinModal(true)}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-brand-surface border border-brand-lime/30 text-brand-lime font-bold rounded-xl hover:bg-brand-lime/10"
-          >
-            <Key className="w-4 h-4" /> Join
-          </button>
-          <Link 
-            href="/leagues/create"
-            onClick={handleCreateClick}
-            className={`flex items-center justify-center gap-2 px-4 py-2 font-bold rounded-xl ${isFreeLimitReached ? 'bg-amber-500 text-black hover:bg-amber-400' : 'bg-brand-lime text-brand-navy hover:bg-brand-lime/90'}`}
-          >
-            {isFreeLimitReached ? <ShieldAlert className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-            {isFreeLimitReached ? 'Upgrade' : 'Create'}
-          </Link>
-        </div>
-      </Glass>
 
-      {/* Tabs & Filters */}
-      <div className="flex flex-col gap-4">
-        {/* Tab Switcher (_TopLeagueSwitcher) */}
-        <div className="flex bg-brand-surface p-1 rounded-2xl w-fit border border-white/5">
-          <button 
-            onClick={() => setActiveTab('normal')}
-            className={`px-6 py-2 rounded-xl text-sm font-bold transition-colors flex items-center gap-2 ${activeTab === 'normal' ? 'bg-brand-lime text-black' : 'text-gray-400 hover:text-white'}`}
-          >
-            <Trophy className="w-4 h-4" /> Leagues
-          </button>
-          <button 
-            onClick={() => setActiveTab('master')}
-            className={`px-6 py-2 rounded-xl text-sm font-bold transition-colors flex items-center gap-2 ${activeTab === 'master' ? 'bg-[#38BDF8] text-black' : 'text-gray-400 hover:text-white'}`}
-          >
-            <Network className="w-4 h-4" /> Network Competitions
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadAll}
+              className="w-10 h-10 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-white/10 flex items-center justify-center transition-colors"
+              aria-label="Refresh"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setJoinModalOpen(true)}
+              className="px-4 h-10 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-700 dark:text-slate-200 text-sm font-bold hover:bg-slate-50 dark:hover:bg-white/10 transition-colors"
+            >
+              Join league
+            </button>
+            <button
+              onClick={() => router.push('/leagues/create')}
+              className="px-4 h-10 rounded-xl bg-brand-lime text-slate-900 text-sm font-black hover:brightness-95 transition-all flex items-center gap-1.5 shadow-lg shadow-brand-lime/20"
+            >
+              <Plus className="w-4 h-4" />
+              Create
+            </button>
+          </div>
         </div>
 
-        {/* Category Chips (_FilterChip) */}
-        <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide">
-          <button onClick={() => setCategoryFilter(null)} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border ${!categoryFilter ? 'bg-white/20 border-white text-white' : 'bg-brand-surface border-white/5 text-gray-400'}`}>
-            All
+        {!checkingAccess && (
+          <div
+            className={`mb-6 rounded-2xl border px-4 py-3 text-xs font-bold flex items-center gap-2 ${
+              freeLimitReached
+                ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400'
+                : isPremium
+                  ? 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime'
+                  : 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400'
+            }`}
+          >
+            {isPremium
+              ? 'Paid plan active — you can create more than 3 leagues/competitions.'
+              : freeLimitReached
+                ? `Basic limit reached: ${createdCount} / ${FREE_LEAGUE_LIST_LIMIT} leagues or competitions created. Upgrade to create more.`
+                : `Basic access: ${createdCount} / ${FREE_LEAGUE_LIST_LIMIT} shared creation slots used.`}
+          </div>
+        )}
+
+        <div className="relative mb-4">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search leagues, codes, announcements..."
+            className="w-full pl-11 pr-10 py-3 bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-white/10 rounded-2xl text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-brand-lime transition-colors"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="inline-flex p-1 bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-white/10 rounded-full mb-4">
+          <TabPill
+            active={tab === 'leagues'}
+            label="Leagues"
+            count={normalLeagues.length}
+            onClick={() => setTab('leagues')}
+          />
+          <TabPill
+            active={tab === 'master'}
+            label="Master"
+            count={masterLeagues.length}
+            onClick={() => setTab('master')}
+            icon={Network}
+          />
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-2 mb-6 -mx-1 px-1">
+          <FootballCategoryChip category={null} selected={categoryFilter === null} onClick={() => setCategoryFilter(null)} />
+          {ALL_FOOTBALL_CATEGORIES.map((cat) => (
+            <FootballCategoryChip
+              key={cat}
+              category={cat}
+              selected={categoryFilter === cat}
+              onClick={() => setCategoryFilter(cat)}
+            />
+          ))}
+        </div>
+
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <LeagueCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            hasSearch={search.trim().length > 0}
+            isMasterTab={tab === 'master'}
+            onClearSearch={() => setSearch('')}
+            onCreate={() => router.push('/leagues/create')}
+          />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+            {filtered.map((league) => {
+              const viewerUid = uid;
+              const owner = isOwnerForViewer(league, viewerUid);
+              const participant = memberships.some(
+                (m) => m.leagueId === league.id && m.userId === viewerUid && (m.role === 'organizer' || m.role === 'member'),
+              );
+              return (
+                <LeagueCard
+                  key={league.id}
+                  league={league}
+                  registered={participantCounts[league.id] ?? 0}
+                  isOwner={owner}
+                  isViewerOnly={!owner && !participant}
+                  latestAnnouncement={announcements[league.id] ?? null}
+                  showMasterBadge={tab !== 'master'}
+                  removing={removingId === league.id}
+                  onOpen={() => router.push(`/leagues/${league.id}`)}
+                  onLeave={() => setLeaveTarget(league)}
+                  onOpenWorkspace={
+                    league.masterLeagueId.trim()
+                      ? () => router.push(`/master-leagues/${league.masterLeagueId.trim()}`)
+                      : undefined
+                  }
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {joinModalOpen && <JoinLeagueModal onClose={() => setJoinModalOpen(false)} onJoin={handleJoin} />}
+
+      {leaveTarget && (
+        <LeaveConfirmModal
+          leagueName={leaveTarget.name}
+          busy={removingId === leaveTarget.id}
+          onCancel={() => setLeaveTarget(null)}
+          onConfirm={handleLeave}
+        />
+      )}
+    </div>
+  );
+}
+
+function TabPill({
+  active,
+  label,
+  count,
+  onClick,
+  icon: Icon,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+  icon?: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-black transition-all ${
+        active 
+          ? 'bg-brand-lime text-slate-900' 
+          : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white'
+      }`}
+    >
+      {Icon && <Icon className="w-3.5 h-3.5" />}
+      {label}
+      {count > 0 && <span className="opacity-70">({count})</span>}
+    </button>
+  );
+}
+
+function EmptyState({
+  hasSearch,
+  isMasterTab,
+  onClearSearch,
+  onCreate,
+}: {
+  hasSearch: boolean;
+  isMasterTab: boolean;
+  onClearSearch: () => void;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <div className="text-center max-w-sm">
+        <div className="w-16 h-16 mx-auto rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center mb-5">
+          {hasSearch ? (
+            <Search className="w-7 h-7 text-brand-lime" />
+          ) : isMasterTab ? (
+            <Network className="w-7 h-7 text-brand-lime" />
+          ) : (
+            <Trophy className="w-7 h-7 text-brand-lime" />
+          )}
+        </div>
+        <h3 className="text-lg font-black text-slate-900 dark:text-white mb-2">
+          {hasSearch ? 'No leagues match your search' : isMasterTab ? 'No master competitions yet' : 'No leagues yet'}
+        </h3>
+        <p className="text-sm text-slate-400 font-medium leading-relaxed mb-6">
+          {hasSearch
+            ? 'Try another search term for league name, code, region, or announcement.'
+            : isMasterTab
+              ? 'Competitions you join from a master league container will appear here.'
+              : 'Create your first league or join one with a code to get started.'}
+        </p>
+        <button
+          onClick={hasSearch ? onClearSearch : onCreate}
+          className="px-5 py-3 bg-brand-lime text-slate-900 text-sm font-black rounded-2xl hover:brightness-95 transition-all inline-flex items-center gap-2"
+        >
+          {hasSearch ? 'Clear search' : (
+            <>
+              <Plus className="w-4 h-4" />
+              Create a league
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LeaveConfirmModal({
+  leagueName,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  leagueName: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-sm bg-white dark:bg-[#0F172A] rounded-3xl shadow-2xl p-6 text-center border border-white/10">
+        <h3 className="text-base font-black text-slate-900 dark:text-white mb-2">Remove league from your list?</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-relaxed mb-6">
+          You will leave "{leagueName}" and it will no longer appear on your leagues screen.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-sm font-bold hover:bg-slate-50 dark:hover:bg-white/5 transition-colors disabled:opacity-50"
+          >
+            Cancel
           </button>
-          <button onClick={() => setCategoryFilter('localFootball')} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border ${categoryFilter === 'localFootball' ? 'bg-brand-lime/20 border-brand-lime text-brand-lime' : 'bg-brand-surface border-white/5 text-gray-400'}`}>
-            Local Football
-          </button>
-          <button onClick={() => setCategoryFilter('proFootball')} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border ${categoryFilter === 'proFootball' ? 'bg-brand-lime/20 border-brand-lime text-brand-lime' : 'bg-brand-surface border-white/5 text-gray-400'}`}>
-            Pro Football
-          </button>
-          <button onClick={() => setCategoryFilter('esports')} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border ${categoryFilter === 'esports' ? 'bg-brand-lime/20 border-brand-lime text-brand-lime' : 'bg-brand-surface border-white/5 text-gray-400'}`}>
-            eSports
+          <button
+            onClick={onConfirm}
+            disabled={busy}
+            className="flex-1 py-3 rounded-xl bg-brand-lime text-slate-900 text-sm font-black hover:brightness-95 transition-all disabled:opacity-50"
+          >
+            {busy ? 'Removing...' : 'Remove'}
           </button>
         </div>
       </div>
-
-      {/* League Grid */}
-      {filteredLeagues.length === 0 ? (
-        <Glass className="p-10 text-center flex flex-col items-center border border-dashed border-white/10">
-          <Trophy className="w-12 h-12 text-gray-500 mb-3 opacity-50" />
-          <h3 className="text-lg font-bold text-white">No leagues found</h3>
-          <p className="text-sm text-gray-400 mt-1">Try clearing your filters or create a new league.</p>
-        </Glass>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredLeagues.map((league) => (
-            <Link href={`/leagues/${league.id}`} key={league.id}>
-              <Glass className="overflow-hidden hover:scale-[1.02] transition-transform cursor-pointer group p-0 flex flex-col h-full">
-                <div className="h-32 bg-brand-surfaceDark relative shrink-0">
-                  {league.coverImageUrl ? (
-                    <img src={league.coverImageUrl} alt={league.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-brand-navy to-brand-surface">
-                      <Trophy className="w-10 h-10 text-brand-lime/30" />
-                    </div>
-                  )}
-                  {/* Badges */}
-                  <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
-                    {league.masterLeagueId && (
-                      <span className="px-2 py-1 bg-amber-500/20 text-amber-500 rounded text-[9px] font-black uppercase tracking-wider border border-amber-500/40">MASTER</span>
-                    )}
-                    {league.organizerId === auth.currentUser?.uid && (
-                      <span className="px-2 py-1 bg-red-500/20 text-red-500 rounded text-[9px] font-black uppercase tracking-wider border border-red-500/40">OWNER</span>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="p-4 flex-1 flex flex-col">
-                  <h3 className="text-lg font-bold text-white line-clamp-1">{league.name}</h3>
-                  <p className="text-xs text-brand-lime uppercase tracking-wider font-bold mb-2">{league.format} • {league.footballCategory || 'Category'}</p>
-                  <p className="text-sm text-gray-400 line-clamp-2 flex-1">{league.description}</p>
-                </div>
-              </Glass>
-            </Link>
-          ))}
-        </div>
-      )}
-
-      {/* Join Modal (_showJoinByIdSheet equivalent) */}
-      {showJoinModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <Glass className="max-w-md w-full p-6 animate-in fade-in zoom-in-95">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-brand-lime/10 rounded-full"><Key className="w-5 h-5 text-brand-lime" /></div>
-                <h2 className="text-xl font-black text-white">Join League</h2>
-              </div>
-              <button onClick={() => setShowJoinModal(false)} className="text-gray-500 hover:text-white">✕</button>
-            </div>
-
-            <form onSubmit={handleJoinSubmit} className="space-y-6">
-              <div>
-                <label className="block text-sm font-bold text-gray-300 mb-1">Enter Join Code</label>
-                <input 
-                  type="text" value={joinCode} onChange={(e) => setJoinCode(e.target.value)} required
-                  className="w-full bg-brand-surface border border-white/10 rounded-xl p-3 text-white focus:border-brand-lime font-mono"
-                  placeholder="e.g. L-12345"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-gray-300 mb-2">Join As</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button type="button" onClick={() => setJoinMode('participant')} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-colors ${joinMode === 'participant' ? 'bg-brand-lime/10 border-brand-lime text-brand-lime' : 'bg-brand-surface border-white/10 text-gray-400 hover:text-white'}`}>
-                    <Users className="w-5 h-5" />
-                    <span className="text-xs font-bold">Participant</span>
-                  </button>
-                  <button type="button" onClick={() => setJoinMode('viewer')} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-colors ${joinMode === 'viewer' ? 'bg-brand-lime/10 border-brand-lime text-brand-lime' : 'bg-brand-surface border-white/10 text-gray-400 hover:text-white'}`}>
-                    <Eye className="w-5 h-5" />
-                    <span className="text-xs font-bold">Viewer Only</span>
-                  </button>
-                </div>
-                <p className="text-[10px] text-gray-500 mt-2 text-center">
-                  {joinMode === 'participant' ? 'You will be added to the roster and can be assigned a team.' : 'You can view standings and chats, but cannot play.'}
-                </p>
-              </div>
-
-              <button type="submit" disabled={joining || !joinCode.trim()} className="w-full py-3 bg-brand-lime text-brand-navy font-bold rounded-xl hover:bg-brand-lime/90 flex items-center justify-center gap-2">
-                {joining ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Join Tournament'}
-              </button>
-            </form>
-          </Glass>
-        </div>
-      )}
-
     </div>
   );
 }

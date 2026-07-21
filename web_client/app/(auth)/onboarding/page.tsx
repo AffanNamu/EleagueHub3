@@ -1,70 +1,116 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { uploadImageToCloudinary } from '@/lib/cloudinary';
 import { Glass } from '@/components/ui/Glass';
 import { GlassScaffold } from '@/components/ui/GlassScaffold';
-import { Loader2, Camera, User, Trophy, Users } from 'lucide-react';
+import { Loader2, Gamepad2, Smartphone, ChevronLeft } from 'lucide-react';
+
+const GAME_GROUPS = [
+  {
+    label: 'Console / PC',
+    icon: Gamepad2,
+    games: [
+      'EA Sports FC 25',
+      'FIFA 23',
+      'eFootball',
+      'PES 2021',
+      'PES 2017',
+      'UFL',
+      'Rocket League',
+    ],
+  },
+  {
+    label: 'Mobile',
+    icon: Smartphone,
+    games: [
+      'EA Sports FC Mobile',
+      'Dream League Soccer',
+      'Soccer Stars',
+      'Total Football',
+      'Football Strike',
+      'Mini Football',
+      'Score! Match',
+    ],
+  },
+] as const;
+
+const EXPERIENCE_LEVELS = [
+  'Beginner',
+  'Intermediate',
+  'Professional',
+  'Tournament Organizer',
+] as const;
+
+function deriveShareIdFromUid(uid: string): string {
+  const clean = uid.replace(/[^A-Za-z0-9]/g, '').trim();
+  if (!clean) return '';
+  const base = clean.length >= 8 ? clean.slice(0, 8) : clean.padEnd(8, 'X');
+  return `eS${base}`;
+}
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [username, setUsername] = useState('');
-  const [role, setRole] = useState<'player' | 'organizer' | 'fan'>('player');
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [error, setError] = useState('');
+  const goalRef = useRef<HTMLTextAreaElement>(null);
 
-  // Check if user is already onboarded
+  const [checking, setChecking] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [step, setStep] = useState(0);
+
+  const [teamName, setTeamName] = useState('');
+  const [game, setGame] = useState('');
+  const [experience, setExperience] = useState('');
+  const [goal, setGoal] = useState('');
+
   useEffect(() => {
-    const checkOnboardingStatus = async () => {
-      const user = auth.currentUser;
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (!user) {
         router.push('/login');
         return;
       }
-      
       try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists() && userDoc.data().username) {
-          // User already has a profile, send them to dashboard
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (snap.exists()) {
           router.push('/leagues');
-        } else {
-          setLoading(false);
+          return;
         }
       } catch (err) {
-        console.error("Failed to check status", err);
-        setLoading(false);
+        console.error('Failed to check onboarding status', err);
       }
-    };
-
-    // Give Firebase Auth a moment to initialize if this is a fresh reload
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (user) checkOnboardingStatus();
-      else router.push('/login');
+      setChecking(false);
     });
 
     return () => unsubscribe();
   }, [router]);
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAvatarFile(file);
-      setAvatarPreview(URL.createObjectURL(file));
-    }
+  const canContinueStep0 = teamName.trim().length > 0;
+  const canContinueStep1 = game.trim().length > 0;
+  const canContinueStep2 = experience.trim().length > 0;
+
+  const goNext = () => {
+    if (step === 0 && canContinueStep0) return setStep(1);
+    if (step === 1 && canContinueStep1) return setStep(2);
+    if (step === 2 && canContinueStep2) return setStep(3);
+    if (step === 3) return handleFinish();
   };
 
-  const handleCompleteProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!username.trim() || !auth.currentUser) {
-      setError('Username is required.');
+  const goBack = () => {
+    if (step === 0) return router.back();
+    setStep((s) => s - 1);
+  };
+
+  const handleFinish = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    if (!teamName.trim()) {
+      setError('Please enter your club or gamer name.');
+      setStep(0);
       return;
     }
 
@@ -72,35 +118,47 @@ export default function OnboardingScreen() {
     setError('');
 
     try {
-      let avatarUrl = '';
-      if (avatarFile) {
-        avatarUrl = await uploadImageToCloudinary(avatarFile);
-      } else {
-        avatarUrl = auth.currentUser.photoURL || '';
+      const uid = user.uid;
+      const ref = doc(db, 'users', uid);
+
+      const existing = await getDoc(ref);
+      if (existing.exists()) {
+        router.push('/leagues');
+        return;
       }
 
-      // Create the core user document mapping to your Flutter models
-      const userRef = doc(db, 'users', auth.currentUser.uid);
-      await setDoc(userRef, {
-        uid: auth.currentUser.uid,
-        email: auth.currentUser.email,
-        username: username.trim(),
-        role: role,
-        avatarUrl: avatarUrl,
-        isPremium: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true }); // Merge in case auth triggers created a stub document earlier
+      const nowMs = Date.now();
+      const providerId = user.providerData[0]?.providerId ?? '';
+      const authProvider = providerId.includes('google')
+        ? 'google'
+        : providerId === 'password'
+          ? 'email'
+          : providerId || 'unknown';
+
+      await setDoc(ref, {
+        userId: uid,
+        teamName: teamName.trim(),
+        authProvider,
+        createdAt: nowMs,
+        updatedAt: nowMs,
+        shareId: deriveShareIdFromUid(uid),
+        activePlanId: '',
+        activePlanDurationId: '',
+        planPurchasedAtMs: 0,
+        planExpiresAtMs: 0,
+        planReceiptId: '',
+        planProvider: '',
+      });
 
       router.push('/leagues');
     } catch (err: any) {
       console.error(err);
-      setError('Failed to save profile: ' + err.message);
+      setError('Failed to save your profile: ' + (err?.message ?? 'Unknown error'));
       setSaving(false);
     }
   };
 
-  if (loading) {
+  if (checking) {
     return (
       <GlassScaffold>
         <div className="flex items-center justify-center min-h-[80vh]">
@@ -110,13 +168,31 @@ export default function OnboardingScreen() {
     );
   }
 
+  const stepTitles = ['Identity', 'Football Platform', 'Experience Level', 'Your Goal'];
+
   return (
     <GlassScaffold>
-      <div className="flex items-center justify-center min-h-[85vh] py-10">
-        <Glass className="w-full max-w-lg p-8">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-black text-white tracking-tight">Complete Your Profile</h1>
-            <p className="text-gray-400 mt-2">Welcome to eSportlyic. Tell us a bit about yourself.</p>
+      <div className="flex items-center justify-center min-h-[85vh] py-10 px-4">
+        <Glass className="w-full max-w-2xl p-6 md:p-10">
+          <div className="flex items-center gap-2 mb-8">
+            {stepTitles.map((title, i) => (
+              <div key={title} className="flex-1">
+                <div
+                  className={`h-1.5 rounded-full transition-colors ${
+                    i <= step ? 'bg-brand-lime' : 'bg-white/10'
+                  }`}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="mb-8">
+            <p className="text-brand-lime text-xs font-black uppercase tracking-widest mb-1">
+              Step {step + 1} of {stepTitles.length}
+            </p>
+            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight">
+              {stepTitles[step]}
+            </h1>
           </div>
 
           {error && (
@@ -125,78 +201,124 @@ export default function OnboardingScreen() {
             </div>
           )}
 
-          <form onSubmit={handleCompleteProfile} className="space-y-8">
-            {/* Avatar Upload */}
-            <div className="flex flex-col items-center">
-              <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                <div className="w-24 h-24 rounded-full overflow-hidden bg-brand-surfaceDark border-2 border-dashed border-white/20 group-hover:border-brand-lime transition-colors flex items-center justify-center">
-                  {avatarPreview ? (
-                    <img src={avatarPreview} alt="Avatar Preview" className="w-full h-full object-cover" />
-                  ) : (
-                    <Camera className="w-8 h-8 text-gray-500 group-hover:text-brand-lime transition-colors" />
-                  )}
-                </div>
-                <div className="absolute bottom-0 right-0 bg-brand-lime p-1.5 rounded-full text-brand-navy shadow-lg">
-                  <Camera className="w-4 h-4" />
-                </div>
-              </div>
-              <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
-              <p className="text-xs text-gray-400 mt-3">Upload Profile Picture (Optional)</p>
-            </div>
-
-            {/* Username */}
-            <div>
-              <label className="block text-sm font-bold text-gray-300 mb-2">Username</label>
+          {step === 0 && (
+            <div className="space-y-3">
+              <label className="block text-sm font-bold text-gray-300">
+                Club / Gamer Name
+              </label>
               <input
                 type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. ProGamer99"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                placeholder="Example: Galaxy FC"
                 className="w-full bg-brand-surface border border-white/10 rounded-xl p-4 text-white focus:outline-none focus:border-brand-lime transition-colors font-medium"
-                required
-                maxLength={20}
+                maxLength={40}
+                autoFocus
+              />
+              <p className="text-xs text-gray-500">
+                Create your football gaming identity on eSportlyic.
+              </p>
+            </div>
+          )}
+
+          {step === 1 && (
+            <div className="space-y-6">
+              {GAME_GROUPS.map((group) => (
+                <div key={group.label}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <group.icon className="w-4 h-4 text-gray-400" />
+                    <span className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                      {group.label}
+                    </span>
+                    <div className="flex-1 h-px bg-white/10" />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {group.games.map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setGame(g)}
+                        className={`px-4 py-2 rounded-full border text-sm font-semibold transition-all ${
+                          game === g
+                            ? 'bg-brand-lime border-brand-lime text-slate-900'
+                            : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+                        }`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="flex flex-wrap gap-2">
+              {EXPERIENCE_LEVELS.map((lvl) => (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => setExperience(lvl)}
+                  className={`px-4 py-2 rounded-full border text-sm font-semibold transition-all ${
+                    experience === lvl
+                      ? 'bg-brand-lime border-brand-lime text-slate-900'
+                      : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+                  }`}
+                >
+                  {lvl}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-3">
+              <label className="block text-sm font-bold text-gray-300">
+                What brings you here?
+              </label>
+              <textarea
+                ref={goalRef}
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                rows={4}
+                placeholder="Example: Compete in tournaments, grow my club, organize leagues, stream matches..."
+                className="w-full bg-brand-surface border border-white/10 rounded-xl p-4 text-white focus:outline-none focus:border-brand-lime transition-colors font-medium resize-none"
               />
             </div>
+          )}
 
-            {/* Role Selection */}
-            <div>
-              <label className="block text-sm font-bold text-gray-300 mb-3">Primary Role</label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setRole('player')}
-                  className={`flex flex-col items-center justify-center p-4 rounded-xl border transition-all ${role === 'player' ? 'bg-brand-lime/10 border-brand-lime text-brand-lime' : 'bg-brand-surface border-white/5 text-gray-400 hover:bg-white/5'}`}
-                >
-                  <User className="w-6 h-6 mb-2" />
-                  <span className="text-sm font-bold">Player</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRole('organizer')}
-                  className={`flex flex-col items-center justify-center p-4 rounded-xl border transition-all ${role === 'organizer' ? 'bg-brand-lime/10 border-brand-lime text-brand-lime' : 'bg-brand-surface border-white/5 text-gray-400 hover:bg-white/5'}`}
-                >
-                  <Trophy className="w-6 h-6 mb-2" />
-                  <span className="text-sm font-bold">Organizer</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRole('fan')}
-                  className={`flex flex-col items-center justify-center p-4 rounded-xl border transition-all ${role === 'fan' ? 'bg-brand-lime/10 border-brand-lime text-brand-lime' : 'bg-brand-surface border-white/5 text-gray-400 hover:bg-white/5'}`}
-                >
-                  <Users className="w-6 h-6 mb-2" />
-                  <span className="text-sm font-bold">Fan / Viewer</span>
-                </button>
-              </div>
-            </div>
+          <div className="flex items-center gap-3 mt-10">
+            <button
+              type="button"
+              onClick={goBack}
+              disabled={saving}
+              className="flex items-center gap-1 px-4 py-3 rounded-xl text-gray-400 hover:text-white hover:bg-white/5 font-bold text-sm transition-all disabled:opacity-50"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              {step === 0 ? 'Close' : 'Back'}
+            </button>
 
             <button
-              type="submit"
-              disabled={saving || !username.trim()}
-              className="w-full bg-brand-lime text-brand-navy font-black py-4 rounded-xl hover:bg-brand-lime/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-4 shadow-lg shadow-brand-lime/20"
+              type="button"
+              onClick={goNext}
+              disabled={
+                saving ||
+                (step === 0 && !canContinueStep0) ||
+                (step === 1 && !canContinueStep1) ||
+                (step === 2 && !canContinueStep2)
+              }
+              className="flex-1 bg-brand-lime text-slate-900 font-black py-3.5 rounded-xl hover:bg-brand-lime/90 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Enter Platform'}
+              {saving ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : step === 3 ? (
+                'Complete Setup'
+              ) : (
+                'Continue'
+              )}
             </button>
-          </form>
+          </div>
         </Glass>
       </div>
     </GlassScaffold>

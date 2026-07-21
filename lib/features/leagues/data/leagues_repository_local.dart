@@ -1,3 +1,4 @@
+///lib/features/league/data/leagues_repository_local.dart
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
@@ -8,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/plan_status_service.dart';
 import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
 import '../models/league.dart';
@@ -119,49 +121,40 @@ class LocalLeaguesRepository {
 
   bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
 
+  // ---------------------------------------------------------------------------
+  // FIX: _isPremiumUser used to be a THIRD, independently-broken copy of the
+  // premium-detection logic (in addition to the two others already fixed in
+  // leagues_list_screen.dart and qr_scanner_screen.dart via
+  // PlanStatusService). This local copy checked ONLY the legacy
+  // `isPremium` / `premiumExpiresAtMs` fields and matching custom claims —
+  // it never checked `activePlanId` for 'pro'/'elite' at all.
+  //
+  // CONSEQUENCE: A user who purchased a Pro or Elite plan (which sets
+  // activePlanId + planExpiresAtMs on the Firestore profile, NOT the legacy
+  // isPremium field) was invisible to this check. _enforceFreeLeagueListCapForNewAddition
+  // then treated them as a free/basic user and enforced the 3-league cap —
+  // even while they were simply JOINING a league via QR code or invite code,
+  // which is exactly the reported symptom.
+  //
+  // FIX: Delegate to PlanStatusService.instance.isPaidPlanActive(), the same
+  // single authoritative, Firestore-first check now used by
+  // leagues_list_screen.dart and qr_scanner_screen.dart. All three call
+  // sites now agree on what "premium" means for a given user.
+  // ---------------------------------------------------------------------------
   Future<bool> _isPremiumUser(String uid) async {
     final trimmed = uid.trim();
     if (trimmed.isEmpty) return false;
 
     try {
-      final token = await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
-      final claims = token?.claims ?? const <String, dynamic>{};
-
-      final isPremium = claims['isPremium'] == true || claims['premium'] == true;
-      if (isPremium) return true;
-
-      final premiumExpiresAtMs = claims['premiumExpiresAtMs'];
-      if (premiumExpiresAtMs is int &&
-          premiumExpiresAtMs > DateTime.now().millisecondsSinceEpoch) {
-        return true;
-      }
-      if (premiumExpiresAtMs is num &&
-          premiumExpiresAtMs.toInt() > DateTime.now().millisecondsSinceEpoch) {
-        return true;
-      }
-    } catch (_) {}
-
-    try {
-      final userDoc = await _firestore
-          .collection('users')
-          .doc(trimmed)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 10));
-
-      final data = userDoc.data() ?? const <String, dynamic>{};
-      if (data['isPremium'] == true) return true;
-
-      final expires = data['premiumExpiresAtMs'];
-      if (expires is int && expires > DateTime.now().millisecondsSinceEpoch) {
-        return true;
-      }
-      if (expires is num &&
-          expires.toInt() > DateTime.now().millisecondsSinceEpoch) {
-        return true;
-      }
-    } catch (_) {}
-
-    return false;
+      return await PlanStatusService.instance
+          .isPaidPlanActive(trimmed, forceRefreshToken: true)
+          .timeout(const Duration(seconds: 12));
+    } catch (_) {
+      // Fail open toward "not premium" only on genuine errors — matches
+      // the previous conservative behavior, but now at least the
+      // detection logic itself is correct.
+      return false;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -514,7 +507,8 @@ class LocalLeaguesRepository {
   //
   //   Write order:
   //     Step 1 — verify league exists (server get).
-  //     Step 2 — enforce free-plan cap (uses fixed _userAlreadyHasLeagueCard).
+  //     Step 2 — enforce free-plan cap (uses fixed _userAlreadyHasLeagueCard,
+  //       and now uses the FIXED premium check via PlanStatusService).
   //     Step 3 — arrayUnion uid into memberIds on league doc (FIRST write).
   //     Step 4 — write membership sub-document (SECOND write, now allowed).
   // ---------------------------------------------------------------------------
@@ -567,7 +561,8 @@ class LocalLeaguesRepository {
     }
 
     // Step 2 — enforce free-plan league-card cap.
-    // _userAlreadyHasLeagueCard now handles permission-denied gracefully.
+    // _userAlreadyHasLeagueCard now handles permission-denied gracefully,
+    // and _isPremiumUser now uses the correct, authoritative plan check.
     await _enforceFreeLeagueListCapForNewAddition(
       authUid: authUid,
       actionLabel: 'join more leagues',
@@ -957,7 +952,9 @@ class LocalLeaguesRepository {
   //      gives a friendly "code not found" message instead of a crash.
   //
   //   3. _joinLeagueCore (called below) now uses the fixed write ordering:
-  //      memberIds FIRST, then membership sub-document.
+  //      memberIds FIRST, then membership sub-document, AND the correct
+  //      premium-plan check via PlanStatusService (see _isPremiumUser above)
+  //      so paid Pro/Elite users are never blocked by the free-tier cap.
   //
   // NOTE: If your Firestore rules block unauthenticated reads of the leagues
   //   collection even for 'code' queries, you may need to add a Cloud Function
@@ -1010,6 +1007,7 @@ class LocalLeaguesRepository {
       // _joinLeagueCore uses the fixed write order:
       //   Step 3: memberIds arrayUnion FIRST (so rules allow step 4)
       //   Step 4: membership sub-document SECOND (now allowed by rules)
+      // and the fixed premium-plan check for the free-tier cap.
       await _joinLeagueCore(
         leagueId: leagueId,
         authUid: authUid,

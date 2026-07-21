@@ -1,3 +1,4 @@
+///lib/features/leagues/models/league_group.dart.
 /// Represents a competitive group within a league (primarily for UCL format).
 ///
 /// In a UCL-style league, teams are divided into groups (e.g., "Group A").

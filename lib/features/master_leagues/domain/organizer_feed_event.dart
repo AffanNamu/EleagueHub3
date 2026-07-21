@@ -1,3 +1,4 @@
+///domain/OrganizerFeedEvent
 class OrganizerFeedEvent {
   final String id;
   final String masterLeagueId;

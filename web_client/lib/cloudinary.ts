@@ -1,3 +1,5 @@
+/*lib/cloudinary.ts*/
+
 export const uploadImageToCloudinary = async (file: File): Promise<string> => {
   const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
   const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_PRESET;
@@ -19,7 +21,7 @@ export const uploadImageToCloudinary = async (file: File): Promise<string> => {
   );
 
   if (!response.ok) {
-    throw new Error('Failed to upload image to Cloudinary');
+    throw new Error('Failed to upload image');
   }
 
   const data = await response.json();

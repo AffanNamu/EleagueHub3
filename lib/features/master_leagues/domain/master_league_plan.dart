@@ -1,3 +1,4 @@
+///domain/MasterLeaguePlan
 /// Duration tier for subscription plans.
 enum PlanDuration {
   threeMonths(

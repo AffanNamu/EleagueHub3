@@ -1,32 +1,67 @@
-import { useState, useEffect } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { MasterLeague } from '@/types/masterLeague';
+'use client';
 
-export function useMasterLeagueDetail(id: string) {
+import { useEffect, useState, useCallback } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import { db, auth } from '@/lib/firebase';
+import { MasterLeague, masterLeagueFromDoc } from '@/types/masterLeague';
+import { followWorkspace, isFollowing, unfollowWorkspace } from '@/lib/masterLeagues/masterLeaguesRepository';
+
+export function useMasterLeagueDetail(masterLeagueId: string) {
   const [workspace, setWorkspace] = useState<MasterLeague | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [following, setFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [uid, setUid] = useState<string>('');
 
   useEffect(() => {
-    if (!id) return;
+    if (!masterLeagueId) return;
+    const ref = doc(db, 'master_leagues', masterLeagueId);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) {
+          setWorkspace(null);
+        } else {
+          setWorkspace(masterLeagueFromDoc(snap.id, snap.data()));
+        }
+        setLoading(false);
+      },
+      (err) => {
+        setError(err.message);
+        setLoading(false);
+      },
+    );
+    return () => unsub();
+  }, [masterLeagueId]);
 
-    const docRef = doc(db, 'master_leagues', id);
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setWorkspace({ id: docSnap.id, ...docSnap.data() } as MasterLeague);
+  useEffect(() => {
+    return onAuthStateChanged(auth, async (user) => {
+      setUid(user?.uid ?? '');
+      if (user && masterLeagueId) {
+        setFollowing(await isFollowing(masterLeagueId, user.uid));
       } else {
-        setError('Workspace not found');
+        setFollowing(false);
       }
-      setLoading(false);
-    }, (err) => {
-      console.error("Error fetching workspace details:", err);
-      setError(err.message);
-      setLoading(false);
     });
+  }, [masterLeagueId]);
 
-    return () => unsubscribe();
-  }, [id]);
+  const toggleFollow = useCallback(async () => {
+    if (followBusy || !masterLeagueId) return;
+    setFollowBusy(true);
+    try {
+      if (following) {
+        await unfollowWorkspace(masterLeagueId);
+        setFollowing(false);
+      } else {
+        await followWorkspace(masterLeagueId);
+        setFollowing(true);
+      }
+    } finally {
+      setFollowBusy(false);
+    }
+  }, [following, followBusy, masterLeagueId]);
 
-  return { workspace, loading, error };
+  return { workspace, loading, error, uid, following, followBusy, toggleFollow };
 }

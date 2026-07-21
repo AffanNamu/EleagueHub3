@@ -1,0 +1,4 @@
+-I [error opening dir]
+node_modules|.git|.next|build|dist|.dart_tool|ios|android|windows|macos|linux [error opening dir]
+
+0 directories, 0 files

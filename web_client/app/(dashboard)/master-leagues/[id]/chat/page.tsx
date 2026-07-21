@@ -1,3 +1,4 @@
+/*app/(dashboard)/master-leagues/[id]/chat/page.tsx*/
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -12,18 +13,17 @@ export default function OrganizerChatScreen() {
   const params = useParams();
   const router = useRouter();
   const masterLeagueId = params.id as string;
-  
+
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { workspace, loading: workspaceLoading } = useMasterLeagueDetail(masterLeagueId);
   const { messages, loading: chatLoading, sendMessage } = useOrganizerChat(masterLeagueId);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
   const handleSend = async (e: React.FormEvent) => {
@@ -31,11 +31,12 @@ export default function OrganizerChatScreen() {
     if (!text.trim() || sending) return;
 
     setSending(true);
+    setSendError('');
     try {
       await sendMessage(text);
       setText('');
-    } catch (error) {
-      alert("Failed to send message. Check your permissions or follow the organizer first.");
+    } catch (error: any) {
+      setSendError(error.message || 'Failed to send message.');
     } finally {
       setSending(false);
     }
@@ -47,7 +48,6 @@ export default function OrganizerChatScreen() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] md:h-[calc(100vh-40px)]">
-      {/* Header */}
       <div className="flex items-center gap-4 mb-4 shrink-0">
         <button onClick={() => router.back()} className="p-2 bg-brand-surface hover:bg-white/10 rounded-xl transition-colors">
           <ArrowLeft className="w-5 h-5 text-white" />
@@ -63,7 +63,6 @@ export default function OrganizerChatScreen() {
         </div>
       </div>
 
-      {/* Chat Area */}
       <Glass className="flex-1 flex flex-col overflow-hidden p-2 md:p-4">
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 scroll-smooth">
           {messages.length === 0 ? (
@@ -72,23 +71,22 @@ export default function OrganizerChatScreen() {
               <p>No messages yet. Say hello to the community!</p>
             </div>
           ) : (
-            messages.map((msg) => (
-              <ChatBubble key={msg.messageId} message={msg} />
-            ))
+            messages.map((msg) => <ChatBubble key={msg.messageId} message={msg} />)
           )}
         </div>
 
-        {/* Input Bar */}
         <div className="shrink-0 p-2 mt-2 border-t border-white/5 bg-brand-navySoft rounded-b-2xl">
+          {sendError && <p className="text-xs text-brand-red px-2 pb-2">{sendError}</p>}
           <form onSubmit={handleSend} className="flex gap-2">
             <input
               type="text"
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="Type a message..."
+              maxLength={4000}
               className="flex-1 bg-brand-surface border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#38BDF8] transition-colors"
             />
-            <button 
+            <button
               type="submit"
               disabled={!text.trim() || sending}
               className="px-4 py-3 bg-[#38BDF8] text-brand-navy font-bold rounded-xl hover:bg-[#38BDF8]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[60px]"

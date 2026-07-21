@@ -1,73 +1,129 @@
-import { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, orderBy, limit, doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
-import { ChatMessage } from '@/types/chat';
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { collection, doc, onSnapshot, orderBy, query, limit as fsLimit, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase';
+
+export interface OrganizerChatMessage {
+  messageId: string;
+  senderId: string;
+  senderName: string;
+  senderPhoto: string;
+  text: string;
+  imageUrl: string;
+  voiceUrl: string;
+  type: 'text' | 'image' | 'code' | 'voice';
+  timestamp: number;
+  pinned: boolean;
+  deleted: boolean;
+  createdAtMs: number;
+  pinnedBy: string;
+  deletedBy: string;
+}
 
 export function useOrganizerChat(masterLeagueId: string) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<OrganizerChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!masterLeagueId) return;
 
-    // Fetch the latest 100 messages for this Master League
     const q = query(
       collection(db, 'master_leagues', masterLeagueId, 'chatroom'),
       orderBy('timestamp', 'desc'),
-      limit(100)
+      fsLimit(50),
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Reverse the array so the newest messages are at the bottom of the UI
-      const msgs = snapshot.docs.map(doc => ({
-        ...doc.data()
-      })) as ChatMessage[];
-      
-      setMessages(msgs.reverse());
-      setLoading(false);
-      setError(null);
-    }, (err) => {
-      console.error("Error fetching organizer chat:", err);
-      setError(err.message);
-      setLoading(false);
-    });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs
+          .map((d) => d.data() as any)
+          .filter((m) => m.deleted !== true)
+          .map((m) => ({
+            messageId: m.messageId,
+            senderId: m.senderId,
+            senderName: m.senderName,
+            senderPhoto: m.senderPhoto ?? '',
+            text: m.text ?? '',
+            imageUrl: m.imageUrl ?? '',
+            voiceUrl: m.voiceUrl ?? '',
+            type: m.type,
+            timestamp: Number(m.timestamp) || 0,
+            pinned: m.pinned === true,
+            deleted: m.deleted === true,
+            createdAtMs: Number(m.createdAtMs) || Number(m.timestamp) || 0,
+            pinnedBy: m.pinnedBy ?? '',
+            deletedBy: m.deletedBy ?? '',
+          })) as OrganizerChatMessage[];
+        
+        setMessages(list.reverse());
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Chat Error:", error);
+        setLoading(false);
+      }
+    );
 
-    return () => unsubscribe();
+    return () => unsub();
   }, [masterLeagueId]);
 
-  const sendMessage = async (text: string) => {
-    if (!auth.currentUser || !text.trim()) return;
-
-    const messageId = doc(collection(db, 'master_leagues', masterLeagueId, 'chatroom')).id;
-    const nowMs = Date.now();
-
-    const newMessage: Partial<ChatMessage> = {
-      messageId,
-      senderId: auth.currentUser.uid,
-      senderName: auth.currentUser.displayName || 'Player',
-      senderPhoto: auth.currentUser.photoURL || '',
-      text: text.trim(),
-      imageUrl: '',
-      voiceUrl: '',
-      type: 'text',
-      leagueId: masterLeagueId, // Reusing this field for the parent ID reference
-      timestamp: nowMs,
-      createdAtMs: nowMs,
-      createdAt: serverTimestamp(),
-      pinned: false,
-      pinnedBy: '',
-      deleted: false,
-      deletedBy: ''
-    };
+  const checkCanSend = useCallback(async (): Promise<string | null> => {
+    const user = auth.currentUser;
+    if (!user) return 'Please sign in to send messages.';
 
     try {
-      await setDoc(doc(db, 'master_leagues', masterLeagueId, 'chatroom', messageId), newMessage);
-    } catch (err: any) {
-      console.error("Failed to send message", err);
-      throw err;
+      const modSnap = await getDoc(doc(db, 'master_leagues', masterLeagueId, 'memberModeration', user.uid));
+      if (modSnap.exists()) {
+        const mod = modSnap.data();
+        if (mod.chatBanned === true) return 'You are banned from this organizer chat.';
+        if (mod.chatMuted === true) return 'You are muted in this organizer chat.';
+      }
+    } catch (e: any) {
+      console.warn("Bypassed moderation read check due to rules:", e.message);
     }
-  };
+    return null;
+  }, [masterLeagueId]);
 
-  return { messages, loading, error, sendMessage };
+  const sendMessage = useCallback(
+    async (text: string, type: 'text' | 'image' | 'voice' = 'text', fileUrl: string = '') => {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Please sign in to continue.');
+
+      const blockReason = await checkCanSend();
+      if (blockReason) throw new Error(blockReason);
+
+      const trimmed = text.trim();
+      if (!trimmed && type === 'text') return;
+
+      const ref = doc(collection(db, 'master_leagues', masterLeagueId, 'chatroom'));
+      const now = Date.now();
+
+      // STRICT MATCH to your working payload. No extra unauthorized fields!
+      await setDoc(ref, {
+        messageId: ref.id,
+        senderId: user.uid,
+        senderName: user.displayName || 'User',
+        senderPhoto: user.photoURL || '',
+        text: type === 'text' ? trimmed.slice(0, 4000) : trimmed,
+        imageUrl: type === 'image' ? fileUrl : '',
+        voiceUrl: type === 'voice' ? fileUrl : '',
+        type: type,
+        masterLeagueId,
+        timestamp: now,
+        createdAt: serverTimestamp(),
+        createdAtMs: now,
+        pinned: false,
+        pinnedAt: null,
+        pinnedBy: '',
+        deleted: false,
+        deletedAt: null,
+        deletedBy: '',
+      });
+    },
+    [masterLeagueId, checkCanSend],
+  );
+
+  return { messages, loading, sendMessage };
 }

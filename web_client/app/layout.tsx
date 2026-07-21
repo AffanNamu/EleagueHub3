@@ -1,9 +1,6 @@
 import type { Metadata } from 'next';
-
 import './globals.css';
 import { ClientThemeProvider } from '@/components/providers/ClientThemeProvider';
-
-
 
 export const metadata: Metadata = {
   title: 'eSportlyic Web',
@@ -16,8 +13,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className="font-sans antialiased text-white">
+    // suppressHydrationWarning stops Next.js from complaining about the theme switch,
+    // and className="dark" guarantees it loads in Dark Mode by default!
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className="font-sans antialiased">
         <ClientThemeProvider>
           {children}
         </ClientThemeProvider>

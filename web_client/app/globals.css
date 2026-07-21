@@ -2,8 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Safely apply dark mode background and text colors using raw CSS to bypass compiler restrictions */
-body {
-  background-color: #0F172A;
-  color: #FFFFFF;
+@layer base {
+  body {
+    /* If Light mode, use slate-50 and dark text. If Dark mode, use your premium navy and white text. */
+    @apply bg-slate-50 text-slate-900 dark:bg-[#081120] dark:text-white transition-colors duration-300;
+  }
 }

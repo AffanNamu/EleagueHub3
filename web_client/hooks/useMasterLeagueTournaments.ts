@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { League } from '@/types/league';
 
@@ -8,23 +10,19 @@ export function useMasterLeagueTournaments(masterLeagueId: string) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!masterLeagueId) {
-      setLoading(false);
-      return;
-    }
-    const fetchLeagues = async () => {
-      try {
-        const q = query(collection(db, 'leagues'), where('masterLeagueId', '==', masterLeagueId));
-        const snap = await getDocs(q);
-        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as League));
-        setLeagues(data);
-      } catch (err) {
-        console.error("Failed to fetch tournaments:", err);
-      } finally {
+    if (!masterLeagueId) return;
+    const q = query(collection(db, 'leagues'), where('masterLeagueId', '==', masterLeagueId));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as League);
+        list.sort((a: any, b: any) => (b.updatedAtMs ?? 0) - (a.updatedAtMs ?? 0));
+        setLeagues(list);
         setLoading(false);
-      }
-    };
-    fetchLeagues();
+      },
+      () => setLoading(false),
+    );
+    return () => unsub();
   }, [masterLeagueId]);
 
   return { leagues, loading };

@@ -1,50 +1,60 @@
-import { useState, useEffect } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
-import { UserPlanSubscription, MasterLeaguePlan } from '@/types/masterLeague';
+'use client';
 
-export function useEntitlements() {
-  const [activePlan, setActivePlan] = useState<MasterLeaguePlan>('basic'); // Everyone gets basic for free
-  const [subscription, setSubscription] = useState<UserPlanSubscription | null>(null);
+import { useEffect, useState } from 'react';
+import { auth } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { getEntitlementFromClaims } from '@/lib/masterLeagues/entitlements';
+import { countOwnedWorkspaces } from '@/lib/masterLeagues/masterLeaguesRepository';
+import { MasterLeaguePlanId, MASTER_LEAGUE_PLANS } from '@/types/masterLeague';
+
+export interface UseEntitlementsResult {
+  activePlan: MasterLeaguePlanId; // 'basic' if no paid plan — every signed-in user gets it free
+  paidPlanActive: boolean;
+  ownedCount: number;
+  loading: boolean;
+  refresh: () => Promise<void>;
+}
+
+export function useEntitlements(): UseEntitlementsResult {
+  const [activePlan, setActivePlan] = useState<MasterLeaguePlanId>('basic');
+  const [paidPlanActive, setPaidPlanActive] = useState(false);
+  const [ownedCount, setOwnedCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!auth.currentUser) {
+  const load = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      setActivePlan('basic');
+      setPaidPlanActive(false);
+      setOwnedCount(0);
       setLoading(false);
       return;
     }
 
-    // Check user profile for active plan subscription (Matches _checkFirestoreProfile)
-    const userRef = doc(db, 'users', auth.currentUser.uid);
-    const unsubscribe = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.activePlanId) {
-          const expires = data.planExpiresAtMs || 0;
-          const now = Date.now();
-          
-          // Basic is lifetime free. Paid plans expire.
-          if (data.activePlanId === 'basic' || expires > now) {
-            setActivePlan(data.activePlanId as MasterLeaguePlan);
-            setSubscription({
-              plan: data.activePlanId,
-              duration: data.activePlanDurationId,
-              purchasedAtMs: data.planPurchasedAtMs,
-              expiresAtMs: expires,
-              receiptId: data.planReceiptId,
-              provider: data.planProvider
-            });
-          } else {
-            // Expired fallback to basic
-            setActivePlan('basic'); 
-          }
-        }
-      }
+    setLoading(true);
+    try {
+      const [ent, count] = await Promise.all([getEntitlementFromClaims(), countOwnedWorkspaces(uid)]);
+      setActivePlan(ent.active && ent.plan ? ent.plan : 'basic');
+      setPaidPlanActive(ent.active);
+      setOwnedCount(count);
+    } finally {
       setLoading(false);
-    });
+    }
+  };
 
-    return () => unsubscribe();
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, () => {
+      load();
+    });
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { activePlan, subscription, loading };
+  return { activePlan, paidPlanActive, ownedCount, loading, refresh: load };
+}
+
+export function canCreateWorkspace(plan: MasterLeaguePlanId, ownedCount: number): boolean {
+  const def = MASTER_LEAGUE_PLANS[plan];
+  if (def.unlimitedMasterLeagues) return true;
+  return ownedCount < def.maxMasterLeagues;
 }
