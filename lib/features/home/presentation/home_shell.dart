@@ -477,7 +477,6 @@ class _HomeTab extends StatelessWidget {
                         const Color(0xFFECFCCB),
                         const Color(0xFFFFFFFF),
                       ],
-                // ── FIX: absolute path pushed via GoRouter.of(context) ──
                 onTap: () => _navigate(context, '/leagues/create'),
               ),
             ),
@@ -525,7 +524,6 @@ class _HomeTab extends StatelessWidget {
                   const Color(0xFFECFCCB),
                   const Color(0xFFF8FAFC),
                 ],
-          // ── FIX: absolute path pushed via GoRouter.of(context) ──────
           onTap: () => _navigate(context, '/master-leagues'),
           isWide: true,
         ),
@@ -652,6 +650,16 @@ class _HomeTab extends StatelessWidget {
                   'Browse gaming gear & accessories',
                 ),
                 onTap: () => _navigate(context, '/marketplace'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
+              ),
+              Divider(
+                  color: AppTheme.cardBorder(brightness), height: 1),
+              _ExploreRow(
+                icon: Icons.search_rounded,
+                title: 'Find Teams',
+                subtitle: 'Search public profiles & squads',
+                onTap: () => _navigate(context, '/search'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -1007,9 +1015,6 @@ class _QuickActionCardState extends State<_QuickActionCard>
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final secondary = AppTheme.secondaryText(brightness);
-    final tertiary =
-        AppTheme.secondaryText(brightness).withOpacity(0.88);
-    final faint = const Color(0xFF9CA3AF);
 
     return AnimatedBuilder(
       animation: _scale,
@@ -1080,6 +1085,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
                                 color: secondary,
                                 fontWeight: FontWeight.w600,
                                 fontSize: 12,
+                                height: 1.3,
                               ),
                             ),
                           ],
@@ -1088,7 +1094,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
                       Icon(
                         Icons.arrow_forward_ios_rounded,
                         size: 16,
-                        color: faint,
+                        color: const Color(0xFF9CA3AF),
                       ),
                     ],
                   )
@@ -1130,7 +1136,7 @@ class _QuickActionCardState extends State<_QuickActionCard>
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: tertiary,
+                          color: secondary,
                           fontWeight: FontWeight.w600,
                           fontSize: 11,
                           height: 1.3,

@@ -1,5 +1,3 @@
-// lib/features/profile/presentation/settigs_screen.dart
-
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,6 +15,7 @@ import '../../../core/services/push_messaging_service.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../auth/data/auth_service.dart';
 import '../../live/logic/quick_message_policy.dart';
 import '../../live/logic/quick_messages_controller.dart';
 import '../../master_leagues/domain/master_league.dart';
@@ -51,7 +50,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   bool _savingQuick = false;
   bool _verificationBusy = false;
 
-  // ── Delete account state ───────────────────────────────────────────────────
   bool _deletingAccount = false;
 
   static const Map<String, String> _languageAutonyms = {
@@ -410,7 +408,107 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
-  // ── Delete account ─────────────────────────────────────────────────────────
+  // ── Logout & Delete account ──────────────────────────────────────────────
+
+  Future<void> _handleLogout() async {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          child: Glass(
+            borderRadius: 26,
+            padding: const EdgeInsets.all(20),
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.amber.withOpacity(0.35)),
+                    ),
+                    child: const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.amber,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    l10n.tr('profile_logout_dialog_title'),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: AppTheme.primaryText(brightness),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 20,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    l10n.tr('profile_logout_dialog_message'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppTheme.secondaryText(brightness),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.primaryText(brightness),
+                            side: BorderSide(color: AppTheme.cardBorder(brightness)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: Text(l10n.tr('common_cancel')),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFE53935),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          child: Text(l10n.tr('profile_logout_button')),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await AuthService().signOut();
+      if (mounted) context.go('/login');
+    } catch (e) {
+      if (mounted) _snack(e.toString(), error: true);
+    }
+  }
 
   Future<void> _handleDeleteAccount() async {
     if (_deletingAccount) return;
@@ -926,9 +1024,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       : Column(
                           children: [
                             // ── Main notifications toggle ───────────────────
-                            // Permission is requested HERE — only when user
-                            // explicitly flips this switch ON.
-                            // It is NEVER requested at app startup.
                             _SettingsToggle(
                               icon: Icons.notifications_active_rounded,
                               title: l10n.notificationsEnabledTitle,
@@ -940,9 +1035,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 await _saveNotifications();
 
                                 if (v) {
-                                  // ── Request permission only when user
-                                  // explicitly enables notifications.
-                                  // Never at app startup. ──────────────
                                   final granted =
                                       await PushMessagingService
                                           .instance
@@ -951,14 +1043,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                   if (!mounted) return;
 
                                   if (granted) {
-                                    // Fire a test notification so the
-                                    // user can confirm it works.
                                     await NotificationService()
                                         .showTestNotification();
                                   } else {
-                                    // Permission denied — tell user how
-                                    // to enable it manually and revert
-                                    // the toggle back to OFF.
                                     ScaffoldMessenger.of(context)
                                         .showSnackBar(
                                       const SnackBar(
@@ -1332,69 +1419,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
-                // ── App info ────────────────────────────────────────────────
-                _SectionLabel(
-                  icon: Icons.info_outline_rounded,
-                  label: l10n.appInfoTitle,
-                ),
-                const SizedBox(height: 8),
-                Glass(
-                  borderRadius: 20,
-                  padding: const EdgeInsets.all(18),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              cs.primary.withOpacity(0.25),
-                              cs.primary.withOpacity(0.08),
-                            ],
-                          ),
-                        ),
-                        child: Icon(
-                          Icons.sports_esports_rounded,
-                          color: cs.primary,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'eSportlyic',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 15,
-                                color: onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Powered by NCT Ventures',
-                              style: TextStyle(
-                                color: onSurface.withOpacity(0.50),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // ── Account ─────────────────────────────────────────────────
+                // ── Account Settings & Deletion ──────────────────────────────
                 _SectionLabel(
                   icon: Icons.manage_accounts_rounded,
                   label: 'Account',
@@ -1467,6 +1492,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       ),
                       const SizedBox(height: 18),
 
+                      // Logout Button
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _handleLogout,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: onSurface.withOpacity(0.05),
+                            foregroundColor: onSurface,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 14,
+                              horizontal: 18,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          icon: const Icon(Icons.logout_rounded, size: 20),
+                          label: const Text(
+                            'Logout',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Delete Account Button
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
@@ -1631,8 +1685,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                   children: [
                                     Expanded(
                                       child: Directionality(
-                                        textDirection:
-                                            _languageTextDirection(code),
+                                        textDirection: _languageTextDirection(code),
                                         child: Text(
                                           _languageDisplayName(code),
                                           style: TextStyle(

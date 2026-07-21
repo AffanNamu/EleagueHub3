@@ -1,7 +1,7 @@
-//deleteAccount
 import 'package:flutter/material.dart';
 
 import '../../../core/services/account_deletion_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 
 // ---------------------------------------------------------------------------
@@ -19,19 +19,19 @@ Future<bool> showDeleteAccountFlow(BuildContext context) async {
 
   if (!context.mounted) return false;
 
-  // Step 2 — Optional feedback form
+  // Step 2 — Beautiful Feedback Form
   final feedback = await _showFeedbackDialog(context);
 
   // feedback == null means the user dismissed the feedback dialog with X
-  // We still allow deletion in that case (feedback is optional).
-  // feedback is a _FeedbackResult when the user taps Continue or Skip.
+  if (feedback == null) return false;
+
   if (!context.mounted) return false;
 
   // Step 3 — Deletion with loading indicator
   final result = await _performDeletion(
     context,
-    feedbackReason: feedback?.reason,
-    feedbackText: feedback?.text,
+    feedbackReason: feedback.reason,
+    feedbackText: feedback.text,
   );
 
   return result;
@@ -44,138 +44,142 @@ Future<bool> showDeleteAccountFlow(BuildContext context) async {
 Future<bool?> _showWarningDialog(BuildContext context) {
   final theme = Theme.of(context);
   final cs = theme.colorScheme;
+  final brightness = theme.brightness;
 
   return showDialog<bool>(
     context: context,
     barrierDismissible: false,
     builder: (ctx) {
-      return AlertDialog(
-        backgroundColor: theme.brightness == Brightness.dark
-            ? const Color(0xFF1E1E2E)
-            : Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
-        contentPadding: EdgeInsets.zero,
-        content: Container(
-          width: 360,
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Glass(
+          borderRadius: 28,
           padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // ── Danger icon ──────────────────────────────────────────────
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.red.withOpacity(0.10),
-                  border: Border.all(
-                    color: Colors.red.withOpacity(0.30),
-                    width: 1.5,
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ── Danger icon ──────────────────────────────────────────────
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.redAccent.withOpacity(0.10),
+                    border: Border.all(
+                      color: Colors.redAccent.withOpacity(0.30),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.delete_forever_rounded,
+                    color: Colors.redAccent,
+                    size: 36,
                   ),
                 ),
-                child: const Icon(
-                  Icons.delete_forever_rounded,
-                  color: Colors.redAccent,
-                  size: 36,
-                ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
 
-              // ── Title ────────────────────────────────────────────────────
-              Text(
-                'Delete Account',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 22,
-                  color: theme.colorScheme.onSurface,
+                // ── Title ────────────────────────────────────────────────────
+                Text(
+                  'Delete Account',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 22,
+                    color: AppTheme.primaryText(brightness),
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 14),
+                const SizedBox(height: 14),
 
-              // ── Warning message ──────────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.07),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Colors.red.withOpacity(0.20),
+                // ── Warning message ──────────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.redAccent.withOpacity(0.15),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      _warningRow(
+                        Icons.warning_amber_rounded,
+                        'This action is permanent and cannot be undone.',
+                        theme,
+                        brightness,
+                      ),
+                      const SizedBox(height: 10),
+                      _warningRow(
+                        Icons.cloud_off_rounded,
+                        'All your personal data, matches, and stats will be wiped.',
+                        theme,
+                        brightness,
+                      ),
+                      const SizedBox(height: 10),
+                      _warningRow(
+                        Icons.emoji_events_outlined,
+                        'Your leagues and tournament access will be lost.',
+                        theme,
+                        brightness,
+                      ),
+                    ],
                   ),
                 ),
-                child: Column(
-                  children: [
-                    _warningRow(
-                      Icons.warning_amber_rounded,
-                      'This action is permanent.',
-                      theme,
-                    ),
-                    const SizedBox(height: 8),
-                    _warningRow(
-                      Icons.cloud_off_rounded,
-                      'All your data will be deleted and cannot be recovered.',
-                      theme,
-                    ),
-                    const SizedBox(height: 8),
-                    _warningRow(
-                      Icons.emoji_events_outlined,
-                      'Your leagues, compilations and profile will be removed.',
-                      theme,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
+                const SizedBox(height: 24),
 
-              // ── Buttons ──────────────────────────────────────────────────
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: BorderSide(
-                      color: cs.onSurface.withOpacity(0.25),
+                // ── Buttons ──────────────────────────────────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: BorderSide(
+                        color: AppTheme.cardBorder(brightness),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      foregroundColor: AppTheme.primaryText(brightness),
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    foregroundColor: cs.onSurface,
-                  ),
-                  child: const Text(
-                    'Cancel — Keep My Account',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.of(ctx).pop(true),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: const Text(
-                    'Yes, Delete My Account',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
+                    child: const Text(
+                      'Cancel — Keep My Account',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text(
+                      'Yes, Delete My Account',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -183,20 +187,20 @@ Future<bool?> _showWarningDialog(BuildContext context) {
   );
 }
 
-Widget _warningRow(IconData icon, String text, ThemeData theme) {
+Widget _warningRow(IconData icon, String text, ThemeData theme, Brightness brightness) {
   return Row(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Icon(icon, color: Colors.redAccent, size: 16),
-      const SizedBox(width: 10),
+      Icon(icon, color: Colors.redAccent, size: 18),
+      const SizedBox(width: 12),
       Expanded(
         child: Text(
           text,
           style: theme.textTheme.bodySmall?.copyWith(
-            color: Colors.redAccent,
+            color: AppTheme.primaryText(brightness).withOpacity(0.85),
             fontWeight: FontWeight.w700,
-            height: 1.35,
-            fontSize: 12,
+            height: 1.4,
+            fontSize: 13,
           ),
         ),
       ),
@@ -205,7 +209,7 @@ Widget _warningRow(IconData icon, String text, ThemeData theme) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 2 — Optional feedback dialog
+// Step 2 — Beautiful Form Dialog
 // ---------------------------------------------------------------------------
 
 class _FeedbackResult {
@@ -215,17 +219,18 @@ class _FeedbackResult {
 }
 
 const List<String> _feedbackOptions = [
-  'Too many ads',
-  'App is not useful',
-  'Found a better app',
-  'Bugs or issues',
+  'I don\'t understand how to use the app',
+  'I have privacy concerns',
+  'The app is too buggy or slow',
+  'I found a better alternative',
+  'I receive too many notifications',
   'Other',
 ];
 
 Future<_FeedbackResult?> _showFeedbackDialog(BuildContext context) {
   return showDialog<_FeedbackResult>(
     context: context,
-    barrierDismissible: true,
+    barrierDismissible: false,
     builder: (ctx) => _FeedbackDialog(),
   );
 }
@@ -236,7 +241,7 @@ class _FeedbackDialog extends StatefulWidget {
 }
 
 class _FeedbackDialogState extends State<_FeedbackDialog> {
-  String? _selectedReason;
+  final Set<String> _selectedReasons = {};
   final TextEditingController _otherCtrl = TextEditingController();
 
   @override
@@ -245,24 +250,32 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
     super.dispose();
   }
 
+  void _toggleReason(String reason) {
+    setState(() {
+      if (_selectedReasons.contains(reason)) {
+        _selectedReasons.remove(reason);
+      } else {
+        _selectedReasons.add(reason);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final onSurface = cs.onSurface;
-    final isDark = theme.brightness == Brightness.dark;
+    final brightness = theme.brightness;
+    final onSurface = theme.colorScheme.onSurface;
 
-    return AlertDialog(
-      backgroundColor:
-          isDark ? const Color(0xFF1E1E2E) : Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-      ),
-      contentPadding: EdgeInsets.zero,
-      content: SingleChildScrollView(
-        child: Container(
-          width: 360,
-          padding: const EdgeInsets.all(28),
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: Glass(
+        borderRadius: 28,
+        padding: const EdgeInsets.all(24),
+        fill: AppTheme.cardColor(brightness),
+        borderColor: AppTheme.cardBorder(brightness),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480, maxHeight: 600),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,190 +284,233 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
               Row(
                 children: [
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: cs.primary.withOpacity(0.10),
+                      color: AppTheme.iconCircleBackground(brightness),
+                      border: Border.all(color: AppTheme.cardBorder(brightness)),
                     ),
                     child: Icon(
-                      Icons.feedback_outlined,
-                      color: cs.primary,
-                      size: 20,
+                      Icons.sentiment_dissatisfied_rounded,
+                      color: AppTheme.limeAccentDark,
+                      size: 22,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Why are you leaving?',
+                          'We\'re sad to see you go',
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
-                            fontSize: 17,
-                            color: onSurface,
+                            fontSize: 18,
+                            color: AppTheme.primaryText(brightness),
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Optional — helps us improve',
+                          'Please tell us why so we can improve.',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: onSurface.withOpacity(0.55),
+                            color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w600,
-                            fontSize: 11,
+                            fontSize: 12,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(null),
+                    icon: Icon(Icons.close, color: AppTheme.secondaryText(brightness)),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
 
-              // ── Reason chips ─────────────────────────────────────────────
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _feedbackOptions.map((option) {
-                  final selected = _selectedReason == option;
-                  return GestureDetector(
-                    onTap: () =>
-                        setState(() => _selectedReason = option),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 9,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        color: selected
-                            ? cs.primary.withOpacity(0.15)
-                            : onSurface.withOpacity(0.05),
-                        border: Border.all(
-                          color: selected
-                              ? cs.primary.withOpacity(0.60)
-                              : onSurface.withOpacity(0.12),
-                          width: selected ? 1.5 : 1,
-                        ),
-                      ),
-                      child: Text(
-                        option,
+              // ── Scrollable Form ──────────────────────────────────────────
+              Flexible(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Select all that apply:',
                         style: TextStyle(
-                          color: selected
-                              ? cs.primary
-                              : onSurface.withOpacity(0.75),
-                          fontWeight: selected
-                              ? FontWeight.w900
-                              : FontWeight.w700,
-                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          color: AppTheme.primaryText(brightness),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ..._feedbackOptions.map((option) {
+                        final isSelected = _selectedReasons.contains(option);
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: InkWell(
+                            onTap: () => _toggleReason(option),
+                            borderRadius: BorderRadius.circular(16),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                color: isSelected
+                                    ? AppTheme.limeAccent.withOpacity(0.15)
+                                    : onSurface.withOpacity(0.04),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppTheme.limeAccentDark.withOpacity(0.5)
+                                      : onSurface.withOpacity(0.1),
+                                  width: isSelected ? 1.5 : 1,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isSelected
+                                        ? Icons.check_circle_rounded
+                                        : Icons.circle_outlined,
+                                    color: isSelected
+                                        ? AppTheme.limeAccentDark
+                                        : AppTheme.secondaryText(brightness),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Text(
+                                      option,
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? AppTheme.primaryText(brightness)
+                                            : AppTheme.secondaryText(brightness),
+                                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+
+                      const SizedBox(height: 12),
+                      Text(
+                        'Tell us more (Optional):',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          color: AppTheme.primaryText(brightness),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _otherCtrl,
+                        maxLines: 4,
+                        maxLength: 500,
+                        style: TextStyle(
+                          color: AppTheme.primaryText(brightness),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: 'Any additional feedback...',
+                          hintStyle: TextStyle(
+                            color: AppTheme.secondaryText(brightness),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(
+                              color: AppTheme.cardBorder(brightness),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(
+                              color: onSurface.withOpacity(0.15),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(
+                              color: AppTheme.limeAccentDark,
+                              width: 1.5,
+                            ),
+                          ),
+                          contentPadding: const EdgeInsets.all(16),
+                          filled: true,
+                          fillColor: onSurface.withOpacity(0.04),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // ── Footer Buttons ───────────────────────────────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(
+                        const _FeedbackResult(reason: 'Skipped'),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        foregroundColor: AppTheme.secondaryText(brightness),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text(
+                        'Skip',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
                         ),
                       ),
                     ),
-                  );
-                }).toList(),
-              ),
-
-              // ── "Other" text input ────────────────────────────────────────
-              if (_selectedReason == 'Other') ...[
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _otherCtrl,
-                  maxLines: 3,
-                  maxLength: 300,
-                  style: TextStyle(
-                    color: onSurface,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
                   ),
-                  decoration: InputDecoration(
-                    hintText: 'Tell us more (optional)…',
-                    hintStyle: TextStyle(
-                      color: onSurface.withOpacity(0.40),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(
-                        color: onSurface.withOpacity(0.20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton(
+                      onPressed: () {
+                        final reason = _selectedReasons.isEmpty
+                            ? 'No reason given'
+                            : _selectedReasons.join(', ');
+                        final text = _otherCtrl.text.trim();
+                        Navigator.of(context).pop(
+                          _FeedbackResult(reason: reason, text: text.isEmpty ? null : text),
+                        );
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text(
+                        'Delete Account',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(
-                        color: onSurface.withOpacity(0.15),
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(
-                        color: cs.primary.withOpacity(0.60),
-                      ),
-                    ),
-                    contentPadding: const EdgeInsets.all(14),
-                    filled: true,
-                    fillColor: onSurface.withOpacity(0.04),
                   ),
-                ),
-              ],
-
-              const SizedBox(height: 24),
-
-              // ── Buttons ──────────────────────────────────────────────────
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () {
-                    final reason =
-                        _selectedReason ?? 'Not specified';
-                    final text = _selectedReason == 'Other'
-                        ? _otherCtrl.text.trim()
-                        : null;
-                    Navigator.of(context).pop(
-                      _FeedbackResult(reason: reason, text: text),
-                    );
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: const Text(
-                    'Continue to Delete',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(
-                    const _FeedbackResult(reason: 'Skipped'),
-                  ),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    foregroundColor: onSurface.withOpacity(0.60),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: const Text(
-                    'Skip & Delete',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
+                ],
               ),
             ],
           ),
@@ -515,31 +571,50 @@ Future<bool> _performDeletion(
       context: context,
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: const Text(
-            'Sign In Required',
-            style: TextStyle(fontWeight: FontWeight.w900),
-          ),
-          content: Text(
-            result.errorMessage ??
-                'Please sign in again before deleting your account.',
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              height: 1.4,
+        final brightness = theme.brightness;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Glass(
+            borderRadius: 24,
+            padding: const EdgeInsets.all(24),
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Sign In Required',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  result.errorMessage ??
+                      'Please sign in again before deleting your account to verify your identity.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                    color: AppTheme.secondaryText(brightness),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.limeAccent,
+                      foregroundColor: AppTheme.darkText,
+                    ),
+                    child: const Text(
+                      'OK',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text(
-                'OK',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ],
         );
       },
     );
@@ -571,49 +646,50 @@ class _DeletionLoadingDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final onSurface = theme.colorScheme.onSurface;
-    final isDark = theme.brightness == Brightness.dark;
+    final brightness = theme.brightness;
 
     return Dialog(
-      backgroundColor:
-          isDark ? const Color(0xFF1E1E2E) : Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 52,
-              height: 52,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                color: Colors.redAccent,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      child: Center(
+        child: Glass(
+          borderRadius: 28,
+          padding: const EdgeInsets.all(32),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 48,
+                height: 48,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Colors.redAccent,
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Deleting Account',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                fontSize: 17,
-                color: onSurface,
+              const SizedBox(height: 24),
+              Text(
+                'Deleting Account',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                  color: AppTheme.primaryText(brightness),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Removing your data permanently.\nPlease wait…',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: onSurface.withOpacity(0.55),
-                fontWeight: FontWeight.w600,
-                height: 1.45,
-                fontSize: 12,
+              const SizedBox(height: 8),
+              Text(
+                'Removing your data permanently.\nPlease wait…',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppTheme.secondaryText(brightness),
+                  fontWeight: FontWeight.w600,
+                  height: 1.45,
+                  fontSize: 13,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
