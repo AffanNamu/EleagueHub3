@@ -2130,7 +2130,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 }
 
 // ── Supporting widgets ────────────────────────────────────────────────────────
-// All widgets below are UNCHANGED from the original file.
 
 class _SuperAdminRewardsPanel extends StatefulWidget {
   const _SuperAdminRewardsPanel({
@@ -2144,8 +2143,7 @@ class _SuperAdminRewardsPanel extends StatefulWidget {
       _SuperAdminRewardsPanelState();
 }
 
-class _SuperAdminRewardsPanelState
-    extends State<_SuperAdminRewardsPanel> {
+class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
   final RewardFirestoreService _rewardsService =
       RewardFirestoreService();
   final FirebaseFirestore _firestore =
@@ -2157,8 +2155,7 @@ class _SuperAdminRewardsPanelState
       _statusFutures =
       <String, Future<_LeagueProgressStatus>>{};
 
-  Future<_LeagueProgressStatus> _statusFuture(
-      String leagueId) {
+  Future<_LeagueProgressStatus> _statusFuture(String leagueId) {
     return _statusFutures.putIfAbsent(
       leagueId,
       () => _fetchLeagueProgress(leagueId),
@@ -2207,8 +2204,7 @@ class _SuperAdminRewardsPanelState
     return s.trim().isEmpty ? fallback : s.trim();
   }
 
-  int? _scoreFromMap(
-      Map<String, dynamic> m, List<String> keys) {
+  int? _scoreFromMap(Map<String, dynamic> m, List<String> keys) {
     for (final k in keys) {
       if (!m.containsKey(k)) continue;
       final v = m[k];
@@ -2237,8 +2233,7 @@ class _SuperAdminRewardsPanelState
     return false;
   }
 
-  Future<_WinnerResult?> _computeWinner(
-      String leagueId) async {
+  Future<_WinnerResult?> _computeWinner(String leagueId) async {
     final teamsSnap = await _firestore
         .collection('leagues')
         .doc(leagueId)
@@ -2706,7 +2701,7 @@ class _SuperAdminRewardsPanelState
                                               ),
                                               onPressed: () async {
                                                 final leagueName = _stringFrom(
-                                                  leagueData['name'],
+                                                  d.data()['name'],
                                                   fallback: 'League',
                                                 );
                                                 await TrophyService().awardTrophy(
@@ -2812,7 +2807,7 @@ class _SuperAdminRewardsPanelState
                     );
                   },
                 ),
-              ],
+              ]
             ],
           );
         },
@@ -2848,291 +2843,6 @@ class _SuperAdminRewardsPanelState
           ),
         ],
       ),
-    );
-  }
-
-  String _stringFrom(dynamic v, {String fallback = ''}) {
-    final s = (v ?? '').toString();
-    return s.trim().isEmpty ? fallback : s.trim();
-  }
-}
-
-class _SuperAdminRewardLeagueTile extends StatelessWidget {
-  const _SuperAdminRewardLeagueTile({
-    required this.leagueId,
-    required this.leagueData,
-    required this.rewardsService,
-    required this.statusFuture,
-    required this.onOpenLeague,
-    required this.onOpenStandings,
-    required this.onComputeWinner,
-  });
-
-  final String leagueId;
-  final Map<String, dynamic> leagueData;
-  final RewardFirestoreService rewardsService;
-  final Future<_LeagueProgressStatus> statusFuture;
-
-  final VoidCallback onOpenLeague;
-  final VoidCallback onOpenStandings;
-  final VoidCallback onComputeWinner;
-
-  String _s(dynamic v, {String fallback = ''}) {
-    final s = (v ?? '').toString().trim();
-    return s.isEmpty ? fallback : s;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final brightness = theme.brightness;
-
-    final name = _s(leagueData['name'], fallback: 'League');
-    final code = _s(leagueData['code']);
-
-    return FutureBuilder<String?>(
-      future:
-          rewardsService.fetchTopRewardName(leagueId: leagueId),
-      builder: (context, rs) {
-        if (rs.hasError) {
-          return Glass(
-            borderRadius: 22,
-            padding: const EdgeInsets.all(12),
-            fill: AppTheme.cardColor(brightness),
-            borderColor: AppTheme.cardBorder(brightness),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: AppTheme.primaryText(brightness),
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Rewards: unavailable (${rs.error})',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .error
-                        .withOpacity(0.9),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: onOpenLeague,
-                        child: const Text('Open'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor:
-                              AppTheme.limeAccent,
-                          foregroundColor: AppTheme.darkText,
-                        ),
-                        onPressed: onOpenStandings,
-                        child: const Text('Standings'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        }
-
-        final topReward = (rs.data ?? '').trim();
-        final hasRewards = topReward.isNotEmpty;
-
-        if (!hasRewards &&
-            rs.connectionState == ConnectionState.done) {
-          return const SizedBox.shrink();
-        }
-
-        return Glass(
-          borderRadius: 22,
-          padding: const EdgeInsets.all(12),
-          fill: AppTheme.cardColor(brightness),
-          borderColor: AppTheme.cardBorder(brightness),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      name,
-                      style:
-                          theme.textTheme.bodyMedium?.copyWith(
-                        color: AppTheme.primaryText(brightness),
-                        fontWeight: FontWeight.w900,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(999),
-                      gradient: const LinearGradient(
-                        colors: [
-                          Color(0xFFFFD54F),
-                          Color(0xFFFF8A65),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    child: Text(
-                      'Rewards',
-                      style:
-                          theme.textTheme.labelMedium?.copyWith(
-                        color: Colors.black.withOpacity(0.86),
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              if (topReward.isNotEmpty)
-                Text(
-                  'Top reward: $topReward',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppTheme.limeAccentDark,
-                    fontWeight: FontWeight.w900,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                )
-              else
-                Text(
-                  'Checking rewards...',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppTheme.secondaryText(brightness),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              const SizedBox(height: 6),
-              FutureBuilder<_LeagueProgressStatus>(
-                future: statusFuture,
-                builder: (context, ss) {
-                  final status =
-                      ss.data ?? _LeagueProgressStatus.unknown;
-                  final text = switch (status) {
-                    _LeagueProgressStatus.notStarted =>
-                      'Status: Not started',
-                    _LeagueProgressStatus.inProgress =>
-                      'Status: In progress',
-                    _LeagueProgressStatus.finished =>
-                      'Status: Finished',
-                    _LeagueProgressStatus.unknown =>
-                      'Status: Unknown',
-                  };
-                  final color = switch (status) {
-                    _LeagueProgressStatus.notStarted =>
-                      AppTheme.secondaryText(brightness),
-                    _LeagueProgressStatus.inProgress =>
-                      const Color(0xFFF59E0B),
-                    _LeagueProgressStatus.finished =>
-                      const Color(0xFF22C55E),
-                    _LeagueProgressStatus.unknown =>
-                      AppTheme.secondaryText(brightness),
-                  };
-
-                  return Text(
-                    text,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: onOpenLeague,
-                      icon: const Icon(Icons.open_in_new),
-                      label: const Text('Open'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.limeAccent,
-                        foregroundColor: AppTheme.darkText,
-                      ),
-                      onPressed: onOpenStandings,
-                      icon:
-                          const Icon(Icons.leaderboard_outlined),
-                      label: const Text('Standings'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed: onComputeWinner,
-                      icon: const Icon(
-                          Icons.emoji_events_outlined),
-                      label: const Text('Winner'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        await Clipboard.setData(
-                          ClipboardData(text: name),
-                        );
-                        if (!context.mounted) return;
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(
-                          const SnackBar(
-                            content:
-                                Text('Copied league name'),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.copy),
-                      label: const Text('Copy League'),
-                    ),
-                  ),
-                ],
-              ),
-              if (code.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  'Code: $code',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppTheme.secondaryText(brightness),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
     );
   }
 }
@@ -3578,6 +3288,286 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SuperAdminRewardLeagueTile extends StatelessWidget {
+  const _SuperAdminRewardLeagueTile({
+    required this.leagueId,
+    required this.leagueData,
+    required this.rewardsService,
+    required this.statusFuture,
+    required this.onOpenLeague,
+    required this.onOpenStandings,
+    required this.onComputeWinner,
+  });
+
+  final String leagueId;
+  final Map<String, dynamic> leagueData;
+  final RewardFirestoreService rewardsService;
+  final Future<_LeagueProgressStatus> statusFuture;
+
+  final VoidCallback onOpenLeague;
+  final VoidCallback onOpenStandings;
+  final VoidCallback onComputeWinner;
+
+  String _s(dynamic v, {String fallback = ''}) {
+    final s = (v ?? '').toString().trim();
+    return s.isEmpty ? fallback : s;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+
+    final name = _s(leagueData['name'], fallback: 'League');
+    final code = _s(leagueData['code']);
+
+    return FutureBuilder<String?>(
+      future:
+          rewardsService.fetchTopRewardName(leagueId: leagueId),
+      builder: (context, rs) {
+        if (rs.hasError) {
+          return Glass(
+            borderRadius: 22,
+            padding: const EdgeInsets.all(12),
+            fill: AppTheme.cardColor(brightness),
+            borderColor: AppTheme.cardBorder(brightness),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.primaryText(brightness),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Rewards: unavailable (${rs.error})',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .error
+                        .withOpacity(0.9),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: onOpenLeague,
+                        child: const Text('Open'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor:
+                              AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
+                        onPressed: onOpenStandings,
+                        child: const Text('Standings'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
+
+        final topReward = (rs.data ?? '').trim();
+        final hasRewards = topReward.isNotEmpty;
+
+        if (!hasRewards &&
+            rs.connectionState == ConnectionState.done) {
+          return const SizedBox.shrink();
+        }
+
+        return Glass(
+          borderRadius: 22,
+          padding: const EdgeInsets.all(12),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      name,
+                      style:
+                          theme.textTheme.bodyMedium?.copyWith(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w900,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      gradient: const LinearGradient(
+                        colors: [
+                          Color(0xFFFFD54F),
+                          Color(0xFFFF8A65),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: Text(
+                      'Rewards',
+                      style:
+                          theme.textTheme.labelMedium?.copyWith(
+                        color: Colors.black.withOpacity(0.86),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              if (topReward.isNotEmpty)
+                Text(
+                  'Top reward: $topReward',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.limeAccentDark,
+                    fontWeight: FontWeight.w900,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                )
+              else
+                Text(
+                  'Checking rewards...',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.secondaryText(brightness),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              const SizedBox(height: 6),
+              FutureBuilder<_LeagueProgressStatus>(
+                future: statusFuture,
+                builder: (context, ss) {
+                  final status =
+                      ss.data ?? _LeagueProgressStatus.unknown;
+                  final text = switch (status) {
+                    _LeagueProgressStatus.notStarted =>
+                      'Status: Not started',
+                    _LeagueProgressStatus.inProgress =>
+                      'Status: In progress',
+                    _LeagueProgressStatus.finished =>
+                      'Status: Finished',
+                    _LeagueProgressStatus.unknown =>
+                      'Status: Unknown',
+                  };
+                  final color = switch (status) {
+                    _LeagueProgressStatus.notStarted =>
+                      AppTheme.secondaryText(brightness),
+                    _LeagueProgressStatus.inProgress =>
+                      const Color(0xFFF59E0B),
+                    _LeagueProgressStatus.finished =>
+                      const Color(0xFF22C55E),
+                    _LeagueProgressStatus.unknown =>
+                      AppTheme.secondaryText(brightness),
+                  };
+
+                  return Text(
+                    text,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onOpenLeague,
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Open'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.limeAccent,
+                        foregroundColor: AppTheme.darkText,
+                      ),
+                      onPressed: onOpenStandings,
+                      icon:
+                          const Icon(Icons.leaderboard_outlined),
+                      label: const Text('Standings'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: onComputeWinner,
+                      icon: const Icon(
+                          Icons.emoji_events_outlined),
+                      label: const Text('Winner'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: name),
+                        );
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(
+                          const SnackBar(
+                            content:
+                                Text('Copied league name'),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.copy),
+                      label: const Text('Copy League'),
+                    ),
+                  ),
+                ],
+              ),
+              if (code.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Code: $code',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.secondaryText(brightness),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }
