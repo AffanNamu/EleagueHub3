@@ -1,30 +1,8 @@
-// lib/core/routing/app_router.dart
-//
-// MODIFIED: Added /messages and /chat/:threadId inside the '/' route
-// to support the premium-gated private messaging feature. Also added
-// profile/:userId and profile/:userId/squad.
-//
-// World Cup uses the existing routes:
-//   /leagues/:id/standings  → LeagueStandingsScreen (now handles worldCup format)
-//   /leagues/:id/knockout   → KnockoutBracketScreen (now handles R32)
-//   /leagues/:id/fixtures   → FixturesScreen (no changes needed)
-//
-// The existing /leagues/create route already points to LeagueCreationDashboard
-// which now has the World Cup card and format selector.
-//
-// No new routes are needed because the World Cup is a new format type
-// within existing screens, not a new screen hierarchy.
-//
-// ADDED: /admin/staff-ambassadors route — super-admin-only screen for
-// granting/revoking the purple Staff/Ambassador verification badge by
-// UID. Guarded the same way as the other /admin/* routes: redirected
-// to '/' for anyone whose uid does not match _superAdminUid.
-
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart' show FirebaseException;
+import 'package:firebase_core/package_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -84,6 +62,7 @@ import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/public_team_profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
 import '../../features/profile/presentation/squad_screen.dart';
+import '../../features/search/presentation/user_search_screen.dart';
 import '../../web_app/presentation/web_desktop_session_store.dart';
 import '../../web_app/presentation/web_desktop_shell_screen.dart';
 import '../../web_app/presentation/web_pairing_screen.dart';
@@ -93,7 +72,7 @@ import '../theme/app_theme.dart';
 import '../widgets/glass.dart';
 
 // ---------------------------------------------------------------------------
-// Mobile-only screen (UNCHANGED)
+// Mobile-only screen
 // ---------------------------------------------------------------------------
 
 class _MobileOnlyScreen extends StatelessWidget {
@@ -163,7 +142,7 @@ class _MobileOnlyScreen extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// WebJoinScreen (UNCHANGED)
+// WebJoinScreen
 // ---------------------------------------------------------------------------
 
 class WebJoinScreen extends StatefulWidget {
@@ -600,7 +579,7 @@ class _WebJoinScreenState extends State<WebJoinScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// WebSessionGateScreen (UNCHANGED)
+// WebSessionGateScreen
 // ---------------------------------------------------------------------------
 
 class WebSessionGateScreen extends StatefulWidget {
@@ -806,7 +785,7 @@ class _WebSessionGateScreenState extends State<WebSessionGateScreen>
 }
 
 // ---------------------------------------------------------------------------
-// AuthRouterRefresh (UNCHANGED)
+// AuthRouterRefresh
 // ---------------------------------------------------------------------------
 
 enum _ProfileState { unknown, checking, missing, exists }
@@ -1001,13 +980,13 @@ class AuthRouterRefresh extends ChangeNotifier {
 }
 
 // ---------------------------------------------------------------------------
-// Singleton (UNCHANGED)
+// Singleton
 // ---------------------------------------------------------------------------
 
 final AuthRouterRefresh authRouterRefresh = AuthRouterRefresh();
 
 // ---------------------------------------------------------------------------
-// Admin helpers (UNCHANGED)
+// Admin helpers
 // ---------------------------------------------------------------------------
 
 bool _isPricingAdminUidSync(String uid) {
@@ -1021,7 +1000,7 @@ bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
     r.needsOnboarding;
 
 // ---------------------------------------------------------------------------
-// Public legal routes (UNCHANGED)
+// Public legal routes
 // ---------------------------------------------------------------------------
 
 const _publicRoutes = <String>{
@@ -1067,7 +1046,6 @@ final appRouter = GoRouter(
         loc == '/admin/marketplace-upload';
     final inGlobalChatRequestsAdmin =
         loc == '/admin/global-chat-requests';
-    // NEW: staff/ambassador badge admin screen.
     final inStaffAmbassadorAdmin =
         loc == '/admin/staff-ambassadors';
 
@@ -1142,16 +1120,7 @@ final appRouter = GoRouter(
       if (!_isPricingAdminUidSync(uid)) return '/';
     }
 
-    if (inMarketplaceAdminUpload) {
-      if (uid != _superAdminUid) return '/';
-    }
-
-    if (inGlobalChatRequestsAdmin) {
-      if (uid != _superAdminUid) return '/';
-    }
-
-    // NEW: only the super admin can reach the staff/ambassador screen.
-    if (inStaffAmbassadorAdmin) {
+    if (inMarketplaceAdminUpload || inGlobalChatRequestsAdmin || inStaffAmbassadorAdmin) {
       if (uid != _superAdminUid) return '/';
     }
 
@@ -1279,7 +1248,6 @@ final appRouter = GoRouter(
       builder: (context, state) =>
           const GlobalChatAdminRequestsScreen(),
     ),
-    // NEW: super-admin badge management screen.
     GoRoute(
       path: '/admin/staff-ambassadors',
       builder: (context, state) =>
@@ -1296,6 +1264,10 @@ final appRouter = GoRouter(
         return const HomeShell();
       },
       routes: [
+        GoRoute(
+          path: 'search',
+          builder: (context, state) => const UserSearchScreen(),
+        ),
         GoRoute(
           path: 'profile',
           builder: (context, state) => const ProfileScreen(),
