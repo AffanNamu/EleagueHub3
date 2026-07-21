@@ -12,6 +12,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/platform/overlay_platform.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/push_messaging_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
