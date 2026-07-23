@@ -1,3 +1,5 @@
+// lib/features/profile/presentation/profile_screen.dart
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -22,7 +24,6 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../admin/pricing_quick_editor_sheet.dart';
-import '../../auth/data/auth_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../../legal/affiliate_disclosure_screen.dart';
@@ -32,8 +33,8 @@ import '../../legal/terms_of_service_screen.dart';
 import '../../leagues/data/services/reward_firestore_service.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 import '../../marketplace/presentation/admin_marketplace_upload_screen.dart';
-import '../../verification/domain/badge_model.dart';
 import '../../profile/data/trophy_service.dart';
+import '../../verification/domain/badge_model.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -806,8 +807,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       const BoxConstraints(
                                     maxHeight: 320,
                                   ),
-                                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                    stream: redemptionsQuery.snapshots(),
+                                  child: StreamBuilder<
+                                      QuerySnapshot<
+                                          Map<String, dynamic>>>(
+                                    stream: redemptionsQuery
+                                        .snapshots(),
                                     builder: (context, rs) {
                                       if (rs.hasError) {
                                         return Center(
@@ -898,7 +902,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                           final when = paidAtMs > 0
                                               ? DateTime
                                                       .fromMillisecondsSinceEpoch(
-                                                          paidAtMs)
+                                                      paidAtMs)
                                                   .toLocal()
                                                   .toString()
                                               : '—';
@@ -1075,19 +1079,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return url;
   }
 
-  // ── Badge display ─────────────────────────────────────────────────────────
-
-  /// Builds all active verification badge icons for the profile header.
-  ///
-  /// Priority order (left to right):
-  ///   1. Staff / Ambassador badge  (purple shield)
-  ///   2. Gold Organizer badge      (amber verified)
-  ///   3. Green Verified badge      (green verified)
-  ///   4. Legacy isVerified flag    (blue verified — backward compat)
-  ///   5. Verification pending      (amber outlined)
-  ///
-  /// All icons are shown inline next to the username exactly as before.
-  /// No layout is changed — we only extend the icon list.
   Widget _verificationBadge(
     BuildContext context,
     UserProfile? profile,
@@ -1097,7 +1088,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final badges = profile.verificationBadges;
     final icons = <Widget>[];
 
-    // 1. Staff / Ambassador badge
     if (badges.isStaffActive) {
       icons.add(
         const Tooltip(
@@ -1107,14 +1097,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Icon(
               Icons.shield_rounded,
               size: 18,
-              color: Color(0xFF7C3AED), // deep purple
+              color: Color(0xFF7C3AED),
             ),
           ),
         ),
       );
     }
 
-    // 2. Gold Organizer badge
     if (badges.isOrganizerActive) {
       icons.add(
         const Tooltip(
@@ -1124,14 +1113,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Icon(
               Icons.verified_rounded,
               size: 18,
-              color: Color(0xFFFFB300), // amber / gold
+              color: Color(0xFFFFB300),
             ),
           ),
         ),
       );
     }
 
-    // 3. Green verified badge (from new badge system)
     if (badges.isGreenActive) {
       icons.add(
         const Tooltip(
@@ -1141,15 +1129,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Icon(
               Icons.verified_rounded,
               size: 18,
-              color: Color(0xFF00C853), // app green accent
+              color: Color(0xFF00C853),
             ),
           ),
         ),
       );
     } else if (!badges.isGreenActive &&
         badges.greenSource == null) {
-      // 4. Legacy isVerified fallback (backward compatibility
-      //    for users verified before the new badge system).
       if (profile.verifiedActive) {
         icons.add(
           const Tooltip(
@@ -1159,13 +1145,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               child: Icon(
                 Icons.verified_rounded,
                 size: 18,
-                color: Color(0xFF1D9BF0), // legacy blue
+                color: Color(0xFF1D9BF0),
               ),
             ),
           ),
         );
       } else if (profile.verificationPending) {
-        // 5. Pending verification
         icons.add(
           const Tooltip(
             message: 'Verification pending',
@@ -1174,7 +1159,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               child: Icon(
                 Icons.verified_outlined,
                 size: 18,
-                color: Color(0xFFF59E0B), // amber
+                color: Color(0xFFF59E0B),
               ),
             ),
           ),
@@ -1397,10 +1382,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               milliseconds: 200,
                                             ),
                                             child: Row(
-                                              // Key includes badge
-                                              // state so AnimatedSwitcher
-                                              // re-animates when badges
-                                              // change.
                                               key: ValueKey(
                                                 '${teamName}_'
                                                 '${profile?.isVerified}_'
@@ -1547,24 +1528,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             children: [
                               Expanded(
                                 child: _ProfileActionChip(
-                                  icon: Icons.person_search_rounded,
-                                  label: 'Public View',
+                                  icon: themeState.mode ==
+                                          ThemeMode.dark
+                                      ? Icons.light_mode_rounded
+                                      : Icons.dark_mode_rounded,
+                                  label: themeState.mode ==
+                                          ThemeMode.dark
+                                      ? 'Light'
+                                      : 'Dark',
                                   onTap: () {
-                                    if (uid.isEmpty) return;
                                     HapticFeedback.selectionClick();
-                                    context.push('/profile/$uid');
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: _ProfileActionChip(
-                                  icon: Icons.groups_rounded,
-                                  label: 'My Squad',
-                                  onTap: () {
-                                    if (uid.isEmpty) return;
-                                    HapticFeedback.selectionClick();
-                                    context.push('/profile/$uid/squad');
+                                    ref
+                                        .read(themeControllerProvider
+                                            .notifier)
+                                        .toggleTheme();
                                   },
                                 ),
                               ),
@@ -1573,10 +1550,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 child: _ProfileActionChip(
                                   icon: Icons.settings_rounded,
                                   label: 'Settings',
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    context.push('/profile/settings');
-                                  },
+                                  onTap: () =>
+                                      context.push('/settings'),
                                 ),
                               ),
                             ],
@@ -1645,7 +1620,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     padding: const EdgeInsets.all(14),
                     fill: AppTheme.cardColor(brightness),
                     borderColor: AppTheme.cardBorder(brightness),
-                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    child: StreamBuilder<
+                        QuerySnapshot<Map<String, dynamic>>>(
                       stream: FirebaseFirestore.instance
                           .collection('leagues')
                           .where('organizerUid', isEqualTo: uid)
@@ -1685,8 +1661,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               if (!enabled) return false;
                               final dp =
                                   (m['couponDiscountPercent']
-                                          as num?)
-                                      ?.toInt() ??
+                                              as num?)
+                                          ?.toInt() ??
                                       0;
                               return dp >= 0;
                             })
@@ -2259,9 +2235,6 @@ class _SuperAdminRewardsPanelState
         ),
     };
 
-    // Team.ownerId is the Firebase uid whose users/{uid} document
-    // should receive the trophy. It defaults to the team id itself
-    // when not explicitly stored (see Team.toRemoteMap).
     final teamOwnerIds = <String, String>{
       for (final d in teamsSnap.docs)
         d.id: _stringFrom(d.data()['ownerId'], fallback: d.id),
@@ -2694,29 +2667,45 @@ class _SuperAdminRewardsPanelState
                                             'W-D-L',
                                             '${res.wins}-${res.draws}-${res.losses}',
                                           ),
-                                          const SizedBox(height: 10),
+                                          const SizedBox(
+                                              height: 10),
                                           SizedBox(
                                             width: double.infinity,
                                             child: FilledButton.icon(
-                                              style: FilledButton.styleFrom(
-                                                backgroundColor: const Color(0xFFFFD54F),
-                                                foregroundColor: Colors.black,
+                                              style: FilledButton
+                                                  .styleFrom(
+                                                backgroundColor:
+                                                    const Color(
+                                                        0xFFFFD54F),
+                                                foregroundColor:
+                                                    Colors.black,
                                               ),
                                               onPressed: () async {
-                                                final leagueName = _stringFrom(
+                                                final leagueName =
+                                                    _stringFrom(
                                                   d.data()['name'],
                                                   fallback: 'League',
                                                 );
-                                                await TrophyService().awardTrophy(
-                                                  teamOwnerId: res.ownerId,
-                                                  trophyId: '${d.id}_final',
+                                                await TrophyService()
+                                                    .awardTrophy(
+                                                  teamOwnerId:
+                                                      res.ownerId,
+                                                  trophyId:
+                                                      '${d.id}_final',
                                                   leagueId: d.id,
-                                                  leagueName: leagueName,
+                                                  leagueName:
+                                                      leagueName,
                                                   position: 1,
-                                                  season: DateTime.now().year.toString(),
+                                                  season: DateTime
+                                                          .now()
+                                                      .year
+                                                      .toString(),
                                                 );
-                                                if (!ctx.mounted) return;
-                                                ScaffoldMessenger.of(context)
+                                                if (!ctx.mounted) {
+                                                  return;
+                                                }
+                                                ScaffoldMessenger.of(
+                                                        context)
                                                     .showSnackBar(
                                                   const SnackBar(
                                                     content: Text(
@@ -2726,8 +2715,11 @@ class _SuperAdminRewardsPanelState
                                                 );
                                               },
                                               icon: const Icon(
-                                                  Icons.emoji_events_rounded),
-                                              label: const Text('Award Trophy'),
+                                                Icons
+                                                    .emoji_events_rounded,
+                                              ),
+                                              label: const Text(
+                                                  'Award Trophy'),
                                             ),
                                           ),
                                           const SizedBox(
@@ -2810,6 +2802,7 @@ class _SuperAdminRewardsPanelState
                     );
                   },
                 ),
+                const SizedBox(height: 10),
               ],
             ],
           );
@@ -2847,11 +2840,6 @@ class _SuperAdminRewardsPanelState
         ],
       ),
     );
-  }
-
-  String _stringFrom(dynamic v, {String fallback = ''}) {
-    final s = (v ?? '').toString();
-    return s.trim().isEmpty ? fallback : s.trim();
   }
 }
 
