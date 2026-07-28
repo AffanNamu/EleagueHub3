@@ -83,7 +83,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
   }
 
   Future<void> _copyProfileLink() async {
-    final link = 'https://esportlyic.web.app/profile/${widget.userId.trim()}';
+    final link = 'https://esportlyic.com/profile/${widget.userId.trim()}';
     await Clipboard.setData(ClipboardData(text: link));
     _snack('Profile link copied.');
   }
@@ -320,18 +320,18 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                     const SizedBox(height: 20),
                     _StatsSection(userId: widget.userId, repo: _teamRepo),
                     const SizedBox(height: 20),
-                    _SectionLabel('Squad'),
+                    const _SectionLabel('Squad'),
                     const SizedBox(height: 10),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: _SquadPreview(userId: widget.userId, repo: _teamRepo),
                     ),
                     const SizedBox(height: 20),
-                    _SectionLabel('Trophy Cabinet'),
+                    const _SectionLabel('Trophy Cabinet'),
                     const SizedBox(height: 10),
                     _TrophyShelf(userId: widget.userId, repo: _teamRepo),
                     const SizedBox(height: 20),
-                    _SectionLabel('Recent Matches'),
+                    const _SectionLabel('Recent Matches'),
                     const SizedBox(height: 10),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
