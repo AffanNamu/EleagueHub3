@@ -37,6 +37,7 @@ class UserSearchRepository {
           'displayName': displayName.trim(),
           'displayNameLower': displayName.trim().toLowerCase(),
           'shareId': shareId.trim(),
+          'shareIdLower': shareId.trim().toLowerCase(), // Added for case-insensitive ID search
           'game': game.trim(),
           'badge': badge.trim(),
           'avatarUrl': avatarUrl.trim(),
@@ -79,7 +80,7 @@ class UserSearchRepository {
     try {
       final results = <String, UserSearchEntry>{};
 
-      // Prefix match on display name.
+      // 1. Prefix match on display name (case-insensitive).
       final nameSnap = await _col
           .orderBy('displayNameLower')
           .startAt([lower])
@@ -93,11 +94,11 @@ class UserSearchRepository {
         results[entry.userId] = entry;
       }
 
-      // Exact shareId match (shareIds are short and case-sensitive by
-      // convention — 'eS' + alphanumeric — so match as typed).
+      // 2. Exact shareId match (Team ID).
       if (trimmed.length >= 3) {
+        // Try the new lowercase field first
         final idSnap = await _col
-            .where('shareId', isEqualTo: trimmed)
+            .where('shareIdLower', isEqualTo: lower)
             .limit(5)
             .get(const GetOptions(source: Source.server))
             .timeout(const Duration(seconds: 12));
@@ -105,6 +106,21 @@ class UserSearchRepository {
         for (final d in idSnap.docs) {
           final entry = UserSearchEntry.fromDoc(d);
           results[entry.userId] = entry;
+        }
+        
+        // Fallback: Check the exact case-sensitive field for older profiles 
+        // that haven't been re-synced since the code update.
+        if (results.isEmpty) {
+          final idSnapExact = await _col
+              .where('shareId', isEqualTo: trimmed)
+              .limit(5)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 12));
+
+          for (final d in idSnapExact.docs) {
+            final entry = UserSearchEntry.fromDoc(d);
+            results[entry.userId] = entry;
+          }
         }
       }
 
