@@ -1,5 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'formation_detector.dart';
+import 'formation_presets.dart';
+
 /// A single player's placement in a squad. Positions are stored as
 /// normalized coordinates (0.0–1.0) so the pitch is rendered fresh on
 /// every device size — we never store rendered images.
@@ -232,6 +235,132 @@ class Squad {
       managerName: managerName,
       captainPlayerId: captainPlayerId == playerId ? '' : captainPlayerId,
       viceCaptainPlayerId: playerId,
+      teamStrength: teamStrength,
+      updatedAtMs: updatedAtMs,
+    );
+  }
+
+  /// Free-drag repositioning: moves [playerId] to the given normalized
+  /// pitch coordinates and re-detects the formation from the new shape.
+  Squad withPlayerPosition(String playerId, double x, double y) {
+    final nx = x.clamp(0.0, 1.0);
+    final ny = y.clamp(0.0, 1.0);
+
+    final updated = players.map((p) {
+      if (p.playerId != playerId) return p;
+      return SquadPlayerSlot(
+        playerId: p.playerId,
+        name: p.name,
+        position: p.position,
+        x: nx,
+        y: ny,
+        isStarting: p.isStarting,
+        shirtNumber: p.shirtNumber,
+      );
+    }).toList(growable: false);
+
+    final newStarters = updated.where((p) => p.isStarting).toList(growable: false);
+
+    return Squad(
+      gameId: gameId,
+      formation: FormationDetector.detect(newStarters, fallback: formation),
+      players: updated,
+      managerName: managerName,
+      captainPlayerId: captainPlayerId,
+      viceCaptainPlayerId: viceCaptainPlayerId,
+      teamStrength: teamStrength,
+      updatedAtMs: updatedAtMs,
+    );
+  }
+
+  /// Swaps the pitch positions of two players (used when one is dragged
+  /// and dropped on top of another), then re-detects the formation.
+  Squad withPlayersSwapped(String playerIdA, String playerIdB) {
+    if (playerIdA == playerIdB) return this;
+
+    SquadPlayerSlot? a;
+    SquadPlayerSlot? b;
+    for (final p in players) {
+      if (p.playerId == playerIdA) a = p;
+      if (p.playerId == playerIdB) b = p;
+    }
+    if (a == null || b == null) return this;
+
+    final aPos = a;
+    final bPos = b;
+
+    final updated = players.map((p) {
+      if (p.playerId == playerIdA) {
+        return SquadPlayerSlot(
+          playerId: aPos.playerId,
+          name: aPos.name,
+          position: aPos.position,
+          x: bPos.x,
+          y: bPos.y,
+          isStarting: aPos.isStarting,
+          shirtNumber: aPos.shirtNumber,
+        );
+      }
+      if (p.playerId == playerIdB) {
+        return SquadPlayerSlot(
+          playerId: bPos.playerId,
+          name: bPos.name,
+          position: bPos.position,
+          x: aPos.x,
+          y: aPos.y,
+          isStarting: bPos.isStarting,
+          shirtNumber: bPos.shirtNumber,
+        );
+      }
+      return p;
+    }).toList(growable: false);
+
+    final newStarters = updated.where((p) => p.isStarting).toList(growable: false);
+
+    return Squad(
+      gameId: gameId,
+      formation: FormationDetector.detect(newStarters, fallback: formation),
+      players: updated,
+      managerName: managerName,
+      captainPlayerId: captainPlayerId,
+      viceCaptainPlayerId: viceCaptainPlayerId,
+      teamStrength: teamStrength,
+      updatedAtMs: updatedAtMs,
+    );
+  }
+
+  /// Snaps the current starting XI onto a known preset's template
+  /// coordinates (used when the user taps a formation chip directly,
+  /// rather than freely dragging).
+  Squad withFormationApplied(String formationId) {
+    final id = formationId.trim();
+    final slots = FormationPresets.slotsFor(id);
+    final starters = [...startingXI];
+
+    final updatedStarters = <SquadPlayerSlot>[];
+    for (int i = 0; i < starters.length && i < slots.length; i++) {
+      final s = starters[i];
+      updatedStarters.add(SquadPlayerSlot(
+        playerId: s.playerId,
+        name: s.name,
+        position: s.position,
+        x: slots[i].x,
+        y: slots[i].y,
+        isStarting: true,
+        shirtNumber: s.shirtNumber,
+      ));
+    }
+    for (int i = slots.length; i < starters.length; i++) {
+      updatedStarters.add(starters[i]);
+    }
+
+    return Squad(
+      gameId: gameId,
+      formation: id,
+      players: [...updatedStarters, ...bench],
+      managerName: managerName,
+      captainPlayerId: captainPlayerId,
+      viceCaptainPlayerId: viceCaptainPlayerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
     );
