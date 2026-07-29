@@ -2830,11 +2830,6 @@ class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
       ),
     );
   }
-
-  String _stringFrom(dynamic v, {String fallback = ''}) {
-    final s = (v ?? '').toString();
-    return s.trim().isEmpty ? fallback : s.trim();
-  }
 }
 
 class _SuperAdminRewardLeagueTile extends StatelessWidget {
