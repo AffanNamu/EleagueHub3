@@ -1,5 +1,3 @@
-// lib/features/profile/presentation/profile_screen.dart
-
 import 'dart:async';
 import 'dart:convert';
 
@@ -902,7 +900,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                           final when = paidAtMs > 0
                                               ? DateTime
                                                       .fromMillisecondsSinceEpoch(
-                                                      paidAtMs)
+                                                          paidAtMs)
                                                   .toLocal()
                                                   .toString()
                                               : '—';
@@ -1079,6 +1077,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return url;
   }
 
+  // ── Badge display ─────────────────────────────────────────────────────────
+
   Widget _verificationBadge(
     BuildContext context,
     UserProfile? profile,
@@ -1088,6 +1088,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final badges = profile.verificationBadges;
     final icons = <Widget>[];
 
+    // 1. Staff / Ambassador badge
     if (badges.isStaffActive) {
       icons.add(
         const Tooltip(
@@ -1097,13 +1098,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Icon(
               Icons.shield_rounded,
               size: 18,
-              color: Color(0xFF7C3AED),
+              color: Color(0xFF7C3AED), // deep purple
             ),
           ),
         ),
       );
     }
 
+    // 2. Gold Organizer badge
     if (badges.isOrganizerActive) {
       icons.add(
         const Tooltip(
@@ -1113,13 +1115,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Icon(
               Icons.verified_rounded,
               size: 18,
-              color: Color(0xFFFFB300),
+              color: Color(0xFFFFB300), // amber / gold
             ),
           ),
         ),
       );
     }
 
+    // 3. Green verified badge (from new badge system)
     if (badges.isGreenActive) {
       icons.add(
         const Tooltip(
@@ -1129,13 +1132,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Icon(
               Icons.verified_rounded,
               size: 18,
-              color: Color(0xFF00C853),
+              color: Color(0xFF00C853), // app green accent
             ),
           ),
         ),
       );
     } else if (!badges.isGreenActive &&
         badges.greenSource == null) {
+      // 4. Legacy isVerified fallback
       if (profile.verifiedActive) {
         icons.add(
           const Tooltip(
@@ -1145,12 +1149,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               child: Icon(
                 Icons.verified_rounded,
                 size: 18,
-                color: Color(0xFF1D9BF0),
+                color: Color(0xFF1D9BF0), // legacy blue
               ),
             ),
           ),
         );
       } else if (profile.verificationPending) {
+        // 5. Pending verification
         icons.add(
           const Tooltip(
             message: 'Verification pending',
@@ -1159,7 +1164,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               child: Icon(
                 Icons.verified_outlined,
                 size: 18,
-                color: Color(0xFFF59E0B),
+                color: Color(0xFFF59E0B), // amber
               ),
             ),
           ),
@@ -1524,24 +1529,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             height: 1,
                           ),
                           const SizedBox(height: 14),
+                          // ── THIS WAS THE MISSING ROW ────────────────────
                           Row(
                             children: [
                               Expanded(
                                 child: _ProfileActionChip(
-                                  icon: themeState.mode ==
-                                          ThemeMode.dark
-                                      ? Icons.light_mode_rounded
-                                      : Icons.dark_mode_rounded,
-                                  label: themeState.mode ==
-                                          ThemeMode.dark
-                                      ? 'Light'
-                                      : 'Dark',
+                                  icon: Icons.person_search_rounded,
+                                  label: 'Public View',
                                   onTap: () {
+                                    if (uid.isEmpty) return;
                                     HapticFeedback.selectionClick();
-                                    ref
-                                        .read(themeControllerProvider
-                                            .notifier)
-                                        .toggleTheme();
+                                    context.push('/profile/$uid');
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _ProfileActionChip(
+                                  icon: Icons.groups_rounded,
+                                  label: 'My Squad',
+                                  onTap: () {
+                                    if (uid.isEmpty) return;
+                                    HapticFeedback.selectionClick();
+                                    context.push('/profile/$uid/squad');
                                   },
                                 ),
                               ),
@@ -1550,12 +1560,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 child: _ProfileActionChip(
                                   icon: Icons.settings_rounded,
                                   label: 'Settings',
-                                  onTap: () =>
-                                      context.push('/settings'),
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    context.push('/profile/settings');
+                                  },
                                 ),
                               ),
                             ],
                           ),
+                          // ────────────────────────────────────────────────
                         ],
                       );
                     },
@@ -1661,8 +1674,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               if (!enabled) return false;
                               final dp =
                                   (m['couponDiscountPercent']
-                                              as num?)
-                                          ?.toInt() ??
+                                          as num?)
+                                      ?.toInt() ??
                                       0;
                               return dp >= 0;
                             })
@@ -2101,7 +2114,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 }
 
-// ── Supporting widgets ────────────────────────────────────────────────────
+// ── Supporting widgets ────────────────────────────────────────────────────────
 
 class _SuperAdminRewardsPanel extends StatefulWidget {
   const _SuperAdminRewardsPanel({
@@ -2115,8 +2128,7 @@ class _SuperAdminRewardsPanel extends StatefulWidget {
       _SuperAdminRewardsPanelState();
 }
 
-class _SuperAdminRewardsPanelState
-    extends State<_SuperAdminRewardsPanel> {
+class _SuperAdminRewardsPanelState extends State<_SuperAdminRewardsPanel> {
   final RewardFirestoreService _rewardsService =
       RewardFirestoreService();
   final FirebaseFirestore _firestore =
@@ -2128,8 +2140,7 @@ class _SuperAdminRewardsPanelState
       _statusFutures =
       <String, Future<_LeagueProgressStatus>>{};
 
-  Future<_LeagueProgressStatus> _statusFuture(
-      String leagueId) {
+  Future<_LeagueProgressStatus> _statusFuture(String leagueId) {
     return _statusFutures.putIfAbsent(
       leagueId,
       () => _fetchLeagueProgress(leagueId),
@@ -2178,8 +2189,7 @@ class _SuperAdminRewardsPanelState
     return s.trim().isEmpty ? fallback : s.trim();
   }
 
-  int? _scoreFromMap(
-      Map<String, dynamic> m, List<String> keys) {
+  int? _scoreFromMap(Map<String, dynamic> m, List<String> keys) {
     for (final k in keys) {
       if (!m.containsKey(k)) continue;
       final v = m[k];
@@ -2208,8 +2218,7 @@ class _SuperAdminRewardsPanelState
     return false;
   }
 
-  Future<_WinnerResult?> _computeWinner(
-      String leagueId) async {
+  Future<_WinnerResult?> _computeWinner(String leagueId) async {
     final teamsSnap = await _firestore
         .collection('leagues')
         .doc(leagueId)
@@ -2667,45 +2676,29 @@ class _SuperAdminRewardsPanelState
                                             'W-D-L',
                                             '${res.wins}-${res.draws}-${res.losses}',
                                           ),
-                                          const SizedBox(
-                                              height: 10),
+                                          const SizedBox(height: 10),
                                           SizedBox(
                                             width: double.infinity,
                                             child: FilledButton.icon(
-                                              style: FilledButton
-                                                  .styleFrom(
-                                                backgroundColor:
-                                                    const Color(
-                                                        0xFFFFD54F),
-                                                foregroundColor:
-                                                    Colors.black,
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor: const Color(0xFFFFD54F),
+                                                foregroundColor: Colors.black,
                                               ),
                                               onPressed: () async {
-                                                final leagueName =
-                                                    _stringFrom(
+                                                final leagueName = _stringFrom(
                                                   d.data()['name'],
                                                   fallback: 'League',
                                                 );
-                                                await TrophyService()
-                                                    .awardTrophy(
-                                                  teamOwnerId:
-                                                      res.ownerId,
-                                                  trophyId:
-                                                      '${d.id}_final',
+                                                await TrophyService().awardTrophy(
+                                                  teamOwnerId: res.ownerId,
+                                                  trophyId: '${d.id}_final',
                                                   leagueId: d.id,
-                                                  leagueName:
-                                                      leagueName,
+                                                  leagueName: leagueName,
                                                   position: 1,
-                                                  season: DateTime
-                                                          .now()
-                                                      .year
-                                                      .toString(),
+                                                  season: DateTime.now().year.toString(),
                                                 );
-                                                if (!ctx.mounted) {
-                                                  return;
-                                                }
-                                                ScaffoldMessenger.of(
-                                                        context)
+                                                if (!ctx.mounted) return;
+                                                ScaffoldMessenger.of(context)
                                                     .showSnackBar(
                                                   const SnackBar(
                                                     content: Text(
@@ -2715,11 +2708,8 @@ class _SuperAdminRewardsPanelState
                                                 );
                                               },
                                               icon: const Icon(
-                                                Icons
-                                                    .emoji_events_rounded,
-                                              ),
-                                              label: const Text(
-                                                  'Award Trophy'),
+                                                  Icons.emoji_events_rounded),
+                                              label: const Text('Award Trophy'),
                                             ),
                                           ),
                                           const SizedBox(
@@ -2802,7 +2792,6 @@ class _SuperAdminRewardsPanelState
                     );
                   },
                 ),
-                const SizedBox(height: 10),
               ],
             ],
           );
@@ -2840,6 +2829,11 @@ class _SuperAdminRewardsPanelState
         ],
       ),
     );
+  }
+
+  String _stringFrom(dynamic v, {String fallback = ''}) {
+    final s = (v ?? '').toString();
+    return s.trim().isEmpty ? fallback : s.trim();
   }
 }
 
