@@ -68,8 +68,14 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
     if (slotIndex < 0 || slotIndex >= slots.length) return;
 
     final slotLabel = slots[slotIndex].label;
-    final starters = squad.startingXI;
-    final existing = slotIndex < starters.length ? starters[slotIndex] : null;
+
+    SquadPlayerSlot? existing;
+    for (final p in squad.startingXI) {
+      if (p.slotIndex == slotIndex) {
+        existing = p;
+        break;
+      }
+    }
 
     final result = await showPlayerEditSheet(
       context,

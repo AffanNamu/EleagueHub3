@@ -34,6 +34,8 @@ class PitchPlayerMarker extends StatelessWidget {
   /// Compact mode used on narrow mobile pitches — hides the name label.
   final bool dense;
 
+  bool get _hasPhoto => (player?.photoUrl ?? '').trim().isNotEmpty;
+
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -73,19 +75,47 @@ class PitchPlayerMarker extends StatelessWidget {
                         ]
                       : null,
                 ),
-                child: Center(
-                  child: Text(
-                    hasPlayer
-                        ? (player!.shirtNumber > 0
-                            ? '${player!.shirtNumber}'
-                            : slotLabel)
-                        : slotLabel,
-                    style: TextStyle(
-                      color: textColor,
-                      fontWeight: FontWeight.w900,
-                      fontSize: size * 0.34,
-                    ),
-                  ),
+                child: ClipOval(
+                  child: _hasPhoto
+                      ? Image.network(
+                          player!.photoUrl,
+                          width: size,
+                          height: size,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                          filterQuality: FilterQuality.low,
+                          loadingBuilder: (context, child, event) {
+                            if (event == null) return child;
+                            return _FallbackLabel(
+                              text: hasPlayer
+                                  ? (player!.shirtNumber > 0
+                                      ? '${player!.shirtNumber}'
+                                      : slotLabel)
+                                  : slotLabel,
+                              color: textColor,
+                              fontSize: size * 0.34,
+                              spinner: true,
+                            );
+                          },
+                          errorBuilder: (_, __, ___) => _FallbackLabel(
+                            text: hasPlayer
+                                ? (player!.shirtNumber > 0
+                                    ? '${player!.shirtNumber}'
+                                    : slotLabel)
+                                : slotLabel,
+                            color: textColor,
+                            fontSize: size * 0.34,
+                          ),
+                        )
+                      : _FallbackLabel(
+                          text: hasPlayer
+                              ? (player!.shirtNumber > 0
+                                  ? '${player!.shirtNumber}'
+                                  : slotLabel)
+                              : slotLabel,
+                          color: textColor,
+                          fontSize: size * 0.34,
+                        ),
                 ),
               ),
               if (isCaptain)
@@ -145,6 +175,43 @@ class PitchPlayerMarker extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Centered text shown in place of a photo — used both as the permanent
+/// no-photo state and as the transient state while a photo is loading or
+/// after it fails to load.
+class _FallbackLabel extends StatelessWidget {
+  const _FallbackLabel({
+    required this.text,
+    required this.color,
+    required this.fontSize,
+    this.spinner = false,
+  });
+
+  final String text;
+  final Color color;
+  final double fontSize;
+  final bool spinner;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: spinner
+          ? SizedBox(
+              width: fontSize * 1.1,
+              height: fontSize * 1.1,
+              child: CircularProgressIndicator(strokeWidth: 1.6, color: color),
+            )
+          : Text(
+              text,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w900,
+                fontSize: fontSize,
+              ),
+            ),
     );
   }
 }
