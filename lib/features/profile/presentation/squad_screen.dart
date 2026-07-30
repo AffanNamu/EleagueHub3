@@ -1,4 +1,4 @@
-//lib/features/profile/squad_screen.dart
+//lib/features/profile/presentation/squad_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -68,6 +68,7 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
     if (slotIndex < 0 || slotIndex >= slots.length) return;
 
     final slotLabel = slots[slotIndex].label;
+
     SquadPlayerSlot? existing;
     for (final p in squad.startingXI) {
       if (p.slotIndex == slotIndex) {
@@ -229,6 +230,10 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
                                 onEditBenchPlayer: (p) => _editBenchPlayer(squad, p),
                                 onSetCaptain: (id) => _persistSquad(squad.withCaptain(id)),
                                 onSetViceCaptain: (id) => _persistSquad(squad.withViceCaptain(id)),
+                                onPlayerMoved: (playerId, x, y) =>
+                                    _persistSquad(squad.withPlayerPosition(playerId, x, y)),
+                                onPlayerSwap: (a, b) =>
+                                    _persistSquad(squad.withPlayersSwapped(a, b)),
                               ),
                             ],
                           );
@@ -244,16 +249,7 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
 
   Future<void> _saveFormation(Squad current, String formation) async {
     try {
-      final updated = Squad(
-        gameId: current.gameId,
-        formation: formation,
-        players: current.players,
-        managerName: current.managerName,
-        captainPlayerId: current.captainPlayerId,
-        viceCaptainPlayerId: current.viceCaptainPlayerId,
-        teamStrength: current.teamStrength,
-        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
-      );
+      final updated = current.withFormationApplied(formation);
       await _repo.saveSquad(updated);
     } catch (e) {
       _snack(e.toString());

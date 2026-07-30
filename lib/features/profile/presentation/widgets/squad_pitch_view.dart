@@ -22,6 +22,8 @@ class SquadPitchView extends StatelessWidget {
     this.onEditBenchPlayer,
     this.onSetCaptain,
     this.onSetViceCaptain,
+    this.onPlayerMoved,
+    this.onPlayerSwap,
   });
 
   final Squad squad;
@@ -31,6 +33,14 @@ class SquadPitchView extends StatelessWidget {
   final void Function(SquadPlayerSlot)? onEditBenchPlayer;
   final void Function(String playerId)? onSetCaptain;
   final void Function(String playerId)? onSetViceCaptain;
+
+  /// Called when the user drags a starting-XI player to a new spot on the
+  /// pitch (normalized 0..1 coordinates).
+  final void Function(String playerId, double x, double y)? onPlayerMoved;
+
+  /// Called instead of [onPlayerMoved] when a dragged player is dropped
+  /// close enough to another starting player to swap places with them.
+  final void Function(String playerIdA, String playerIdB)? onPlayerSwap;
 
   static const double _desktopBreakpoint = 900;
 
@@ -52,12 +62,16 @@ class SquadPitchView extends StatelessWidget {
           return _DesktopLayout(
             squad: squad,
             onSlotTap: isEditable ? onSlotTap : null,
+            onPlayerMoved: isEditable ? onPlayerMoved : null,
+            onPlayerSwap: isEditable ? onPlayerSwap : null,
             infoPanel: infoPanel,
           );
         }
         return _MobileLayout(
           squad: squad,
           onSlotTap: isEditable ? onSlotTap : null,
+          onPlayerMoved: isEditable ? onPlayerMoved : null,
+          onPlayerSwap: isEditable ? onPlayerSwap : null,
           infoPanel: infoPanel,
         );
       },
@@ -70,11 +84,15 @@ class _DesktopLayout extends StatelessWidget {
     required this.squad,
     required this.infoPanel,
     this.onSlotTap,
+    this.onPlayerMoved,
+    this.onPlayerSwap,
   });
-  
+
   final Squad squad;
   final Widget infoPanel;
   final void Function(int)? onSlotTap;
+  final void Function(String playerId, double x, double y)? onPlayerMoved;
+  final void Function(String playerIdA, String playerIdB)? onPlayerSwap;
 
   @override
   Widget build(BuildContext context) {
@@ -89,7 +107,9 @@ class _DesktopLayout extends StatelessWidget {
               child: _Pitch(
                 squad: squad,
                 onSlotTap: onSlotTap,
-                markerSize: 56,
+                onPlayerMoved: onPlayerMoved,
+                onPlayerSwap: onPlayerSwap,
+                markerSize: 62,
               ),
             ),
           ),
@@ -109,11 +129,15 @@ class _MobileLayout extends StatelessWidget {
     required this.squad,
     required this.infoPanel,
     this.onSlotTap,
+    this.onPlayerMoved,
+    this.onPlayerSwap,
   });
 
   final Squad squad;
   final Widget infoPanel;
   final void Function(int)? onSlotTap;
+  final void Function(String playerId, double x, double y)? onPlayerMoved;
+  final void Function(String playerIdA, String playerIdB)? onPlayerSwap;
 
   @override
   Widget build(BuildContext context) {
@@ -125,7 +149,9 @@ class _MobileLayout extends StatelessWidget {
           child: _Pitch(
             squad: squad,
             onSlotTap: onSlotTap,
-            markerSize: 40,
+            onPlayerMoved: onPlayerMoved,
+            onPlayerSwap: onPlayerSwap,
+            markerSize: 46,
             dense: true,
           ),
         ),
@@ -137,19 +163,32 @@ class _MobileLayout extends StatelessWidget {
 }
 
 /// The green pitch surface with markings + player markers laid out
-/// according to the squad's formation.
+/// according to the squad's formation. Each template slot [i] is matched
+/// to whichever starting player has `slotIndex == i` — NEVER by list
+/// position, since the players list is not guaranteed to be in template
+/// order. A player who has been dragged (nonzero x/y) renders at their
+/// own stored position; otherwise they fall back to the template slot's
+/// default position.
 class _Pitch extends StatelessWidget {
-  const _Pitch({
+  _Pitch({
     required this.squad,
     required this.markerSize,
     this.onSlotTap,
+    this.onPlayerMoved,
+    this.onPlayerSwap,
     this.dense = false,
   });
 
   final Squad squad;
   final double markerSize;
   final void Function(int)? onSlotTap;
+  final void Function(String playerId, double x, double y)? onPlayerMoved;
+  final void Function(String playerIdA, String playerIdB)? onPlayerSwap;
   final bool dense;
+
+  final GlobalKey _surfaceKey = GlobalKey();
+
+  bool get _draggable => onPlayerMoved != null;
 
   @override
   Widget build(BuildContext context) {
@@ -159,6 +198,7 @@ class _Pitch extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
       child: Stack(
+        key: _surfaceKey,
         fit: StackFit.expand,
         children: [
           // Pitch background: vertical stripes + markings.
@@ -172,7 +212,18 @@ class _Pitch extends StatelessWidget {
               return Stack(
                 children: List.generate(slots.length, (i) {
                   final slot = slots[i];
-                  final player = i < starting.length ? starting[i] : null;
+
+                  SquadPlayerSlot? player;
+                  for (final p in starting) {
+                    if (p.slotIndex == i) {
+                      player = p;
+                      break;
+                    }
+                  }
+
+                  final hasOwnPosition = player != null && (player.x != 0 || player.y != 0);
+                  final nx = hasOwnPosition ? player!.x : slot.x;
+                  final ny = hasOwnPosition ? player!.y : slot.y;
 
                   final isCaptain = player != null &&
                       player.playerId == squad.captainPlayerId &&
@@ -183,21 +234,56 @@ class _Pitch extends StatelessWidget {
 
                   // y=0 is defensive (near bottom of screen, own goal),
                   // y=1 is attacking (top). Flip so GK sits at the bottom.
-                  final left = (slot.x * w) - (markerSize / 2);
-                  final top = ((1 - slot.y) * h) - (markerSize / 2);
+                  final left = (nx * w) - (markerSize / 2);
+                  final top = ((1 - ny) * h) - (markerSize / 2);
+                  final clampedLeft = left.clamp(0, w - markerSize);
+                  final clampedTop = top.clamp(0, h - markerSize);
+
+                  final marker = PitchPlayerMarker(
+                    slotLabel: slot.label,
+                    player: player,
+                    isCaptain: isCaptain,
+                    isViceCaptain: isVice,
+                    size: markerSize,
+                    dense: dense,
+                    onTap: onSlotTap == null ? null : () => onSlotTap!(i),
+                  );
+
+                  if (player == null || !_draggable) {
+                    return Positioned(
+                      left: clampedLeft,
+                      top: clampedTop,
+                      width: markerSize,
+                      height: markerSize,
+                      child: marker,
+                    );
+                  }
+
+                  final resolvedPlayer = player;
 
                   return Positioned(
-                    left: left.clamp(0, w - markerSize),
-                    top: top.clamp(0, h - markerSize),
-                    width: dense ? markerSize + 30 : markerSize + 24,
-                    child: PitchPlayerMarker(
-                      slotLabel: slot.label,
-                      player: player,
-                      isCaptain: isCaptain,
-                      isViceCaptain: isVice,
-                      size: markerSize,
-                      dense: dense,
-                      onTap: onSlotTap == null ? null : () => onSlotTap!(i),
+                    left: clampedLeft,
+                    top: clampedTop,
+                    width: markerSize,
+                    height: markerSize,
+                    child: Draggable<String>(
+                      data: resolvedPlayer.playerId,
+                      feedback: Material(
+                        color: Colors.transparent,
+                        child: SizedBox(
+                          width: markerSize,
+                          height: markerSize,
+                          child: Opacity(opacity: 0.9, child: marker),
+                        ),
+                      ),
+                      childWhenDragging: Opacity(opacity: 0.25, child: marker),
+                      onDragEnd: (details) => _handleDragEnd(
+                        details: details,
+                        movedPlayerId: resolvedPlayer.playerId,
+                        w: w,
+                        h: h,
+                      ),
+                      child: marker,
                     ),
                   );
                 }),
@@ -207,6 +293,40 @@ class _Pitch extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  void _handleDragEnd({
+    required DraggableDetails details,
+    required String movedPlayerId,
+    required double w,
+    required double h,
+  }) {
+    final renderObject = _surfaceKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return;
+
+    final local = renderObject.globalToLocal(details.offset);
+    final centerX = local.dx + (markerSize / 2);
+    final centerY = local.dy + (markerSize / 2);
+
+    final nx = (centerX / w).clamp(0.0, 1.0);
+    final ny = 1 - (centerY / h).clamp(0.0, 1.0);
+
+    // If dropped close to another starting player, swap the two rather
+    // than stacking them on top of each other.
+    final swapThreshold = markerSize * 0.9;
+    for (final other in squad.startingXI) {
+      if (other.playerId == movedPlayerId) continue;
+      final ox = other.x * w;
+      final oy = (1 - other.y) * h;
+      final dx = ox - centerX;
+      final dy = oy - centerY;
+      if ((dx * dx + dy * dy) <= swapThreshold * swapThreshold) {
+        onPlayerSwap?.call(movedPlayerId, other.playerId);
+        return;
+      }
+    }
+
+    onPlayerMoved?.call(movedPlayerId, nx, ny);
   }
 }
 
@@ -334,7 +454,9 @@ class _InfoPanel extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    'Tap a player below to set captain / vice captain.',
+                    'Drag players on the pitch to reposition them — '
+                    'the formation updates automatically. Tap a player '
+                    'below to set captain / vice captain.',
                     style: TextStyle(
                       color: AppTheme.secondaryText(brightness),
                       fontSize: 11,
@@ -389,16 +511,21 @@ class _InfoPanel extends StatelessWidget {
                 return ListTile(
                   dense: true,
                   leading: CircleAvatar(
-                    radius: 14,
+                    radius: 16,
                     backgroundColor: AppTheme.iconCircleBackground(brightness),
-                    child: Text(
-                      p.shirtNumber > 0 ? '${p.shirtNumber}' : '-',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        color: AppTheme.primaryText(brightness),
-                      ),
-                    ),
+                    backgroundImage: p.photoUrl.trim().isNotEmpty
+                        ? NetworkImage(p.photoUrl)
+                        : null,
+                    child: p.photoUrl.trim().isEmpty
+                        ? Text(
+                            p.shirtNumber > 0 ? '${p.shirtNumber}' : '-',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                              color: AppTheme.primaryText(brightness),
+                            ),
+                          )
+                        : null,
                   ),
                   title: Text(
                     p.name,
