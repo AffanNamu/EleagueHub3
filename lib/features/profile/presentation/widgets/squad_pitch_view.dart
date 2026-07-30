@@ -234,10 +234,12 @@ class _Pitch extends StatelessWidget {
 
                   // y=0 is defensive (near bottom of screen, own goal),
                   // y=1 is attacking (top). Flip so GK sits at the bottom.
-                  final left = (nx * w) - (markerSize / 2);
-                  final top = ((1 - ny) * h) - (markerSize / 2);
-                  final clampedLeft = left.clamp(0, w - markerSize);
-                  final clampedTop = top.clamp(0, h - markerSize);
+                  final rawLeft = (nx * w) - (markerSize / 2);
+                  final rawTop = ((1 - ny) * h) - (markerSize / 2);
+                  final maxLeft = w - markerSize;
+                  final maxTop = h - markerSize;
+                  final clampedLeft = (maxLeft > 0 ? rawLeft.clamp(0, maxLeft) : 0.0).toDouble();
+                  final clampedTop = (maxTop > 0 ? rawTop.clamp(0, maxTop) : 0.0).toDouble();
 
                   final marker = PitchPlayerMarker(
                     slotLabel: slot.label,
@@ -308,8 +310,8 @@ class _Pitch extends StatelessWidget {
     final centerX = local.dx + (markerSize / 2);
     final centerY = local.dy + (markerSize / 2);
 
-    final nx = (centerX / w).clamp(0.0, 1.0);
-    final ny = 1 - (centerY / h).clamp(0.0, 1.0);
+    final nx = (centerX / w).clamp(0.0, 1.0).toDouble();
+    final ny = (1 - (centerY / h).clamp(0.0, 1.0)).toDouble();
 
     // If dropped close to another starting player, swap the two rather
     // than stacking them on top of each other.
