@@ -58,7 +58,7 @@ flutter {
 
 android {
     namespace "com.eleaguehub.app"
-    compileSdk 35
+    compileSdk 36
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -107,7 +107,7 @@ android {
     defaultConfig {
         applicationId "com.eleaguehub.app"
         minSdkVersion 24
-        targetSdkVersion 35
+        targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true

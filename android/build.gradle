@@ -18,10 +18,10 @@ subprojects { project ->
      */
     if (project.path != ':app' && !project.hasProperty('flutter') && project.extensions.findByName('flutter') == null) {
         project.ext.set('flutter', [
-            compileSdkVersion: 35,
+            compileSdkVersion: 36,
             // Required: Android 7.0 (API 24) and up
             minSdkVersion: 24,
-            targetSdkVersion: 35,
+            targetSdkVersion: 36,
         ])
     }
 
@@ -31,7 +31,7 @@ subprojects { project ->
                 if (namespace == null || namespace.toString().trim().isEmpty()) {
                     namespace = "com.eleaguehub.generated.${project.name.replace('-', '_')}"
                 }
-                compileSdkVersion 35
+                compileSdkVersion 36
             }
         }
     }
