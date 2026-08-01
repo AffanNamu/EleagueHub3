@@ -1001,35 +1001,58 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
-  // ── FIXED (root cause of "user with an active, under-limit plan gets
-  //        permission-denied immediately on tapping Create Workspace") ──
-  //
-  // The previous implementation computed a deterministic slot id
-  // (`ml_${uid}_$slot`) per plan and then called `.get()` on that
-  // candidate document to check whether it already existed, before
-  // deciding which id to use for the new Master League.
-  //
-  // That `.get()` targets a document that (in the common case) does
-  // NOT exist yet. Under Firestore security rules, when a document
-  // doesn't exist, `resource` evaluates to `null` inside the rule —
-  // so any rule that reads `resource.data.<field>` on that get()
-  // throws an internal rules-evaluation error, which the client sees
-  // as a `permission-denied` FirebaseException. This fired on the very
-  // first slot-existence check, before any create/write was even
-  // attempted — independent of plan, payment status, or workspace
-  // count. That's why it happened even for an already-active, clearly
-  // under-limit Pro/Elite user.
-  //
-  // Fix: don't pre-probe slot documents at all. The workspace-count
-  // cap is already correctly enforced by `checkMasterLeagueLimitOrThrow`
-  // above, which only reads EXISTING documents returned by a query
-  // filtered to `ownerId == uid` — those documents are non-null, so
-  // there's no null-resource rules issue there. We simply assign a
-  // random UUID to every plan (as Elite already did), removing the
-  // risky existence-check read entirely.
+  String _masterLeagueSlotId({
+    required String ownerUid,
+    required int slot,
+  }) {
+    return 'ml_${ownerUid}_$slot';
+  }
+
+  /// Allocates the document ID for a new `master_leagues` workspace.
+  ///
+  /// IMPORTANT: this is NOT free-form. The Firestore security rules'
+  /// `allowedMasterLeagueIdForPlan()` requires the doc ID to follow a
+  /// deterministic per-owner slot pattern for Basic and Pro:
+  ///
+  ///   Basic -> exactly 'ml_<uid>_1'
+  ///   Pro   -> one of 'ml_<uid>_1' .. 'ml_<uid>_5'
+  ///   Elite -> ANY id is accepted (rule has no id restriction)
+  ///
+  /// Any other ID for Basic/Pro (e.g. a random UUID) is guaranteed to
+  /// be rejected with permission-denied by the `create` rule,
+  /// regardless of the caller's plan or payment status. So for Basic
+  /// and Pro we must probe the fixed slot ids and pick the first one
+  /// that doesn't already have a document — that per-id `.get()` is
+  /// safe and unrestricted because `master_leagues` has
+  /// `allow read: if true;`, so there is no null-resource / rules
+  /// issue when reading a slot that doesn't exist yet.
   Future<String> _allocateMasterLeagueIdForPlan(MasterLeaguePlan plan) async {
+    final uid = _requireAuthUid();
+
+    if (plan == MasterLeaguePlan.elite) {
+      // UUIDv4 collisions are astronomically unlikely; no existence
+      // check needed for Elite's unrestricted, randomly-generated ids.
+      return _uuid.v4();
+    }
+
     await checkMasterLeagueLimitOrThrow(plan);
-    return _uuid.v4();
+
+    for (int slot = 1; slot <= plan.maxMasterLeagues; slot++) {
+      final candidate = _masterLeagueSlotId(ownerUid: uid, slot: slot);
+
+      final candidateSnap = await _col
+          .doc(candidate)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      if (!candidateSnap.exists) {
+        return candidate;
+      }
+    }
+
+    throw UserFriendlyException(
+      'You have reached the limit of ${plan.maxMasterLeagues} master league${plan.maxMasterLeagues == 1 ? '' : 's'} for the ${plan.displayName} plan.',
+    );
   }
 
   Future<MasterLeague> create({

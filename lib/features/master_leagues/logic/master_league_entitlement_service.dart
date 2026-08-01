@@ -1,81 +1,5 @@
 // lib/features/master_leagues/logic/master_league_entitlement_service.dart
-//
-// FIXED (root cause of "works only for super admin" / "free/basic users
-// can't create a master league even though they've never paid"):
-//
-// Previously, getEntitlement() returned `active: false, plan: null`
-// whenever:
-//   - the user had no Firestore profile yet (brand-new sign-up), OR
-//   - the profile had no plan recorded / an expired plan, AND
-//   - the ID token had no organizerPro custom claims.
-//
-// Basic is a FREE plan — every signed-in user is entitled to it with
-// zero payment required (see MasterLeaguePlan.basic.isFree == true and
-// freeBasicMasterLeagueCreate() in firestore.rules, which never checks
-// entitlement/claims at all, only that plan == 'basic' and the target
-// masterLeagueId matches the user's slot).
-//
-// FIX: getEntitlement() falls back to an implicit, active Basic
-// entitlement whenever neither the profile nor the claims show an
-// active paid plan.
-//
-// ── NEW, ACTUAL ROOT-CAUSE FIX FOR THIS REVISION ───────────────────────
-// THE REAL BUG (found by tracing the permission-denied reports where
-// EVERY Pro/Elite user was rejected creating a workspace — first one or
-// fifth one, didn't matter — while Basic/free and super admin worked):
-//
-// getEntitlement() has THREE possible sources, in priority order:
-//   1. Firestore profile          (profile.data.activePlanId)
-//   2. Firebase custom claims     (organizerPro / organizerProPlan)
-//   3. Implicit Basic fallback    (added by the fix above)
-//
-// firestore.rules' profilePlanActiveCreate() (and the claims-based gate)
-// require an EXACT match:
-//
-//     request.resource.data.plan == profile.data.activePlanId
-//
-// CreateMasterLeagueScreen._create() — for the common "I already have
-// an active paid plan with room under my limit, no new payment needed"
-// path — calls:
-//
-//     final refreshedPlan = refreshedEnt.plan ?? _selectedPlan;
-//     repo.create(plan: refreshedPlan, ...)
-//
-// where refreshedEnt comes from getEntitlement(). The problem: ANY
-// transient failure reading the Firestore profile (a timeout, a brief
-// permission hiccup, Source.server being momentarily unreachable) makes
-// _readFromProfile() report inactive. Google Play users NEVER get
-// organizerPro custom claims set client-side (only an async RTDN
-// webhook sets those, server-side) — so _readFromClaims() ALSO reports
-// inactive for them. getEntitlement() then silently falls through to
-// the implicit Basic entitlement (fix #1 above), and _create() happily
-// writes `'plan': 'basic'` to the new master_leagues document — while
-// `profile.data.activePlanId` on the user's own profile still says
-// 'pro' or 'elite'. Every plan-based Firestore rule gate then fails its
-// `plan == profilePlan` equality check (the write says 'basic', the
-// profile says 'pro'/'elite' — they can never match), and Firestore
-// rejects the write with permission-denied. This reproduces the exact
-// reported symptom: it doesn't matter whether the user has 0 workspaces
-// or 4 out of a 5-workspace Pro limit — a single transient profile read
-// blip picks the wrong plan value for the WRITE, independent of the
-// workspace count.
-//
-// FIX: added getProfilePlanStrict(), which reads ONLY the Firestore
-// profile — no claims fallback, no implicit-Basic fallback — and is now
-// the single source of truth CreateMasterLeagueScreen uses to decide
-// what `plan` value to write when no new payment is required. This
-// guarantees request.resource.data.plan always equals
-// profile.data.activePlanId exactly, which is precisely what the
-// security rules check. If the strict profile read itself fails, we
-// surface that as a clear, retryable error instead of silently writing
-// a mismatched 'basic' value that is guaranteed to be denied.
-//
-// ── ADDITIONAL FIX (earlier revision) ──────────────────────────────────
-// countOwnedWorkspaces() previously filtered master_leagues by the
-// `ownerUid` field, while MasterLeaguesRepositoryFirebase's
-// checkMasterLeagueLimitOrThrow() and _allocateMasterLeagueIdForPlan()
-// both filter by `ownerId`. Standardized on `ownerId` everywhere
-// (matching the repository and the Firestore security rules, which key
+
 // off 'ownerId' first in isMasterLeagueOwner()).
 //
 // All other logic (activation, workspace/competition counting, Google
@@ -237,7 +161,23 @@ class MasterLeagueEntitlementService {
   }
 
   // ── Read from Firebase ID token claims ───────────────────────────────────
-
+  //
+  // IMPORTANT: this is the source of truth the Firestore security
+  // rules actually check for Pro/Elite `master_leagues` creation:
+  //
+  //   request.auth.token.organizerPro == true
+  //   request.auth.token.organizerProPlan in ['pro', 'elite']
+  //   request.resource.data.plan == request.auth.token.organizerProPlan
+  //
+  // The Firestore `/users/{uid}` PROFILE document is NOT consulted by
+  // that rule at all. It is only used for UI/display purposes. Custom
+  // claims are set server-side by the activation backend after a
+  // verified payment, but the CLIENT's cached ID token only picks up
+  // new claims on its next forced refresh (Firebase caches ID tokens
+  // for up to ~1 hour otherwise). This method always forces a refresh
+  // via `getIdTokenResult(true)` so callers get the claims the rules
+  // will actually evaluate against right now — never a stale cached
+  // copy.
   Future<OrganizerProEntitlement> _readFromClaims() async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -343,12 +283,11 @@ class MasterLeagueEntitlementService {
   ///
   /// IMPORTANT: this method is intentionally lenient/fallback-friendly
   /// for display purposes and MUST NOT be used to decide the `plan`
-  /// value written to a new `master_leagues` document when no new
-  /// payment is being made. Use [getProfilePlanStrict] for that — see
-  /// the file-header comment for why: the fallback chain here can
-  /// legitimately diverge from `profile.data.activePlanId`, which is
-  /// exactly what the Firestore security rules compare the write
-  /// against.
+  /// value written to a new `master_leagues` document for Pro/Elite.
+  /// Use [getClaimsPlanStrict] for that — see its doc comment and the
+  /// [_readFromClaims] comment above for why: the Firestore create
+  /// rule for Pro/Elite checks ONLY `request.auth.token.organizerProPlan`
+  /// custom claims, never the Firestore profile.
   Future<OrganizerProEntitlement> getEntitlement({
     bool forceRefresh = false,
   }) async {
@@ -374,30 +313,16 @@ class MasterLeagueEntitlementService {
     return _implicitBasicEntitlement();
   }
 
-  /// ── NEW: STRICT, profile-ONLY plan resolver. ──────────────────────────
+  /// STRICT, profile-ONLY plan resolver.
   ///
-  /// Reads exclusively from the Firestore `/users/{uid}` document —
-  /// no custom-claims fallback, no implicit-Basic fallback — so the
-  /// returned value is GUARANTEED to equal `profile.data.activePlanId`
-  /// (or be `null` if that document/field genuinely has no active paid
-  /// plan right now).
-  ///
-  /// This is the ONLY method that should be used to decide the `plan`
-  /// value written to a new `master_leagues` document whenever NO new
-  /// payment is being made for that creation (i.e. the user is relying
-  /// on an already-active plan with room under their workspace limit).
-  /// Using anything else (in particular [getEntitlement], which can
-  /// fall back to claims or an implicit Basic entitlement) risks
-  /// writing a `plan` value that does not match
-  /// `profile.data.activePlanId`, which the Firestore security rules'
-  /// `profilePlanActiveCreate()` / `googlePlayPlanActiveCreate()` gates
-  /// require to match EXACTLY — a mismatch here is denied with
-  /// permission-denied regardless of workspace count.
-  ///
-  /// Throws [MasterLeagueEntitlementException] if the profile document
-  /// cannot be read at all (rather than silently guessing), so the
-  /// caller can show a clear "please try again" message instead of
-  /// writing a doomed-to-be-rejected value.
+  /// Reads exclusively from the Firestore `/users/{uid}` document. Use
+  /// this ONLY for display/analytics purposes — e.g. showing the user
+  /// what their account record says their plan is. Do NOT use this to
+  /// decide the `plan` value written to a new `master_leagues`
+  /// document: for Basic it happens to be irrelevant (Basic creation
+  /// doesn't check claims or profile plan at all, only the doc-id
+  /// pattern), and for Pro/Elite the Firestore security rule does not
+  /// consult this document — see [getClaimsPlanStrict].
   Future<MasterLeaguePlan?> getProfilePlanStrict({
     bool forceRefresh = true,
   }) async {
@@ -422,6 +347,47 @@ class MasterLeagueEntitlementService {
     if (subscription.plan.isFree) return null;
 
     return subscription.plan;
+  }
+
+  /// ── THE authoritative resolver for writing `plan` on a new
+  /// Pro/Elite `master_leagues` document when NO new payment is being
+  /// made for this creation. ──
+  ///
+  /// The Firestore create rule for Pro/Elite is:
+  ///
+  ///   request.auth.token.organizerPro == true
+  ///   && request.auth.token.organizerProPlan in ['pro', 'elite']
+  ///   && request.resource.data.plan == request.auth.token.organizerProPlan
+  ///
+  /// i.e. it checks Firebase Auth CUSTOM CLAIMS on the caller's ID
+  /// token, not the Firestore profile document. Custom claims are set
+  /// server-side by the payment-activation backend, but a client's
+  /// cached ID token only picks up newly-set claims on its next
+  /// forced refresh — Firebase caches tokens for up to ~1 hour
+  /// otherwise. A user can therefore have a perfectly valid, active
+  /// Pro/Elite plan (correctly reflected in the Firestore profile and
+  /// shown as "CURRENT" in the UI) while their cached ID token still
+  /// carries stale/missing `organizerPro` / `organizerProPlan` claims
+  /// — and any `master_leagues` create attempt in that state is
+  /// denied with `permission-denied`, regardless of workspace count.
+  ///
+  /// This method always forces a fresh ID token (via
+  /// [_readFromClaims], which calls `getIdTokenResult(true)`) before
+  /// reading the claims, so the value it returns is guaranteed to
+  /// match what the security rule will evaluate against for the very
+  /// next request. Returns `null` if, even after a forced refresh, the
+  /// token does not carry an active Pro/Elite claim — in that case the
+  /// caller should fall back to the payment flow rather than attempt a
+  /// write that is guaranteed to be denied.
+  Future<MasterLeaguePlan?> getClaimsPlanStrict({
+    bool forceRefresh = true,
+  }) async {
+    _uidOrThrow();
+
+    final ent = await _readFromClaims();
+    if (!ent.active || ent.plan == null) return null;
+    if (ent.plan == MasterLeaguePlan.basic) return null;
+    return ent.plan;
   }
 
   Stream<bool> watchUnlocked() {
