@@ -1,47 +1,5 @@
 //lib/features/master_leagues/data/master_leagues_repository_firebase.dart
-//
-// MODIFIED:
-// 1. Added import for league_settings.dart so WorldCupFormatX extension
-//    is visible at the call site.
-// 2. saveCompetitionTemplate now enforces World Cup invariants:
-//    - maxTeams is derived from worldCupFormat when format == worldCup
-//    - homeAwayEnabled is forced to false for World Cup templates
-//    - worldCupFormat is carried through copyWith to Firestore
-// 3. createAfterVerifiedPayment trusts Google Play payments as
-//    pre-verified (see class comment near _isGooglePlayProvider).
-// 4. **ROOT-CAUSE FIX (this revision):** _allocateMasterLeagueIdForPlan
-//    no longer determines "is this slot free?" from a where('ownerId', ...)
-//    query result. It now does a direct get() on each candidate slot's
-//    document ID and only returns a slot whose document does NOT exist.
-//
-//    WHY THIS MATTERS: Firestore Security Rules decide whether a write
-//    is a `create` or an `update` based purely on whether the target
-//    document ALREADY EXISTS at write time — not on client intent, and
-//    not on SetOptions(merge:false). The previous implementation built
-//    a "taken" set from a where('ownerId', isEqualTo: uid) query, then
-//    picked the first slot id NOT in that set. Any document sitting at
-//    that slot id that the query didn't surface (a legacy doc missing
-//    the `ownerId` field, a doc written by an older code path, index
-//    lag, etc.) meant the "free" slot actually already had a document.
-//    The following .set(docData, SetOptions(merge:false)) call was then
-//    evaluated by Firestore as an UPDATE — which requires
-//    `resource.data.ownerId == request.auth.uid` plus valid claims/
-//    profile checks in the `update` rule — instead of the much more
-//    permissive `create` rule. When that pre-existing doc didn't satisfy
-//    the update rule (wrong/missing ownerId, stale claims, etc.), the
-//    write was rejected with permission-denied, surfaced to the user as
-//    "You don't have access to this Master League. Please make sure
-//    your payment is completed and verified, then try again." — even
-//    though the user's plan and workspace count were both fine. This
-//    disproportionately hit Pro/Elite users because they are the ones
-//    who ever try to allocate slot 2, 3, 4, 5 (Basic users only ever
-//    touch slot 1).
-//
-//    Fix: check each candidate slot id directly by document ID (get(),
-//    not a query) before returning it, so we can never mistake an
-//    existing-but-unindexed document for a free slot.
-//
-// All other methods are UNCHANGED.
+
 
 import 'dart:async';
 import 'dart:io';
@@ -1043,49 +1001,35 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
-  String _masterLeagueSlotId({
-    required String ownerUid,
-    required int slot,
-  }) {
-    return 'ml_${ownerUid}_$slot';
-  }
-
-  /// ── FIXED (root cause of "paid user under their limit gets
-  ///        permission-denied when creating another workspace") ──
-  ///
-  /// See file-header comment for the full explanation. In short: we no
-  /// longer infer "is this slot free?" from a where('ownerId', ...)
-  /// query result — we check each candidate slot id's document
-  /// directly by ID, so we can never hand back a slot id that already
-  /// has a document sitting on it (which would silently turn the
-  /// caller's intended `create` into a security-rule `update`).
+  // ── FIXED (root cause of "user with an active, under-limit plan gets
+  //        permission-denied immediately on tapping Create Workspace") ──
+  //
+  // The previous implementation computed a deterministic slot id
+  // (`ml_${uid}_$slot`) per plan and then called `.get()` on that
+  // candidate document to check whether it already existed, before
+  // deciding which id to use for the new Master League.
+  //
+  // That `.get()` targets a document that (in the common case) does
+  // NOT exist yet. Under Firestore security rules, when a document
+  // doesn't exist, `resource` evaluates to `null` inside the rule —
+  // so any rule that reads `resource.data.<field>` on that get()
+  // throws an internal rules-evaluation error, which the client sees
+  // as a `permission-denied` FirebaseException. This fired on the very
+  // first slot-existence check, before any create/write was even
+  // attempted — independent of plan, payment status, or workspace
+  // count. That's why it happened even for an already-active, clearly
+  // under-limit Pro/Elite user.
+  //
+  // Fix: don't pre-probe slot documents at all. The workspace-count
+  // cap is already correctly enforced by `checkMasterLeagueLimitOrThrow`
+  // above, which only reads EXISTING documents returned by a query
+  // filtered to `ownerId == uid` — those documents are non-null, so
+  // there's no null-resource rules issue there. We simply assign a
+  // random UUID to every plan (as Elite already did), removing the
+  // risky existence-check read entirely.
   Future<String> _allocateMasterLeagueIdForPlan(MasterLeaguePlan plan) async {
-    final uid = _requireAuthUid();
-
-    if (plan == MasterLeaguePlan.elite) {
-      // UUIDv4 collisions are astronomically unlikely; no existence
-      // check needed for Elite's unlimited, randomly-generated ids.
-      return _uuid.v4();
-    }
-
     await checkMasterLeagueLimitOrThrow(plan);
-
-    for (int slot = 1; slot <= plan.maxMasterLeagues; slot++) {
-      final candidate = _masterLeagueSlotId(ownerUid: uid, slot: slot);
-
-      final candidateSnap = await _col
-          .doc(candidate)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 15));
-
-      if (!candidateSnap.exists) {
-        return candidate;
-      }
-    }
-
-    throw UserFriendlyException(
-      'You have reached the limit of ${plan.maxMasterLeagues} master league${plan.maxMasterLeagues == 1 ? '' : 's'} for the ${plan.displayName} plan.',
-    );
+    return _uuid.v4();
   }
 
   Future<MasterLeague> create({
