@@ -239,29 +239,25 @@ class _CreateMasterLeagueScreenState
   // ── Create ────────────────────────────────────────────────────────────────
   //
   // FIXED (root cause of every Pro/Elite user being denied with
-  // "You don't have access to this Master League..." even while
-  // strictly under their workspace limit): the Firestore `create`
-  // rule for `master_leagues` authorizes Pro/Elite writes using
-  // FIREBASE AUTH CUSTOM CLAIMS on the caller's ID token
-  // (`request.auth.token.organizerPro` /
-  // `request.auth.token.organizerProPlan`) — it never looks at the
-  // Firestore `/users/{uid}` profile document. A previous fix here
-  // resolved the `plan` to write via `entitlementSvc
-  // .getProfilePlanStrict()`, which reads the Firestore profile — the
-  // WRONG source for this rule. The profile can correctly show "Pro /
-  // active" while the client's cached ID token still carries stale or
-  // missing custom claims (tokens are cached up to ~1 hour and are
-  // only refreshed on demand), causing a guaranteed
-  // permission-denied on every create attempt that doesn't force a
-  // fresh token first.
+  // "You don't have access to this Master League..." regardless of
+  // workspace count): this method used to decide the `plan` value it
+  // writes to the new master_leagues document from
+  // `entitlementSvc.getEntitlement()`, which is a DISPLAY-oriented
+  // resolver that can legitimately fall back from "Firestore profile"
+  // to "custom claims" to an "implicit Basic" default. Firestore's
+  // security rules compare `request.resource.data.plan` against
+  // `profile.data.activePlanId` (with a legacy-isPremium fallback of
+  // their own — see firestore.rules) EXACTLY. Any divergence between
+  // what getEntitlement() resolved to and what's actually on the
+  // profile document is a guaranteed permission-denied, independent of
+  // whether the user has room under their plan's workspace limit.
   //
   // Whenever no NEW payment is required for this creation (the user
-  // already has an active plan with room to spare), we now resolve
-  // the plan to write via `entitlementSvc.getClaimsPlanStrict()` —
-  // which force-refreshes the ID token and reads ONLY the custom
-  // claims the rule actually checks. This guarantees the value
-  // written always matches what the rule evaluates against for this
-  // exact request.
+  // already has an active plan with room to spare), we now resolve the
+  // plan to write via `entitlementSvc.getProfilePlanStrict()` — which
+  // reads ONLY the Firestore profile (with the same legacy-premium
+  // fallback the rules apply) and nothing else. This guarantees the
+  // value written always matches what the rule checks.
   Future<void> _create() async {
     if (_processing) return;
 
@@ -335,14 +331,15 @@ class _CreateMasterLeagueScreenState
         }
       }
 
-      // ── FIXED: resolve the plan to WRITE strictly from FRESH Firebase
-      // Auth custom claims whenever no new payment was just made this
-      // attempt. This is the value the Firestore create rule for
-      // Pro/Elite actually checks — never the Firestore profile.
+      // ── FIXED: resolve the plan to WRITE strictly from the Firestore
+      // profile whenever no new payment was just made this attempt.
+      // This is the value that must exactly equal profile.data.
+      // activePlanId (or its legacy-isPremium equivalent) for the
+      // Firestore security rules to accept the write.
       MasterLeaguePlan? writePlan;
       if (!needsPaymentNow) {
         try {
-          writePlan = await entitlementSvc.getClaimsPlanStrict(
+          writePlan = await entitlementSvc.getProfilePlanStrict(
             forceRefresh: true,
           );
         } catch (e) {
@@ -359,11 +356,9 @@ class _CreateMasterLeagueScreenState
         if (writePlan == null ||
             !(writePlan == MasterLeaguePlan.pro ||
                 writePlan == MasterLeaguePlan.elite)) {
-          // Even after forcing a fresh token, the caller's ID token
-          // does not carry an active Pro/Elite claim (expired, never
-          // set, or the profile and claims have genuinely drifted
-          // apart) — a payment IS actually required, even though our
-          // earlier (looser, profile/claims-fallback) entitlement
+          // The profile genuinely has no active paid plan right now
+          // (expired, or was never activated) — a payment IS actually
+          // required, even though our earlier (looser) entitlement
           // check thought otherwise. Fall through to the upgrade flow
           // instead of writing a value that's guaranteed to be denied.
           final upgraded = await _openInlineUpgrade();
@@ -376,9 +371,7 @@ class _CreateMasterLeagueScreenState
         }
       } else {
         // A new payment was just verified this attempt — the plan the
-        // user just paid for is authoritative for this write, and
-        // `activateAfterPayment()` has already force-refreshed the ID
-        // token so the freshly-set claims match it.
+        // user just paid for is authoritative for this write.
         writePlan = _selectedPlan;
       }
 
@@ -427,9 +420,8 @@ class _CreateMasterLeagueScreenState
         );
       } else {
         // User already has an active plan with room to spare — create
-        // directly using the CLAIMS-resolved plan value, so it is
-        // guaranteed to match request.auth.token.organizerProPlan
-        // exactly.
+        // directly using the STRICT profile-resolved plan value, so it
+        // is guaranteed to match profile.data.activePlanId exactly.
         created = await repo.create(
           name: masterLeagueName,
           plan: writePlan,
