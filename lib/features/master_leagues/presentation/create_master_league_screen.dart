@@ -238,26 +238,25 @@ class _CreateMasterLeagueScreenState
 
   // ── Create ────────────────────────────────────────────────────────────────
   //
-  // FIXED (root cause of every Pro/Elite user being denied with
-  // "You don't have access to this Master League..." regardless of
-  // workspace count): this method used to decide the `plan` value it
-  // writes to the new master_leagues document from
-  // `entitlementSvc.getEntitlement()`, which is a DISPLAY-oriented
-  // resolver that can legitimately fall back from "Firestore profile"
-  // to "custom claims" to an "implicit Basic" default. Firestore's
-  // security rules compare `request.resource.data.plan` against
-  // `profile.data.activePlanId` (with a legacy-isPremium fallback of
-  // their own — see firestore.rules) EXACTLY. Any divergence between
-  // what getEntitlement() resolved to and what's actually on the
-  // profile document is a guaranteed permission-denied, independent of
-  // whether the user has room under their plan's workspace limit.
+  // FIXED (regression from a previous edit): this method briefly used
+  // `entitlementSvc.getClaimsPlanStrict()` to resolve the `plan` value
+  // to write when no new payment was needed. That resolver reads
+  // Firebase Auth CUSTOM CLAIMS, which are set ONLY by the Flutterwave
+  // activation worker — Google Play Billing purchases never populate
+  // them. The result: any Google Play Pro/Elite user with room to
+  // spare would pass the `needsPaymentNow == false` check (based on
+  // the profile-aware `getEntitlement()`), then immediately get
+  // bounced back into `_openInlineUpgrade()` because
+  // `getClaimsPlanStrict()` found no claim — i.e. they were asked to
+  // pay again for a plan they already owned.
   //
-  // Whenever no NEW payment is required for this creation (the user
-  // already has an active plan with room to spare), we now resolve the
-  // plan to write via `entitlementSvc.getProfilePlanStrict()` — which
-  // reads ONLY the Firestore profile (with the same legacy-premium
-  // fallback the rules apply) and nothing else. This guarantees the
-  // value written always matches what the rule checks.
+  // The Firestore `master_leagues` create/update rules accept a
+  // paid-plan write via EITHER the custom claims OR the Firestore
+  // `/users/{uid}` profile document (`activePlanId` / `planExpiresAtMs`)
+  // — see firestore.rules `profilePlanActiveCreate()` /
+  // `profilePlanActive()`. The profile document is written for BOTH
+  // payment providers, so it's the correct, provider-agnostic source.
+  // Restored to `entitlementSvc.getProfilePlanStrict()` accordingly.
   Future<void> _create() async {
     if (_processing) return;
 
@@ -335,7 +334,9 @@ class _CreateMasterLeagueScreenState
       // profile whenever no new payment was just made this attempt.
       // This is the value that must exactly equal profile.data.
       // activePlanId (or its legacy-isPremium equivalent) for the
-      // Firestore security rules to accept the write.
+      // Firestore security rules' profile-based branch to accept the
+      // write — and it's correct for BOTH Flutterwave and Google Play
+      // Billing purchasers, unlike the claims-only resolver.
       MasterLeaguePlan? writePlan;
       if (!needsPaymentNow) {
         try {
