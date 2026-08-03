@@ -1,45 +1,4 @@
 // lib/features/master_leagues/logic/master_league_entitlement_service.dart
-
-// off 'ownerId' first in isMasterLeagueOwner()).
-//
-// All other logic (activation, workspace/competition counting, Google
-// Play vs Flutterwave routing) is UNCHANGED.
-//
-// ─────────────────────────────────────────────────────────────────────────
-// ROOT CAUSE HISTORY (read this before touching plan-resolution again):
-//
-// The Firestore `master_leagues` `create`/`update` rules now accept a
-// paid-plan write via TWO independent paths (see firestore.rules):
-//
-//   1. Firebase Auth CUSTOM CLAIMS on the ID token
-//      (request.auth.token.organizerPro / organizerProPlan) — set
-//      server-side by the activation worker that ONLY the Flutterwave
-//      path calls (see activateAfterPayment() below).
-//
-//   2. The Firestore `/users/{uid}` PROFILE document
-//      (activePlanId / planExpiresAtMs) — written by
-//      UserProfileRepository.activatePlanSubscription() for BOTH
-//      payment providers, including Google Play Billing.
-//
-// Google Play Billing purchases (Android's default payment route)
-// NEVER go through the worker, so they NEVER get the custom claims.
-// The profile document is therefore the ONLY reliable, provider-agnostic
-// source of truth for "does this user actually have an active paid
-// plan right now" — which is exactly why the Firestore rule was given
-// a profile-based branch.
-//
-// CONSEQUENCE FOR THIS FILE: [getProfilePlanStrict] — not
-// [getClaimsPlanStrict] — is the resolver that must be used to decide
-// the `plan` value written to a new/existing `master_leagues` document
-// whenever no NEW payment is being made. Using the claims-only
-// resolver as the sole source will make every Google Play purchaser
-// look like they have no active plan (their token never carries the
-// claim) and force them back into the payment flow for a plan they
-// already own. [getClaimsPlanStrict] is kept below only as a
-// diagnostic/fallback helper — never call it in place of
-// [getProfilePlanStrict] for the primary write-plan decision.
-// ─────────────────────────────────────────────────────────────────────────
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -118,9 +77,6 @@ class MasterLeagueEntitlementService {
     return uid;
   }
 
-  /// Google Play Billing purchases must NEVER be routed through
-  /// [_activateUri] — that endpoint only accepts Flutterwave receipts
-  /// and returns "unsupported provider" for anything else.
   bool _isGooglePlayProvider(String provider) =>
       provider.trim().toLowerCase() == 'google_play_billing';
 
@@ -195,14 +151,6 @@ class MasterLeagueEntitlementService {
     );
   }
 
-  // ── Read from Firebase ID token claims ───────────────────────────────────
-  //
-  // DIAGNOSTIC / SECONDARY USE ONLY. This reflects Firebase Auth custom
-  // claims, which are set ONLY by the Flutterwave activation worker —
-  // Google Play Billing purchases never populate them (see the
-  // file-header comment). Do not use this as the sole/primary source
-  // for deciding what plan to write to a new master_leagues document;
-  // use [getProfilePlanStrict] for that.
   Future<OrganizerProEntitlement> _readFromClaims() async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -295,22 +243,7 @@ class MasterLeagueEntitlementService {
     }
   }
 
-  // ── Public entitlement read ───────────────────────────────────────────────
-
-  /// Returns the user's current entitlement, for DISPLAY / UI-gating
-  /// purposes (e.g. "should I show the payment button").
-  ///
-  /// Priority order:
-  ///   1. Firestore profile (planExpiresAtMs / activePlanId)
-  ///   2. Firebase ID token custom claims (organizerPro)
-  ///   3. An implicit, active Basic entitlement — every signed-in user
-  ///      can always create their free workspace without paying.
-  ///
-  /// IMPORTANT: this method is intentionally lenient/fallback-friendly
-  /// for display purposes. For deciding the `plan` value WRITTEN to a
-  /// new `master_leagues` document, use [getProfilePlanStrict] — see
-  /// the file-header comment for why the profile (not claims) is the
-  /// correct, provider-agnostic source of truth.
+  // ── Public entitlement read
   Future<OrganizerProEntitlement> getEntitlement({
     bool forceRefresh = false,
   }) async {
@@ -336,44 +269,42 @@ class MasterLeagueEntitlementService {
     return _implicitBasicEntitlement();
   }
 
-  /// ── THE authoritative resolver for writing `plan` on a new or
-  /// existing Pro/Elite `master_leagues` document when NO new payment
-  /// is being made for this action. ──
+  /// ── THE authoritative resolver for writing `plan` on a new or old
+  /// master league. Reads the EXACT fields Firestore's
+  /// `profileHasActivePlan()` rule checks, and reads them with a
+  /// forced SERVER round-trip -- never the local cache.
   ///
-  /// Reads exclusively from the Firestore `/users/{uid}` document —
-  /// no custom-claims fallback, no implicit-Basic fallback — so the
-  /// returned value is GUARANTEED to equal `profile.data.activePlanId`
-  /// (or be `null` if that document/field genuinely has no active paid
-  /// plan right now).
+  /// FIXED (mobile-only regression): this previously delegated to
+  /// `_profileRepo.fetchByUserId(uid)`. On mobile, firebase_firestore
+  /// has offline persistence ON by default, and that repository call
+  /// does not guarantee a true server round-trip even when
+  /// "forceRefresh" is requested. That let the UI (via getEntitlement,
+  /// which uses the same repository call) and this resolver both agree
+  /// -- from a stale locally-cached profile -- that the user had an
+  /// active Pro/Elite plan, so the app skipped payment and went
+  /// straight to `repo.create()`. But the ACTUAL server document (the
+  /// one Firestore's `profileHasActivePlan()` rule reads live during
+  /// evaluation) disagreed, so the write came back permission-denied:
+  /// "You don't have access to this Master League...". The web app
+  /// never hit this because its Firestore client has no persistent
+  /// cache and always reads fresh from the server.
   ///
-  /// The Firestore security rules' `profilePlanActiveCreate()` /
-  /// `profilePlanActive()` gates (see firestore.rules) check this same
-  /// document directly, so this is the value guaranteed to match what
-  /// the rule evaluates — for BOTH Flutterwave and Google Play Billing
-  /// purchasers, since `UserProfileRepository.activatePlanSubscription()`
-  /// writes this document for both providers.
-  ///
-  /// Do NOT replace calls to this method with [getClaimsPlanStrict] —
-  /// Google Play purchasers never carry the custom claims that method
-  /// reads, so doing so makes every Google Play Pro/Elite user look
-  /// unentitled and forces them back into the payment flow for a plan
-  /// they already own. This exact regression has happened before —
-  /// see the file-header comment.
-  ///
-  /// Throws [MasterLeagueEntitlementException] if the profile document
-  /// cannot be read at all (rather than silently guessing), so the
-  /// caller can show a clear "please try again" message instead of
-  /// writing a doomed-to-be-rejected value.
+  /// This version reads the users/{uid} document directly, with an
+  /// explicit `Source.server`, bypassing the repository entirely for
+  /// this specific security-critical decision. It can no longer
+  /// disagree with what the security rule itself will see.
   Future<MasterLeaguePlan?> getProfilePlanStrict({
     bool forceRefresh = true,
   }) async {
     final uid = _uidOrThrow();
 
-    UserProfile? profile;
+    DocumentSnapshot<Map<String, dynamic>> snap;
     try {
-      profile = forceRefresh
-          ? await _profileRepo.fetchByUserId(uid)
-          : await _profileRepo.fetchByUserIdForBootstrap(uid);
+      snap = await _firestore
+          .collection('users')
+          .doc(uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
     } catch (e) {
       throw MasterLeagueEntitlementException(
         "We couldn't confirm your active plan. Please check your "
@@ -381,26 +312,27 @@ class MasterLeagueEntitlementService {
       );
     }
 
-    if (profile == null) return null;
+    if (!snap.exists) return null;
+    final data = snap.data() ?? <String, dynamic>{};
 
-    final subscription = profile.planSubscription;
-    if (subscription == null || !subscription.isActive) return null;
-    if (subscription.plan.isFree) return null;
+    final activePlanId = (data['activePlanId'] as String? ?? '').trim();
+    if (activePlanId != 'pro' && activePlanId != 'elite') return null;
 
-    return subscription.plan;
+    final rawExpiry = data['planExpiresAtMs'];
+    int expiresAtMs = 0;
+    if (rawExpiry is int) expiresAtMs = rawExpiry;
+    if (rawExpiry is num) expiresAtMs = rawExpiry.toInt();
+    if (rawExpiry is Timestamp) {
+      expiresAtMs = rawExpiry.millisecondsSinceEpoch;
+    }
+
+    if (expiresAtMs <= DateTime.now().millisecondsSinceEpoch) return null;
+
+    return MasterLeaguePlan.tryFromString(activePlanId);
   }
 
   /// Claims-only resolver. Force-refreshes the ID token and reads ONLY
   /// the Firebase Auth custom claims (`organizerPro` / `organizerProPlan`).
-  ///
-  /// DIAGNOSTIC / FALLBACK USE ONLY — kept for callers that specifically
-  /// need to know "does this user's current ID token carry the
-  /// claims-based entitlement" (e.g. debugging a Flutterwave activation
-  /// that hasn't propagated yet). This will always return `null` for
-  /// Google Play Billing purchasers, since that path never sets these
-  /// claims (see [activateAfterPayment]). Never use this as the sole
-  /// source for deciding what plan to write — use
-  /// [getProfilePlanStrict] for that.
   Future<MasterLeaguePlan?> getClaimsPlanStrict({
     bool forceRefresh = true,
   }) async {
