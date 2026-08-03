@@ -1,3 +1,4 @@
+//lib/masterLeagues/entitlements.ts 
 import { auth } from '@/lib/firebase';
 import { MasterLeaguePlanId, PlanDurationId } from '@/types/masterLeague';
 

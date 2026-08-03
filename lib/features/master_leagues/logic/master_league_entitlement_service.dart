@@ -77,8 +77,24 @@ class MasterLeagueEntitlementService {
     return uid;
   }
 
-  bool _isGooglePlayProvider(String provider) =>
-      provider.trim().toLowerCase() == 'google_play_billing';
+  // FIXED: this previously matched ONLY the literal string
+  // 'google_play_billing'. MasterLeaguesRepositoryFirebase and
+  // firestore.rules (see validProvider()) both also treat plain
+  // 'google_play' as a valid Google Play Billing provider value. When
+  // the payment SDK reported 'google_play' instead of
+  // 'google_play_billing', activateAfterPayment() below fell through
+  // to the Flutterwave/web worker branch instead of writing the
+  // Firestore profile directly -- so users/{uid}.activePlanId never got
+  // set for that purchase, and every subsequent master_leagues create
+  // was rejected by firestore.rules' profileHasActivePlan() with
+  // permission-denied, even though the in-app purchase itself had
+  // succeeded. This is the root cause of "user has a plan but can't
+  // create a workspace on mobile" while the web app (Flutterwave-only)
+  // was unaffected.
+  bool _isGooglePlayProvider(String provider) {
+    final p = provider.trim().toLowerCase();
+    return p == 'google_play_billing' || p == 'google_play';
+  }
 
   /// Every signed-in user is implicitly entitled to the free Basic plan.
   OrganizerProEntitlement _implicitBasicEntitlement() {
@@ -329,6 +345,64 @@ class MasterLeagueEntitlementService {
     return MasterLeaguePlan.tryFromString(activePlanId);
   }
 
+  /// Retries [getProfilePlanStrict] briefly, returning as soon as it
+  /// resolves to an active Pro/Elite plan. Use this instead of a
+  /// single-shot check anywhere the result gates a write that
+  /// firestore.rules' `profileHasActivePlan()` will independently
+  /// re-check (e.g. right before creating a master league) -- including
+  /// immediately after a payment is activated, where there can be a
+  /// short window between the profile write being acknowledged locally
+  /// and being visible to a fresh Source.server read (for example, if
+  /// `waitForPendingWrites()` inside [activateAfterPayment] times out
+  /// and is swallowed).
+  ///
+  /// Returns null if, after all attempts, the profile still shows no
+  /// active Pro/Elite plan (caller should treat this as "a payment is
+  /// genuinely required" rather than retrying indefinitely). Throws
+  /// [MasterLeagueEntitlementException] only if every attempt failed
+  /// due to a connectivity/read error (as opposed to a clean "no active
+  /// plan" read).
+  Future<MasterLeaguePlan?> getProfilePlanStrictWithRetry({
+    int attempts = 4,
+    Duration initialDelay = const Duration(milliseconds: 400),
+  }) async {
+    Duration delay = initialDelay;
+    Object? lastError;
+
+    for (int i = 0; i < attempts; i++) {
+      try {
+        final plan = await getProfilePlanStrict(forceRefresh: true);
+        if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite) {
+          return plan;
+        }
+        lastError = null;
+      } catch (e) {
+        lastError = e;
+        if (kDebugMode) {
+          debugPrint(
+            '[MasterLeagueEntitlementService] '
+            'getProfilePlanStrictWithRetry attempt ${i + 1}/$attempts '
+            'failed: $e',
+          );
+        }
+      }
+
+      if (i < attempts - 1) {
+        await Future.delayed(delay);
+        delay *= 2;
+      }
+    }
+
+    if (lastError != null) {
+      throw MasterLeagueEntitlementException(
+        "We couldn't confirm your active plan. Please check your "
+        'connection and try again. (${lastError.toString()})',
+      );
+    }
+
+    return null;
+  }
+
   /// Claims-only resolver. Force-refreshes the ID token and reads ONLY
   /// the Firebase Auth custom claims (`organizerPro` / `organizerProPlan`).
   Future<MasterLeaguePlan?> getClaimsPlanStrict({
@@ -573,29 +647,6 @@ class MasterLeagueEntitlementService {
       return;
     }
 
-    // ── Google Play Billing: already verified by Play SDK ─────────────────
-    //
-    // FIXED (mobile-only regression #2): the Future from
-    // `_profileRepo.activatePlanSubscription()` on mobile can resolve
-    // as soon as the write is durably queued on-device -- offline
-    // persistence is on by default -- and NOT necessarily once the
-    // backend has actually acknowledged it. Immediately after this
-    // call returned, `_create()` in the screen would call
-    // `repo.create()`, whose Firestore write triggers the
-    // `profileHasActivePlan()` security rule, which does a LIVE
-    // server-side read of this same profile document. If the backend
-    // hadn't received the write yet, the rule still saw the old,
-    // pre-purchase profile -- so a brand-new Google Play purchaser got
-    // permission-denied trying to create their very first paid
-    // workspace, right after a successful purchase. The web app never
-    // hit this because Flutterwave activation there sets custom
-    // claims on the ID token directly -- no document round-trip to
-    // race against.
-    //
-    // `waitForPendingWrites()` blocks until all writes the client has
-    // queued have been acknowledged by the Firestore backend, so by
-    // the time this function returns, the rule is guaranteed to see
-    // the new profile.
     if (_isGooglePlayProvider(provider)) {
       await _profileRepo.activatePlanSubscription(
         plan: plan,

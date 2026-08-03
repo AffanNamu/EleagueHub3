@@ -238,25 +238,37 @@ class _CreateMasterLeagueScreenState
 
   // ── Create ────────────────────────────────────────────────────────────────
   //
-  // FIXED (regression from a previous edit): this method briefly used
-  // `entitlementSvc.getClaimsPlanStrict()` to resolve the `plan` value
-  // to write when no new payment was needed. That resolver reads
-  // Firebase Auth CUSTOM CLAIMS, which are set ONLY by the Flutterwave
-  // activation worker — Google Play Billing purchases never populate
-  // them. The result: any Google Play Pro/Elite user with room to
-  // spare would pass the `needsPaymentNow == false` check (based on
-  // the profile-aware `getEntitlement()`), then immediately get
-  // bounced back into `_openInlineUpgrade()` because
-  // `getClaimsPlanStrict()` found no claim — i.e. they were asked to
-  // pay again for a plan they already owned.
+  // FIXED (regression #2 — mobile Google Play purchasers could not
+  // create a workspace even after a successful payment, and existing
+  // Pro/Elite users could hit the same permission-denied error).
   //
-  // The Firestore `master_leagues` create/update rules accept a
-  // paid-plan write via EITHER the custom claims OR the Firestore
-  // `/users/{uid}` profile document (`activePlanId` / `planExpiresAtMs`)
-  // — see firestore.rules `profilePlanActiveCreate()` /
-  // `profilePlanActive()`. The profile document is written for BOTH
-  // payment providers, so it's the correct, provider-agnostic source.
-  // Restored to `entitlementSvc.getProfilePlanStrict()` accordingly.
+  // Root cause: MasterLeagueEntitlementService._isGooglePlayProvider()
+  // only matched the literal string 'google_play_billing'.
+  // MasterLeaguesRepositoryFirebase and firestore.rules (validProvider())
+  // both also accept plain 'google_play'. Whenever the payment SDK
+  // reported the provider as 'google_play', activateAfterPayment() fell
+  // through to the Flutterwave/web worker branch instead of writing the
+  // Firestore profile directly — so users/{uid}.activePlanId never got
+  // set for that purchase, even though the in-app purchase itself
+  // succeeded. Since Google Play purchases never receive the
+  // organizerPro custom claim (only the Flutterwave worker sets that),
+  // firestore.rules' profileHasActivePlan() was the ONLY thing that
+  // could authorize the master_leagues create — and it always failed,
+  // producing "You don't have access to this Master League...".
+  // _isGooglePlayProvider() has been fixed to accept both provider
+  // strings.
+  //
+  // Belt-and-suspenders fix here: this method no longer trusts
+  // `_selectedPlan` directly after a payment (or trusts a single
+  // cached entitlement read for an existing plan holder). It ALWAYS
+  // re-resolves the plan to WRITE via
+  // entitlementSvc.getProfilePlanStrictWithRetry(), which reads
+  // users/{uid} straight from the Firestore server (bypassing the
+  // mobile offline-persistence cache) and retries briefly to absorb
+  // any short propagation delay right after activation. That is the
+  // exact same data firestore.rules' profileHasActivePlan() will
+  // independently check at write time, so the two checks can never
+  // drift apart again — regardless of provider string or timing.
   Future<void> _create() async {
     if (_processing) return;
 
@@ -330,59 +342,66 @@ class _CreateMasterLeagueScreenState
         }
       }
 
-      // ── FIXED: resolve the plan to WRITE strictly from the Firestore
-      // profile whenever no new payment was just made this attempt.
-      // This is the value that must exactly equal profile.data.
-      // activePlanId (or its legacy-isPremium equivalent) for the
-      // Firestore security rules' profile-based branch to accept the
-      // write — and it's correct for BOTH Flutterwave and Google Play
-      // Billing purchasers, unlike the claims-only resolver.
-      MasterLeaguePlan? writePlan;
-      if (!needsPaymentNow) {
-        try {
-          writePlan = await entitlementSvc.getProfilePlanStrict(
-            forceRefresh: true,
-          );
-        } catch (e) {
+      // ── FIXED: resolve the plan to WRITE strictly and ALWAYS from a
+      // fresh, server-verified read of the Firestore profile — with
+      // retries so a just-completed payment has time to propagate.
+      // Never trust `_selectedPlan` directly, even right after a
+      // successful payment (see the method-level comment above for why
+      // that trust was unsafe).
+      MasterLeaguePlan? writePlan =
+          await entitlementSvc.getProfilePlanStrictWithRetry();
+
+      if (writePlan == null) {
+        if (needsPaymentNow) {
+          // A payment was just verified this attempt, but the profile
+          // doesn't reflect it yet. Do NOT trigger another charge —
+          // just ask the user to retry the create in a moment.
           if (!mounted) return;
           _showMessage(
-            "We couldn't confirm your active plan. Please try again. "
-            '($e)',
+            "Your payment went through, but we couldn't confirm your "
+            'plan yet. Please wait a moment and tap Create Workspace '
+            'again.',
             error: true,
           );
           setState(() => _processing = false);
           return;
         }
 
-        if (writePlan == null ||
-            !(writePlan == MasterLeaguePlan.pro ||
-                writePlan == MasterLeaguePlan.elite)) {
-          // The profile genuinely has no active paid plan right now
-          // (expired, or was never activated) — a payment IS actually
-          // required, even though our earlier (looser) entitlement
-          // check thought otherwise. Fall through to the upgrade flow
-          // instead of writing a value that's guaranteed to be denied.
-          final upgraded = await _openInlineUpgrade();
-          if (!mounted) return;
-          if (!upgraded) {
-            setState(() => _processing = false);
-            return;
-          }
-          writePlan = _selectedPlan;
+        // The profile genuinely has no active paid plan right now
+        // (expired, or was never activated) — a payment IS actually
+        // required, even though our earlier (looser) entitlement check
+        // thought otherwise. Fall through to the upgrade flow instead
+        // of writing a value that's guaranteed to be denied.
+        final upgraded = await _openInlineUpgrade();
+        if (!mounted) return;
+        if (!upgraded) {
+          setState(() => _processing = false);
+          return;
         }
-      } else {
-        // A new payment was just verified this attempt — the plan the
-        // user just paid for is authoritative for this write.
-        writePlan = _selectedPlan;
+
+        writePlan = await entitlementSvc.getProfilePlanStrictWithRetry();
+        if (writePlan == null) {
+          if (!mounted) return;
+          _showMessage(
+            "Your payment went through, but we couldn't confirm your "
+            'plan yet. Please wait a moment and tap Create Workspace '
+            'again.',
+            error: true,
+          );
+          setState(() => _processing = false);
+          return;
+        }
       }
+
+      final MasterLeaguePlan resolvedPlan = writePlan;
 
       final refreshedWorkspaceCount =
           await entitlementSvc.countOwnedWorkspaces();
 
-      if (!writePlan.canCreateWorkspace(refreshedWorkspaceCount)) {
+      if (!resolvedPlan.canCreateWorkspace(refreshedWorkspaceCount)) {
         _showMessage(
           'You have reached the workspace limit for '
-          '${writePlan.displayName} plan.',
+          '${resolvedPlan.displayName} plan.',
           error: true,
         );
         setState(() => _processing = false);
@@ -413,7 +432,7 @@ class _CreateMasterLeagueScreenState
       if (needsPaymentNow) {
         created = await repo.createAfterVerifiedPayment(
           masterLeagueName: masterLeagueName,
-          plan: writePlan,
+          plan: resolvedPlan,
           attemptId: _lastVerifiedAttemptId,
           paymentId: _lastVerifiedPaymentId,
           receiptId: _lastVerifiedReceiptId,
@@ -421,11 +440,11 @@ class _CreateMasterLeagueScreenState
         );
       } else {
         // User already has an active plan with room to spare — create
-        // directly using the STRICT profile-resolved plan value, so it
+        // directly using the STRICT, server-verified plan value, so it
         // is guaranteed to match profile.data.activePlanId exactly.
         created = await repo.create(
           name: masterLeagueName,
-          plan: writePlan,
+          plan: resolvedPlan,
           initialCompetition: competition,
         );
       }
