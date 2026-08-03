@@ -274,7 +274,7 @@ class MasterLeagueEntitlementService {
   /// `profileHasActivePlan()` rule checks, and reads them with a
   /// forced SERVER round-trip -- never the local cache.
   ///
-  /// FIXED (mobile-only regression): this previously delegated to
+  /// FIXED (mobile-only regression #1): this previously delegated to
   /// `_profileRepo.fetchByUserId(uid)`. On mobile, firebase_firestore
   /// has offline persistence ON by default, and that repository call
   /// does not guarantee a true server round-trip even when
@@ -284,15 +284,13 @@ class MasterLeagueEntitlementService {
   /// active Pro/Elite plan, so the app skipped payment and went
   /// straight to `repo.create()`. But the ACTUAL server document (the
   /// one Firestore's `profileHasActivePlan()` rule reads live during
-  /// evaluation) disagreed, so the write came back permission-denied:
-  /// "You don't have access to this Master League...". The web app
-  /// never hit this because its Firestore client has no persistent
-  /// cache and always reads fresh from the server.
+  /// evaluation) disagreed, so the write came back permission-denied.
+  /// The web app never hit this because its Firestore client has no
+  /// persistent cache and always reads fresh from the server.
   ///
   /// This version reads the users/{uid} document directly, with an
   /// explicit `Source.server`, bypassing the repository entirely for
-  /// this specific security-critical decision. It can no longer
-  /// disagree with what the security rule itself will see.
+  /// this specific security-critical decision.
   Future<MasterLeaguePlan?> getProfilePlanStrict({
     bool forceRefresh = true,
   }) async {
@@ -565,21 +563,39 @@ class MasterLeagueEntitlementService {
         receiptId: receiptId,
         provider: provider,
       );
+
+      try {
+        await _firestore
+            .waitForPendingWrites()
+            .timeout(const Duration(seconds: 15));
+      } catch (_) {}
+
       return;
     }
 
     // ── Google Play Billing: already verified by Play SDK ─────────────────
     //
-    // NOTE: this path writes ONLY to the Firestore profile — it does
-    // NOT call the activation worker, so it never sets the
-    // organizerPro/organizerProPlan custom claims. This is expected
-    // and fine: the Firestore rules' profile-based branch
-    // (profilePlanActiveCreate / profilePlanActive) authorizes
-    // master_leagues writes directly off this same profile document,
-    // and [getProfilePlanStrict] is what callers must use to resolve
-    // the plan to write. Do not "fix" this by trying to route Google
-    // Play purchases through [_activateUri] — that endpoint only
-    // accepts Flutterwave receipts.
+    // FIXED (mobile-only regression #2): the Future from
+    // `_profileRepo.activatePlanSubscription()` on mobile can resolve
+    // as soon as the write is durably queued on-device -- offline
+    // persistence is on by default -- and NOT necessarily once the
+    // backend has actually acknowledged it. Immediately after this
+    // call returned, `_create()` in the screen would call
+    // `repo.create()`, whose Firestore write triggers the
+    // `profileHasActivePlan()` security rule, which does a LIVE
+    // server-side read of this same profile document. If the backend
+    // hadn't received the write yet, the rule still saw the old,
+    // pre-purchase profile -- so a brand-new Google Play purchaser got
+    // permission-denied trying to create their very first paid
+    // workspace, right after a successful purchase. The web app never
+    // hit this because Flutterwave activation there sets custom
+    // claims on the ID token directly -- no document round-trip to
+    // race against.
+    //
+    // `waitForPendingWrites()` blocks until all writes the client has
+    // queued have been acknowledged by the Firestore backend, so by
+    // the time this function returns, the rule is guaranteed to see
+    // the new profile.
     if (_isGooglePlayProvider(provider)) {
       await _profileRepo.activatePlanSubscription(
         plan: plan,
@@ -587,6 +603,20 @@ class MasterLeagueEntitlementService {
         receiptId: receiptId,
         provider: provider,
       );
+
+      try {
+        await _firestore
+            .waitForPendingWrites()
+            .timeout(const Duration(seconds: 15));
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+            '[MasterLeagueEntitlementService] activateAfterPayment: '
+            'waitForPendingWrites failed after Google Play activation '
+            '(continuing anyway): $e',
+          );
+        }
+      }
 
       try {
         await _auth.currentUser?.getIdToken(true);
@@ -649,6 +679,9 @@ class MasterLeagueEntitlementService {
         receiptId: receiptId,
         provider: provider,
       );
+      await _firestore
+          .waitForPendingWrites()
+          .timeout(const Duration(seconds: 15));
     } catch (e) {
       if (kDebugMode) {
         debugPrint(
@@ -673,5 +706,11 @@ class MasterLeagueEntitlementService {
       receiptId: 'free_basic',
       provider: 'free',
     );
+
+    try {
+      await _firestore
+          .waitForPendingWrites()
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {}
   }
 }
