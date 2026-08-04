@@ -1,6 +1,5 @@
 //lib/features/master_leagues/data/master_leagues_repository_firebase.dart
 
-
 import 'dart:async';
 import 'dart:io';
 
@@ -78,17 +77,44 @@ class MasterLeaguesRepositoryFirebase {
     return p == 'google_play_billing' || p == 'google_play';
   }
 
+  // ── DEBUG VISIBILITY (temporary diagnostic aid) ─────────────────────────
+  //
+  // _rethrowFriendly() previously swallowed the raw FirebaseException
+  // (code/message/plugin) into a generic user-facing string, so the only
+  // way to see what Firestore actually rejected and why was to dig
+  // through `flutter run` terminal output (via the debugPrint below,
+  // which still fires). That's a slow round-trip when debugging a
+  // create-master-league permission issue over chat/screenshots.
+  //
+  // In kDebugMode ONLY, this now appends a `[DEBUG] code=... message=...`
+  // suffix directly onto the user-facing message, so the raw Firestore
+  // error is visible right in the on-screen SnackBar/red banner — no
+  // terminal access needed. This suffix never appears in release builds
+  // (kDebugMode is false), so it's safe to leave in.
+  String _debugSuffix(Object error) {
+    if (!kDebugMode) return '';
+    if (error is FirebaseException) {
+      return '\n\n[DEBUG] code=${error.code} plugin=${error.plugin} '
+          'message=${error.message}';
+    }
+    return '\n\n[DEBUG] ${error.runtimeType}: $error';
+  }
+
   Never _rethrowFriendly(Object error) {
     if (error is UserFriendlyException) throw error;
 
+    final debugSuffix = _debugSuffix(error);
+
     if (error is SocketException || error is HandshakeException) {
-      throw const UserFriendlyException(
-        'Your network appears to be offline. Please check your connection and try again.',
+      throw UserFriendlyException(
+        'Your network appears to be offline. Please check your connection and try again.'
+        '$debugSuffix',
       );
     }
     if (error is TimeoutException) {
-      throw const UserFriendlyException(
-        'Your internet connection seems unstable. Please try again.',
+      throw UserFriendlyException(
+        'Your internet connection seems unstable. Please try again.'
+        '$debugSuffix',
       );
     }
 
@@ -101,26 +127,31 @@ class MasterLeaguesRepositoryFirebase {
       switch (error.code) {
         case 'unavailable':
         case 'deadline-exceeded':
-          throw const UserFriendlyException(
-            'Your network appears to be offline. Please check your connection and try again.',
+          throw UserFriendlyException(
+            'Your network appears to be offline. Please check your connection and try again.'
+            '$debugSuffix',
           );
         case 'permission-denied':
-          throw const UserFriendlyException(
-            'You don\'t have access to this Master League. Please make sure your payment is completed and verified, then try again.',
+          throw UserFriendlyException(
+            'You don\'t have access to this Master League. Please make sure your payment is completed and verified, then try again.'
+            '$debugSuffix',
           );
         case 'unauthenticated':
-          throw const UserFriendlyException(
-            'Please sign in and try again.',
+          throw UserFriendlyException(
+            'Please sign in and try again.'
+            '$debugSuffix',
           );
         default:
-          throw const UserFriendlyException(
-            "We couldn't complete this action. Please try again.",
+          throw UserFriendlyException(
+            "We couldn't complete this action. Please try again."
+            '$debugSuffix',
           );
       }
     }
 
-    throw const UserFriendlyException(
-      'Something went wrong. Please try again.',
+    throw UserFriendlyException(
+      'Something went wrong. Please try again.'
+      '$debugSuffix',
     );
   }
 
@@ -1008,23 +1039,7 @@ class MasterLeaguesRepositoryFirebase {
     return 'ml_${ownerUid}_$slot';
   }
 
-  /// Allocates the document ID for a new `master_leagues` workspace.
-  ///
-  /// IMPORTANT: this is NOT free-form. The Firestore security rules'
-  /// `allowedMasterLeagueIdForPlan()` requires the doc ID to follow a
-  /// deterministic per-owner slot pattern for Basic and Pro:
-  ///
-  ///   Basic -> exactly 'ml_<uid>_1'
-  ///   Pro   -> one of 'ml_<uid>_1' .. 'ml_<uid>_5'
-  ///   Elite -> ANY id is accepted (rule has no id restriction)
-  ///
-  /// Any other ID for Basic/Pro (e.g. a random UUID) is guaranteed to
-  /// be rejected with permission-denied by the `create` rule,
-  /// regardless of the caller's plan or payment status. So for Basic
-  /// and Pro we must probe the fixed slot ids and pick the first one
-  /// that doesn't already have a document — that per-id `.get()` is
-  /// safe and unrestricted because `master_leagues` has
-  /// `allow read: if true;`, so there is no null-resource / rules
+ 
   /// issue when reading a slot that doesn't exist yet.
   Future<String> _allocateMasterLeagueIdForPlan(MasterLeaguePlan plan) async {
     final uid = _requireAuthUid();
@@ -1142,6 +1157,13 @@ class MasterLeaguesRepositoryFirebase {
         'verificationRequestType': 'initial',
       };
 
+      if (kDebugMode) {
+        debugPrint(
+          '[MasterLeaguesRepo] create() writing doc id=$id plan=${plan.id} '
+          'ownerId=$uid keys=${docData.keys.toList()}',
+        );
+      }
+
       await ref.set(docData, SetOptions(merge: false)).timeout(
             const Duration(seconds: 20),
           );
@@ -1151,6 +1173,9 @@ class MasterLeaguesRepositoryFirebase {
           .timeout(const Duration(seconds: 15));
       return MasterLeague.fromDoc(fresh);
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[MasterLeaguesRepo] create() failed: $e');
+      }
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
