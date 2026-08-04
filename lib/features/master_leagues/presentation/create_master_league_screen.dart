@@ -329,9 +329,48 @@ class _CreateMasterLeagueScreenState
       }
 
       // ── Paid plan path ───────────────────────────────────────────────────
-      final needsPaymentNow =
-          !effectivePlan.canCreateWorkspace(currentWorkspaceCount) ||
-              _planOrder(effectivePlan) < _planOrder(_selectedPlan);
+      // ── FIXED (regression #3): "do we even need a payment" was still
+      // being decided from `effectivePlan`, which comes from
+      // getEntitlement() -> _readFromProfile() -> the cacheable
+      // repository call. Per that code's own comments, this can still
+      // serve a locally-cached read on mobile instead of the true
+      // server document. That meant an existing paying user (confirmed
+      // valid `activePlanId` on the server) could still be routed into
+      // the payment/re-verification flow purely because the local
+      // cache hadn't caught up — a needless, unpredictable detour
+      // (Google Play "already owned" edge cases, etc.) instead of just
+      // creating the workspace. This is decided from a STRICT,
+      // server-verified read first now; the loose signal is only a
+      // fallback for when that strict read can't run at all (e.g.
+      // offline).
+      MasterLeaguePlan? verifiedPlanForDecision;
+      try {
+        verifiedPlanForDecision =
+            await entitlementSvc.getProfilePlanStrict(forceRefresh: true);
+      } catch (_) {
+        verifiedPlanForDecision = null;
+      }
+
+      final bool needsPaymentNow;
+      if (verifiedPlanForDecision != null &&
+          _planOrder(verifiedPlanForDecision) >= _planOrder(_selectedPlan)) {
+        // Server-confirmed: the user already holds a plan at or above
+        // the one they selected. The only remaining question is
+        // capacity.
+        needsPaymentNow = !verifiedPlanForDecision
+            .canCreateWorkspace(currentWorkspaceCount);
+      } else {
+        // No server-confirmed plan at the required tier (or the
+        // strict check couldn't run). Fall back to the lighter
+        // entitlement signal just to decide whether to show the
+        // payment flow — a stale "yes" here is still caught by the
+        // write-time verification below; a stale "no" just means we
+        // show the payment screen when it may not strictly have been
+        // necessary.
+        needsPaymentNow =
+            !effectivePlan.canCreateWorkspace(currentWorkspaceCount) ||
+                _planOrder(effectivePlan) < _planOrder(_selectedPlan);
+      }
 
       if (needsPaymentNow) {
         final upgraded = await _openInlineUpgrade();
@@ -347,9 +386,15 @@ class _CreateMasterLeagueScreenState
       // retries so a just-completed payment has time to propagate.
       // Never trust `_selectedPlan` directly, even right after a
       // successful payment (see the method-level comment above for why
-      // that trust was unsafe).
-      MasterLeaguePlan? writePlan =
-          await entitlementSvc.getProfilePlanStrictWithRetry();
+      // that trust was unsafe). If we already have a strict,
+      // still-valid read from the check just above (no payment was
+      // needed), reuse it instead of a redundant round-trip.
+      MasterLeaguePlan? writePlan = (!needsPaymentNow &&
+              verifiedPlanForDecision != null &&
+              _planOrder(verifiedPlanForDecision) >=
+                  _planOrder(_selectedPlan))
+          ? verifiedPlanForDecision
+          : await entitlementSvc.getProfilePlanStrictWithRetry();
 
       if (writePlan == null) {
         if (needsPaymentNow) {
