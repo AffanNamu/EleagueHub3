@@ -101,19 +101,20 @@ class MasterLeaguesRepositoryFirebase {
   // debugging. ***
   static const bool _forceShowDebugDetails = true;
 
-  String _debugSuffix(Object error) {
+  String _debugSuffix(Object error, {String stage = ''}) {
     if (!kDebugMode && !_forceShowDebugDetails) return '';
+    final stageTag = stage.isNotEmpty ? ' stage=$stage' : '';
     if (error is FirebaseException) {
-      return '\n\n[DEBUG] code=${error.code} plugin=${error.plugin} '
+      return '\n\n[DEBUG]$stageTag code=${error.code} plugin=${error.plugin} '
           'message=${error.message}';
     }
-    return '\n\n[DEBUG] ${error.runtimeType}: $error';
+    return '\n\n[DEBUG]$stageTag ${error.runtimeType}: $error';
   }
 
-  Never _rethrowFriendly(Object error) {
+  Never _rethrowFriendly(Object error, {String stage = ''}) {
     if (error is UserFriendlyException) throw error;
 
-    final debugSuffix = _debugSuffix(error);
+    final debugSuffix = _debugSuffix(error, stage: stage);
 
     if (error is SocketException || error is HandshakeException) {
       throw UserFriendlyException(
@@ -131,7 +132,7 @@ class MasterLeaguesRepositoryFirebase {
     if (error is FirebaseException) {
       if (kDebugMode) {
         debugPrint(
-          '[MasterLeaguesRepo] FirebaseException code=${error.code} message=${error.message}',
+          '[MasterLeaguesRepo] FirebaseException stage=$stage code=${error.code} message=${error.message}',
         );
       }
       switch (error.code) {
@@ -1085,108 +1086,133 @@ class MasterLeaguesRepositoryFirebase {
     MasterLeaguePlan plan = MasterLeaguePlan.basic,
     MasterLeagueCompetitionDraft? initialCompetition,
   }) async {
+    final uid = _requireAuthUid();
+
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const UserFriendlyException(
+        'Please enter a name for your Master League.',
+      );
+    }
+    if (trimmed.length > 60) {
+      throw const UserFriendlyException(
+        'Master League name is too long.',
+      );
+    }
+
+    if (initialCompetition != null) {
+      final compName = initialCompetition.name.trim();
+      if (compName.isEmpty) {
+        throw const UserFriendlyException(
+          'Please enter a competition name.',
+        );
+      }
+      if (compName.length > 60) {
+        throw const UserFriendlyException(
+          'Competition name is too long.',
+        );
+      }
+      if (initialCompetition.maxParticipants < 2) {
+        throw const UserFriendlyException(
+          'Max participants must be at least 2.',
+        );
+      }
+      if (initialCompetition.entryFee < 0) {
+        throw const UserFriendlyException(
+          'Entry fee cannot be negative.',
+        );
+      }
+    }
+
+    // ── FIXED (diagnostic): each Firestore call below is now wrapped
+    // individually and tagged with a `stage` before going through
+    // _rethrowFriendly(), instead of one big try/catch around the
+    // whole method. Firestore's permission-denied error never says
+    // WHICH read/write in a sequence was actually rejected, so a
+    // single generic catch here was indistinguishable whether the id
+    // allocation, the doc write, or the read-back failed. With
+    // per-call tagging, the on-screen [DEBUG] text will now say
+    // exactly which stage failed.
+    late final String id;
     try {
-      final uid = _requireAuthUid();
+      id = await _allocateMasterLeagueIdForPlan(plan);
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        stage: 'create.allocateId(plan=${plan.id})',
+      );
+    }
 
-      final trimmed = name.trim();
-      if (trimmed.isEmpty) {
-        throw const UserFriendlyException(
-          'Please enter a name for your Master League.',
-        );
-      }
-      if (trimmed.length > 60) {
-        throw const UserFriendlyException(
-          'Master League name is too long.',
-        );
-      }
+    final ref = _col.doc(id);
+    final now = _nowMs();
 
-      if (initialCompetition != null) {
-        final compName = initialCompetition.name.trim();
-        if (compName.isEmpty) {
-          throw const UserFriendlyException(
-            'Please enter a competition name.',
-          );
-        }
-        if (compName.length > 60) {
-          throw const UserFriendlyException(
-            'Competition name is too long.',
-          );
-        }
-        if (initialCompetition.maxParticipants < 2) {
-          throw const UserFriendlyException(
-            'Max participants must be at least 2.',
-          );
-        }
-        if (initialCompetition.entryFee < 0) {
-          throw const UserFriendlyException(
-            'Entry fee cannot be negative.',
-          );
-        }
-      }
+    final docData = <String, dynamic>{
+      'name': trimmed,
+      'ownerId': uid,
+      'ownerUid': uid,
+      'createdAt': Timestamp.now(),
+      'purchaseStatus': 'active',
+      'memberIds': <String>[uid],
+      'roles': <String, String>{uid: 'owner'},
+      'staffShareIds': <String, String>{},
+      'updatedAtMs': now,
+      'plan': plan.id,
+      'bannerUrl': '',
+      'logoUrl': '',
+      'bio': '',
+      'badge': '',
+      'socialLinks': <String, String>{},
+      'totalTournamentsCreated': 0,
+      'totalParticipantsTeams': 0,
+      'totalMatches': 0,
+      'followersCount': 0,
+      'createdViaAttemptId': '',
+      'sourcePaymentId': '',
+      'sourceReceiptId': '',
+      if (initialCompetition != null)
+        'initialCompetition': initialCompetition.toMap(),
+      'verificationStatus': 'none',
+      'verifiedBadge': false,
+      'verificationRequestId': '',
+      'verificationReceiptId': '',
+      'verificationPaymentId': '',
+      'verificationProvider': '',
+      'verificationRequestedAtMs': 0,
+      'verificationApprovedAtMs': 0,
+      'verificationExpiresAtMs': 0,
+      'verificationReviewedBy': '',
+      'verificationNote': '',
+      'verificationRequestType': 'initial',
+    };
 
-      final id = await _allocateMasterLeagueIdForPlan(plan);
-      final ref = _col.doc(id);
-      final now = _nowMs();
+    if (kDebugMode) {
+      debugPrint(
+        '[MasterLeaguesRepo] create() writing doc id=$id plan=${plan.id} '
+        'ownerId=$uid keys=${docData.keys.toList()}',
+      );
+    }
 
-      final docData = <String, dynamic>{
-        'name': trimmed,
-        'ownerId': uid,
-        'ownerUid': uid,
-        'createdAt': Timestamp.now(),
-        'purchaseStatus': 'active',
-        'memberIds': <String>[uid],
-        'roles': <String, String>{uid: 'owner'},
-        'staffShareIds': <String, String>{},
-        'updatedAtMs': now,
-        'plan': plan.id,
-        'bannerUrl': '',
-        'logoUrl': '',
-        'bio': '',
-        'badge': '',
-        'socialLinks': <String, String>{},
-        'totalTournamentsCreated': 0,
-        'totalParticipantsTeams': 0,
-        'totalMatches': 0,
-        'followersCount': 0,
-        'createdViaAttemptId': '',
-        'sourcePaymentId': '',
-        'sourceReceiptId': '',
-        if (initialCompetition != null)
-          'initialCompetition': initialCompetition.toMap(),
-        'verificationStatus': 'none',
-        'verifiedBadge': false,
-        'verificationRequestId': '',
-        'verificationReceiptId': '',
-        'verificationPaymentId': '',
-        'verificationProvider': '',
-        'verificationRequestedAtMs': 0,
-        'verificationApprovedAtMs': 0,
-        'verificationExpiresAtMs': 0,
-        'verificationReviewedBy': '',
-        'verificationNote': '',
-        'verificationRequestType': 'initial',
-      };
-
-      if (kDebugMode) {
-        debugPrint(
-          '[MasterLeaguesRepo] create() writing doc id=$id plan=${plan.id} '
-          'ownerId=$uid keys=${docData.keys.toList()}',
-        );
-      }
-
+    try {
       await ref.set(docData, SetOptions(merge: false)).timeout(
             const Duration(seconds: 20),
           );
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        stage: 'create.writeDoc(id=$id,plan=${plan.id})',
+      );
+    }
 
+    try {
       final fresh = await ref
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
       return MasterLeague.fromDoc(fresh);
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[MasterLeaguesRepo] create() failed: $e');
-      }
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        stage: 'create.readBack(id=$id)',
+      );
     }
   }
 
@@ -1294,11 +1320,20 @@ class MasterLeaguesRepositoryFirebase {
         );
       }
 
-      final id = await _allocateMasterLeagueIdForPlan(plan);
+      String id;
+      try {
+        id = await _allocateMasterLeagueIdForPlan(plan);
+      } catch (e) {
+        _rethrowFriendly(
+          e is Object ? e : Exception('unknown'),
+          stage: 'createAfterVerifiedPayment.allocateId(plan=${plan.id})',
+        );
+      }
       final ref = _col.doc(id);
       final now = _nowMs();
 
-      await _firestore.runTransaction((txn) async {
+      try {
+        await _firestore.runTransaction((txn) async {
         final payRef = _payments.doc(safePaymentId);
         final attRef = _attempts.doc(safeAttemptId);
         final mlRef = _col.doc(id);
@@ -1421,16 +1456,31 @@ class MasterLeaguesRepositoryFirebase {
 
         txn.set(attRef, nextAttempt, SetOptions(merge: false));
       });
-
-      final fresh = await ref
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 15));
-      if (!fresh.exists) {
-        throw const UserFriendlyException(
-          'Master League creation could not be confirmed. Please refresh.',
+      } catch (e) {
+        _rethrowFriendly(
+          e is Object ? e : Exception('unknown'),
+          stage: 'createAfterVerifiedPayment.transaction(id=$id,plan=${plan.id})',
         );
       }
-      return MasterLeague.fromDoc(fresh);
+
+      MasterLeague result;
+      try {
+        final fresh = await ref
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 15));
+        if (!fresh.exists) {
+          throw const UserFriendlyException(
+            'Master League creation could not be confirmed. Please refresh.',
+          );
+        }
+        result = MasterLeague.fromDoc(fresh);
+      } catch (e) {
+        _rethrowFriendly(
+          e is Object ? e : Exception('unknown'),
+          stage: 'createAfterVerifiedPayment.readBack(id=$id)',
+        );
+      }
+      return result;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[MasterLeaguesRepo] createAfterVerifiedPayment failed: $e');
