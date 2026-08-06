@@ -82,17 +82,27 @@ class MasterLeaguesRepositoryFirebase {
   // _rethrowFriendly() previously swallowed the raw FirebaseException
   // (code/message/plugin) into a generic user-facing string, so the only
   // way to see what Firestore actually rejected and why was to dig
-  // through `flutter run` terminal output (via the debugPrint below,
-  // which still fires). That's a slow round-trip when debugging a
-  // create-master-league permission issue over chat/screenshots.
+  // through `flutter run` terminal output. That's not usable here: this
+  // project has no local `flutter` toolchain — the only build that ever
+  // gets installed and tested is whatever GitHub Actions produces, which
+  // is a release (or at least non-debug) build. In a release build,
+  // `kDebugMode` is `false`, so gating this on `kDebugMode` (as an
+  // earlier version of this file did) silently suppressed it in the
+  // ONLY environment actually used for testing.
   //
-  // In kDebugMode ONLY, this now appends a `[DEBUG] code=... message=...`
-  // suffix directly onto the user-facing message, so the raw Firestore
-  // error is visible right in the on-screen SnackBar/red banner — no
-  // terminal access needed. This suffix never appears in release builds
-  // (kDebugMode is false), so it's safe to leave in.
+  // FORCE_SHOW_DEBUG_DETAILS below is a manual override so the raw
+  // Firestore error (code/message/plugin) always gets appended to the
+  // on-screen message, regardless of build type. This is intentionally
+  // loud and easy to find so it doesn't get forgotten:
+  //
+  // *** TEMPORARY — set this back to `false` once the master_leagues
+  // create bug is confirmed fixed. Leaving it `true` exposes internal
+  // Firestore error text to end users on any error, not just while
+  // debugging. ***
+  static const bool _forceShowDebugDetails = true;
+
   String _debugSuffix(Object error) {
-    if (!kDebugMode) return '';
+    if (!kDebugMode && !_forceShowDebugDetails) return '';
     if (error is FirebaseException) {
       return '\n\n[DEBUG] code=${error.code} plugin=${error.plugin} '
           'message=${error.message}';
