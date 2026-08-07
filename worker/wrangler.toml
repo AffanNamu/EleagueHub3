@@ -1,4 +1,4 @@
-name = "livekit-token-worker"
+Name = "livekit-token-worker"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 workers_dev = true
@@ -6,3 +6,4 @@ workers_dev = true
 [vars]
 LIVEKIT_URL = "wss://esportlyic-tnvub6ag.livekit.cloud"
 FIREBASE_PROJECT_ID = "esportlyic"
+ANDROID_PACKAGE_NAME = "com.eleaguehub.app" 
