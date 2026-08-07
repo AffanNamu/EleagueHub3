@@ -736,9 +736,8 @@ class MasterLeagueEntitlementService {
         }
       }
 
-      try {
-        await _auth.currentUser?.getIdToken(true);
-      } catch (_) {}
+      // ── FORCE REFRESH TOKEN TO PICK UP NEW CUSTOM CLAIMS ──
+      await _auth.currentUser?.getIdToken(true);
 
       return;
     }
@@ -810,9 +809,8 @@ class MasterLeagueEntitlementService {
       }
     }
 
-    try {
-      await _auth.currentUser?.getIdToken(true);
-    } catch (_) {}
+    // ── FORCE REFRESH TOKEN TO PICK UP NEW CUSTOM CLAIMS ──
+    await _auth.currentUser?.getIdToken(true);
   }
 
   Future<void> activateBasicFreePlan() async {
