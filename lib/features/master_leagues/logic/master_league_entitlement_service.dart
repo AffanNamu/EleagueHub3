@@ -309,11 +309,7 @@ class MasterLeagueEntitlementService {
     int attempts = 4,
     Duration initialDelay = const Duration(milliseconds: 400),
   }) async {
-    // ── THE ULTIMATE AUTO-HEAL VIA WORKER ──
-    // This intercepts the exact moment the user clicks "Create" on the Master League screen.
-    // If the server says "Basic" (because the worker crashed yesterday) but the local cache 
-    // says "Pro", we silently extract their stuck Google Play token and fire it at the worker.
-    // The worker uses Admin SDK to bypass security rules and force-heals the server.
+    // ── AUTO-HEAL VIA WORKER ──
     try {
       final cachedEnt = await _readFromProfile(forceRefresh: false);
       if (cachedEnt.active && cachedEnt.plan != null && !cachedEnt.plan!.isFree) {
@@ -327,9 +323,8 @@ class MasterLeagueEntitlementService {
               safeProvider = 'google_play_billing';
             }
             if (kDebugMode) {
-              debugPrint('[EntitlementService] Server rejected Master League creation. Firing stuck receipt to Worker to bypass rules...');
+              debugPrint('[EntitlementService] Server plan missing. Routing stuck receipt to Cloudflare worker...');
             }
-            // Await the worker. It will log into Google, verify the receipt, and heal the server.
             await activateAfterPayment(
               plan: sub.plan,
               duration: sub.duration ?? PlanDuration.threeMonths,
@@ -343,7 +338,6 @@ class MasterLeagueEntitlementService {
     } catch (e) {
       if (kDebugMode) debugPrint('[EntitlementService] Worker auto-heal bypassed: $e');
     }
-    // ───────────────────────────────────────
 
     Duration delay = initialDelay;
     Object? lastError;
