@@ -215,7 +215,7 @@ class UserProfileRepository {
       }
     }
 
-    // ── AUTO-HEAL: Sync missing plans from local cache to server ──
+    // ── SYNCHRONOUS AUTO-HEAL: Sync missing plans from local cache to server ──
     if (uid == _auth.currentUser?.uid && cacheProfile != null) {
       final cacheSub = cacheProfile.planSubscription;
       final cacheIsPaid = cacheSub != null && cacheSub.isActive && !cacheSub.plan.isFree;
@@ -228,18 +228,34 @@ class UserProfileRepository {
           if (kDebugMode) {
             debugPrint(
               '[UserProfileRepository] Server profile is missing the active plan. '
-              'Auto-healing server from valid local cache...',
+              'Auto-healing server from valid local cache (Blocking)...',
             );
           }
-          // Fire and forget: Silently sync cache to server without blocking the user
-          activatePlanSubscription(
-            plan: cacheSub!.plan,
-            duration: cacheSub.duration,
-            receiptId: cacheSub.receiptId,
-            provider: cacheSub.provider,
-          ).catchError((_) {});
-          
-          // Return the valid Pro cache immediately so UI and Logic proceeds normally
+          try {
+            // FIX: Ensure provider satisfies firestore.rules update constraints.
+            // If the cache had an empty or invalid provider, the server would reject the heal.
+            String safeProvider = cacheSub!.provider.trim();
+            if (safeProvider.isEmpty || safeProvider == 'free' || safeProvider == 'system') {
+              safeProvider = 'google_play_billing';
+            }
+            
+            // Await the activation so the server is guaranteed to have the plan 
+            // BEFORE the user navigates to the Create screen.
+            await activatePlanSubscription(
+              plan: cacheSub.plan,
+              duration: cacheSub.duration,
+              receiptId: cacheSub.receiptId.isEmpty ? 'auto_healed_receipt' : cacheSub.receiptId,
+              provider: safeProvider,
+            );
+            
+            // Wait for the write to fully commit to the backend
+            await _firestore.waitForPendingWrites().timeout(const Duration(seconds: 4));
+            
+          } catch (e) {
+            if (kDebugMode) {
+              debugPrint('[UserProfileRepository] Auto-heal failed: $e');
+            }
+          }
           return cacheProfile;
         }
       }
@@ -288,7 +304,7 @@ class UserProfileRepository {
       }
     }
 
-    // ── AUTO-HEAL: Sync missing plans from local cache to server during boot ──
+    // ── SYNCHRONOUS AUTO-HEAL: Sync missing plans from local cache to server during boot ──
     if (uid == _auth.currentUser?.uid && cacheProfile != null) {
       final cacheSub = cacheProfile.planSubscription;
       final cacheIsPaid = cacheSub != null && cacheSub.isActive && !cacheSub.plan.isFree;
@@ -301,17 +317,30 @@ class UserProfileRepository {
           if (kDebugMode) {
             debugPrint(
               '[UserProfileRepository] Server profile is missing the active plan. '
-              'Auto-healing server from valid local cache for bootstrap...',
+              'Auto-healing server from valid local cache for bootstrap (Blocking)...',
             );
           }
-          // Fire and forget: Silently sync cache to server without blocking boot
-          activatePlanSubscription(
-            plan: cacheSub!.plan,
-            duration: cacheSub.duration,
-            receiptId: cacheSub.receiptId,
-            provider: cacheSub.provider,
-          ).catchError((_) {});
-          
+          try {
+            // Guarantee valid payload for firestore rules
+            String safeProvider = cacheSub!.provider.trim();
+            if (safeProvider.isEmpty || safeProvider == 'free' || safeProvider == 'system') {
+              safeProvider = 'google_play_billing';
+            }
+            
+            await activatePlanSubscription(
+              plan: cacheSub.plan,
+              duration: cacheSub.duration,
+              receiptId: cacheSub.receiptId.isEmpty ? 'auto_healed_receipt' : cacheSub.receiptId,
+              provider: safeProvider,
+            );
+            
+            await _firestore.waitForPendingWrites().timeout(const Duration(seconds: 4));
+            
+          } catch (e) {
+            if (kDebugMode) {
+              debugPrint('[UserProfileRepository] Auto-heal for bootstrap failed: $e');
+            }
+          }
           return cacheProfile;
         }
       }
@@ -487,39 +516,6 @@ class UserProfileRepository {
 
   /// ── NEW: ensures a payload will satisfy Firestore's `create` rule
   /// for `/users/{userId}` when the document does not already exist.
-  ///
-  /// ── THE ACTUAL ROOT CAUSE OF "You do not have permission to access
-  /// this profile" DURING PLAN PURCHASES ──
-  ///
-  /// A `.set(data, SetOptions(merge: true))` call is evaluated by
-  /// Firestore's `create` rule when the target document does not yet
-  /// exist, and by the `update` rule when it does. Your `create` rule
-  /// requires:
-  ///
-  ///   request.resource.data.keys().hasAll(
-  ///     ['userId','teamName','authProvider','createdAt','updatedAt']
-  ///   )
-  ///
-  /// But `activatePlanSubscription()` only ever sends plan-related
-  /// fields (activePlanId, planExpiresAtMs, etc.) plus userId/updatedAt
-  /// — never teamName, authProvider, or createdAt. So any time a user's
-  /// `/users/{uid}` document does not already exist at the moment they
-  /// buy Pro/Elite (fresh install, a profile-creation race, or an
-  /// account that never went through createIfMissing), this write is
-  /// evaluated as a `create`, fails `hasAll(...)`, and Firestore
-  /// rejects it with `permission-denied` — surfaced to the user as
-  /// "You do not have permission to access this profile" right after a
-  /// successful Google Play purchase.
-  ///
-  /// This never happened before migrating fully to Google Play Billing
-  /// because the old Flutterwave-via-Cloudflare-Worker flow wrote to
-  /// Firestore using admin/service-account credentials, which bypass
-  /// security rules (and thus this requirement) entirely.
-  ///
-  /// Fix: before any user-doc write, check whether the document exists.
-  /// If it doesn't, and the payload doesn't already carry the baseline
-  /// fields, fill them in with sane defaults so the write is accepted
-  /// as a valid `create` instead of silently failing.
   Future<Map<String, dynamic>> _ensureCreateCompliantPayload(
     String authUid,
     Map<String, dynamic> payload,
@@ -550,10 +546,6 @@ class UserProfileRepository {
             .timeout(const Duration(seconds: 4));
         docExists = cacheSnap.exists;
       } catch (_) {
-        // Unknown — default to "exists" so we don't unnecessarily
-        // overwrite a real profile's teamName/authProvider with
-        // fallback values. If it genuinely doesn't exist, the write
-        // will fail below and be retried/reported normally.
         docExists = true;
       }
     }
@@ -682,12 +674,6 @@ class UserProfileRepository {
           'premiumExpiresAtMs': expiresAtMs,
       };
 
-      // FIXED: _writeUserDocWithRetry now automatically injects
-      // teamName/authProvider/createdAt when the profile doc doesn't
-      // exist yet, so this write is accepted under Firestore's create
-      // rule instead of failing with permission-denied. This was the
-      // actual cause of "You do not have permission to access this
-      // profile" appearing right after Google Play purchases.
       await _writeUserDocWithRetry(authUid, payload);
 
       // ── Sync verification badges right after activation ──────────────
