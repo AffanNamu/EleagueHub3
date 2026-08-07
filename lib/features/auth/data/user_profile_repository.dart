@@ -178,14 +178,16 @@ class UserProfileRepository {
     final uid = userId.trim();
     if (uid.isEmpty) return null;
 
+    UserProfile? serverProfile;
     try {
       final snap = await _usersCol
           .doc(uid)
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
 
-      if (!snap.exists) return null;
-      return UserProfile.fromDoc(snap);
+      if (snap.exists) {
+        serverProfile = UserProfile.fromDoc(snap);
+      }
     } catch (e) {
       if (kDebugMode) {
         debugPrint(
@@ -195,6 +197,7 @@ class UserProfileRepository {
       }
     }
 
+    UserProfile? cacheProfile;
     try {
       final cacheSnap = await _usersCol
           .doc(uid)
@@ -202,7 +205,7 @@ class UserProfileRepository {
           .timeout(const Duration(seconds: 4));
 
       if (cacheSnap.exists) {
-        return UserProfile.fromDoc(cacheSnap);
+        cacheProfile = UserProfile.fromDoc(cacheSnap);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -212,13 +215,44 @@ class UserProfileRepository {
       }
     }
 
-    return null;
+    // ── AUTO-HEAL: Sync missing plans from local cache to server ──
+    if (uid == _auth.currentUser?.uid && cacheProfile != null) {
+      final cacheSub = cacheProfile.planSubscription;
+      final cacheIsPaid = cacheSub != null && cacheSub.isActive && !cacheSub.plan.isFree;
+
+      if (cacheIsPaid) {
+        final serverSub = serverProfile?.planSubscription;
+        final serverIsPaid = serverSub != null && serverSub.isActive && !serverSub.plan.isFree;
+
+        if (!serverIsPaid) {
+          if (kDebugMode) {
+            debugPrint(
+              '[UserProfileRepository] Server profile is missing the active plan. '
+              'Auto-healing server from valid local cache...',
+            );
+          }
+          // Fire and forget: Silently sync cache to server without blocking the user
+          activatePlanSubscription(
+            plan: cacheSub!.plan,
+            duration: cacheSub.duration,
+            receiptId: cacheSub.receiptId,
+            provider: cacheSub.provider,
+          ).catchError((_) {});
+          
+          // Return the valid Pro cache immediately so UI and Logic proceeds normally
+          return cacheProfile;
+        }
+      }
+    }
+
+    return serverProfile ?? cacheProfile;
   }
 
   Future<UserProfile?> fetchByUserIdForBootstrap(String userId) async {
     final uid = userId.trim();
     if (uid.isEmpty) return null;
 
+    UserProfile? serverProfile;
     try {
       final serverSnap = await _usersCol
           .doc(uid)
@@ -226,7 +260,7 @@ class UserProfileRepository {
           .timeout(const Duration(seconds: 10));
 
       if (serverSnap.exists) {
-        return UserProfile.fromDoc(serverSnap);
+        serverProfile = UserProfile.fromDoc(serverSnap);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -236,6 +270,7 @@ class UserProfileRepository {
       }
     }
 
+    UserProfile? cacheProfile;
     try {
       final cacheSnap = await _usersCol
           .doc(uid)
@@ -243,7 +278,7 @@ class UserProfileRepository {
           .timeout(const Duration(seconds: 4));
 
       if (cacheSnap.exists) {
-        return UserProfile.fromDoc(cacheSnap);
+        cacheProfile = UserProfile.fromDoc(cacheSnap);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -253,7 +288,36 @@ class UserProfileRepository {
       }
     }
 
-    return null;
+    // ── AUTO-HEAL: Sync missing plans from local cache to server during boot ──
+    if (uid == _auth.currentUser?.uid && cacheProfile != null) {
+      final cacheSub = cacheProfile.planSubscription;
+      final cacheIsPaid = cacheSub != null && cacheSub.isActive && !cacheSub.plan.isFree;
+
+      if (cacheIsPaid) {
+        final serverSub = serverProfile?.planSubscription;
+        final serverIsPaid = serverSub != null && serverSub.isActive && !serverSub.plan.isFree;
+
+        if (!serverIsPaid) {
+          if (kDebugMode) {
+            debugPrint(
+              '[UserProfileRepository] Server profile is missing the active plan. '
+              'Auto-healing server from valid local cache for bootstrap...',
+            );
+          }
+          // Fire and forget: Silently sync cache to server without blocking boot
+          activatePlanSubscription(
+            plan: cacheSub!.plan,
+            duration: cacheSub.duration,
+            receiptId: cacheSub.receiptId,
+            provider: cacheSub.provider,
+          ).catchError((_) {});
+          
+          return cacheProfile;
+        }
+      }
+    }
+
+    return serverProfile ?? cacheProfile;
   }
 
   Stream<UserProfile?> watchByUserId(String userId) {
