@@ -1,4 +1,4 @@
-// lib/features/master_leagues/logic/master_league_entitlement_service.dart
+//lib/feautures/master_leagues/logic/MasterLeagueEntitlementService
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -613,10 +613,17 @@ class MasterLeagueEntitlementService {
     required PlanDuration duration,
     required String receiptId,
     required String provider,
+    // NEW: the Google Play purchase token, required for the worker to
+    // verify the purchase against the Play Developer API. Falls back to
+    // `receiptId` if not supplied separately, since some callers still
+    // only pass a single receipt-like value.
+    String purchaseToken = '',
   }) async {
     _uidOrThrow();
 
-    if (plan.requiresPayment && receiptId.trim().isEmpty) {
+    if (plan.requiresPayment &&
+        receiptId.trim().isEmpty &&
+        purchaseToken.trim().isEmpty) {
       throw const MasterLeagueEntitlementException(
         'Missing receipt ID.',
       );
@@ -647,15 +654,74 @@ class MasterLeagueEntitlementService {
       return;
     }
 
+    // ── FIXED: Google Play Billing now activates through the SAME
+    // Cloudflare Worker as Flutterwave, using the SAME
+    // organizerPro/organizerProPlan custom claims — instead of writing
+    // the Firestore profile directly and relying on firestore.rules'
+    // profileHasActivePlan() fallback to authorize master_leagues
+    // writes. That profile-based fallback was never confirmed to
+    // actually work in production (web has only ever exercised the
+    // claims branch), and it's the branch that's been failing.
+    //
+    // The worker independently verifies the purchase against the
+    // Google Play Developer API (purchases.subscriptionsv2.get) before
+    // granting anything, so this is not a weaker guarantee than the
+    // old direct write — if anything it's stronger, since Google's own
+    // subscriptionState/expiryTime become the source of truth instead
+    // of a client-computed expiry estimate.
     if (_isGooglePlayProvider(provider)) {
-      await _profileRepo.activatePlanSubscription(
-        plan: plan,
-        duration: duration,
-        receiptId: receiptId,
-        provider: provider,
+      final idToken = await user.getIdToken(true);
+      final safeIdToken = (idToken ?? '').trim();
+      if (safeIdToken.isEmpty) {
+        throw const MasterLeagueEntitlementException(
+          'Please sign in again and try once more.',
+        );
+      }
+
+      final safePurchaseToken = purchaseToken.trim().isNotEmpty
+          ? purchaseToken.trim()
+          : receiptId.trim();
+      if (safePurchaseToken.isEmpty) {
+        throw const MasterLeagueEntitlementException(
+          'Missing Google Play purchase token. Please try again.',
+        );
+      }
+
+      final parsed = await _postJson(
+        uri: _activateUri(),
+        idToken: safeIdToken,
+        body: <String, dynamic>{
+          'plan': plan.id,
+          'duration': duration.id,
+          'provider': 'google_play_billing',
+          'purchaseToken': safePurchaseToken,
+        },
       );
 
+      final success = parsed['success'] == true;
+      if (!success) {
+        final msg = (parsed['error'] as String?)?.trim();
+        throw MasterLeagueEntitlementException(
+          msg?.isNotEmpty == true
+              ? msg!
+              : 'Organizer Pro activation failed.',
+        );
+      }
+
+      // Best-effort local profile mirror so the UI ("Active plan: Pro")
+      // reflects the change immediately without waiting on a token
+      // refresh round-trip. The worker has already written the
+      // authoritative copy via its own service-account credentials
+      // (which bypass rules), so this is purely a UX nicety now — if
+      // it fails, master_leagues creation still works via the custom
+      // claim set above.
       try {
+        await _profileRepo.activatePlanSubscription(
+          plan: plan,
+          duration: duration,
+          receiptId: safePurchaseToken,
+          provider: 'google_play_billing',
+        );
         await _firestore
             .waitForPendingWrites()
             .timeout(const Duration(seconds: 15));
@@ -663,8 +729,9 @@ class MasterLeagueEntitlementService {
         if (kDebugMode) {
           debugPrint(
             '[MasterLeagueEntitlementService] activateAfterPayment: '
-            'waitForPendingWrites failed after Google Play activation '
-            '(continuing anyway): $e',
+            'best-effort local profile sync failed after successful '
+            'server-side Google Play activation (ignored, claims are '
+            'already set): $e',
           );
         }
       }

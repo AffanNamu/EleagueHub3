@@ -110,6 +110,14 @@ class _InlinePlanPurchaseSheetState
   // FIXED: Now correctly routes to GooglePlayBillingService when
   // _useGooglePlay is true, instead of blindly calling the Flutterwave
   // service (which was causing the "Unsupported provider" error).
+  //
+  // FIXED (2): the Google Play purchase's `purchaseToken` is now
+  // captured and threaded through to activateAfterPayment(), which the
+  // Cloudflare Worker needs to independently verify the purchase via
+  // the Play Developer API before granting organizerPro custom claims.
+  // Previously only `orderId` was captured, so this screen's purchases
+  // would have hit the same "missing purchase token" wall the
+  // create-workspace screen did before its fix.
 
   Future<void> _pay() async {
     if (_processing) return;
@@ -141,6 +149,7 @@ class _InlinePlanPurchaseSheetState
 
       String receiptId = '';
       String provider = '';
+      String purchaseToken = '';
       bool success = false;
       String? errorMessage;
 
@@ -161,6 +170,7 @@ class _InlinePlanPurchaseSheetState
         errorMessage = result.errorMessage;
         receiptId = result.orderId;
         provider = result.provider;
+        purchaseToken = result.purchaseToken;
       } else {
         // ── Flutterwave / Web Path ─────────────────────────────────
         final paymentSvc =
@@ -177,6 +187,7 @@ class _InlinePlanPurchaseSheetState
         errorMessage = result.errorMessage;
         receiptId = result.receiptId ?? '';
         provider = result.provider;
+        purchaseToken = result.txRef;
       }
 
       if (!mounted) return;
@@ -191,12 +202,15 @@ class _InlinePlanPurchaseSheetState
         return;
       }
 
-      // Activate the plan in Firestore / Backend
+      // Activate the plan (Google Play -> worker verifies + sets
+      // custom claims; Flutterwave -> worker verifies + sets custom
+      // claims; both converge on the same authorization path).
       await entitlementSvc.activateAfterPayment(
         plan: _selectedPlan,
         duration: _selectedDuration,
         receiptId: receiptId,
         provider: provider,
+        purchaseToken: purchaseToken,
       );
 
       if (!mounted) return;

@@ -515,8 +515,16 @@ async function _serviceAccountAccessToken(env) {
     aud: tokenUri,
     iat,
     exp,
+    // FIXED: androidpublisher scope added so this same cached
+    // service-account token can also call the Play Developer API to
+    // verify Google Play purchases (see
+    // _verifyGooglePlaySubscriptionV2 below). Requires this service
+    // account to be linked in Play Console -> Setup -> API access,
+    // with view/manage permission for orders & subscriptions on this
+    // app -- that link is a manual Play Console step, not something
+    // this code can do.
     scope:
-      "https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/datastore",
+      "https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/androidpublisher",
   };
 
   const encodedHeader = _utf8ToB64Url(JSON.stringify(header));
@@ -803,6 +811,181 @@ async function _verifyFlutterwaveTransaction(env, transactionId) {
     throw new Error("Invalid amount");
   }
   return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// GOOGLE PLAY BILLING VERIFICATION
+// ─────────────────────────────────────────────────────────────────────────
+//
+// NEW: this section lets Google Play Billing purchases activate through
+// the EXACT SAME organizerPro/organizerProPlan custom-claims path that
+// Flutterwave already uses successfully. Previously, Google Play
+// purchases only ever wrote the Firestore /users profile directly from
+// the client, and master_leagues creation depended entirely on
+// firestore.rules' profileHasActivePlan() fallback to authorize the
+// write from that profile data. That fallback was never actually
+// confirmed working end-to-end in production. Custom claims are: web
+// has used them successfully every time. Routing Google Play through
+// the same claims path removes the untested code path entirely instead
+// of continuing to debug it.
+
+const GOOGLE_PLAY_ACTIVE_SUBSCRIPTION_STATES = new Set([
+  "SUBSCRIPTION_STATE_ACTIVE",
+  "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
+]);
+
+// IMPORTANT: these keys MUST exactly match the Play Console subscription
+// (base plan) product IDs the app actually purchases -- i.e. whatever
+// GooglePlayBillingCatalog.subscriptionIdForPlan() resolves to on the
+// client (lib/core/services/payments/google_play_billing_catalog.dart).
+// The keys below are that file's --dart-define DEFAULTS
+// (GPB_SUB_PRO_3MO_ID, GPB_SUB_PRO_6MO_ID, etc). If your GitHub Actions
+// build passes different --dart-define overrides for any of those, this
+// table needs to be updated to match, or genuine purchases will be
+// rejected as "Unrecognized Google Play product".
+const GOOGLE_PLAY_PRODUCT_TO_PLAN = {
+  pro_3mo: { plan: "pro", duration: "3mo" },
+  pro_6mo: { plan: "pro", duration: "6mo" },
+  pro_yearly: { plan: "pro", duration: "yearly" },
+  elite_3mo: { plan: "elite", duration: "3mo" },
+  elite_6mo: { plan: "elite", duration: "6mo" },
+  elite_yearly: { plan: "elite", duration: "yearly" },
+};
+
+// Verifies a subscription purchase via the Play Developer API's current
+// (non-deprecated) subscriptionsv2 endpoint. Requires:
+//   - env.ANDROID_PACKAGE_NAME set to the app's applicationId.
+//   - The service account behind FIREBASE_CLIENT_EMAIL/
+//     FIREBASE_PRIVATE_KEY linked in Play Console -> Setup -> API
+//     access, with permission to view orders & subscriptions for this
+//     app. (Manual Play Console step -- not something this code does.)
+async function _verifyGooglePlaySubscriptionV2(env, packageName, purchaseToken) {
+  const accessToken = await _serviceAccountAccessToken(env);
+  const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${encodeURIComponent(
+    packageName
+  )}/purchases/subscriptionsv2/tokens/${encodeURIComponent(purchaseToken)}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Google Play subscription verify failed (${res.status}): ${txt}`);
+  }
+
+  return res.json();
+}
+
+async function _activateOrganizerProGooglePlay(env, uid, requestedPlan, requestedDuration, purchaseToken) {
+  const packageName = _requireEnvString(env, "ANDROID_PACKAGE_NAME");
+
+  let purchase;
+  try {
+    purchase = await _verifyGooglePlaySubscriptionV2(env, packageName, purchaseToken);
+  } catch (e) {
+    return {
+      ok: false,
+      status: 502,
+      error: "Could not verify Google Play purchase: " + (e.message || String(e)),
+    };
+  }
+
+  const state = String(purchase.subscriptionState || "").trim();
+  if (!GOOGLE_PLAY_ACTIVE_SUBSCRIPTION_STATES.has(state)) {
+    return {
+      ok: false,
+      status: 403,
+      error: `Google Play subscription is not active (state=${state || "unknown"}).`,
+    };
+  }
+
+  const lineItems = Array.isArray(purchase.lineItems) ? purchase.lineItems : [];
+  if (lineItems.length === 0) {
+    return { ok: false, status: 403, error: "Google Play purchase has no line items." };
+  }
+
+  const purchasedProductId = String(lineItems[0].productId || "").trim();
+  const resolved = GOOGLE_PLAY_PRODUCT_TO_PLAN[purchasedProductId];
+  if (!resolved) {
+    return {
+      ok: false,
+      status: 403,
+      error: `Unrecognized Google Play product "${purchasedProductId}". This purchase could not be matched to a known plan.`,
+    };
+  }
+
+  // Google's verified purchase is authoritative -- NOT the client's
+  // claimed plan/duration. A client could in principle send any
+  // `plan`/`duration` it likes in the request body; only what Google
+  // confirms was actually bought gets activated.
+  if (resolved.plan !== requestedPlan || resolved.duration !== requestedDuration) {
+    return {
+      ok: false,
+      status: 409,
+      error:
+        `This purchase is for ${resolved.plan} (${resolved.duration}), ` +
+        `not the requested ${requestedPlan} (${requestedDuration}).`,
+    };
+  }
+
+  const expiryTimeRaw = lineItems[0].expiryTime;
+  const expiryMs = expiryTimeRaw ? Date.parse(expiryTimeRaw) : NaN;
+  if (!Number.isFinite(expiryMs) || expiryMs <= Date.now()) {
+    return { ok: false, status: 403, error: "Google Play subscription has no valid future expiry." };
+  }
+
+  const nowMs = Date.now();
+  const currentClaims = await _lookupExistingCustomClaims(env, uid);
+  const nextClaims = {
+    ...currentClaims,
+    organizerPro: true,
+    organizerProPlan: resolved.plan,
+    organizerProDuration: resolved.duration,
+    organizerProExpiryMs: expiryMs,
+  };
+
+  await _setFirebaseCustomClaims(env, uid, nextClaims);
+
+  await _firestorePatchDoc(env, `users/${uid}`, {
+    activePlanId: resolved.plan,
+    activePlanDurationId: resolved.duration,
+    planPurchasedAtMs: nowMs,
+    planExpiresAtMs: expiryMs,
+    planReceiptId: purchaseToken,
+    planProvider: "google_play_billing",
+    updatedAt: nowMs,
+  });
+
+  await _firestorePatchDoc(env, `users/${uid}/entitlements/master_league`, {
+    active: true,
+    plan: resolved.plan,
+    duration: resolved.duration,
+    provider: "google_play_billing",
+    receiptId: purchaseToken,
+    transactionId: String(purchase.latestOrderId || ""),
+    currency: "",
+    amount: 0,
+    activatedAtMs: nowMs,
+    expiresAtMs: expiryMs,
+    updatedAtMs: nowMs,
+  });
+
+  return {
+    ok: true,
+    status: 200,
+    success: true,
+    uid,
+    plan: resolved.plan,
+    duration: resolved.duration,
+    expiryMs,
+    provider: "google_play_billing",
+    receiptId: purchaseToken,
+    transactionId: String(purchase.latestOrderId || ""),
+    currency: "",
+    amount: 0,
+  };
 }
 
 async function _readPricingConfig(env) {
@@ -1218,6 +1401,10 @@ async function _activateOrganizerPro(env, verified, body) {
   const duration = String(body.duration || "").trim().toLowerCase();
   const provider = String(body.provider || "").trim().toLowerCase();
   const receiptId = String(body.receiptId || "").trim();
+  // NEW: the Google Play purchase token, required to verify with the
+  // Play Developer API.
+  const purchaseToken = String(body.purchaseToken || "").trim();
+  const isGooglePlay = provider === "google_play_billing" || provider === "google_play";
 
   if (!uid) return { ok: false, status: 401, error: "Unauthenticated." };
   if (!["basic", "pro", "elite"].includes(plan)) {
@@ -1226,17 +1413,20 @@ async function _activateOrganizerPro(env, verified, body) {
   if (plan !== "basic" && !_isValidDurationId(duration)) {
     return { ok: false, status: 400, error: "Invalid duration." };
   }
-  if (provider !== "flutterwave" && provider !== "free") {
+  // FIXED: this previously only accepted "flutterwave" or "free" here,
+  // which meant ANY Google Play activation attempt through this
+  // endpoint was rejected outright with "Unsupported provider." Now
+  // that Google Play is a first-class supported provider (see
+  // _activateOrganizerProGooglePlay below), both variants are accepted.
+  if (!["flutterwave", "free", "google_play_billing", "google_play"].includes(provider)) {
     return { ok: false, status: 400, error: "Unsupported provider." };
   }
-  if (plan !== "basic" && !receiptId) {
+  if (plan !== "basic" && !isGooglePlay && !receiptId) {
     return { ok: false, status: 400, error: "receiptId is required." };
   }
-
-  let txId = "";
-  let verify = null;
-  let currency = "";
-  let amount = 0;
+  if (plan !== "basic" && isGooglePlay && !purchaseToken) {
+    return { ok: false, status: 400, error: "purchaseToken is required." };
+  }
 
   if (plan === "basic") {
     const nowMs = Date.now();
@@ -1290,6 +1480,18 @@ async function _activateOrganizerPro(env, verified, body) {
       amount: 0,
     };
   }
+
+  // ── NEW: Google Play Billing branch — verifies with the Play
+  // Developer API and grants the SAME custom claims Flutterwave does.
+  if (isGooglePlay) {
+    return await _activateOrganizerProGooglePlay(env, uid, plan, duration, purchaseToken);
+  }
+
+  // ── Flutterwave branch (unchanged) ────────────────────────────────────
+  let txId = "";
+  let verify = null;
+  let currency = "";
+  let amount = 0;
 
   txId = receiptId.startsWith("FLW-") ? receiptId.slice(4).trim() : receiptId;
   if (!txId) {

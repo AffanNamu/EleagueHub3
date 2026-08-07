@@ -221,6 +221,11 @@ class _CreateMasterLeagueScreenState
       duration: _selectedDuration,
       receiptId: result.receiptId ?? '',
       provider: result.provider,
+      // For Google Play, payForPlanSubscription() returns the purchase
+      // token in txRef (see FlutterwaveMasterLeaguePaymentService.
+      // _purchasePlanViaGooglePlay). The worker needs this to verify
+      // the purchase server-side. Harmless no-op for Flutterwave.
+      purchaseToken: result.txRef,
     );
 
     _lastVerifiedAttemptId = result.attemptId;
