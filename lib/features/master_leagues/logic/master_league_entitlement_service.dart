@@ -1,4 +1,3 @@
-// lib/features/master_leagues/logic/master_league_entitlement_service.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -77,11 +76,26 @@ class MasterLeagueEntitlementService {
     return uid;
   }
 
+  // FIXED: this previously matched ONLY the literal string
+  // 'google_play_billing'. MasterLeaguesRepositoryFirebase and
+  // firestore.rules (see validProvider()) both also treat plain
+  // 'google_play' as a valid Google Play Billing provider value. When
+  // the payment SDK reported 'google_play' instead of
+  // 'google_play_billing', activateAfterPayment() below fell through
+  // to the Flutterwave/web worker branch instead of writing the
+  // Firestore profile directly -- so users/{uid}.activePlanId never got
+  // set for that purchase, and every subsequent master_leagues create
+  // was rejected by firestore.rules' profileHasActivePlan() with
+  // permission-denied, even though the in-app purchase itself had
+  // succeeded. This is the root cause of "user has a plan but can't
+  // create a workspace on mobile" while the web app (Flutterwave-only)
+  // was unaffected.
   bool _isGooglePlayProvider(String provider) {
     final p = provider.trim().toLowerCase();
     return p == 'google_play_billing' || p == 'google_play';
   }
 
+  /// Every signed-in user is implicitly entitled to the free Basic plan.
   OrganizerProEntitlement _implicitBasicEntitlement() {
     return const OrganizerProEntitlement(
       active: true,
@@ -91,6 +105,8 @@ class MasterLeagueEntitlementService {
       daysRemaining: 999,
     );
   }
+
+  // ── Read from profile ─────────────────────────────────────────────────────
 
   Future<OrganizerProEntitlement> _readFromProfile({
     bool forceRefresh = false,
@@ -242,6 +258,7 @@ class MasterLeagueEntitlementService {
     }
   }
 
+  // ── Public entitlement read
   Future<OrganizerProEntitlement> getEntitlement({
     bool forceRefresh = false,
   }) async {
@@ -267,6 +284,28 @@ class MasterLeagueEntitlementService {
     return _implicitBasicEntitlement();
   }
 
+  /// ── THE authoritative resolver for writing `plan` on a new or old
+  /// master league. Reads the EXACT fields Firestore's
+  /// `profileHasActivePlan()` rule checks, and reads them with a
+  /// forced SERVER round-trip -- never the local cache.
+  ///
+  /// FIXED (mobile-only regression #1): this previously delegated to
+  /// `_profileRepo.fetchByUserId(uid)`. On mobile, firebase_firestore
+  /// has offline persistence ON by default, and that repository call
+  /// does not guarantee a true server round-trip even when
+  /// "forceRefresh" is requested. That let the UI (via getEntitlement,
+  /// which uses the same repository call) and this resolver both agree
+  /// -- from a stale locally-cached profile -- that the user had an
+  /// active Pro/Elite plan, so the app skipped payment and went
+  /// straight to `repo.create()`. But the ACTUAL server document (the
+  /// one Firestore's `profileHasActivePlan()` rule reads live during
+  /// evaluation) disagreed, so the write came back permission-denied.
+  /// The web app never hit this because its Firestore client has no
+  /// persistent cache and always reads fresh from the server.
+  ///
+  /// This version reads the users/{uid} document directly, with an
+  /// explicit `Source.server`, bypassing the repository entirely for
+  /// this specific security-critical decision.
   Future<MasterLeaguePlan?> getProfilePlanStrict({
     bool forceRefresh = true,
   }) async {
@@ -305,40 +344,27 @@ class MasterLeagueEntitlementService {
     return MasterLeaguePlan.tryFromString(activePlanId);
   }
 
+  /// Retries [getProfilePlanStrict] briefly, returning as soon as it
+  /// resolves to an active Pro/Elite plan. Use this instead of a
+  /// single-shot check anywhere the result gates a write that
+  /// firestore.rules' `profileHasActivePlan()` will independently
+  /// re-check (e.g. right before creating a master league) -- including
+  /// immediately after a payment is activated, where there can be a
+  /// short window between the profile write being acknowledged locally
+  /// and being visible to a fresh Source.server read (for example, if
+  /// `waitForPendingWrites()` inside [activateAfterPayment] times out
+  /// and is swallowed).
+  ///
+  /// Returns null if, after all attempts, the profile still shows no
+  /// active Pro/Elite plan (caller should treat this as "a payment is
+  /// genuinely required" rather than retrying indefinitely). Throws
+  /// [MasterLeagueEntitlementException] only if every attempt failed
+  /// due to a connectivity/read error (as opposed to a clean "no active
+  /// plan" read).
   Future<MasterLeaguePlan?> getProfilePlanStrictWithRetry({
     int attempts = 4,
     Duration initialDelay = const Duration(milliseconds: 400),
   }) async {
-    // ── AUTO-HEAL VIA WORKER ──
-    try {
-      final cachedEnt = await _readFromProfile(forceRefresh: false);
-      if (cachedEnt.active && cachedEnt.plan != null && !cachedEnt.plan!.isFree) {
-        final serverCheck = await getProfilePlanStrict(forceRefresh: true);
-        if (serverCheck == null || serverCheck.isFree) {
-          final profile = await _profileRepo.fetchByUserIdForBootstrap(_uidOrThrow());
-          final sub = profile?.planSubscription;
-          if (sub != null && sub.receiptId.isNotEmpty) {
-            String safeProvider = sub.provider.trim();
-            if (safeProvider.isEmpty || safeProvider == 'free' || safeProvider == 'system') {
-              safeProvider = 'google_play_billing';
-            }
-            if (kDebugMode) {
-              debugPrint('[EntitlementService] Server plan missing. Routing stuck receipt to Cloudflare worker...');
-            }
-            await activateAfterPayment(
-              plan: sub.plan,
-              duration: sub.duration ?? PlanDuration.threeMonths,
-              receiptId: sub.receiptId,
-              provider: safeProvider,
-              purchaseToken: sub.receiptId,
-            );
-          }
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) debugPrint('[EntitlementService] Worker auto-heal bypassed: $e');
-    }
-
     Duration delay = initialDelay;
     Object? lastError;
 
@@ -376,6 +402,8 @@ class MasterLeagueEntitlementService {
     return null;
   }
 
+  /// Claims-only resolver. Force-refreshes the ID token and reads ONLY
+  /// the Firebase Auth custom claims (`organizerPro` / `organizerProPlan`).
   Future<MasterLeaguePlan?> getClaimsPlanStrict({
     bool forceRefresh = true,
   }) async {
@@ -422,6 +450,8 @@ class MasterLeagueEntitlementService {
         await getEntitlement(forceRefresh: forceRefresh);
     return ent.duration;
   }
+
+  // ── Workspace / competition counts ────────────────────────────────────────
 
   Future<int> countOwnedWorkspaces() async {
     final uid = _uidOrThrow();
@@ -486,6 +516,8 @@ class MasterLeagueEntitlementService {
         await countCompetitionsInWorkspace(masterLeagueId);
     return ent.plan!.canCreateCompetition(count);
   }
+
+  // ── Activation ────────────────────────────────────────────────────────────
 
   Uri _activateUri() {
     final fromConfig = BackendConfig.organizerProActivateUrl();
@@ -580,6 +612,10 @@ class MasterLeagueEntitlementService {
     required PlanDuration duration,
     required String receiptId,
     required String provider,
+    // NEW: the Google Play purchase token, required for the worker to
+    // verify the purchase against the Play Developer API. Falls back to
+    // `receiptId` if not supplied separately, since some callers still
+    // only pass a single receipt-like value.
     String purchaseToken = '',
   }) async {
     _uidOrThrow();
@@ -599,6 +635,7 @@ class MasterLeagueEntitlementService {
       );
     }
 
+    // ── Free plan: no payment verification needed ─────────────────────────
     if (plan.isFree) {
       await _profileRepo.activatePlanSubscription(
         plan: plan,
@@ -616,6 +653,21 @@ class MasterLeagueEntitlementService {
       return;
     }
 
+    // ── FIXED: Google Play Billing now activates through the SAME
+    // Cloudflare Worker as Flutterwave, using the SAME
+    // organizerPro/organizerProPlan custom claims — instead of writing
+    // the Firestore profile directly and relying on firestore.rules'
+    // profileHasActivePlan() fallback to authorize master_leagues
+    // writes. That profile-based fallback was never confirmed to
+    // actually work in production (web has only ever exercised the
+    // claims branch), and it's the branch that's been failing.
+    //
+    // The worker independently verifies the purchase against the
+    // Google Play Developer API (purchases.subscriptionsv2.get) before
+    // granting anything, so this is not a weaker guarantee than the
+    // old direct write — if anything it's stronger, since Google's own
+    // subscriptionState/expiryTime become the source of truth instead
+    // of a client-computed expiry estimate.
     if (_isGooglePlayProvider(provider)) {
       final idToken = await user.getIdToken(true);
       final safeIdToken = (idToken ?? '').trim();
@@ -655,6 +707,13 @@ class MasterLeagueEntitlementService {
         );
       }
 
+      // Best-effort local profile mirror so the UI ("Active plan: Pro")
+      // reflects the change immediately without waiting on a token
+      // refresh round-trip. The worker has already written the
+      // authoritative copy via its own service-account credentials
+      // (which bypass rules), so this is purely a UX nicety now — if
+      // it fails, master_leagues creation still works via the custom
+      // claim set above.
       try {
         await _profileRepo.activatePlanSubscription(
           plan: plan,
@@ -676,10 +735,14 @@ class MasterLeagueEntitlementService {
         }
       }
 
-      await _auth.currentUser?.getIdToken(true);
+      try {
+        await _auth.currentUser?.getIdToken(true);
+      } catch (_) {}
+
       return;
     }
 
+    // ── Flutterwave / web: verify with remote worker ──────────────────────
     final idToken = await user.getIdToken(true);
     final safeIdToken = (idToken ?? '').trim();
     if (safeIdToken.isEmpty) {
@@ -746,7 +809,9 @@ class MasterLeagueEntitlementService {
       }
     }
 
-    await _auth.currentUser?.getIdToken(true);
+    try {
+      await _auth.currentUser?.getIdToken(true);
+    } catch (_) {}
   }
 
   Future<void> activateBasicFreePlan() async {

@@ -172,22 +172,41 @@ class UserProfileRepository {
     }
   }
 
+  // ── FIXED: reverted to a plain server-then-cache read.
+  //
+  // A previous edit (not from this thread's fixes) added a
+  // "SYNCHRONOUS AUTO-HEAL" block here that, whenever the local device
+  // cache showed an active paid plan but the SERVER document did not,
+  // would automatically WRITE the cached plan data back to the server
+  // -- using `receiptId: 'auto_healed_receipt'` when the cached
+  // receipt was empty. That is a fabricated, unverifiable receipt ID
+  // written directly to Firestore from the client, with no purchase
+  // verification of any kind. Any device whose local cache ever
+  // contained a "Pro"/"Elite" record (including a genuinely expired
+  // one that was merely still numerically in the future relative to
+  // some earlier moment, or a corrupted/tampered local database) could
+  // silently re-grant itself a paid plan on the next app launch. This
+  // is a real security hole and has been removed. Entitlement writes
+  // now only ever happen through activatePlanSubscription(), called
+  // either directly with a real, provider-verified receipt, or via
+  // MasterLeagueEntitlementService.activateAfterPayment(), which for
+  // Google Play now routes through the Cloudflare Worker for genuine
+  // server-side verification against the Play Developer API before
+  // anything is written.
   Future<UserProfile?> fetchByUserId(String userId) async {
     _requireAuthUid();
 
     final uid = userId.trim();
     if (uid.isEmpty) return null;
 
-    UserProfile? serverProfile;
     try {
       final snap = await _usersCol
           .doc(uid)
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
 
-      if (snap.exists) {
-        serverProfile = UserProfile.fromDoc(snap);
-      }
+      if (!snap.exists) return null;
+      return UserProfile.fromDoc(snap);
     } catch (e) {
       if (kDebugMode) {
         debugPrint(
@@ -197,7 +216,6 @@ class UserProfileRepository {
       }
     }
 
-    UserProfile? cacheProfile;
     try {
       final cacheSnap = await _usersCol
           .doc(uid)
@@ -205,7 +223,7 @@ class UserProfileRepository {
           .timeout(const Duration(seconds: 4));
 
       if (cacheSnap.exists) {
-        cacheProfile = UserProfile.fromDoc(cacheSnap);
+        return UserProfile.fromDoc(cacheSnap);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -215,60 +233,13 @@ class UserProfileRepository {
       }
     }
 
-    // ── SYNCHRONOUS AUTO-HEAL: Sync missing plans from local cache to server ──
-    if (uid == _auth.currentUser?.uid && cacheProfile != null) {
-      final cacheSub = cacheProfile.planSubscription;
-      final cacheIsPaid = cacheSub != null && cacheSub.isActive && !cacheSub.plan.isFree;
-
-      if (cacheIsPaid) {
-        final serverSub = serverProfile?.planSubscription;
-        final serverIsPaid = serverSub != null && serverSub.isActive && !serverSub.plan.isFree;
-
-        if (!serverIsPaid) {
-          if (kDebugMode) {
-            debugPrint(
-              '[UserProfileRepository] Server profile is missing the active plan. '
-              'Auto-healing server from valid local cache (Blocking)...',
-            );
-          }
-          try {
-            // FIX: Ensure provider satisfies firestore.rules update constraints.
-            // If the cache had an empty or invalid provider, the server would reject the heal.
-            String safeProvider = cacheSub!.provider.trim();
-            if (safeProvider.isEmpty || safeProvider == 'free' || safeProvider == 'system') {
-              safeProvider = 'google_play_billing';
-            }
-            
-            // Await the activation so the server is guaranteed to have the plan 
-            // BEFORE the user navigates to the Create screen.
-            await activatePlanSubscription(
-              plan: cacheSub.plan,
-              duration: cacheSub.duration,
-              receiptId: cacheSub.receiptId.isEmpty ? 'auto_healed_receipt' : cacheSub.receiptId,
-              provider: safeProvider,
-            );
-            
-            // Wait for the write to fully commit to the backend
-            await _firestore.waitForPendingWrites().timeout(const Duration(seconds: 4));
-            
-          } catch (e) {
-            if (kDebugMode) {
-              debugPrint('[UserProfileRepository] Auto-heal failed: $e');
-            }
-          }
-          return cacheProfile;
-        }
-      }
-    }
-
-    return serverProfile ?? cacheProfile;
+    return null;
   }
 
   Future<UserProfile?> fetchByUserIdForBootstrap(String userId) async {
     final uid = userId.trim();
     if (uid.isEmpty) return null;
 
-    UserProfile? serverProfile;
     try {
       final serverSnap = await _usersCol
           .doc(uid)
@@ -276,7 +247,7 @@ class UserProfileRepository {
           .timeout(const Duration(seconds: 10));
 
       if (serverSnap.exists) {
-        serverProfile = UserProfile.fromDoc(serverSnap);
+        return UserProfile.fromDoc(serverSnap);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -286,7 +257,6 @@ class UserProfileRepository {
       }
     }
 
-    UserProfile? cacheProfile;
     try {
       final cacheSnap = await _usersCol
           .doc(uid)
@@ -294,7 +264,7 @@ class UserProfileRepository {
           .timeout(const Duration(seconds: 4));
 
       if (cacheSnap.exists) {
-        cacheProfile = UserProfile.fromDoc(cacheSnap);
+        return UserProfile.fromDoc(cacheSnap);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -304,49 +274,7 @@ class UserProfileRepository {
       }
     }
 
-    // ── SYNCHRONOUS AUTO-HEAL: Sync missing plans from local cache to server during boot ──
-    if (uid == _auth.currentUser?.uid && cacheProfile != null) {
-      final cacheSub = cacheProfile.planSubscription;
-      final cacheIsPaid = cacheSub != null && cacheSub.isActive && !cacheSub.plan.isFree;
-
-      if (cacheIsPaid) {
-        final serverSub = serverProfile?.planSubscription;
-        final serverIsPaid = serverSub != null && serverSub.isActive && !serverSub.plan.isFree;
-
-        if (!serverIsPaid) {
-          if (kDebugMode) {
-            debugPrint(
-              '[UserProfileRepository] Server profile is missing the active plan. '
-              'Auto-healing server from valid local cache for bootstrap (Blocking)...',
-            );
-          }
-          try {
-            // Guarantee valid payload for firestore rules
-            String safeProvider = cacheSub!.provider.trim();
-            if (safeProvider.isEmpty || safeProvider == 'free' || safeProvider == 'system') {
-              safeProvider = 'google_play_billing';
-            }
-            
-            await activatePlanSubscription(
-              plan: cacheSub.plan,
-              duration: cacheSub.duration,
-              receiptId: cacheSub.receiptId.isEmpty ? 'auto_healed_receipt' : cacheSub.receiptId,
-              provider: safeProvider,
-            );
-            
-            await _firestore.waitForPendingWrites().timeout(const Duration(seconds: 4));
-            
-          } catch (e) {
-            if (kDebugMode) {
-              debugPrint('[UserProfileRepository] Auto-heal for bootstrap failed: $e');
-            }
-          }
-          return cacheProfile;
-        }
-      }
-    }
-
-    return serverProfile ?? cacheProfile;
+    return null;
   }
 
   Stream<UserProfile?> watchByUserId(String userId) {
@@ -514,8 +442,22 @@ class UserProfileRepository {
     }
   }
 
-  /// ── NEW: ensures a payload will satisfy Firestore's `create` rule
-  /// for `/users/{userId}` when the document does not already exist.
+  /// Ensures a payload will satisfy Firestore's `create` rule for
+  /// `/users/{userId}` when the document does not already exist.
+  ///
+  /// A `.set(data, SetOptions(merge: true))` call is evaluated by
+  /// Firestore's `create` rule when the target document does not yet
+  /// exist, and by the `update` rule when it does. The `create` rule
+  /// requires `keys().hasAll(['userId','teamName','authProvider',
+  /// 'createdAt','updatedAt'])`, but activatePlanSubscription() below
+  /// only ever sends plan-related fields plus userId/updatedAt. So if
+  /// a user's `/users/{uid}` document does not already exist at the
+  /// moment they buy Pro/Elite (fresh install, a profile-creation
+  /// race, or an account that never went through createIfMissing),
+  /// that write would fail `hasAll(...)` and get rejected with
+  /// permission-denied. This fills in sane baseline defaults first so
+  /// the write is accepted as a valid `create` instead of silently
+  /// failing.
   Future<Map<String, dynamic>> _ensureCreateCompliantPayload(
     String authUid,
     Map<String, dynamic> payload,
@@ -546,6 +488,10 @@ class UserProfileRepository {
             .timeout(const Duration(seconds: 4));
         docExists = cacheSnap.exists;
       } catch (_) {
+        // Unknown — default to "exists" so we don't unnecessarily
+        // overwrite a real profile's teamName/authProvider with
+        // fallback values. If it genuinely doesn't exist, the write
+        // will fail below and be retried/reported normally.
         docExists = true;
       }
     }
