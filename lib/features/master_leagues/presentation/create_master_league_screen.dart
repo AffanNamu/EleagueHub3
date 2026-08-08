@@ -478,25 +478,63 @@ class _CreateMasterLeagueScreenState
         }
       }
 
+      // ── FIXED: force a fresh ID token immediately before the actual
+      // write, and check whether it carries the organizerPro claim the
+      // worker is supposed to set. This distinguishes two situations
+      // that otherwise produce the exact same generic permission-denied
+      // banner: (a) the worker never granted the claim for this
+      // account, vs (b) it did, but this token/session hasn't picked it
+      // up yet. Whichever it is, it's now visible directly in the error
+      // message on the very next attempt — no more guessing needed.
+      bool hasOrganizerProClaim = false;
+      String claimDebug = '';
+      try {
+        final tokenResult =
+            await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
+        final claims = tokenResult?.claims ?? <String, dynamic>{};
+        final organizerPro = claims['organizerPro'];
+        final organizerProPlan = claims['organizerProPlan'];
+        final organizerProExpiryMs = claims['organizerProExpiryMs'];
+        hasOrganizerProClaim = organizerPro == true &&
+            (organizerProPlan == 'pro' || organizerProPlan == 'elite');
+        claimDebug = 'organizerPro=$organizerPro '
+            'organizerProPlan=$organizerProPlan '
+            'organizerProExpiryMs=$organizerProExpiryMs';
+      } catch (e) {
+        claimDebug = 'claim check failed: $e';
+      }
+
       final MasterLeague created;
-      if (needsPaymentNow) {
-        created = await repo.createAfterVerifiedPayment(
-          masterLeagueName: masterLeagueName,
-          plan: resolvedPlan,
-          attemptId: _lastVerifiedAttemptId,
-          paymentId: _lastVerifiedPaymentId,
-          receiptId: _lastVerifiedReceiptId,
-          competition: competition,
+      try {
+        if (needsPaymentNow) {
+          created = await repo.createAfterVerifiedPayment(
+            masterLeagueName: masterLeagueName,
+            plan: resolvedPlan,
+            attemptId: _lastVerifiedAttemptId,
+            paymentId: _lastVerifiedPaymentId,
+            receiptId: _lastVerifiedReceiptId,
+            competition: competition,
+          );
+        } else {
+          // User already has an active plan with room to spare — create
+          // directly using the STRICT, server-verified plan value, so
+          // it is guaranteed to match profile.data.activePlanId
+          // exactly.
+          created = await repo.create(
+            name: masterLeagueName,
+            plan: resolvedPlan,
+            initialCompetition: competition,
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        _showMessage(
+          '$e\n\n[CLAIM CHECK] hasOrganizerProClaim=$hasOrganizerProClaim '
+          '$claimDebug',
+          error: true,
         );
-      } else {
-        // User already has an active plan with room to spare — create
-        // directly using the STRICT, server-verified plan value, so it
-        // is guaranteed to match profile.data.activePlanId exactly.
-        created = await repo.create(
-          name: masterLeagueName,
-          plan: resolvedPlan,
-          initialCompetition: competition,
-        );
+        setState(() => _processing = false);
+        return;
       }
 
       if (!mounted) return;
