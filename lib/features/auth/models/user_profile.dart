@@ -32,6 +32,15 @@ class UserProfile {
     // Badge system — defaults to empty so all existing
     // call-sites that do not pass this compile unchanged.
     this.verificationBadges = VerificationBadges.empty,
+    // Username system — NEW. Defaults to '' so all existing
+    // call-sites that do not pass these compile unchanged.
+    // `username` preserves the user's chosen casing for display;
+    // `usernameLower` is the canonical, unique, lowercase value used
+    // for comparisons, storage keys, and the `usernames/{id}`
+    // reservation collection. These are ALWAYS written together by
+    // UserProfileRepository — never write one without the other.
+    this.username = '',
+    this.usernameLower = '',
   });
 
   final String userId;
@@ -66,6 +75,19 @@ class UserProfile {
   /// field continues to compile and behave correctly.
   final VerificationBadges verificationBadges;
 
+  /// User-facing username, e.g. "corebridge" (no leading '@' — the
+  /// '@' is a presentation-only prefix, see [UsernameUtils.toDisplay]).
+  /// This is the SAME string as [usernameLower] in current usage
+  /// (canonical storage is lowercase-only), kept as a separate field
+  /// only so a future casing-preserving display name could diverge
+  /// from the canonical comparison key without a migration.
+  final String username;
+
+  /// Canonical lowercase form of [username]. This is what uniqueness
+  /// is enforced against (via the `usernames/{usernameLower}` document)
+  /// and what should be used for any equality/lookup comparison.
+  final String usernameLower;
+
   // ── Badge convenience getters ─────────────────────────────────────────────
 
   /// True when the green verified badge is active (not expired).
@@ -77,6 +99,18 @@ class UserProfile {
 
   /// True when the staff / ambassador badge is active (not expired).
   bool get isStaffVerified => verificationBadges.isStaffActive;
+
+  // ── Username convenience getters ──────────────────────────────────────────
+
+  bool get hasUsername => usernameLower.trim().isNotEmpty;
+
+  /// "@username" for display, or '' if no username has been assigned
+  /// yet (e.g. mid-migration for an existing user).
+  String get usernameDisplay {
+    final value = usernameLower.trim();
+    if (value.isEmpty) return '';
+    return '@$value';
+  }
 
   // ── Existing getters — unchanged ──────────────────────────────────────────
 
@@ -233,6 +267,8 @@ class UserProfile {
     String? planReceiptId,
     String? planProvider,
     VerificationBadges? verificationBadges,
+    String? username,
+    String? usernameLower,
   }) {
     return UserProfile(
       userId: userId ?? this.userId,
@@ -265,11 +301,24 @@ class UserProfile {
       planProvider: planProvider ?? this.planProvider,
       verificationBadges:
           verificationBadges ?? this.verificationBadges,
+      username: username ?? this.username,
+      usernameLower: usernameLower ?? this.usernameLower,
     );
   }
 
   // ── toJson ────────────────────────────────────────────────────────────────
 
+  /// NOTE: `username`/`usernameLower` are DELIBERATELY NOT included
+  /// here. Username writes must always go through
+  /// `UserProfileRepository.updateUsername()` /
+  /// `ensureUsernameIfMissing()`, which run inside a Firestore
+  /// transaction that also reserves the name in the top-level
+  /// `usernames/{usernameLower}` collection. Writing username via a
+  /// generic `saveOrUpdateSelf()` / `toJson()` merge would bypass that
+  /// reservation and could silently desync the two collections.
+  /// This mirrors how `verification` badge state is intentionally
+  /// excluded from writes here (see comment below) despite being
+  /// included read-only for completeness.
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'userId': userId,
@@ -302,6 +351,13 @@ class UserProfile {
       // and should NOT be written here to avoid overwriting it.
       // We include it read-only for completeness.
       'verification': verificationBadges.toMap(),
+      // Username is stored separately via UserProfileRepository's
+      // transactional username methods and should NOT be written
+      // here to avoid bypassing the uniqueness reservation. Included
+      // read-only for completeness.
+      if (username.trim().isNotEmpty) 'username': username.trim(),
+      if (usernameLower.trim().isNotEmpty)
+        'usernameLower': usernameLower.trim(),
     };
   }
 
@@ -344,6 +400,10 @@ class UserProfile {
     }
     // ─────────────────────────────────────────────────────────────────────
 
+    final rawUsername = (map['username'] as String? ?? '').trim();
+    final rawUsernameLower =
+        (map['usernameLower'] as String? ?? '').trim().toLowerCase();
+
     return UserProfile(
       userId: userId,
       teamName: (map['teamName'] as String? ?? '').trim(),
@@ -380,6 +440,14 @@ class UserProfile {
       planProvider:
           (map['planProvider'] as String? ?? '').trim(),
       verificationBadges: badges,
+      username: rawUsername,
+      // Guard against any legacy/manual doc that has `username` set
+      // but `usernameLower` missing — fall back to deriving it from
+      // `username` so hasUsername/usernameDisplay behave correctly
+      // even before the next ensureUsernameIfMissing() pass.
+      usernameLower: rawUsernameLower.isNotEmpty
+          ? rawUsernameLower
+          : rawUsername.toLowerCase(),
     );
   }
 

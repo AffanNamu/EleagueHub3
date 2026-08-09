@@ -1,4 +1,13 @@
 // lib/core/services/payments/google_play_billing_service.dart
+//
+// UPDATED: added a public fetchPlanPrice() method + PlayPlanPriceInfo
+// class so UpgradePlanScreen can show the REAL price Google Play will
+// charge — pulled live from Play Console via queryProductDetails() —
+// instead of a separate pricing service's guess. Google Play localizes
+// this automatically based on the country tied to the user's Google
+// Play Store account (whatever currency/amount you configured in Play
+// Console, including per-country manual pricing or auto-conversion).
+// Nothing else in this file changed.
 
 import 'dart:async';
 
@@ -76,6 +85,26 @@ class GooglePlayPurchaseResult {
       );
 }
 
+// ── Price info ───────────────────────────────────────────────────────────────
+//
+// NEW: a thin wrapper around what queryProductDetails() gives us for a
+// given plan/duration subscription product. `formattedPrice` is the
+// exact string Play Store will show at checkout (already localized —
+// e.g. "$4.99", "₦4,500.00", "€4.49" — using whatever you configured
+// in Play Console for that user's Play Store country).
+
+class PlayPlanPriceInfo {
+  final String formattedPrice;
+  final String currencyCode;
+  final double rawPrice;
+
+  const PlayPlanPriceInfo({
+    required this.formattedPrice,
+    required this.currencyCode,
+    required this.rawPrice,
+  });
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class GooglePlayBillingService {
@@ -128,6 +157,48 @@ class GooglePlayBillingService {
     }
 
     return response.productDetails.first;
+  }
+
+  // ── Live pricing (display-only, no charge) ───────────────────────────────
+  //
+  // NEW: fetches the real, current price Play Store has configured for
+  // this plan+duration's subscription product, for THIS user's Play
+  // Store account/country. This is exactly the price _purchase() will
+  // end up charging — there is no separate "display price" source of
+  // truth anymore for Google Play users.
+  //
+  // Returns null if the Play Store is unavailable, the product doesn't
+  // exist / isn't published for this plan+duration, or the query fails
+  // — callers should treat null as "price unavailable right now" and
+  // fall back gracefully (e.g. show a loading/placeholder state and
+  // let the actual purchase call surface any real error).
+  Future<PlayPlanPriceInfo?> fetchPlanPrice({
+    required MasterLeaguePlan plan,
+    required PlanDuration duration,
+  }) async {
+    final productId = GooglePlayBillingCatalog.subscriptionIdForPlan(
+      plan: plan,
+      duration: duration,
+    );
+
+    if (productId.isEmpty) {
+      if (kDebugMode) {
+        debugPrint(
+          '[GPB] fetchPlanPrice: no product configured for '
+          '${plan.id}/${duration.id}',
+        );
+      }
+      return null;
+    }
+
+    final product = await _fetchProduct(productId, isSubscription: true);
+    if (product == null) return null;
+
+    return PlayPlanPriceInfo(
+      formattedPrice: product.price,
+      currencyCode: product.currencyCode,
+      rawPrice: product.rawPrice,
+    );
   }
 
   // ── Badge grant on purchase success ──────────────────────────────────────

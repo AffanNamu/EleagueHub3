@@ -1,3 +1,4 @@
+//lib/features/profile/models/team_profile.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Public football identity for a user's team.

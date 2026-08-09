@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import '../../master_leagues/domain/master_league_plan.dart';
 import '../../verification/domain/badge_model.dart';
 import '../../verification/logic/badge_service.dart';
+import '../domain/username_utils.dart';
 import '../models/user_profile.dart';
 
 class UserProfileRepositoryException implements Exception {
@@ -19,6 +20,13 @@ class UserProfileRepositoryException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Thrown specifically when a username is unavailable (already taken
+/// by a different user, or reserved). Callers that want a distinct
+/// "taken" UI state (as opposed to a generic error) can catch this.
+class UsernameUnavailableException extends UserProfileRepositoryException {
+  const UsernameUnavailableException(super.message);
 }
 
 class UserProfileRepository {
@@ -33,6 +41,17 @@ class UserProfileRepository {
 
   CollectionReference<Map<String, dynamic>> get _usersCol =>
       _firestore.collection('users');
+
+  /// Top-level collection used purely as an atomic uniqueness
+  /// reservation for usernames. Doc ID == canonical lowercase
+  /// username. Doc body: {userId, createdAtMs}. This collection is
+  /// intentionally separate from `/users/{uid}` so that "is this
+  /// username taken" can be answered with a single, cheap, indexed
+  /// document read/write instead of a query, and so uniqueness can be
+  /// enforced transactionally without contending on the user's own
+  /// document for unrelated concurrent writes.
+  CollectionReference<Map<String, dynamic>> get _usernamesCol =>
+      _firestore.collection('usernames');
 
   String _requireAuthUid() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
@@ -326,6 +345,38 @@ class UserProfileRepository {
       if (byUid != null) return byUid;
 
       return await fetchByShareId(trimmed);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Looks up a user by their username (with or without a leading
+  /// '@'). Reserved for future use (mentions, "open profile by
+  /// username", share links) — not wired into any UI yet, but kept
+  /// here alongside the other lookup helpers so this repository stays
+  /// the single source of truth for username reads.
+  Future<UserProfile?> fetchByUsername(String username) async {
+    try {
+      _requireAuthUid();
+
+      var normalized = username.trim().toLowerCase();
+      if (normalized.startsWith('@')) {
+        normalized = normalized.substring(1);
+      }
+      if (normalized.isEmpty) return null;
+
+      final reservation = await _usernamesCol
+          .doc(normalized)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+
+      if (!reservation.exists) return null;
+
+      final targetUid =
+          (reservation.data()?['userId'] as String? ?? '').trim();
+      if (targetUid.isEmpty) return null;
+
+      return await fetchByUserId(targetUid);
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -763,6 +814,276 @@ class UserProfileRepository {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // USERNAME SYSTEM
+  //
+  // Single source of truth for username uniqueness, generation, and
+  // editing. All username reads/writes in the app MUST go through
+  // this section — never write `username`/`usernameLower` via
+  // saveOrUpdateSelf()/toJson() or any other path, or the
+  // `usernames/{usernameLower}` reservation collection will desync
+  // from `users/{uid}`.
+  //
+  // Uniqueness is enforced with a single Firestore transaction per
+  // attempt:
+  //   1. Read `usernames/{candidateLower}`.
+  //   2. If it exists and belongs to someone else, abort (caller
+  //      either retries with the next candidate during generation, or
+  //      surfaces UsernameUnavailableException during manual edits).
+  //   3. Write `usernames/{candidateLower}` = {userId, createdAtMs}.
+  //   4. Delete the OLD reservation doc (if any, and if different).
+  //   5. Update `users/{uid}` with the new username/usernameLower.
+  // Firestore transactions are optimistic and will retry/abort on
+  // conflicting writes to the same document, so two concurrent
+  // attempts at the same candidate can never both succeed — this is
+  // what closes the race condition.
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// Best-effort, NON-transactional availability check — safe to call
+  /// on every keystroke (debounced) for live UI feedback ("Available"
+  /// / "Taken"). This does NOT reserve the name; a final authoritative
+  /// check happens again inside the transaction in [updateUsername].
+  Future<bool> isUsernameAvailable(String candidate, {String? forUserId}) async {
+    try {
+      final authUid = _requireAuthUid();
+      final selfUid = (forUserId ?? authUid).trim();
+
+      final lower = candidate.trim().toLowerCase();
+      if (!UsernameUtils.isValidUsername(lower)) return false;
+
+      final doc = await _usernamesCol
+          .doc(lower)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      if (!doc.exists) return true;
+
+      final owner = (doc.data()?['userId'] as String? ?? '').trim();
+      return owner.isEmpty || owner == selfUid;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('UserProfileRepository.isUsernameAvailable failed: $e');
+      }
+      // Fail closed for UI purposes (treat as "can't tell yet") by
+      // rethrowing a friendly error the caller can display distinctly
+      // from a hard "taken" state.
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Runs the reserve-and-write transaction for a single candidate
+  /// username against the currently signed-in user. Throws
+  /// [UsernameUnavailableException] if the candidate is taken by
+  /// someone else or fails validation. Returns normally on success.
+  Future<void> _reserveAndWriteUsername({
+    required String authUid,
+    required String candidateLower,
+    required String candidateDisplay,
+    required String previousLower,
+  }) async {
+    if (!UsernameUtils.isValidUsername(candidateLower)) {
+      throw const UsernameUnavailableException(
+        'That username is not allowed.',
+      );
+    }
+
+    final newRef = _usernamesCol.doc(candidateLower);
+    final userRef = _usersCol.doc(authUid);
+    final oldRef = (previousLower.isNotEmpty && previousLower != candidateLower)
+        ? _usernamesCol.doc(previousLower)
+        : null;
+
+    await _firestore.runTransaction((txn) async {
+      final newSnap = await txn.get(newRef);
+      if (newSnap.exists) {
+        final owner = (newSnap.data()?['userId'] as String? ?? '').trim();
+        if (owner.isNotEmpty && owner != authUid) {
+          throw const UsernameUnavailableException(
+            'That username is already taken.',
+          );
+        }
+      }
+
+      DocumentSnapshot<Map<String, dynamic>>? oldSnap;
+      if (oldRef != null) {
+        oldSnap = await txn.get(oldRef);
+      }
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      txn.set(newRef, <String, dynamic>{
+        'userId': authUid,
+        'createdAtMs': now,
+      });
+
+      if (oldRef != null && oldSnap != null && oldSnap.exists) {
+        final oldOwner = (oldSnap.data()?['userId'] as String? ?? '').trim();
+        if (oldOwner == authUid) {
+          txn.delete(oldRef);
+        }
+      }
+
+      txn.set(
+        userRef,
+        <String, dynamic>{
+          'userId': authUid,
+          'username': candidateDisplay,
+          'usernameLower': candidateLower,
+          'updatedAt': now,
+        },
+        SetOptions(merge: true),
+      );
+    }).timeout(const Duration(seconds: 20));
+  }
+
+  /// Explicit, user-initiated username change. Validates format,
+  /// rejects reserved words, and atomically enforces uniqueness. On
+  /// success the new username is immediately reflected in
+  /// `watchByUserId` (the transaction updates `users/{uid}` too).
+  ///
+  /// Throws [UsernameUnavailableException] if the name is taken,
+  /// reserved, or invalid; a generic [UserProfileRepositoryException]
+  /// for network/permission issues.
+  Future<void> updateUsername(String newUsername) async {
+    try {
+      final authUid = _requireAuthUid();
+      final candidateLower = newUsername.trim().toLowerCase();
+
+      if (!UsernameUtils.isValidFormat(candidateLower)) {
+        throw UsernameUnavailableException(
+          'Usernames must be ${UsernameUtils.minLength}-'
+          '${UsernameUtils.maxLength} characters: letters, numbers, '
+          'and underscore only.',
+        );
+      }
+      if (UsernameUtils.isReserved(candidateLower)) {
+        throw const UsernameUnavailableException(
+          'That username is reserved. Please choose another.',
+        );
+      }
+
+      final current = await fetchByUserId(authUid);
+      final previousLower = current?.usernameLower.trim() ?? '';
+
+      if (previousLower == candidateLower) {
+        // No-op: saving the same username the user already has.
+        return;
+      }
+
+      await _reserveAndWriteUsername(
+        authUid: authUid,
+        candidateLower: candidateLower,
+        candidateDisplay: candidateLower,
+        previousLower: previousLower,
+      );
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Lazily assigns a username to the currently signed-in user IF
+  /// they don't already have one — for both brand-new accounts and
+  /// pre-existing accounts created before the username system
+  /// existed. Safe to call repeatedly (no-ops once a username is
+  /// set). Does not touch shareId or any unrelated profile field.
+  ///
+  /// Generation strategy: normalize the display name into a base
+  /// candidate, then try `base`, `base1`, `base2`, ... each as a full
+  /// atomic reserve-and-write attempt, so there is never a "checked
+  /// then someone else took it" gap between generation and
+  /// reservation. Silently gives up after a reasonable number of
+  /// attempts rather than looping forever or throwing — this runs in
+  /// the background from the Profile screen and must never crash it.
+  Future<void> ensureUsernameIfMissing() async {
+    final authUid = _auth.currentUser?.uid.trim() ?? '';
+    if (authUid.isEmpty) return;
+
+    try {
+      final profile = await fetchByUserIdForBootstrap(authUid);
+      if (profile == null) return;
+      if (profile.usernameLower.trim().isNotEmpty) return;
+
+      var base = UsernameUtils.normalizeToBaseUsername(profile.displayName);
+      if (base.isEmpty) base = 'user';
+      base = UsernameUtils.padToMinLength(base);
+      if (base.length > UsernameUtils.maxLength) {
+        base = base.substring(0, UsernameUtils.maxLength);
+      }
+
+      const maxAttempts = 20;
+      for (var i = 0; i <= maxAttempts; i++) {
+        final suffix = i == 0 ? '' : '$i';
+        var candidate = suffix.isEmpty ? base : base;
+        if (suffix.isNotEmpty) {
+          final maxBaseLen = UsernameUtils.maxLength - suffix.length;
+          final trimmedBase = base.length > maxBaseLen
+              ? base.substring(0, maxBaseLen.clamp(1, base.length))
+              : base;
+          candidate = '$trimmedBase$suffix';
+        }
+
+        if (!UsernameUtils.isValidUsername(candidate)) continue;
+
+        try {
+          await _reserveAndWriteUsername(
+            authUid: authUid,
+            candidateLower: candidate,
+            candidateDisplay: candidate,
+            previousLower: '',
+          );
+          if (kDebugMode) {
+            debugPrint(
+              '[UserProfileRepository] ensureUsernameIfMissing: assigned '
+              '"$candidate" to $authUid on attempt ${i + 1}.',
+            );
+          }
+          return;
+        } on UsernameUnavailableException {
+          // Taken — try the next suffix.
+          continue;
+        }
+      }
+
+      // Last-resort: guaranteed-unique suffix derived from the uid
+      // itself, so this always terminates successfully.
+      final uidTail =
+          authUid.replaceAll(RegExp(r'[^a-z0-9]', caseSensitive: false), '')
+              .toLowerCase();
+      final tail = uidTail.length >= 4
+          ? uidTail.substring(uidTail.length - 4)
+          : uidTail.padLeft(4, '0');
+      final maxBaseLen = UsernameUtils.maxLength - (tail.length + 1);
+      final trimmedBase = base.length > maxBaseLen
+          ? base.substring(0, maxBaseLen.clamp(1, base.length))
+          : base;
+      final fallbackCandidate = '${trimmedBase}_$tail';
+
+      try {
+        await _reserveAndWriteUsername(
+          authUid: authUid,
+          candidateLower: fallbackCandidate,
+          candidateDisplay: fallbackCandidate,
+          previousLower: '',
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+            '[UserProfileRepository] ensureUsernameIfMissing: final '
+            'fallback attempt failed for $authUid: $e',
+          );
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[UserProfileRepository] ensureUsernameIfMissing error: $e',
+        );
+      }
+      // Never throw from here — this is a best-effort background
+      // migration/generation step, not a user-initiated action.
+    }
+  }
+
   Future<void> updateQuickMessages(List<String> quickMessages) async {
     try {
       final authUid = _requireAuthUid();
@@ -877,6 +1198,21 @@ class UserProfileRepository {
         },
         SetOptions(merge: false),
       ).timeout(const Duration(seconds: 20));
+
+      // Best-effort: assign a username right away for brand-new
+      // profiles. Failure here must never block onboarding — if it
+      // fails (offline, etc.) the Profile screen's own
+      // ensureUsernameIfMissing() call will retry on next load.
+      try {
+        await ensureUsernameIfMissing();
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+            '[UserProfileRepository] createIfMissing: initial username '
+            'assignment failed for $targetUid (non-fatal): $e',
+          );
+        }
+      }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -904,6 +1240,7 @@ class UserProfileRepository {
     if (!kDebugMode) return;
     try {
       await ensureShareIdIfMissing();
+      await ensureUsernameIfMissing();
     } catch (_) {}
   }
 }

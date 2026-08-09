@@ -1,3 +1,5 @@
+// lib/features/profile/presentation/settings_screen.dart
+
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,17 +8,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/locale/locale_controller.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/platform/overlay_platform.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/push_messaging_service.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/auth_service.dart';
+import '../../leagues/presentation/upgrade_plan_screen.dart';
 import '../../live/logic/quick_message_policy.dart';
 import '../../live/logic/quick_messages_controller.dart';
 import '../../master_leagues/domain/master_league.dart';
@@ -51,6 +54,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   bool _savingQuick = false;
   bool _verificationBusy = false;
 
+  // ── Session / account state ────────────────────────────────────────────
+  bool _loggingOut = false;
   bool _deletingAccount = false;
 
   static const Map<String, String> _languageAutonyms = {
@@ -409,60 +414,83 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
-  // ── Logout & Delete account ──────────────────────────────────────────────
+  // ── Logout ──────────────────────────────────────────────────────────────
 
-  Future<void> _handleLogout() async {
-    final l10n = context.l10n;
+  Future<bool> _confirmLogout(BuildContext context) async {
     final theme = Theme.of(context);
-    final brightness = theme.brightness;
+    final t = theme.textTheme;
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
 
-    final confirm = await showDialog<bool>(
+    final res = await showDialog<bool>(
       context: context,
+      barrierDismissible: true,
       barrierColor: Colors.black.withOpacity(0.55),
       builder: (ctx) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 24,
+          ),
           child: Glass(
             borderRadius: 26,
             padding: const EdgeInsets.all(20),
-            fill: AppTheme.cardColor(brightness),
-            borderColor: AppTheme.cardBorder(brightness),
+            fill: theme.brightness == Brightness.dark
+                ? const Color(0xFF1E1E2E)
+                : Colors.white,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.amber.withOpacity(0.35)),
-                    ),
-                    child: const Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.amber,
-                      size: 22,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    l10n.tr('profile_logout_dialog_title'),
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color: AppTheme.primaryText(brightness),
-                      fontWeight: FontWeight.w900,
-                      fontSize: 20,
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.amber.withOpacity(0.35),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.logout_rounded,
+                          color: Colors.amber,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          'Log out?',
+                          style: t.titleLarge?.copyWith(
+                            color: onSurface,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        icon: Icon(
+                          Icons.close,
+                          color: onSurface.withOpacity(0.55),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    l10n.tr('profile_logout_dialog_message'),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AppTheme.secondaryText(brightness),
-                      height: 1.4,
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      'You will need to sign in again to access your leagues and profile.',
+                      style: TextStyle(
+                        color: onSurface.withOpacity(0.65),
+                        height: 1.4,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -471,12 +499,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.primaryText(brightness),
-                            side: BorderSide(color: AppTheme.cardBorder(brightness)),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            foregroundColor: onSurface,
+                            side: BorderSide(
+                              color: onSurface.withOpacity(0.20),
+                            ),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(ctx).pop(false),
-                          child: Text(l10n.tr('common_cancel')),
+                          child: const Text('Cancel'),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -485,10 +516,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFFE53935),
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(ctx).pop(true),
-                          child: Text(l10n.tr('profile_logout_button')),
+                          child: const Text('Log Out'),
                         ),
                       ),
                     ],
@@ -501,15 +533,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       },
     );
 
-    if (confirm != true) return;
+    return res ?? false;
+  }
 
+  Future<void> _handleLogout() async {
+    if (_loggingOut) return;
+
+    final confirmed = await _confirmLogout(context);
+    if (!confirmed) return;
+    if (!mounted) return;
+
+    setState(() => _loggingOut = true);
     try {
       await AuthService().signOut();
-      if (mounted) context.go('/login');
+      if (!mounted) return;
+      GoRouter.of(context).go('/login');
     } catch (e) {
-      if (mounted) _snack(e.toString(), error: true);
+      if (!mounted) return;
+      _snack(
+        UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')),
+        error: true,
+      );
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
     }
   }
+
+  // ── Delete account ─────────────────────────────────────────────────────
 
   Future<void> _handleDeleteAccount() async {
     if (_deletingAccount) return;
@@ -528,7 +578,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
-  // ── Theme helpers ──────────────────────────────────────────────────────────
+  // ── Premium upgrade ───────────────────────────────────────────────────
+  //
+  // UPDATED: this used to just show a "not implemented yet" snackbar.
+  // Payment now happens exclusively inside UpgradePlanScreen — this
+  // just opens it and refreshes the premium flag on success.
+  Future<void> _handleUpgradeTap() async {
+    final upgraded = await UpgradePlanScreen.open(context);
+    if (!mounted) return;
+    if (upgraded) {
+      ref.invalidate(isPremiumProvider);
+      _snack('Plan updated.');
+    }
+  }
+
+  // ── Theme helpers ──────────────────────────────────────────────────────
 
   String _themeModeLabel(ThemeMode mode, AppLocalizations l10n) {
     switch (mode) {
@@ -580,6 +644,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final createdMasterLeaguesAsync =
         ref.watch(createdMasterLeaguesProvider);
 
+    final currentUser = FirebaseAuth.instance.currentUser;
+
     return GlassScaffold(
       appBar: AppBar(
         title: const Text(''),
@@ -610,7 +676,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               padding: const EdgeInsetsDirectional.fromSTEB(
                   16, 4, 16, 100),
               children: [
-                // ── Header ─────────────────────────────────────────────────
+                // ── Header ─────────────────────────────────────────────
                 Glass(
                   borderRadius: 22,
                   padding: const EdgeInsets.symmetric(
@@ -669,9 +735,148 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   ),
                 ),
 
+                const SizedBox(height: 20),
+
+                // ── Account (identity only — actions live below) ────────
+                _SectionLabel(
+                  icon: Icons.person_rounded,
+                  label: 'Account',
+                ),
+                const SizedBox(height: 8),
+                Glass(
+                  borderRadius: 20,
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: cs.primary.withOpacity(0.10),
+                          border: Border.all(
+                            color: cs.primary.withOpacity(0.20),
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.person_rounded,
+                          color: cs.primary,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              currentUser?.displayName ?? 'My Account',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                                color: onSurface,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              currentUser?.email ?? '',
+                              style: TextStyle(
+                                color: onSurface.withOpacity(0.50),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
                 const SizedBox(height: 16),
 
-                // ── Verification ────────────────────────────────────────────
+                // ── Session (Logout) ─────────────────────────────────────
+                _SectionLabel(
+                  icon: Icons.meeting_room_rounded,
+                  label: 'Session',
+                ),
+                const SizedBox(height: 8),
+                Glass(
+                  borderRadius: 20,
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.amber.withOpacity(0.12),
+                        ),
+                        child: const Icon(
+                          Icons.logout_rounded,
+                          color: Colors.amber,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Log out',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                                color: onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Sign out of this device.',
+                              style: TextStyle(
+                                color: onSurface.withOpacity(0.55),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: _loggingOut ? null : _handleLogout,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: onSurface,
+                          side: BorderSide(
+                            color: onSurface.withOpacity(0.20),
+                          ),
+                        ),
+                        child: _loggingOut
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Log Out',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── Verification ────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.verified_user_rounded,
                   label: 'Verification',
@@ -880,9 +1085,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
-                // ── Theme ───────────────────────────────────────────────────
+                // ── Appearance (Theme + Language) ────────────────────────
                 _SectionLabel(
-                    icon: Icons.palette_rounded, label: l10n.themeTitle),
+                  icon: Icons.palette_rounded,
+                  label: 'Appearance',
+                ),
                 const SizedBox(height: 8),
                 Glass(
                   borderRadius: 20,
@@ -890,6 +1097,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        l10n.themeTitle,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          color: onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       Row(
                         children: [
                           for (final mode in ThemeMode.values) ...[
@@ -911,7 +1127,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           ],
                         ],
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       Text(
                         l10n.themeHint,
                         style: TextStyle(
@@ -920,24 +1136,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // ── Language ────────────────────────────────────────────────
-                _SectionLabel(
-                  icon: Icons.language_rounded,
-                  label: l10n.languageTitle,
-                ),
-                const SizedBox(height: 8),
-                Glass(
-                  borderRadius: 20,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                      const SizedBox(height: 18),
+                      Divider(color: onSurface.withOpacity(0.08), height: 1),
+                      const SizedBox(height: 16),
+                      Text(
+                        l10n.languageTitle,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          color: onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
                       Text(
                         l10n.languageHint,
                         style: TextStyle(
@@ -1003,7 +1213,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
-                // ── Notifications ───────────────────────────────────────────
+                // ── Notifications ────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.notifications_rounded,
                   label: l10n.notificationsTitle,
@@ -1024,7 +1234,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         )
                       : Column(
                           children: [
-                            // ── Main notifications toggle ───────────────────
+                            // ── Main notifications toggle ───────────────
+                            // Permission is requested HERE — only when user
+                            // explicitly flips this switch ON.
+                            // It is NEVER requested at app startup.
                             _SettingsToggle(
                               icon: Icons.notifications_active_rounded,
                               title: l10n.notificationsEnabledTitle,
@@ -1036,6 +1249,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 await _saveNotifications();
 
                                 if (v) {
+                                  // ── Request permission only when user
+                                  // explicitly enables notifications.
+                                  // Never at app startup. ──────────────
                                   final granted =
                                       await PushMessagingService
                                           .instance
@@ -1044,9 +1260,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                   if (!mounted) return;
 
                                   if (granted) {
+                                    // Fire a test notification so the
+                                    // user can confirm it works.
                                     await NotificationService()
                                         .showTestNotification();
                                   } else {
+                                    // Permission denied — tell user how
+                                    // to enable it manually and revert
+                                    // the toggle back to OFF.
                                     ScaffoldMessenger.of(context)
                                         .showSnackBar(
                                       const SnackBar(
@@ -1102,7 +1323,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
-                // ── Live Overlay ────────────────────────────────────────────
+                // ── Live Overlay ──────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.picture_in_picture_alt_rounded,
                   label: l10n.liveOverlayTitle,
@@ -1148,7 +1369,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
-                // ── Quick Messages ──────────────────────────────────────────
+                // ── Quick Messages ────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.chat_bubble_rounded,
                   label: _trOr(
@@ -1226,22 +1447,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                               Material(
                                 color: Colors.transparent,
                                 child: InkWell(
-                                  onTap: () {
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(
-                                      SnackBar(
-                                        behavior:
-                                            SnackBarBehavior.floating,
-                                        content: Text(
-                                          _trOr(
-                                            l10n,
-                                            'quick_messages_upgrade_soon',
-                                            'Upgrade flow not implemented yet.',
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
+                                  onTap: _handleUpgradeTap,
                                   borderRadius:
                                       BorderRadius.circular(10),
                                   child: Ink(
@@ -1420,108 +1626,116 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                 const SizedBox(height: 16),
 
-                // ── Account Settings & Deletion ──────────────────────────────
+                // ── App info ──────────────────────────────────────────────
                 _SectionLabel(
-                  icon: Icons.manage_accounts_rounded,
-                  label: 'Account',
+                  icon: Icons.info_outline_rounded,
+                  label: l10n.appInfoTitle,
                 ),
                 const SizedBox(height: 8),
                 Glass(
                   borderRadius: 20,
                   padding: const EdgeInsets.all(18),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              cs.primary.withOpacity(0.25),
+                              cs.primary.withOpacity(0.08),
+                            ],
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.sports_esports_rounded,
+                          color: cs.primary,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'eSportlyic',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                                color: onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Powered by NCT Ventures',
+                              style: TextStyle(
+                                color: onSurface.withOpacity(0.50),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 28),
+
+                // ── Danger Zone ───────────────────────────────────────────
+                Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: Colors.redAccent.withOpacity(0.85),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Danger Zone',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                        letterSpacing: -0.2,
+                        color: Colors.redAccent.withOpacity(0.85),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Glass(
+                  borderRadius: 20,
+                  padding: const EdgeInsets.all(18),
+                  fill: Colors.redAccent.withOpacity(0.04),
+                  borderColor: Colors.redAccent.withOpacity(0.20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: cs.primary.withOpacity(0.10),
-                              border: Border.all(
-                                color: cs.primary.withOpacity(0.20),
-                              ),
-                            ),
-                            child: Icon(
-                              Icons.person_rounded,
-                              color: cs.primary,
-                              size: 22,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  FirebaseAuth.instance.currentUser
-                                          ?.displayName ??
-                                      'My Account',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 15,
-                                    color: onSurface,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  FirebaseAuth.instance.currentUser
-                                          ?.email ??
-                                      '',
-                                  style: TextStyle(
-                                    color: onSurface.withOpacity(0.50),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 18),
-                      Divider(
-                        color: onSurface.withOpacity(0.08),
-                        height: 1,
-                      ),
-                      const SizedBox(height: 18),
-
-                      // Logout Button
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _handleLogout,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: onSurface.withOpacity(0.05),
-                            foregroundColor: onSurface,
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 14,
-                              horizontal: 18,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          icon: const Icon(Icons.logout_rounded, size: 20),
-                          label: const Text(
-                            'Logout',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 14,
-                            ),
-                          ),
+                      Text(
+                        'Delete Account',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                          color: onSurface,
                         ),
                       ),
-                      const SizedBox(height: 12),
-
-                      // Delete Account Button
+                      const SizedBox(height: 6),
+                      Text(
+                        'Permanently deletes your account and all associated data. This action cannot be undone.',
+                        style: TextStyle(
+                          color: onSurface.withOpacity(0.55),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
@@ -1567,31 +1781,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             ),
                           ),
                         ),
-                      ),
-
-                      const SizedBox(height: 10),
-
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.warning_amber_rounded,
-                            size: 14,
-                            color: onSurface.withOpacity(0.40),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              'Permanently deletes your account and all associated data. This action cannot be undone.',
-                              style: TextStyle(
-                                color: onSurface.withOpacity(0.45),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
@@ -1686,7 +1875,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                   children: [
                                     Expanded(
                                       child: Directionality(
-                                        textDirection: _languageTextDirection(code),
+                                        textDirection:
+                                            _languageTextDirection(code),
                                         child: Text(
                                           _languageDisplayName(code),
                                           style: TextStyle(
