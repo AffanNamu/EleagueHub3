@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../auth/data/user_profile_repository.dart';
+import '../../marketplace/data/cloudinary_upload_service.dart';
 import '../../profile/data/team_profile_repository.dart';
 import '../models/private_message.dart';
 import '../models/private_thread.dart';
@@ -38,12 +40,17 @@ class PrivateChatException implements Exception {
 }
 
 class PrivateChatRepository {
-  PrivateChatRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
-      : _firestore = firestore ?? FirebaseFirestore.instance,
-        _auth = auth ?? FirebaseAuth.instance;
+  PrivateChatRepository({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    CloudinaryUploadService? cloudinary,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance,
+        _cloudinary = cloudinary ?? CloudinaryUploadService();
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
+  final CloudinaryUploadService _cloudinary;
   final UserProfileRepository _userProfiles = UserProfileRepository();
   final TeamProfileRepository _teamProfiles = TeamProfileRepository();
 
@@ -242,6 +249,32 @@ class PrivateChatRepository {
     }
   }
 
+  /// Uploads an image for a private-chat message. Reuses the same
+  /// CloudinaryUploadService as league/organizer/global chat — no new
+  /// upload path is introduced. Scoped by threadId so images from
+  /// different conversations land in separate Cloudinary folders.
+  Future<String> uploadImage({
+    required String threadId,
+    required PlatformFile file,
+  }) {
+    return _cloudinary.uploadChatImage(
+      file: file,
+      folder: 'eleaguehub/chatrooms/private/$threadId',
+    );
+  }
+
+  /// Uploads a voice note for a private-chat message. Mirrors
+  /// ChatRepository.uploadLeagueChatVoice's folder convention.
+  Future<String> uploadVoice({
+    required String threadId,
+    required PlatformFile file,
+  }) {
+    return _cloudinary.uploadChatVoice(
+      file: file,
+      folder: 'chat_voice_messages/private/$threadId',
+    );
+  }
+
   /// Sends a message. No plan check here — once a thread exists, both
   /// participants (premium or free) can reply. Rules enforce that the
   /// sender must be a participant.
@@ -316,6 +349,51 @@ class PrivateChatRepository {
         threadRef,
         <String, dynamic>{
           'lastMessage': '📷 Photo',
+          'lastMessageAtMs': now,
+          'lastSenderId': authUid,
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit().timeout(const Duration(seconds: 15));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// NEW: sends a voice-note message. Mirrors sendImageMessage exactly —
+  /// same batch pattern, same thread-preview update — just with `type:
+  /// 'voice'` and `voiceUrl` populated instead of `imageUrl`. The
+  /// Firestore rule for `private_threads/{id}/messages` already accepts
+  /// `type in ['text','image','voice']`, so no rules change is required.
+  Future<void> sendVoiceMessage({
+    required String threadId,
+    required String voiceUrl,
+  }) async {
+    final url = voiceUrl.trim();
+    if (url.isEmpty) return;
+
+    try {
+      final authUid = _requireAuthUid();
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      final threadRef = _threads.doc(threadId);
+      final msgRef = threadRef.collection('messages').doc();
+
+      final batch = _firestore.batch();
+      batch.set(msgRef, <String, dynamic>{
+        'senderId': authUid,
+        'type': 'voice',
+        'text': '',
+        'imageUrl': '',
+        'voiceUrl': url,
+        'createdAtMs': now,
+      });
+
+      batch.set(
+        threadRef,
+        <String, dynamic>{
+          'lastMessage': '🎤 Voice message',
           'lastMessageAtMs': now,
           'lastSenderId': authUid,
         },

@@ -1,4 +1,4 @@
-//profile_screen.dart
+  //profile_screen.dart
 import 'dart:async';
 import 'dart:convert';
 
@@ -24,6 +24,7 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../admin/pricing_quick_editor_sheet.dart';
 import '../../auth/data/user_profile_repository.dart';
+import '../../auth/domain/username_utils.dart';
 import '../../auth/models/user_profile.dart';
 import '../../legal/affiliate_disclosure_screen.dart';
 import '../../legal/contact_screen.dart';
@@ -47,6 +48,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
   bool _uploadingAvatar = false;
+
+  // Guards ensureUsernameIfMissing() so it only fires once per screen
+  // instance even though the profile StreamBuilder rebuilds on every
+  // snapshot (e.g. when other fields like avatar/plan change).
+  bool _usernameEnsureTriggered = false;
 
   String _couponLeagueSubtitle({
     required bool enabled,
@@ -1253,6 +1259,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               : UserProfile
                                   .deriveShareIdFromUid(uid));
 
+                      // ── Username system: display + lazy assignment ──
+                      final usernameLower =
+                          profile?.usernameLower.trim() ?? '';
+                      final usernameDisplayValue = usernameLower.isEmpty
+                          ? ''
+                          : UsernameUtils.toDisplay(usernameLower);
+
+                      if (uid.isNotEmpty &&
+                          profile != null &&
+                          usernameLower.isEmpty &&
+                          !_usernameEnsureTriggered) {
+                        _usernameEnsureTriggered = true;
+                        unawaited(repo.ensureUsernameIfMissing());
+                      }
+                      // ─────────────────────────────────────────────────
+
                       final rawAvatarUrl =
                           _readProfileImageUrl(profile, user);
                       final avatarUrl =
@@ -1453,6 +1475,63 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         ),
                                       ],
                                     ),
+                                    const SizedBox(height: 4),
+                                    // ── Username row ─────────────────────
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons
+                                              .alternate_email_rounded,
+                                          size: 13,
+                                          color: muted,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            uid.isEmpty
+                                                ? ''
+                                                : (usernameDisplayValue
+                                                        .isEmpty
+                                                    ? 'Setting up username…'
+                                                    : usernameDisplayValue),
+                                            style: TextStyle(
+                                              color: muted,
+                                              fontWeight:
+                                                  FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
+                                            overflow:
+                                                TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (uid.isNotEmpty)
+                                          InkWell(
+                                            borderRadius:
+                                                BorderRadius
+                                                    .circular(10),
+                                            onTap: () {
+                                              HapticFeedback
+                                                  .selectionClick();
+                                              _editUsername(
+                                                context,
+                                                userId: uid,
+                                                current: usernameLower,
+                                              );
+                                            },
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets
+                                                      .all(6),
+                                              child: Icon(
+                                                Icons.edit_rounded,
+                                                size: 14,
+                                                color: muted,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    // ─────────────────────────────────────
                                     const SizedBox(height: 4),
                                     Row(
                                       children: [
@@ -2113,7 +2192,342 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       controller.dispose();
     }
   }
+
+  // ── NEW: Username editing dialog ────────────────────────────────────────
+  //
+  // Mirrors _editTeamName's dialog shell exactly (same Glass/Dialog
+  // chrome, same button row) but adds live debounced availability
+  // checking via UserProfileRepository.isUsernameAvailable(), and saves
+  // through the transactional UserProfileRepository.updateUsername().
+  Future<void> _editUsername(
+    BuildContext context, {
+    required String userId,
+    required String current,
+  }) async {
+    final repo = UserProfileRepository();
+    final brightness = Theme.of(context).brightness;
+    final controller = TextEditingController(text: current);
+
+    try {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (ctx) {
+          final theme = Theme.of(ctx);
+
+          // Local state for this dialog only.
+          _UsernameCheckState checkState = current.trim().isEmpty
+              ? _UsernameCheckState.idle
+              : _UsernameCheckState.idle;
+          String? errorText;
+          Timer? debounce;
+          bool saving = false;
+
+          return StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              void scheduleCheck(String raw) {
+                debounce?.cancel();
+                final candidate = raw.trim().toLowerCase();
+
+                if (candidate == current.trim().toLowerCase()) {
+                  setDialogState(() {
+                    checkState = _UsernameCheckState.idle;
+                    errorText = null;
+                  });
+                  return;
+                }
+
+                if (!UsernameUtils.isValidFormat(candidate)) {
+                  setDialogState(() {
+                    checkState = _UsernameCheckState.invalid;
+                    errorText =
+                        '${UsernameUtils.minLength}-${UsernameUtils.maxLength} '
+                        'characters: lowercase letters, numbers, and _ only.';
+                  });
+                  return;
+                }
+
+                if (UsernameUtils.isReserved(candidate)) {
+                  setDialogState(() {
+                    checkState = _UsernameCheckState.taken;
+                    errorText = 'That username is reserved.';
+                  });
+                  return;
+                }
+
+                setDialogState(() {
+                  checkState = _UsernameCheckState.checking;
+                  errorText = null;
+                });
+
+                debounce = Timer(
+                  const Duration(milliseconds: 450),
+                  () async {
+                    try {
+                      final available = await repo.isUsernameAvailable(
+                        candidate,
+                        forUserId: userId,
+                      );
+                      if (!ctx.mounted) return;
+                      setDialogState(() {
+                        checkState = available
+                            ? _UsernameCheckState.available
+                            : _UsernameCheckState.taken;
+                        errorText =
+                            available ? null : 'Username already taken.';
+                      });
+                    } catch (e) {
+                      if (!ctx.mounted) return;
+                      setDialogState(() {
+                        checkState = _UsernameCheckState.error;
+                        errorText = UserFriendlyError.toMessage(
+                          e is Object ? e : Exception('unknown'),
+                        );
+                      });
+                    }
+                  },
+                );
+              }
+
+              Widget statusLine() {
+                switch (checkState) {
+                  case _UsernameCheckState.checking:
+                    return Row(
+                      children: [
+                        SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppTheme.limeAccentDark,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Checking availability…',
+                          style: TextStyle(
+                            color: AppTheme.secondaryText(brightness),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    );
+                  case _UsernameCheckState.available:
+                    return Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          size: 14,
+                          color: Color(0xFF22C55E),
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Username available',
+                          style: TextStyle(
+                            color: Color(0xFF22C55E),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    );
+                  case _UsernameCheckState.taken:
+                  case _UsernameCheckState.invalid:
+                  case _UsernameCheckState.error:
+                    return Row(
+                      children: [
+                        Icon(
+                          Icons.cancel_rounded,
+                          size: 14,
+                          color: Theme.of(ctx).colorScheme.error,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            errorText ?? 'Unavailable.',
+                            style: TextStyle(
+                              color: Theme.of(ctx).colorScheme.error,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  case _UsernameCheckState.idle:
+                    return const SizedBox.shrink();
+                }
+              }
+
+              final canSave = !saving &&
+                  (checkState == _UsernameCheckState.available ||
+                      checkState == _UsernameCheckState.idle);
+
+              return Dialog(
+                backgroundColor: Colors.transparent,
+                insetPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 24,
+                ),
+                child: Glass(
+                  borderRadius: 26,
+                  padding: const EdgeInsets.all(18),
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                color: AppTheme.iconCircleBackground(
+                                    brightness),
+                                border: Border.all(
+                                  color: AppTheme.cardBorder(brightness),
+                                ),
+                              ),
+                              child: Icon(
+                                Icons.alternate_email_rounded,
+                                color: AppTheme.limeAccentDark,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                'Edit Username',
+                                style: theme.textTheme.titleMedium
+                                    ?.copyWith(
+                                  color: AppTheme.primaryText(brightness),
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => Navigator.of(ctx).pop(false),
+                              icon: Icon(
+                                Icons.close,
+                                color: AppTheme.secondaryText(brightness),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: controller,
+                          autofocus: true,
+                          enabled: !saving,
+                          style: TextStyle(
+                            color: AppTheme.primaryText(brightness),
+                            fontWeight: FontWeight.w700,
+                          ),
+                          decoration: InputDecoration(
+                            prefixText: '@',
+                            hintText: 'yourusername',
+                            hintStyle: TextStyle(
+                              color: AppTheme.secondaryText(brightness),
+                            ),
+                          ),
+                          onChanged: scheduleCheck,
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: statusLine(),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: saving
+                                    ? null
+                                    : () => Navigator.of(ctx).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppTheme.limeAccent,
+                                  foregroundColor: AppTheme.darkText,
+                                ),
+                                onPressed: !canSave
+                                    ? null
+                                    : () async {
+                                        final value =
+                                            controller.text.trim().toLowerCase();
+                                        if (value.isEmpty ||
+                                            value == current.trim()) {
+                                          Navigator.of(ctx).pop(false);
+                                          return;
+                                        }
+
+                                        setDialogState(() => saving = true);
+                                        try {
+                                          await repo.updateUsername(value);
+                                          if (!ctx.mounted) return;
+                                          Navigator.of(ctx).pop(true);
+                                        } catch (e) {
+                                          setDialogState(() {
+                                            saving = false;
+                                            checkState =
+                                                _UsernameCheckState.taken;
+                                            errorText =
+                                                UserFriendlyError.toMessage(
+                                              e is Object
+                                                  ? e
+                                                  : Exception('unknown'),
+                                            );
+                                          });
+                                        }
+                                      },
+                                child: saving
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppTheme.darkText,
+                                        ),
+                                      )
+                                    : const Text('Save'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+
+      if (saved == true && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Username updated.')),
+        );
+      }
+    } finally {
+      controller.dispose();
+    }
+  }
 }
+
+/// Local-only state enum for the username-availability indicator inside
+/// the edit dialog. Not persisted or shared elsewhere.
+enum _UsernameCheckState { idle, checking, available, taken, invalid, error }
 
 // ── Supporting widgets ────────────────────────────────────────────────────────
 

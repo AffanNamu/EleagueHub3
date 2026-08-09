@@ -24,6 +24,8 @@ import '../models/enums.dart';
 import '../models/fixture_match.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
+// NEW: Match Poster feature entry point.
+import 'match_poster_preview_screen.dart';
 
 class MatchDetailScreen extends ConsumerStatefulWidget {
   const MatchDetailScreen({
@@ -321,6 +323,25 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     }
   }
 
+  // NEW: Match Poster entry point. Pushed directly (Navigator, not
+  // go_router) to avoid touching app_router.dart — this keeps the change
+  // isolated to files this feature owns. Add a go_router route for it
+  // later if you want a shareable deep link into the poster screen.
+  void _openMatchPoster() {
+    final m = _match;
+    if (m == null) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MatchPosterPreviewScreen(
+          leagueId: widget.leagueId,
+          match: m,
+          teamsById: _teamsById,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openHighlightUrl(String url) async {
     final u = Uri.tryParse(url.trim());
     if (u == null) {
@@ -406,6 +427,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                         padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 16),
                         children: [
                           _buildHeader(context),
+                          const SizedBox(height: 12),
+                          _buildPosterButton(context),
                           const SizedBox(height: 16),
                           _buildLiveSection(context),
                           const SizedBox(height: 16),
@@ -429,6 +452,62 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                       ),
           ),
         ),
+      ),
+    );
+  }
+
+  // NEW: entry point card for the Match Poster generator.
+  Widget _buildPosterButton(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Glass(
+      padding: const EdgeInsets.all(14),
+      borderRadius: 20,
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: cs.primary.withOpacity(0.12),
+            ),
+            child: Icon(Icons.image_outlined, color: cs.primary, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Match Poster',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Generate a shareable poster for this match',
+                  style: TextStyle(
+                    color: cs.onSurface.withOpacity(0.60),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          FilledButton.icon(
+            onPressed: (_match == null) ? null : _openMatchPoster,
+            icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+            label: const Text(
+              'Generate',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+            ),
+          ),
+        ],
       ),
     );
   }
