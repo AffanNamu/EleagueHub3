@@ -1,10 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useMatches } from '@/hooks/useMatches';
 import { useLeagueTeams } from '@/hooks/useLeagueTeams';
 import { Glass } from '@/components/ui/Glass';
-import { ArrowLeft, Loader2, CalendarDays, Shield } from 'lucide-react';
+import { MatchPosterModal } from '@/components/leagues/MatchPosterModal';
+import { ArrowLeft, Loader2, CalendarDays, Shield, ImageIcon } from 'lucide-react';
 
 export default function MatchesScreen() {
   const params = useParams();
@@ -13,6 +15,10 @@ export default function MatchesScreen() {
 
   const { matches, loading: matchesLoading } = useMatches(leagueId);
   const { teams, loading: teamsLoading } = useLeagueTeams(leagueId);
+
+  // NEW: Match Poster feature — which match (if any) currently has its
+  // poster modal open. Null means closed.
+  const [posterMatchId, setPosterMatchId] = useState<string | null>(null);
 
   if (matchesLoading || teamsLoading) {
     return (
@@ -80,11 +86,27 @@ export default function MatchesScreen() {
                     <span className="text-sm font-bold text-center">{awayTeam?.name || 'TBD'}</span>
                   </div>
                 </div>
+
+                {/* NEW: Match Poster entry point */}
+                <button
+                  onClick={() => setPosterMatchId(match.id)}
+                  className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.06] hover:border-brand-lime/30 text-xs font-black text-slate-300 hover:text-brand-lime transition-colors"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" /> Match Poster
+                </button>
               </Glass>
             );
           })
         )}
       </div>
+
+      {posterMatchId ? (
+        <MatchPosterModal
+          leagueId={leagueId}
+          matchId={posterMatchId}
+          onClose={() => setPosterMatchId(null)}
+        />
+      ) : null}
     </div>
   );
 }
