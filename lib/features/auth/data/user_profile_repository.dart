@@ -824,25 +824,28 @@ class UserProfileRepository {
   // `usernames/{usernameLower}` reservation collection will desync
   // from `users/{uid}`.
   //
-  // Uniqueness is enforced with a single Firestore transaction per
-  // attempt:
-  //   1. Read `usernames/{candidateLower}`.
-  //   2. If it exists and belongs to someone else, abort (caller
-  //      either retries with the next candidate during generation, or
-  //      surfaces UsernameUnavailableException during manual edits).
-  //   3. Write `usernames/{candidateLower}` = {userId, createdAtMs}.
-  //   4. Delete the OLD reservation doc (if any, and if different).
-  //   5. Update `users/{uid}` with the new username/usernameLower.
-  // Firestore transactions are optimistic and will retry/abort on
-  // conflicting writes to the same document, so two concurrent
-  // attempts at the same candidate can never both succeed — this is
-  // what closes the race condition.
+  // Uniqueness is enforced with two SEQUENTIAL writes per attempt
+  // (see [_reserveAndWriteUsername] for exactly why this can't be a
+  // single runTransaction() the way it originally was):
+  //   1. Reserve `usernames/{candidateLower}` (its own small
+  //      transaction, so two concurrent attempts at the same
+  //      candidate can never both succeed).
+  //   2. Once that reservation has actually committed, update
+  //      `users/{uid}` with the new username/usernameLower. The
+  //      Firestore rule for that update requires the reservation to
+  //      already exist, which is now guaranteed since step 1 already
+  //      committed before step 2 begins.
+  //   3. Best-effort: delete the OLD reservation doc (if any, and if
+  //      different).
+  // If step 2 fails after step 1 succeeded, the just-created
+  // reservation is rolled back (deleted) so a failed save can't
+  // permanently squat on a username.
   // ─────────────────────────────────────────────────────────────────────
 
   /// Best-effort, NON-transactional availability check — safe to call
   /// on every keystroke (debounced) for live UI feedback ("Available"
   /// / "Taken"). This does NOT reserve the name; a final authoritative
-  /// check happens again inside the transaction in [updateUsername].
+  /// check happens again as part of [updateUsername]'s reservation step.
   Future<bool> isUsernameAvailable(String candidate, {String? forUserId}) async {
     try {
       final authUid = _requireAuthUid();
@@ -871,10 +874,27 @@ class UserProfileRepository {
     }
   }
 
-  /// Runs the reserve-and-write transaction for a single candidate
-  /// username against the currently signed-in user. Throws
+  /// Reserves [candidateLower] for [authUid] and points their profile
+  /// at it, releasing [previousLower] (if any). Throws
   /// [UsernameUnavailableException] if the candidate is taken by
   /// someone else or fails validation. Returns normally on success.
+  ///
+  /// FIXED (username save bug): this used to be a single
+  /// `runTransaction()` that both created `usernames/{candidateLower}`
+  /// AND updated `users/{uid}` in the same transaction. That looked
+  /// correct but doesn't work with the security rules as written: the
+  /// `users/{uid}` update rule requires
+  /// `exists(usernames/{candidateLower})`, and Firestore Security
+  /// Rules evaluate every write in a transaction against the database
+  /// state as it existed BEFORE that transaction's own writes are
+  /// applied — a write earlier in the same transaction is not visible
+  /// to a rule check on a later write in that same transaction. So
+  /// `exists(...)` was always evaluating to `false` for the brand-new
+  /// reservation, and the `users/{uid}` write was silently rejected
+  /// with `permission-denied` even for a genuinely available username
+  /// (hence: availability check says free, Save says "Something went
+  /// wrong"). The fix is to commit the reservation first, THEN update
+  /// the profile as a separate write, with rollback if step 2 fails.
   Future<void> _reserveAndWriteUsername({
     required String authUid,
     required String candidateLower,
@@ -889,10 +909,12 @@ class UserProfileRepository {
 
     final newRef = _usernamesCol.doc(candidateLower);
     final userRef = _usersCol.doc(authUid);
-    final oldRef = (previousLower.isNotEmpty && previousLower != candidateLower)
-        ? _usernamesCol.doc(previousLower)
-        : null;
+    final now = DateTime.now().millisecondsSinceEpoch;
 
+    // ── STEP 1: reserve the new username as its own committed write ──────
+    // Kept as a small transaction purely to race-proof it against two
+    // people claiming the same candidate at the same instant — NOT
+    // combined with step 2 (see doc comment above for why).
     await _firestore.runTransaction((txn) async {
       final newSnap = await txn.get(newRef);
       if (newSnap.exists) {
@@ -902,29 +924,20 @@ class UserProfileRepository {
             'That username is already taken.',
           );
         }
+        // Already reserved by this same user (e.g. a retried call
+        // after a prior partial failure) — nothing further to do here.
+        return;
       }
-
-      DocumentSnapshot<Map<String, dynamic>>? oldSnap;
-      if (oldRef != null) {
-        oldSnap = await txn.get(oldRef);
-      }
-
-      final now = DateTime.now().millisecondsSinceEpoch;
 
       txn.set(newRef, <String, dynamic>{
         'userId': authUid,
         'createdAtMs': now,
       });
+    }).timeout(const Duration(seconds: 20));
 
-      if (oldRef != null && oldSnap != null && oldSnap.exists) {
-        final oldOwner = (oldSnap.data()?['userId'] as String? ?? '').trim();
-        if (oldOwner == authUid) {
-          txn.delete(oldRef);
-        }
-      }
-
-      txn.set(
-        userRef,
+    // ── STEP 2: point the profile at the now-committed reservation ───────
+    try {
+      await userRef.set(
         <String, dynamic>{
           'userId': authUid,
           'username': candidateDisplay,
@@ -932,8 +945,46 @@ class UserProfileRepository {
           'updatedAt': now,
         },
         SetOptions(merge: true),
-      );
-    }).timeout(const Duration(seconds: 20));
+      ).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      // Roll back the reservation so a failed save doesn't permanently
+      // lock this username away from everyone (including this same
+      // user retrying immediately after).
+      try {
+        final snap = await newRef.get();
+        final owner = (snap.data()?['userId'] as String? ?? '').trim();
+        if (snap.exists && owner == authUid) {
+          await newRef.delete();
+        }
+      } catch (_) {
+        // Best-effort rollback only — surfacing the original error
+        // below matters more than this cleanup succeeding.
+      }
+      rethrow;
+    }
+
+    // ── STEP 3: release the OLD reservation, best-effort ──────────────────
+    // The profile already points at the new username at this point
+    // regardless of whether this cleanup succeeds, so failures here are
+    // non-fatal.
+    if (previousLower.isNotEmpty && previousLower != candidateLower) {
+      try {
+        final oldRef = _usernamesCol.doc(previousLower);
+        final oldSnap = await oldRef.get();
+        final oldOwner = (oldSnap.data()?['userId'] as String? ?? '').trim();
+        if (oldSnap.exists && oldOwner == authUid) {
+          await oldRef.delete();
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+            '[UserProfileRepository] _reserveAndWriteUsername: failed to '
+            'release old reservation "$previousLower" for $authUid '
+            '(non-fatal): $e',
+          );
+        }
+      }
+    }
   }
 
   /// Explicit, user-initiated username change. Validates format,
