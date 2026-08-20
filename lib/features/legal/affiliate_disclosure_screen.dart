@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 class AffiliateDisclosureScreen extends StatelessWidget {
   const AffiliateDisclosureScreen({super.key});
 
-  static const String _appName = 'eLeagueHub';
-  static const String _supportEmail = 'support-esportlyic@kainuwa.africa';
+  static const String _appName = 'eSportlyic';
+  static const String _supportEmail = 'NASSARACORETECHVENTURES@GMAIL.COM';
   static const String _effectiveDate = '15 February 2026';
 
   @override

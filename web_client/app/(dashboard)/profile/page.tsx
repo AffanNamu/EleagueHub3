@@ -8,7 +8,10 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, updateProfile, User as FirebaseUser } from 'firebase/auth';
 import { useLeagues } from '@/hooks/useLeagues';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
-import { Loader2, User, Trophy, ShieldCheck, Mail, ShieldAlert, ArrowRight, Settings, LogOut, Copy, BadgeCheck, Edit2, Camera } from 'lucide-react';
+import { ensureUsernameIfMissing } from '@/lib/services/userProfileRepository';
+import { toDisplayUsername } from '@/lib/username';
+import { UsernameEditModal } from '@/components/profile/UsernameEditModal';
+import { Loader2, User, Trophy, ShieldCheck, Mail, ShieldAlert, ArrowRight, Settings, LogOut, Copy, BadgeCheck, Edit2, Camera, AtSign } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ProfileScreen() {
@@ -27,6 +30,14 @@ export default function ProfileScreen() {
 
   const [badges, setBadges] = useState({ staff: false, organizer: false, green: false });
   const [shareId, setShareId] = useState('');
+
+  // NEW: username state + edit modal. usernameLower mirrors the Flutter
+  // app's UserProfile.usernameLower — canonical, lowercase, unique.
+  const [usernameLower, setUsernameLower] = useState('');
+  const [usernameEditOpen, setUsernameEditOpen] = useState(false);
+  // Guards ensureUsernameIfMissing() so it only fires once per mount,
+  // same purpose as _usernameEnsureTriggered in profile_screen.dart.
+  const usernameEnsureTriggeredRef = useRef(false);
 
   // Image Upload State
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -63,6 +74,21 @@ export default function ProfileScreen() {
             setShareId(data.shareId);
           } else {
             setShareId(`eS${user.uid.substring(0, 8)}`);
+          }
+
+          // NEW: username — read, and lazily assign one if missing.
+          const lower = typeof data.usernameLower === 'string' ? data.usernameLower.trim() : '';
+          setUsernameLower(lower);
+
+          if (!lower && !usernameEnsureTriggeredRef.current) {
+            usernameEnsureTriggeredRef.current = true;
+            const teamNameForBase =
+              (typeof data.teamName === 'string' && data.teamName.trim()) ||
+              (user.displayName?.trim() || '') ||
+              'user';
+            ensureUsernameIfMissing(user.uid, teamNameForBase, lower).catch((err) => {
+              console.error('[ProfileScreen] ensureUsernameIfMissing failed:', err);
+            });
           }
         }
       } catch (err) {
@@ -259,6 +285,21 @@ export default function ProfileScreen() {
               </button>
               {renderBadge()}
             </h2>
+
+            {/* NEW: Username row */}
+            <div className="flex items-center justify-center sm:justify-start gap-2 mt-1.5">
+              <AtSign className="w-3.5 h-3.5 text-gray-500" />
+              <span className="text-brand-lime text-sm font-bold">
+                {usernameLower ? toDisplayUsername(usernameLower) : 'Setting up username…'}
+              </span>
+              <button
+                onClick={() => setUsernameEditOpen(true)}
+                className="p-1.5 text-gray-500 hover:text-white bg-[#1E293B] hover:bg-[#2A3B54] rounded-md transition-colors"
+                title="Edit username"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
             
             {/* Share ID with Copy Button */}
             <div className="flex items-center justify-center sm:justify-start gap-3 mt-1.5">
@@ -357,6 +398,18 @@ export default function ProfileScreen() {
           )}
         </div>
       </div>
+
+      {usernameEditOpen && (
+        <UsernameEditModal
+          authUid={user.uid}
+          current={usernameLower}
+          onClose={() => setUsernameEditOpen(false)}
+          onSaved={(next) => {
+            setUsernameLower(next);
+            setUsernameEditOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

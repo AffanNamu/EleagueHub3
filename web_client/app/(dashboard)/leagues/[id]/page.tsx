@@ -1,3 +1,4 @@
+// app/(dashboard)/leagues/[id]/page.tsx
 'use client';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -9,44 +10,88 @@ import { LayoutGrid, ArrowLeft, Loader2, Trophy, Settings, Activity, CalendarDay
 import Link from 'next/link';
 import QRCode from 'react-qr-code';
 
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { leagueFromRemoteMap, isOwnerForViewer } from '@/lib/models/league';
 
 export default function LeagueDetailsScreen() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  
+
   const leagueId = params.id as string;
   const inviteCode = searchParams.get('invite');
 
   const { league, loading: leagueLoading, error: leagueError } = useLeagueDetail(leagueId);
   const { teams, loading: teamsLoading, error: teamsError } = useLeagueTeams(leagueId);
-  
+
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
   const [authLoaded, setAuthLoaded] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     const unsub = auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        try {
-          const snap = await getDoc(doc(db, 'leagues', leagueId, 'members', user.uid));
-          if (snap.exists()) {
-            setIsMember(true);
-            const role = snap.data().role;
-            if (['owner', 'admin'].includes(role)) setIsAdmin(true);
-          }
-        } catch (err) {
-          // If Firebase throws a permission error, it means they aren't a member. We handle it silently.
-          console.warn("User is not a member or lacks permission to read member doc.");
+      if (!user) {
+        if (!cancelled) {
+          setIsMember(false);
+          setIsAdmin(false);
+          setAuthLoaded(true);
         }
+        return;
       }
-      setAuthLoaded(true);
+
+      try {
+        // FIXED: this used to read 'leagues/{id}/members/{uid}' and
+        // compare role against the strings 'owner'/'admin'. Neither
+        // exists in the real schema — the actual collection is
+        // 'leagues/{id}/memberships/{uid}', and its `role` field is a
+        // stored int (0 = organizer, 1 = member), not a string. Since
+        // there's no Firestore rule at all for a 'members' collection,
+        // that old read was silently permission-denied on every load
+        // (caught below, logged, and swallowed), so isMember/isAdmin
+        // stayed false even for the real owner — which is exactly why
+        // owners were landing on the locked "guest" view instead of
+        // the real league details screen.
+        const [leagueSnap, membershipSnap] = await Promise.all([
+          getDoc(doc(db, 'leagues', leagueId)),
+          getDoc(doc(db, 'leagues', leagueId, 'memberships', user.uid)),
+        ]);
+
+        if (cancelled) return;
+
+        if (leagueSnap.exists()) {
+          const leagueData = leagueFromRemoteMap({ ...leagueSnap.data(), id: leagueSnap.id });
+          const ownerByLeague = isOwnerForViewer(leagueData, user.uid);
+          const ownerByMembership = membershipSnap.exists() && membershipSnap.data()?.role === 0;
+          const owner = ownerByLeague || ownerByMembership;
+          const member = owner || membershipSnap.exists();
+
+          setIsMember(member);
+          setIsAdmin(owner);
+        } else {
+          setIsMember(false);
+          setIsAdmin(false);
+        }
+      } catch (err) {
+        // If Firebase throws a permission error, it means they aren't a
+        // member of this league. We handle it silently.
+        console.warn('[LeagueDetailsScreen] membership check failed (treated as non-member):', err);
+        if (!cancelled) {
+          setIsMember(false);
+          setIsAdmin(false);
+        }
+      } finally {
+        if (!cancelled) setAuthLoaded(true);
+      }
     });
-    return () => unsub();
+
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, [leagueId]);
 
   const handleJoinClick = () => {
@@ -80,14 +125,14 @@ export default function LeagueDetailsScreen() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          
+
           {/* Main Content Area (Standings / Locked View) */}
           <Glass className="p-1 md:p-4 border border-[#1E293B]">
             <div className="flex items-center gap-2 mb-4 px-3 pt-2">
               <Trophy className="w-5 h-5 text-brand-lime" />
               <h2 className="text-xl font-bold text-white">Live Standings</h2>
             </div>
-            
+
             {/* BUSINESS LOGIC: Lock the standings from anyone who isn't explicitly a member */}
             {!isMember ? (
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-[#070B14] rounded-xl border border-[#1E293B] shadow-inner">
@@ -131,7 +176,7 @@ export default function LeagueDetailsScreen() {
 
         {/* Sidebar Actions */}
         <div className="space-y-6">
-          
+
           {/* GUEST BANNER */}
           {!isMember && (
             <div className="p-5 bg-gradient-to-br from-[#0B1221] to-[#070B14] border border-[#1E293B] rounded-2xl shadow-xl">
@@ -163,8 +208,8 @@ export default function LeagueDetailsScreen() {
           {isMember && (
             <Glass className="p-5 space-y-4 border border-[#1E293B]">
               <h3 className="font-semibold text-white flex items-center gap-2"><Activity className="w-4 h-4 text-brand-lime" /> Actions</h3>
-              
-              <Link href={`/leagues/${leagueId}/matches`} className="w-full flex items-center justify-between p-3 bg-[#0B1221] border border-[#1E293B] rounded-xl hover:border-[#2A3A52] transition-colors">
+
+              <Link href={`/leagues/${leagueId}/fixtures`} className="w-full flex items-center justify-between p-3 bg-[#0B1221] border border-[#1E293B] rounded-xl hover:border-[#2A3A52] transition-colors">
                 <div className="flex items-center gap-3">
                   <CalendarDays className="w-5 h-5 text-white" />
                   <span className="font-medium text-white">Fixtures & Results</span>

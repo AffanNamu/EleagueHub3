@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 class ContactScreen extends StatelessWidget {
   const ContactScreen({super.key});
 
-  static const String supportEmail = 'support-esportlyic@kainuwa.africa';
+  static const String supportEmail = 'NASSARACORETECHVENTURES@GMAIL.COM';
 
   Future<void> _launchSupportEmail(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -14,7 +14,7 @@ class ContactScreen extends StatelessWidget {
       scheme: 'mailto',
       path: supportEmail,
       queryParameters: <String, String>{
-        'subject': 'eLeagueHub Support Request',
+        'subject': 'esportlyic Support Request',
         'body':
             'Hello Support,\n\nPlease describe your issue and include:\n- What you were trying to do\n- Any error message you saw\n- Your device model and OS version\n\nThanks,\n',
       },
@@ -132,8 +132,8 @@ class ContactScreen extends StatelessWidget {
                           const SizedBox(height: 10),
                           const _InfoRow(
                             icon: Icons.phone_outlined,
-                            title: 'Phone (optional)',
-                            value: 'Not available',
+                            title: 'WhatsApp Phone No',
+                            value: '+2347066900063',
                             onCopy: null,
                           ),
                         ],

@@ -8,7 +8,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
 
   static const String _appName = 'eSportlyic';
-  static const String _supportEmail = 'ESPORTLYIC@GMAIL.COM';
+  static const String _supportEmail = 'NASSARACORETECHVENTURES@GMAIL.COM';
   static const String _effectiveDate = '15 February 2026';
 
   @override

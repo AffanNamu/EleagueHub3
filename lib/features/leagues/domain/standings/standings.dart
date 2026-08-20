@@ -1,3 +1,4 @@
+///leagues/domain/standings/standings.dart
 /// Represents a single row in a league or group table.
 ///
 /// This domain model calculates competitive statistics like:

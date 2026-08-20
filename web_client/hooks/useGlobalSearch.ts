@@ -3,10 +3,12 @@ import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { League } from '@/types/league';
 import { MasterLeague } from '@/types/masterLeague';
+import { searchUsers, UserSearchEntry } from '@/lib/services/userSearchRepository';
 
 export function useGlobalSearch(searchTerm: string) {
   const [leagues, setLeagues] = useState<League[]>([]);
   const [masterLeagues, setMasterLeagues] = useState<MasterLeague[]>([]);
+  const [users, setUsers] = useState<UserSearchEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,6 +17,7 @@ export function useGlobalSearch(searchTerm: string) {
       if (!searchTerm || searchTerm.length < 2) {
         setLeagues([]);
         setMasterLeagues([]);
+        setUsers([]);
         return;
       }
 
@@ -43,13 +46,16 @@ export function useGlobalSearch(searchTerm: string) {
           limit(10)
         );
 
-        const [leaguesSnap, masterSnap] = await Promise.all([
+        const [leaguesSnap, masterSnap, usersResult] = await Promise.all([
           getDocs(leaguesQ),
-          getDocs(masterQ)
+          getDocs(masterQ),
+          // NEW: user search, so people can find and message each other.
+          searchUsers(term),
         ]);
 
         setLeagues(leaguesSnap.docs.map(d => ({ id: d.id, ...d.data() } as League)));
         setMasterLeagues(masterSnap.docs.map(d => ({ id: d.id, ...d.data() } as MasterLeague)));
+        setUsers(usersResult);
 
       } catch (err: any) {
         console.error("Search Error:", err);
@@ -66,5 +72,5 @@ export function useGlobalSearch(searchTerm: string) {
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm]);
 
-  return { leagues, masterLeagues, loading, error };
+  return { leagues, masterLeagues, users, loading, error };
 }

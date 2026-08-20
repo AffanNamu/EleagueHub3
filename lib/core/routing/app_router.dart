@@ -994,7 +994,7 @@ bool _isPricingAdminUidSync(String uid) {
   return AppAdminsService.instance.isPricingAdminUid(uid);
 }
 
-const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
+const String _superAdminUid = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
 
 bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
     r.needsOnboarding;

@@ -42,7 +42,7 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   static const int _maxBytes = 5 * 1024 * 1024;
-  static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
+  static const String _superAdminUid = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
 
   bool _uploadingAvatar = false;
 

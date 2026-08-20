@@ -86,6 +86,69 @@ export async function uploadImageFile(params: {
 }
 
 /**
+ * NEW: Uploads an audio Blob (voice note) to Cloudinary via the /auto/
+ * upload endpoint (lets Cloudinary infer resource_type, since audio maps
+ * to Cloudinary's "video" resource type but the exact codec/container
+ * produced by MediaRecorder varies by browser). Requires the unsigned
+ * preset to allow non-image uploads — if it's restricted to "Image" in
+ * the Cloudinary dashboard, this will fail with an upload-preset error
+ * and the preset needs to be set to "Auto".
+ *
+ * Folder convention mirrors ChatRepository.dart's uploadLeagueChatVoice:
+ * 'chat_voice_messages/{scope}/{id}'.
+ */
+export async function uploadAudioFile(params: {
+  file: Blob;
+  folder: string;
+  filename?: string;
+}): Promise<CloudinaryUploadResult> {
+  assertConfigured();
+
+  const folder = params.folder.trim();
+  if (!folder) {
+    throw new Error('Invalid upload folder.');
+  }
+  if (params.file.size > MAX_BYTES) {
+    throw new Error('Recording too large. Please keep voice messages under 5 MB.');
+  }
+
+  const filename = params.filename || `voice_${Date.now()}.webm`;
+
+  const formData = new FormData();
+  formData.append('file', params.file, filename);
+  formData.append('upload_preset', UPLOAD_PRESET);
+  formData.append('folder', folder);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+
+  try {
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`, {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+    });
+
+    const parsed = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      const msg = parsed?.error?.message?.trim();
+      throw new Error(msg ? `Upload failed: ${msg}` : `Upload failed (HTTP ${res.status}).`);
+    }
+
+    const secureUrl = (parsed.secure_url || '').trim();
+    if (!secureUrl) throw new Error('Upload failed: secure_url missing.');
+
+    return { secureUrl };
+  } catch (e: any) {
+    if (e.name === 'AbortError') throw new Error('Upload timed out. Please try again.');
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
  * Applies Cloudinary on-the-fly transforms (f_auto,q_auto + fill/fit crop)
  * to a secure_url, same logic as OrganizerProfileScreen.dart's
  * _cloudinaryOptimizedUrl — keeps banner/logo requests small.

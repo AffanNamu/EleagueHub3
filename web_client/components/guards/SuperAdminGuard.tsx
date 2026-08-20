@@ -13,7 +13,7 @@ export function SuperAdminGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       // The exact Super Admin UID from your Firestore Rules
-      if (user && user.uid === 'a0JDUelQW3TEyoXTm4ESuGi7ndq1') {
+      if (user && user.uid === 'QhYeBpvAoRV6j0xGigHkBth4qIG3') {
         setIsAuthorized(true);
       } else {
         setIsAuthorized(false);

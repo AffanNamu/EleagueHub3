@@ -1,9 +1,9 @@
-/*app/(dashboard)/master-leagues/[id]/chat/page.tsx*/
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useOrganizerChat } from '@/hooks/useOrganizerChat';
+// FIXED: Pointing this to useChat where the updated useOrganizerChat hook actually lives
+import { useOrganizerChat } from '@/hooks/useChat';
 import { useMasterLeagueDetail } from '@/hooks/useMasterLeagueDetail';
 import { Glass } from '@/components/ui/Glass';
 import { ChatBubble } from '@/components/chat/ChatBubble';
@@ -19,8 +19,12 @@ export default function OrganizerChatScreen() {
   const [sendError, setSendError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { workspace, loading: workspaceLoading } = useMasterLeagueDetail(masterLeagueId);
-  const { messages, loading: chatLoading, sendMessage } = useOrganizerChat(masterLeagueId);
+  // NEW: uid pulled from the same hook the discipline page already uses,
+  // so ownership determination stays consistent app-wide.
+  const { workspace, loading: workspaceLoading, uid } = useMasterLeagueDetail(masterLeagueId);
+  const { messages, loading: chatLoading, sendMessage, pinMessage, unpinMessage, deleteMessage } = useOrganizerChat(masterLeagueId);
+
+  const isOwner = !!workspace && workspace.ownerId === uid;
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -41,6 +45,16 @@ export default function OrganizerChatScreen() {
       setSending(false);
     }
   };
+
+  async function handleDelete(messageId: string) {
+    if (!confirm('Delete this message?')) return;
+    try {
+      await deleteMessage(messageId);
+    } catch (err) {
+      console.error('[OrganizerChatScreen] delete failed:', err);
+      alert('Could not delete message.');
+    }
+  }
 
   if (workspaceLoading || chatLoading) {
     return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 text-brand-lime animate-spin" /></div>;
@@ -71,7 +85,17 @@ export default function OrganizerChatScreen() {
               <p>No messages yet. Say hello to the community!</p>
             </div>
           ) : (
-            messages.map((msg) => <ChatBubble key={msg.messageId} message={msg} />)
+            messages.map((msg) => (
+              <ChatBubble
+                key={msg.messageId}
+                message={msg}
+                canPin={isOwner}
+                canDelete={isOwner || msg.senderId === uid}
+                onPin={() => pinMessage(msg.messageId)}
+                onUnpin={() => unpinMessage(msg.messageId)}
+                onDelete={() => handleDelete(msg.messageId)}
+              />
+            ))
           )}
         </div>
 

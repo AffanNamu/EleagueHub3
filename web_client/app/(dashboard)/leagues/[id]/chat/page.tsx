@@ -2,8 +2,11 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import { useChat } from '@/hooks/useChat';
 import { useLeagueDetail } from '@/hooks/useLeagueDetail';
+import { checkCanManageLeague } from '@/lib/leagues/canManageLeague';
 import { Glass } from '@/components/ui/Glass';
 import { ChatBubble } from '@/components/chat/ChatBubble';
 import { ArrowLeft, Loader2, Send, MessageSquare } from 'lucide-react';
@@ -17,7 +20,34 @@ export default function LeagueChatScreen() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { league, loading: leagueLoading } = useLeagueDetail(leagueId);
-  const { messages, loading: chatLoading, sendMessage } = useChat(leagueId);
+  const { messages, loading: chatLoading, sendMessage, pinMessage, unpinMessage, deleteMessage } = useChat(leagueId);
+
+  // NEW: whether the signed-in viewer can moderate (pin/delete-any) this
+  // league's chat. Computed the same way RoleGuard does, via
+  // lib/leagues/canManageLeague.ts.
+  const [authUid, setAuthUid] = useState<string | null>(null);
+  const [canModerate, setCanModerate] = useState(false);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => setAuthUid(u?.uid ?? null));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      if (!leagueId || !authUid) {
+        setCanModerate(false);
+        return;
+      }
+      const result = await checkCanManageLeague(leagueId, authUid);
+      if (!cancelled) setCanModerate(result);
+    }
+    check();
+    return () => {
+      cancelled = true;
+    };
+  }, [leagueId, authUid]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -40,6 +70,16 @@ export default function LeagueChatScreen() {
       setSending(false);
     }
   };
+
+  async function handleDelete(messageId: string) {
+    if (!confirm('Delete this message?')) return;
+    try {
+      await deleteMessage(messageId);
+    } catch (err) {
+      console.error('[LeagueChatScreen] delete failed:', err);
+      alert('Could not delete message.');
+    }
+  }
 
   if (leagueLoading || chatLoading) {
     return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 text-brand-lime animate-spin" /></div>;
@@ -75,7 +115,15 @@ export default function LeagueChatScreen() {
             </div>
           ) : (
             messages.map((msg) => (
-              <ChatBubble key={msg.messageId} message={msg} />
+              <ChatBubble
+                key={msg.messageId}
+                message={msg}
+                canPin={canModerate}
+                canDelete={canModerate || msg.senderId === authUid}
+                onPin={() => pinMessage(msg.messageId)}
+                onUnpin={() => unpinMessage(msg.messageId)}
+                onDelete={() => handleDelete(msg.messageId)}
+              />
             ))
           )}
         </div>
