@@ -1,184 +1,136 @@
-'use client';
+//lib/features/search/data/user_search_repository.dart
+import 'dart:async';
 
-import { useEffect, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
-import { useGlobalSearch } from '@/hooks/useGlobalSearch';
-import { startOrGetPrivateThread, PrivateChatError } from '@/lib/services/privateChatRepository';
-import { Glass } from '@/components/ui/Glass';
-import { Loader2, Search as SearchIcon, Trophy, Network, Users, MessageCircle, User as UserIcon } from 'lucide-react';
-import Link from 'next/link';
-import { Suspense } from 'react';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
-// Wrap the actual search logic in a component to use useSearchParams safely with Suspense
-function SearchContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const q = searchParams.get('q') || '';
-  const { leagues, masterLeagues, users, loading, error } = useGlobalSearch(q);
+import '../models/user_search_entry.dart';
 
-  const [authUid, setAuthUid] = useState<string | null>(null);
-  const [messagingUserId, setMessagingUserId] = useState<string | null>(null);
+class UserSearchRepository {
+  UserSearchRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
+      : _firestore = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance;
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setAuthUid(u?.uid ?? null));
-    return () => unsub();
-  }, []);
+  final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
 
-  async function handleMessage(otherUid: string) {
-    if (!authUid) {
-      alert('Please sign in to send a message.');
-      return;
-    }
-    setMessagingUserId(otherUid);
+  CollectionReference<Map<String, dynamic>> get _col =>
+      _firestore.collection('user_search');
+
+  /// Keeps this user's search index entry in sync. Call after any write
+  /// to UserProfile.teamName, shareId, avatar, or TeamProfile.game/badge.
+  /// Best-effort — never throws to the caller.
+  Future<void> syncSelfIndex({
+    required String displayName,
+    required String shareId,
+    required String game,
+    required String badge,
+    required String avatarUrl,
+  }) async {
+    final uid = _auth.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) return;
+
     try {
-      const thread = await startOrGetPrivateThread(authUid, otherUid);
-      router.push(`/messages/${thread.id}`);
-    } catch (err) {
-      alert(err instanceof PrivateChatError ? err.message : 'Could not start chat. Please try again.');
-    } finally {
-      setMessagingUserId(null);
+      await _col.doc(uid).set(
+        <String, dynamic>{
+          'userId': uid,
+          'displayName': displayName.trim(),
+          'displayNameLower': displayName.trim().toLowerCase(),
+          'shareId': shareId.trim(),
+          'shareIdLower': shareId.trim().toLowerCase(), // Added for case-insensitive ID search
+          'game': game.trim(),
+          'badge': badge.trim(),
+          'avatarUrl': avatarUrl.trim(),
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 12));
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[UserSearchRepository] syncSelfIndex failed (non-fatal): $e');
+      }
     }
   }
 
-  if (!q) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-        <SearchIcon className="w-16 h-16 mb-4 opacity-50" />
-        <h2 className="text-xl font-bold">Type to start searching</h2>
-      </div>
-    );
+  /// Convenience: reads the current UserProfile + TeamProfile for the
+  /// signed-in user and re-syncs the index from both. Safe to call
+  /// after any edit to either doc — avoids partial-field overwrites.
+  Future<void> resyncSelfFromSources({
+    required String displayName,
+    required String shareId,
+    required String avatarUrl,
+    required String game,
+    required String badge,
+  }) => syncSelfIndex(
+        displayName: displayName,
+        shareId: shareId,
+        game: game,
+        badge: badge,
+        avatarUrl: avatarUrl,
+      );
+
+  /// Prefix search on display name (case-insensitive). Also tries an
+  /// exact shareId match so users can search by their friend's Team ID.
+  Future<List<UserSearchEntry>> search(String query, {int limit = 20}) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const [];
+
+    final lower = trimmed.toLowerCase();
+
+    try {
+      final results = <String, UserSearchEntry>{};
+
+      // 1. Prefix match on display name (case-insensitive).
+      final nameSnap = await _col
+          .orderBy('displayNameLower')
+          .startAt([lower])
+          .endAt(['$lower\uf8ff'])
+          .limit(limit)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      for (final d in nameSnap.docs) {
+        final entry = UserSearchEntry.fromDoc(d);
+        results[entry.userId] = entry;
+      }
+
+      // 2. Exact shareId match (Team ID).
+      if (trimmed.length >= 3) {
+        // Try the new lowercase field first
+        final idSnap = await _col
+            .where('shareIdLower', isEqualTo: lower)
+            .limit(5)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 12));
+
+        for (final d in idSnap.docs) {
+          final entry = UserSearchEntry.fromDoc(d);
+          results[entry.userId] = entry;
+        }
+        
+        // Fallback: Check the exact case-sensitive field for older profiles 
+        // that haven't been re-synced since the code update.
+        if (results.isEmpty) {
+          final idSnapExact = await _col
+              .where('shareId', isEqualTo: trimmed)
+              .limit(5)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 12));
+
+          for (final d in idSnapExact.docs) {
+            final entry = UserSearchEntry.fromDoc(d);
+            results[entry.userId] = entry;
+          }
+        }
+      }
+
+      return results.values.toList(growable: false);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[UserSearchRepository] search failed: $e');
+      }
+      return const [];
+    }
   }
-
-  const totalResults = leagues.length + masterLeagues.length + users.length;
-
-  return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-white mb-1">Search Results for "{q}"</h1>
-        <p className="text-gray-400 text-sm">Found {totalResults} results</p>
-      </div>
-
-      {loading && (
-        <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 text-brand-lime animate-spin" /></div>
-      )}
-
-      {error && (
-        <div className="p-4 bg-brand-red/20 text-brand-red rounded-xl border border-brand-red">{error}</div>
-      )}
-
-      {!loading && totalResults === 0 && !error && (
-        <Glass className="p-10 text-center text-gray-400">
-          No matches found for "{q}". Try a different spelling.
-        </Glass>
-      )}
-
-      {/* Players Results */}
-      {users.length > 0 && (
-        <section>
-          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2 border-b border-white/10 pb-2">
-            <Users className="w-5 h-5 text-amber-400" /> Players
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {users.map((u) => {
-              const isSelf = u.userId === authUid;
-              const busy = messagingUserId === u.userId;
-              return (
-                <Glass key={u.userId} className="p-4 flex items-center gap-4">
-                  <div className="w-12 h-12 bg-brand-surfaceDark rounded-full overflow-hidden shrink-0 flex items-center justify-center">
-                    {u.avatarUrl ? (
-                      <img src={u.avatarUrl} className="w-full h-full object-cover" alt="" />
-                    ) : (
-                      <UserIcon className="w-6 h-6 text-gray-500" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-white truncate">{u.displayName || 'Player'}</h3>
-                    <p className="text-xs text-gray-400 truncate">
-                      {u.shareId ? `#${u.shareId}` : ''}{u.game ? ` • ${u.game}` : ''}
-                    </p>
-                  </div>
-                  {!isSelf && (
-                    <button
-                      onClick={() => handleMessage(u.userId)}
-                      disabled={busy}
-                      className="w-9 h-9 flex items-center justify-center rounded-full bg-brand-lime/10 hover:bg-brand-lime/20 text-brand-lime shrink-0 disabled:opacity-50"
-                      title="Message"
-                    >
-                      {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
-                    </button>
-                  )}
-                </Glass>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Master Leagues Results */}
-      {masterLeagues.length > 0 && (
-        <section>
-          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2 border-b border-white/10 pb-2">
-            <Network className="w-5 h-5 text-[#38BDF8]" /> Organizers & Hubs
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {masterLeagues.map((workspace) => (
-              <Link href={`/master-leagues/${workspace.id}`} key={workspace.id}>
-                <Glass className="p-4 hover:bg-white/5 transition-colors flex items-center gap-4">
-                  <div className="w-12 h-12 bg-brand-surfaceDark rounded-xl overflow-hidden shrink-0">
-                    {workspace.organizerProfile?.logoUrl ? (
-                      <img src={workspace.organizerProfile.logoUrl} className="w-full h-full object-cover" alt="" />
-                    ) : (
-                      <Network className="w-6 h-6 m-auto text-gray-500 mt-3" />
-                    )}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-white">{workspace.name}</h3>
-                    <p className="text-xs text-gray-400">{workspace.followersCount || 0} followers</p>
-                  </div>
-                </Glass>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Leagues Results */}
-      {leagues.length > 0 && (
-        <section>
-          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2 border-b border-white/10 pb-2">
-            <Trophy className="w-5 h-5 text-brand-lime" /> Tournaments & Leagues
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {leagues.map((league) => (
-              <Link href={`/leagues/${league.id}`} key={league.id}>
-                <Glass className="p-4 hover:bg-white/5 transition-colors flex items-center gap-4 border-l-2 border-l-brand-lime">
-                  <div className="w-12 h-12 bg-brand-surfaceDark rounded-xl overflow-hidden shrink-0">
-                    {league.coverImageUrl ? (
-                      <img src={league.coverImageUrl} className="w-full h-full object-cover" alt="" />
-                    ) : (
-                      <Trophy className="w-6 h-6 m-auto text-gray-500 mt-3" />
-                    )}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-white">{league.name}</h3>
-                    <p className="text-xs text-brand-lime uppercase tracking-wider">{league.status}</p>
-                  </div>
-                </Glass>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
-
-export default function SearchPage() {
-  return (
-    <Suspense fallback={<div className="flex justify-center p-10"><Loader2 className="w-8 h-8 animate-spin text-brand-lime" /></div>}>
-      <SearchContent />
-    </Suspense>
-  );
 }
