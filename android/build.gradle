@@ -8,23 +8,6 @@ allprojects {
 rootProject.buildDir = '../build'
 
 subprojects { project ->
-    /**
-     * IMPORTANT:
-     * Do NOT set project.ext.flutter for :app because Flutter's Gradle plugin
-     * creates/uses a `flutter { ... }` extension there (needs flutter.source).
-     *
-     * Some Android library subprojects may reference `flutter.compileSdkVersion`
-     * without having the Flutter extension, so we provide a fallback ONLY for non-app modules.
-     */
-    if (project.path != ':app' && !project.hasProperty('flutter') && project.extensions.findByName('flutter') == null) {
-        project.ext.set('flutter', [
-            compileSdkVersion: 36,
-            // Required: Android 7.0 (API 24) and up
-            minSdkVersion: 24,
-            targetSdkVersion: 36,
-        ])
-    }
-
     afterEvaluate {
         if (project.hasProperty('android')) {
             project.android {
