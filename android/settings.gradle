@@ -45,21 +45,25 @@ pluginManagement {
     }
 }
 
+plugins {
+    id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+
+    // Bumped AGP to support compileSdk 36 (Android 16 / target API requirement Aug 2026)
+    id "com.android.application" version "8.9.1" apply false
+
+    // Kotlin must match deps metadata (2.1.x)
+    id "org.jetbrains.kotlin.android" version "2.1.0" apply false
+
+    // Firebase/Google plugins (versions must be declared here)
+    id "com.google.gms.google-services" version "4.4.1" apply false
+    id "com.google.firebase.crashlytics" version "3.0.2" apply false
+}
+
+include ":app"
+
 // ─── WORKAROUND: pub-cache plugins with a broken build.gradle.kts ─────────
-// Some Flutter plugins (in_app_purchase_android 0.5.x among them) ship an
-// android/build.gradle.kts that references `flutter.compileSdkVersion` and
-// a `kotlin { compilerOptions { jvmTarget = ... } }` block. Outside of
-// :app, Flutter's plugin loader doesn't reliably supply a real `flutter`
-// extension or guarantee the Kotlin Gradle Plugin is resolvable for that
-// specific subproject's script compilation yet. Known, currently open
-// Flutter tooling bug: https://github.com/flutter/flutter/issues/184133
-// (P1, "workaround available"). It has also hit other plugins
-// (flutter_plugin_android_lifecycle), so this scans every resolved
-// package instead of hardcoding just one name.
-//
 // Runs in the Settings phase — before Gradle reads any subproject's
 // build.gradle.kts — and patches the file in place inside .pub-cache.
-// Idempotent: re-patching an already-fixed file is a no-op.
 def patchProps = new Properties()
 def patchPropsFile = file("local.properties")
 if (patchPropsFile.exists()) {
@@ -85,16 +89,13 @@ if (packageConfigFile.exists()) {
         def original = gradleKts.text
         def patched = original
 
-        // Drop the standalone `kotlin { compilerOptions { jvmTarget = ... } }`
-        // block entirely — it needs the Kotlin Gradle Plugin applied to
-        // THIS subproject specifically, which isn't guaranteed.
+        // Drop the standalone `kotlin { compilerOptions { jvmTarget = ... } }` block
         patched = patched.replaceAll(
             /kotlin\s*\{\s*compilerOptions\s*\{\s*jvmTarget[^}]*\}\s*\}/,
             ""
         )
 
-        // Replace the unresolved `flutter.*` references with the literal
-        // values this project already uses everywhere else.
+        // Replace unresolved `flutter.*` references with literal SDK versions
         patched = patched.replaceAll(/flutter\.compileSdkVersion/, patchCompileSdk)
         patched = patched.replaceAll(/flutter\.minSdkVersion/, patchMinSdk)
         patched = patched.replaceAll(/flutter\.targetSdkVersion/, patchTargetSdk)
@@ -107,19 +108,3 @@ if (packageConfigFile.exists()) {
     }
 }
 // ────────────────────────────────────────────────────────────────────────
-
-plugins {
-    id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-
-    // Bumped AGP to support compileSdk 36 (Android 16 / target API requirement Aug 2026)
-    id "com.android.application" version "8.9.1" apply false
-
-    // Kotlin must match deps metadata (2.1.x)
-    id "org.jetbrains.kotlin.android" version "2.1.0" apply false
-
-    // Firebase/Google plugins (versions must be declared here)
-    id "com.google.gms.google-services" version "4.4.1" apply false
-    id "com.google.firebase.crashlytics" version "3.0.2" apply false
-}
-
-include ":app"
