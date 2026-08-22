@@ -45,6 +45,69 @@ pluginManagement {
     }
 }
 
+// ─── WORKAROUND: pub-cache plugins with a broken build.gradle.kts ─────────
+// Some Flutter plugins (in_app_purchase_android 0.5.x among them) ship an
+// android/build.gradle.kts that references `flutter.compileSdkVersion` and
+// a `kotlin { compilerOptions { jvmTarget = ... } }` block. Outside of
+// :app, Flutter's plugin loader doesn't reliably supply a real `flutter`
+// extension or guarantee the Kotlin Gradle Plugin is resolvable for that
+// specific subproject's script compilation yet. Known, currently open
+// Flutter tooling bug: https://github.com/flutter/flutter/issues/184133
+// (P1, "workaround available"). It has also hit other plugins
+// (flutter_plugin_android_lifecycle), so this scans every resolved
+// package instead of hardcoding just one name.
+//
+// Runs in the Settings phase — before Gradle reads any subproject's
+// build.gradle.kts — and patches the file in place inside .pub-cache.
+// Idempotent: re-patching an already-fixed file is a no-op.
+def patchProps = new Properties()
+def patchPropsFile = file("local.properties")
+if (patchPropsFile.exists()) {
+    patchPropsFile.withInputStream { patchProps.load(it) }
+}
+def patchCompileSdk = patchProps.getProperty("flutter.compileSdkVersion") ?: "36"
+def patchMinSdk = patchProps.getProperty("flutter.minSdkVersion") ?: "24"
+def patchTargetSdk = patchProps.getProperty("flutter.targetSdkVersion") ?: "36"
+def patchNdkVersion = patchProps.getProperty("flutter.ndkVersion") ?: "27.0.12077973"
+
+def packageConfigFile = file("../.dart_tool/package_config.json")
+if (packageConfigFile.exists()) {
+    def packageConfig = new groovy.json.JsonSlurper().parse(packageConfigFile)
+    packageConfig.packages.each { pkg ->
+        def rootUri = pkg.rootUri as String
+        if (!rootUri) return
+        def pkgDir = rootUri.startsWith("file:")
+            ? new File(new URI(rootUri))
+            : new File(packageConfigFile.parentFile, rootUri)
+        def gradleKts = new File(pkgDir, "android/build.gradle.kts")
+        if (!gradleKts.exists()) return
+
+        def original = gradleKts.text
+        def patched = original
+
+        // Drop the standalone `kotlin { compilerOptions { jvmTarget = ... } }`
+        // block entirely — it needs the Kotlin Gradle Plugin applied to
+        // THIS subproject specifically, which isn't guaranteed.
+        patched = patched.replaceAll(
+            /kotlin\s*\{\s*compilerOptions\s*\{\s*jvmTarget[^}]*\}\s*\}/,
+            ""
+        )
+
+        // Replace the unresolved `flutter.*` references with the literal
+        // values this project already uses everywhere else.
+        patched = patched.replaceAll(/flutter\.compileSdkVersion/, patchCompileSdk)
+        patched = patched.replaceAll(/flutter\.minSdkVersion/, patchMinSdk)
+        patched = patched.replaceAll(/flutter\.targetSdkVersion/, patchTargetSdk)
+        patched = patched.replaceAll(/flutter\.ndkVersion/, "\"${patchNdkVersion}\"")
+
+        if (patched != original) {
+            gradleKts.text = patched
+            println "eleaguehub: patched ${pkg.name}/android/build.gradle.kts (flutter.*/kotlin{} workaround)"
+        }
+    }
+}
+// ────────────────────────────────────────────────────────────────────────
+
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
 

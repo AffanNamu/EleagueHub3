@@ -42,6 +42,15 @@ subprojects { subproject ->
             targetSdkVersion : flutterTargetSdk,
             ndkVersion       : flutterNdkVersion
         ]
+
+        // Defensive belt-and-suspenders for Kotlin-DSL plugin subprojects
+        // (e.g. in_app_purchase_android 0.5.x) whose own build.gradle.kts
+        // uses the `kotlin { ... }` extension block. The primary fix for
+        // their broken script is the settings.gradle patch above this in
+        // the build; this just makes sure the Kotlin Android plugin really
+        // is applied to every non-:app subproject before its script reads.
+        // Safe/idempotent — Gradle no-ops a repeat apply of the same plugin.
+        subproject.plugins.apply('org.jetbrains.kotlin.android')
     }
 
     subproject.buildDir = "${rootProject.buildDir}/${subproject.name}"
