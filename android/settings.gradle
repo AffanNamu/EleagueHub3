@@ -39,7 +39,7 @@ pluginManagement {
                 id == "kotlin-android" ||
                 id == "kotlin" ||
                 id.startsWith("org.jetbrains.kotlin.")) {
-                useVersion("2.1.0")
+                useVersion("2.2.20")
             }
         }
     }
@@ -48,11 +48,11 @@ pluginManagement {
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
 
-    // Bumped AGP to support compileSdk 36 (Android 16 / target API requirement Aug 2026)
-    id "com.android.application" version "8.9.1" apply false
+    // Bumped AGP to support Flutter's minimum requirements
+    id "com.android.application" version "8.11.1" apply false
 
-    // Kotlin must match deps metadata (2.1.x)
-    id "org.jetbrains.kotlin.android" version "2.1.0" apply false
+    // Kotlin bumped to match AGP 8.11.1 requirements
+    id "org.jetbrains.kotlin.android" version "2.2.20" apply false
 
     // Firebase/Google plugins (versions must be declared here)
     id "com.google.gms.google-services" version "4.4.1" apply false
