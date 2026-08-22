@@ -21,8 +21,8 @@ jobs:
       CLOUDINARY_CLOUD_NAME: dbw9zpkxi
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
       FLUTTER_CHANNEL: stable
-      # BUMPED from 3.24.5 to 3.27.4 to support Dart 3.6 (required by in_app_purchase_android)
-      FLUTTER_VERSION: 3.27.4
+      # Bumped to 3.29.0 to support Dart 3.7+ required by in_app_purchase_android 0.5.2
+      FLUTTER_VERSION: 3.29.0
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
       ICON_FILE_ID: "1ynEFtKZCC-mQPegEQKw7QqjRU_KCYqA4"
