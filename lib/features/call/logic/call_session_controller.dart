@@ -203,7 +203,7 @@ class CallSessionController extends StateNotifier<CallSessionState> {
           dynacast: true,
           defaultAudioPublishOptions: AudioPublishOptions(
             dtx: true,
-            audioBitrate: 32000,
+            encoding: AudioEncoding(maxBitrate: 32000),
           ),
         ),
       );
