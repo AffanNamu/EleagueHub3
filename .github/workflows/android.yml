@@ -20,9 +20,6 @@ jobs:
     env:
       CLOUDINARY_CLOUD_NAME: dbw9zpkxi
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
-      FLUTTER_CHANNEL: stable
-      # Bumped to 3.29.0 to support Dart 3.7+ required by in_app_purchase_android 0.5.2
-      FLUTTER_VERSION: 3.29.0
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
       ICON_FILE_ID: "1ynEFtKZCC-mQPegEQKw7QqjRU_KCYqA4"
@@ -67,7 +64,6 @@ jobs:
         run: |
           mkdir -p "${PUB_CACHE}"
           mkdir -p "${GRADLE_USER_HOME}"
-          mkdir -p "${{ runner.temp }}/flutter"
 
       # ─────────────────────────────────────────
       # 3. JAVA
@@ -90,13 +86,6 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle-wrapper.properties','**/*.gradle*','**/settings.gradle*') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Cache Flutter SDK
-        id: cache-flutter
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/flutter
-          key: flutter-${{ runner.os }}-${{ env.FLUTTER_CHANNEL }}-${{ env.FLUTTER_VERSION }}
-
       - name: Cache Pub
         uses: actions/cache@v4
         with:
@@ -115,23 +104,13 @@ jobs:
           sudo apt-get clean
 
       # ─────────────────────────────────────────
-      # 6. FLUTTER
+      # 6. FLUTTER (via Official Action)
       # ─────────────────────────────────────────
-      - name: Download Flutter SDK
-        if: steps.cache-flutter.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          TARBALL="flutter_linux_${FLUTTER_VERSION}-${FLUTTER_CHANNEL}.tar.xz"
-          URL="https://storage.googleapis.com/flutter_infra_release/releases/${FLUTTER_CHANNEL}/linux/${TARBALL}"
-          cd "${{ runner.temp }}"
-          curl -L --fail --retry 8 --retry-delay 5 --retry-all-errors \
-            -o "${TARBALL}" "${URL}"
-          tar -xJf "${TARBALL}" -C flutter/
-
-      - name: Add Flutter to PATH
-        run: |
-          echo "${{ runner.temp }}/flutter/flutter/bin" >> "$GITHUB_PATH"
-          echo "FLUTTER_ROOT=${{ runner.temp }}/flutter/flutter" >> "$GITHUB_ENV"
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
 
       - name: Flutter doctor
         run: |
@@ -147,7 +126,9 @@ jobs:
           set -euo pipefail
           SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           [ -n "${SDK_DIR}" ] || { echo "ERROR: No Android SDK"; exit 1; }
-          echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
+          # Dynamically get Flutter path from the subosito action
+          ACTUAL_FLUTTER_ROOT="$(dirname "$(dirname "$(which flutter)")")"
+          echo "flutter.sdk=${ACTUAL_FLUTTER_ROOT}" > android/local.properties
           echo "sdk.dir=${SDK_DIR}"          >> android/local.properties
           echo "flutter.versionCode=21"      >> android/local.properties
           echo "flutter.versionName=1.0.0"   >> android/local.properties
