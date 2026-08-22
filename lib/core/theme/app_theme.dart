@@ -44,8 +44,6 @@ class AppTheme {
       onSecondary: Colors.white,
       error: ownerRed,
       onError: Colors.white,
-      background: lightBg,
-      onBackground: darkText,
       surface: lightCard,
       onSurface: darkText,
       outline: subtleBorder,
@@ -70,7 +68,7 @@ class AppTheme {
         scrolledUnderElevation: 0,
         centerTitle: false,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: lightCard,
         elevation: 0,
         shadowColor: const Color(0x12000000),
@@ -178,8 +176,6 @@ class AppTheme {
       onSecondary: Colors.white,
       error: ownerRed,
       onError: Colors.white,
-      background: navyBg,
-      onBackground: Colors.white,
       surface: darkCard,
       onSurface: Colors.white,
       outline: darkBorder,
@@ -204,7 +200,7 @@ class AppTheme {
         scrolledUnderElevation: 0,
         centerTitle: false,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: darkCard,
         elevation: 0,
         shadowColor: const Color(0x66000000),
