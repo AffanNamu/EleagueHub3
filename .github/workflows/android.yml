@@ -21,7 +21,8 @@ jobs:
       CLOUDINARY_CLOUD_NAME: dbw9zpkxi
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
       FLUTTER_CHANNEL: stable
-      FLUTTER_VERSION: 3.24.5
+      # BUMPED from 3.24.5 to 3.27.4 to support Dart 3.6 (required by in_app_purchase_android)
+      FLUTTER_VERSION: 3.27.4
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
       ICON_FILE_ID: "1ynEFtKZCC-mQPegEQKw7QqjRU_KCYqA4"
@@ -330,7 +331,7 @@ jobs:
                   print(f"  Trying: {url[:80]}...")
                   with opener.open(url, timeout=60) as r:
                       data = r.read()
-                  if len(data) > 1000 and (data[:4] == b'\\x89PNG' or b'PNG' in data[:16]):
+                  if len(data) > 1000 and (data[:4] == b'\x89PNG' or b'PNG' in data[:16]):
                       with open(out_path, "wb") as f:
                           f.write(data)
                       print(f"✅ Python download succeeded: {len(data)} bytes")
