@@ -1,9 +1,16 @@
 //lib/features/profile/presentation/public_team_profile_screen.dart
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 
+import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -11,8 +18,11 @@ import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../../chat/data/private_chat_repository.dart';
 import '../../chat/presentation/widgets/private_message_button.dart';
+import '../../master_leagues/domain/master_league_plan.dart';
 import '../../moderation/data/report_repository.dart';
 import '../../moderation/models/user_report.dart';
+import '../../status/data/status_repository.dart';
+import '../../status/presentation/widgets/create_status_sheet.dart';
 import '../data/team_profile_repository.dart';
 import '../models/game_id.dart';
 import '../models/recent_match.dart';
@@ -34,6 +44,8 @@ class PublicTeamProfileScreen extends StatefulWidget {
 
 // --- SECTION: Main Screen State ---
 class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
+  static const int _maxBannerBytes = 5 * 1024 * 1024;
+
   final TeamProfileRepository _teamRepo = TeamProfileRepository();
   final UserProfileRepository _userRepo = UserProfileRepository();
   final PrivateChatRepository _chatRepo = PrivateChatRepository();
@@ -42,6 +54,9 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
   bool _followBusy = false;
   bool _blocked = false;
   bool _chatBusy = false;
+
+  // Feature 1 — Profile Background / Cover Image.
+  bool _uploadingBanner = false;
 
   String get _selfUid => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
   bool get _isOwner => _selfUid.isNotEmpty && _selfUid == widget.userId.trim();
@@ -65,8 +80,11 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
 
   void _snack(String msg) {
     if (!mounted) return;
+    final trimmed = msg.trim();
+    if (trimmed.isEmpty) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(behavior: SnackBarBehavior.floating, content: Text(msg)),
+      SnackBar(behavior: SnackBarBehavior.floating, content: Text(trimmed)),
     );
   }
 
@@ -282,6 +300,217 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
     );
   }
 
+  // --- SECTION: Feature 1 — Profile Background / Cover Image ---
+
+  String _cloudinaryOptimizedUrl(
+    String url, {
+    int? width,
+    int? height,
+    String crop = 'fill',
+  }) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
+    if (!isCloudinary) return u;
+    final marker = '/image/upload/';
+    final idx = u.indexOf(marker);
+    if (idx < 0) return u;
+
+    final prefix = u.substring(0, idx + marker.length);
+    final suffix = u.substring(idx + marker.length);
+
+    final transforms = <String>[
+      'f_auto',
+      'q_auto',
+      if (width != null && width > 0) 'w_$width',
+      if (height != null && height > 0) 'h_$height',
+      (crop == 'fit') ? 'c_fit' : 'c_fill',
+      if (crop != 'fit') 'g_auto',
+    ].join(',');
+
+    final parts = suffix.split('/');
+    if (parts.isEmpty) return '$prefix$transforms/$suffix';
+
+    final first = parts.first;
+    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
+
+    if (!isVersionOnly) {
+      if (first.contains('f_auto') || first.contains('q_auto')) return u;
+      parts[0] = 'f_auto,q_auto,$first';
+      return prefix + parts.join('/');
+    }
+
+    return '$prefix$transforms/$suffix';
+  }
+
+  Future<String> _uploadBannerToCloudinary({required PlatformFile picked}) async {
+    final cloudName = const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
+    final uploadPreset =
+        const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
+    if (cloudName.isEmpty || uploadPreset.isEmpty) {
+      throw StateError('Cloudinary is not configured.');
+    }
+
+    final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+    final ts = DateTime.now().millisecondsSinceEpoch;
+
+    http.MultipartFile filePart;
+    final bytes = picked.bytes;
+    final path = (picked.path ?? '').trim();
+
+    if (bytes != null && bytes.isNotEmpty) {
+      filePart = http.MultipartFile.fromBytes('file', bytes, filename: picked.name);
+    } else if (path.isNotEmpty) {
+      filePart = await http.MultipartFile.fromPath('file', path, filename: picked.name);
+    } else {
+      throw StateError('Selected image is not accessible.');
+    }
+
+    final req = http.MultipartRequest('POST', uploadUrl)
+      ..fields['upload_preset'] = uploadPreset
+      ..fields['resource_type'] = 'image'
+      ..fields['folder'] = 'eleaguehub/banners'
+      ..fields['public_id'] = 'team_banner_$ts'
+      ..files.add(filePart);
+
+    final client = http.Client();
+    try {
+      final streamed = await client.send(req).timeout(const Duration(seconds: 45));
+      final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 45));
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        String message = 'Upload failed (HTTP ${resp.statusCode}).';
+        try {
+          final decoded = jsonDecode(resp.body);
+          final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
+          final msg = (err is Map<String, dynamic>) ? (err['message']?.toString() ?? '') : '';
+          if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
+        } catch (_) {}
+        throw StateError(message);
+      }
+
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) {
+        throw StateError('Upload failed: invalid response.');
+      }
+
+      final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
+      if (secureUrl.isEmpty) throw StateError('Upload failed: secure_url missing.');
+
+      return secureUrl;
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> _pickAndUploadBanner() async {
+    if (_uploadingBanner) return;
+    if (!_isOwner) return;
+
+    setState(() => _uploadingBanner = true);
+
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+
+      final pickResult = await SafeImagePicker.pickImage();
+      if (pickResult.wasCancelled) return;
+
+      if (!pickResult.isSuccess) {
+        _snack(pickResult.errorMessage ?? 'Could not pick image.');
+        return;
+      }
+
+      final picked = pickResult.file!;
+      if (picked.size > _maxBannerBytes) {
+        _snack('Image too large. Please select an image under 5 MB.');
+        return;
+      }
+
+      final secureUrl = await _uploadBannerToCloudinary(picked: picked);
+      await _teamRepo.updateBannerImage(bannerImageUrl: secureUrl);
+
+      if (!mounted) return;
+      _snack('Cover photo updated.');
+    } catch (e) {
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    } finally {
+      if (mounted) setState(() => _uploadingBanner = false);
+    }
+  }
+
+  Future<void> _confirmRemoveBanner() async {
+    final brightness = Theme.of(context).brightness;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardColor(brightness),
+        title: const Text('Remove cover photo?'),
+        content: const Text('Your profile will show the default background instead.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    setState(() => _uploadingBanner = true);
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+      await _teamRepo.updateBannerImage(bannerImageUrl: '');
+      if (!mounted) return;
+      _snack('Cover photo removed.');
+    } catch (e) {
+      _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    } finally {
+      if (mounted) setState(() => _uploadingBanner = false);
+    }
+  }
+
+  void _showBannerEditSheet() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_back_rounded),
+              title: const Text('Change cover photo'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _pickAndUploadBanner();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded),
+              title: const Text('Remove cover photo'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _confirmRemoveBanner();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- SECTION: Feature 2 — Status ---
+
+  Future<void> _handleAvatarTap({
+    required bool hasActiveStatus,
+    required bool eligibleForStatus,
+  }) async {
+    if (hasActiveStatus) {
+      context.push('/status/${widget.userId.trim()}');
+      return;
+    }
+    if (_isOwner && eligibleForStatus) {
+      await showCreateStatusSheet(context);
+    }
+  }
+
   // --- SECTION: Build Method ---
   @override
   Widget build(BuildContext context) {
@@ -333,53 +562,73 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
             }
             final account = accountSnap.data;
             final displayName = _userRepo.displayNameForProfile(account, fallbackUserId: widget.userId);
+            final eligibleForStatus = account != null &&
+                (account.activePlan == MasterLeaguePlan.pro ||
+                    account.activePlan == MasterLeaguePlan.elite);
 
             return StreamBuilder<TeamProfile>(
               stream: _teamRepo.watchTeamProfile(widget.userId),
               builder: (context, teamSnap) {
                 final teamProfile = teamSnap.data ?? TeamProfile.empty(widget.userId);
 
-                return ListView(
-                  padding: const EdgeInsets.only(bottom: 40),
-                  children: [
-                    _CoverAndHeader(
-                      teamProfile: teamProfile,
-                      account: account,
-                      displayName: displayName,
-                      onCopyTeamId: () => _copyTeamId(account?.effectiveShareId ?? ''),
-                    ),
-                    const SizedBox(height: 16),
-                    if (!_isOwner)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: PrivateMessageButton(
-                          key: ValueKey('msg_btn_$_blocked'),
-                          targetUserId: widget.userId,
-                          targetDisplayName: displayName,
-                          onUpgradeTap: () => context.push('/settings'),
+                return StreamBuilder<bool>(
+                  stream: StatusRepository().watchHasActiveStatus(widget.userId),
+                  builder: (context, statusSnap) {
+                    final hasActiveStatus = statusSnap.data ?? false;
+
+                    return ListView(
+                      padding: const EdgeInsets.only(bottom: 40),
+                      children: [
+                        _CoverAndHeader(
+                          teamProfile: teamProfile,
+                          account: account,
+                          displayName: displayName,
+                          onCopyTeamId: () => _copyTeamId(account?.effectiveShareId ?? ''),
+                          isOwner: _isOwner,
+                          uploadingBanner: _uploadingBanner,
+                          bannerUrlOptimizer: (u) => _cloudinaryOptimizedUrl(u, width: 800, crop: 'fill'),
+                          onEditBanner: _showBannerEditSheet,
+                          hasActiveStatus: hasActiveStatus,
+                          eligibleForStatus: eligibleForStatus,
+                          onAvatarTap: () => _handleAvatarTap(
+                            hasActiveStatus: hasActiveStatus,
+                            eligibleForStatus: eligibleForStatus,
+                          ),
                         ),
-                      ),
-                    const SizedBox(height: 20),
-                    _StatsSection(userId: widget.userId, repo: _teamRepo),
-                    const SizedBox(height: 20),
-                    _SectionLabel('Squad'),
-                    const SizedBox(height: 10),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _SquadPreview(userId: widget.userId, repo: _teamRepo),
-                    ),
-                    const SizedBox(height: 20),
-                    _SectionLabel('Trophy Cabinet'),
-                    const SizedBox(height: 10),
-                    _TrophyShelf(userId: widget.userId, repo: _teamRepo),
-                    const SizedBox(height: 20),
-                    _SectionLabel('Recent Matches'),
-                    const SizedBox(height: 10),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _RecentMatchesList(userId: widget.userId, repo: _teamRepo),
-                    ),
-                  ],
+                        const SizedBox(height: 16),
+                        if (!_isOwner)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: PrivateMessageButton(
+                              key: ValueKey('msg_btn_$_blocked'),
+                              targetUserId: widget.userId,
+                              targetDisplayName: displayName,
+                              onUpgradeTap: () => context.push('/settings'),
+                            ),
+                          ),
+                        const SizedBox(height: 20),
+                        _StatsSection(userId: widget.userId, repo: _teamRepo),
+                        const SizedBox(height: 20),
+                        _SectionLabel('Squad'),
+                        const SizedBox(height: 10),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _SquadPreview(userId: widget.userId, repo: _teamRepo),
+                        ),
+                        const SizedBox(height: 20),
+                        _SectionLabel('Trophy Cabinet'),
+                        const SizedBox(height: 10),
+                        _TrophyShelf(userId: widget.userId, repo: _teamRepo),
+                        const SizedBox(height: 20),
+                        _SectionLabel('Recent Matches'),
+                        const SizedBox(height: 10),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _RecentMatchesList(userId: widget.userId, repo: _teamRepo),
+                        ),
+                      ],
+                    );
+                  },
                 );
               },
             );
@@ -419,18 +668,39 @@ class _CoverAndHeader extends StatelessWidget {
     required this.account,
     required this.displayName,
     required this.onCopyTeamId,
+    required this.isOwner,
+    required this.uploadingBanner,
+    required this.bannerUrlOptimizer,
+    required this.onEditBanner,
+    required this.hasActiveStatus,
+    required this.eligibleForStatus,
+    required this.onAvatarTap,
   });
 
   final TeamProfile teamProfile;
   final UserProfile? account;
   final String displayName;
   final VoidCallback onCopyTeamId;
+  final bool isOwner;
+  final bool uploadingBanner;
+  final String Function(String url) bannerUrlOptimizer;
+  final VoidCallback onEditBanner;
+  final bool hasActiveStatus;
+  final bool eligibleForStatus;
+  final VoidCallback onAvatarTap;
 
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
     final avatarUrl = account?.effectivePhotoUrl ?? '';
-    final bannerUrl = teamProfile.bannerImageUrl;
+    final rawBannerUrl = teamProfile.bannerImageUrl.trim();
+    final bannerUrl = rawBannerUrl.isNotEmpty ? bannerUrlOptimizer(rawBannerUrl) : '';
+
+    // Feature 2 — Status: an avatar with an active status gets a
+    // visually distinct lime ring; tapping it opens the viewer.
+    // Owners who are Pro/Elite but have no active status yet can tap
+    // the avatar to post one instead (see onAvatarTap).
+    final bool avatarIsTappable = hasActiveStatus || (isOwner && eligibleForStatus);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -440,10 +710,15 @@ class _CoverAndHeader extends StatelessWidget {
           children: [
             Container(
               height: 160,
+              width: double.infinity,
               decoration: BoxDecoration(
                 color: AppTheme.cardColor(brightness),
                 image: bannerUrl.isNotEmpty
-                    ? DecorationImage(image: NetworkImage(bannerUrl), fit: BoxFit.cover)
+                    ? DecorationImage(
+                        image: NetworkImage(bannerUrl),
+                        fit: BoxFit.cover,
+                        onError: (_, __) {},
+                      )
                     : null,
                 gradient: bannerUrl.isEmpty
                     ? LinearGradient(
@@ -456,22 +731,85 @@ class _CoverAndHeader extends StatelessWidget {
                       )
                     : null,
               ),
+              child: uploadingBanner
+                  ? Container(
+                      color: Colors.black.withOpacity(0.35),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.4,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    )
+                  : null,
             ),
+            if (isOwner)
+              Positioned(
+                right: 12,
+                top: 12,
+                child: Material(
+                  color: Colors.black.withOpacity(0.45),
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: uploadingBanner ? null : onEditBanner,
+                    child: const Padding(
+                      padding: EdgeInsets.all(9),
+                      child: Icon(
+                        Icons.edit_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             Positioned(
               left: 16,
               bottom: -36,
-              child: Container(
-                width: 84,
-                height: 84,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppTheme.cardColor(brightness), width: 4),
-                  color: AppTheme.iconCircleBackground(brightness),
-                  image: avatarUrl.isNotEmpty
-                      ? DecorationImage(image: NetworkImage(avatarUrl), fit: BoxFit.cover)
-                      : null,
+              child: GestureDetector(
+                onTap: avatarIsTappable ? onAvatarTap : null,
+                child: Container(
+                  width: 84,
+                  height: 84,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: hasActiveStatus
+                          ? AppTheme.limeAccent
+                          : AppTheme.cardColor(brightness),
+                      width: hasActiveStatus ? 3 : 4,
+                    ),
+                    color: AppTheme.iconCircleBackground(brightness),
+                    image: avatarUrl.isNotEmpty
+                        ? DecorationImage(image: NetworkImage(avatarUrl), fit: BoxFit.cover)
+                        : null,
+                  ),
+                  child: Stack(
+                    children: [
+                      if (avatarUrl.isEmpty)
+                        const Center(child: Icon(Icons.person_rounded, size: 36)),
+                      if (isOwner && eligibleForStatus && !hasActiveStatus)
+                        Positioned(
+                          right: -2,
+                          bottom: -2,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: AppTheme.limeAccent,
+                              border: Border.all(color: AppTheme.cardColor(brightness), width: 2),
+                            ),
+                            child: const Icon(Icons.add_rounded, size: 12, color: AppTheme.darkText),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                child: avatarUrl.isEmpty ? const Icon(Icons.person_rounded, size: 36) : null,
               ),
             ),
           ],

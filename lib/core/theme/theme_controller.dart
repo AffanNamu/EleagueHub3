@@ -26,10 +26,16 @@ class ThemeController extends Notifier<ThemeState> {
     final prefs = ref.watch(prefsServiceProvider);
     final saved = prefs.getThemeMode();
 
+    // eSportlyic's primary/default identity is dark mode (navy +
+    // lime accent). A user who has never explicitly chosen a theme
+    // (fresh install, or any unrecognized/empty stored value) opens
+    // into dark mode. Anyone who has explicitly saved 'light' keeps
+    // seeing light mode — this only changes the fallback, not any
+    // existing user's saved choice.
     final ThemeMode initialMode = switch (saved) {
       _storageKeyDark => ThemeMode.dark,
       _storageKeyLight => ThemeMode.light,
-      _ => ThemeMode.light,
+      _ => ThemeMode.dark,
     };
 
     return ThemeState(mode: initialMode);

@@ -26,6 +26,10 @@ import '../../features/chat/presentation/league_chat_screen.dart';
 import '../../features/chat/presentation/organizer_chat_screen.dart';
 import '../../features/chat/presentation/private_chat_list_screen.dart';
 import '../../features/chat/presentation/private_chat_screen.dart';
+import '../../features/discovery/presentation/community_screen.dart';
+import '../../features/discovery/presentation/competitions_discovery_screen.dart';
+import '../../features/discovery/presentation/discovery_hub_screen.dart';
+import '../../features/feed/presentation/public_feed_screen.dart';
 import '../../features/home/presentation/home_shell.dart';
 import '../../features/leagues/models/league_format.dart';
 import '../../features/leagues/presentation/add_teams_screen.dart';
@@ -63,6 +67,7 @@ import '../../features/profile/presentation/public_team_profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
 import '../../features/profile/presentation/squad_screen.dart';
 import '../../features/search/presentation/user_search_screen.dart';
+import '../../features/status/presentation/status_viewer_screen.dart';
 import '../../web_app/presentation/web_desktop_session_store.dart';
 import '../../web_app/presentation/web_desktop_shell_screen.dart';
 import '../../web_app/presentation/web_pairing_screen.dart';
@@ -1265,6 +1270,18 @@ final appRouter = GoRouter(
       },
       routes: [
         GoRoute(
+          path: 'discovery/feed',
+          builder: (context, state) => const PublicFeedScreen(),
+        ),
+        GoRoute(
+          path: 'discovery/competitions',
+          builder: (context, state) => const CompetitionsDiscoveryScreen(),
+        ),
+        GoRoute(
+          path: 'discovery/community',
+          builder: (context, state) => const CommunityScreen(),
+        ),
+        GoRoute(
           path: 'search',
           builder: (context, state) => const UserSearchScreen(),
         ),
@@ -1291,6 +1308,12 @@ final appRouter = GoRouter(
             userId: state.pathParameters['userId']!,
             isOwner: (FirebaseAuth.instance.currentUser?.uid.trim() ?? '') ==
                 state.pathParameters['userId'],
+          ),
+        ),
+        GoRoute(
+          path: 'status/:userId',
+          builder: (context, state) => StatusViewerScreen(
+            userId: state.pathParameters['userId']!,
           ),
         ),
         GoRoute(

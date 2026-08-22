@@ -135,6 +135,30 @@ class TeamProfileRepository {
     }
   }
 
+  /// Updates ONLY the cover/background image for the CURRENTLY signed-in
+  /// user's own team profile (Feature 1 — Profile Background).
+  ///
+  /// Fetches the existing [TeamProfile] first (rather than writing a
+  /// partial document) because the `team_profile/profile` Firestore rule
+  /// validates every field on `request.resource.data` directly (game,
+  /// favoriteClub, favoritePlayer, bio, bannerImageUrl, themeColor,
+  /// visibility, updatedAtMs) — a write missing any of those fields would
+  /// be rejected. Delegates to [saveTeamProfile] so ownership enforcement
+  /// and the search-index sync stay in exactly one place.
+  ///
+  /// Pass an empty string to clear the cover image back to the default
+  /// gradient fallback.
+  Future<void> updateBannerImage({required String bannerImageUrl}) async {
+    try {
+      final authUid = _requireAuthUid();
+      final current = await fetchTeamProfile(authUid);
+      final updated = current.copyWith(bannerImageUrl: bannerImageUrl.trim());
+      await saveTeamProfile(updated);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
   // ── Squads ───────────────────────────────────────────────────────────────
 
   Future<Squad> fetchSquad({required String userId, required String gameId}) async {

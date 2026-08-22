@@ -9,11 +9,11 @@ import '../../../core/routing/home_shell_tab_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../discovery/presentation/discovery_hub_screen.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../../master_leagues/domain/organizer_feed_event.dart';
-import '../../master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
@@ -49,7 +49,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     _tabs = const [
       _HomeTab(),
       LeaguesListScreen(showAppBar: false),
-      PublicOrganizerDiscoveryScreen(),
+      DiscoveryHubScreen(),
       MarketplaceListScreen(),
       ProfileScreen(),
     ];
@@ -326,15 +326,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
 class _HomeTab extends StatelessWidget {
   const _HomeTab();
 
-  /// Navigation helper.
-  ///
-  /// Uses [GoRouter.of] explicitly instead of the [BuildContext] extension
-  /// so that it always resolves the correct router — even when the widget
-  /// is mounted inside an [Offstage] subtree or a nested [Navigator].
   void _navigate(BuildContext context, String location) {
-    // We use GoRouter.of(context).push() with the FULL path.
-    // All paths here start with '/' so they are absolute — GoRouter
-    // will not try to resolve them relative to the current shell route.
     try {
       GoRouter.of(context).push(location);
     } catch (e) {
@@ -361,7 +353,6 @@ class _HomeTab extends StatelessWidget {
       ),
       padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
       children: [
-        // ── Welcome hero ────────────────────────────────────────────────
         Glass(
           borderRadius: 28,
           padding: const EdgeInsets.all(22),
@@ -447,7 +438,6 @@ class _HomeTab extends StatelessWidget {
 
         const SizedBox(height: 22),
 
-        // ── Quick actions heading ────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -460,7 +450,6 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
 
-        // ── Create League + Live Match ───────────────────────────────────
         Row(
           children: [
             Expanded(
@@ -480,7 +469,6 @@ class _HomeTab extends StatelessWidget {
                 onTap: () => _navigate(context, '/leagues/create'),
               ),
             ),
-            // Live Match — mobile only
             if (!isWeb) ...[
               const SizedBox(width: 12),
               Expanded(
@@ -506,7 +494,6 @@ class _HomeTab extends StatelessWidget {
 
         const SizedBox(height: 12),
 
-        // ── Organizer Workspace ──────────────────────────────────────────
         _QuickActionCard(
           icon: Icons.hub_rounded,
           title: _trOr(
@@ -530,7 +517,6 @@ class _HomeTab extends StatelessWidget {
 
         const SizedBox(height: 12),
 
-        // ── Voice Room — mobile only ─────────────────────────────────────
         if (!isWeb)
           _QuickActionCard(
             icon: Icons.headset_mic_rounded,
@@ -559,12 +545,10 @@ class _HomeTab extends StatelessWidget {
 
         const SizedBox(height: 22),
 
-        // ── Organizer feed preview ───────────────────────────────────────
         _FollowedOrganizerFeedPreview(uid: uid),
 
         const SizedBox(height: 22),
 
-        // ── Explore heading ──────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -577,7 +561,6 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
 
-        // ── Explore list ─────────────────────────────────────────────────
         Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(4),
@@ -620,6 +603,16 @@ class _HomeTab extends StatelessWidget {
                 subtitle: 'Latest updates from organizers you follow',
                 onTap: () =>
                     _navigate(context, '/organizer-feed'),
+                secondaryColor: tertiary,
+                chevronColor: faint,
+              ),
+              Divider(
+                  color: AppTheme.cardBorder(brightness), height: 1),
+              _ExploreRow(
+                icon: Icons.local_fire_department_rounded,
+                title: 'Public Feed',
+                subtitle: "See what's happening in the community",
+                onTap: () => _navigate(context, '/discovery/feed'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),

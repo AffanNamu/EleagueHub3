@@ -1,9 +1,30 @@
 // lib/features/leagues/presentation/knockout_bracket_screen.dart
 //
-// FIXED:
-// - Replaced curly apostrophe in 'Couldn't load bracket' with straight quote.
-// - Added 'Round of 32' to _roundOrder for World Cup 48-team format.
-// - Added 'Round of 32' to _roundDisplayName() switch case.
+// REDESIGNED KNOCKOUT UI
+// ----------------------------------------------------------------------------
+// This screen now ships with two view modes, toggled from the app bar:
+//
+//  1) "Rounds" view (default) — inspired by modern score-center apps:
+//     a horizontal round selector (Round of 32 / Round of 16 / Quarter-final /
+//     Semi-final / Final) sits under the app bar. Each round renders as a
+//     clean vertical list of match cards (team crest, name, score, winner
+//     highlighted). Where two matches feed into an already-known next match,
+//     a bracket connector links them visually to a compact preview of that
+//     next match — exactly like the reference design. The Final tab shows a
+//     dedicated hero card (gradient background, big trophy, big score, venue
+//     line) plus the Bronze/3rd-place match underneath.
+//
+//  2) "Bracket" (tree) view — the original full-tournament tree with
+//     zoomable/pannable columns and connector lines, kept for anyone who
+//     wants the whole bracket at a glance. Its match-card styling was
+//     unified with the new "Rounds" view so both look consistent.
+//
+// All original data loading, two-legged play-off aggregate logic, FIFA
+// World Cup round support ('Round of 32'), and team-image resolution are
+// preserved unchanged. The only functional addition is the shared
+// `_computeMatchDisplayInfo` helper, which both view modes use so winner /
+// footer / status logic can never drift between the two presentations.
+// ----------------------------------------------------------------------------
 
 import 'dart:async';
 import 'dart:math' as math;
@@ -25,6 +46,30 @@ import '../data/leagues_repository_local.dart';
 import '../models/enums.dart';
 import '../models/knockout_match.dart';
 import '../models/team.dart';
+
+/// Small, immutable bundle of everything the UI needs to render a single
+/// knockout match consistently, regardless of which view (tree or list)
+/// is drawing it. Centralising this avoids the winner/footer logic ever
+/// diverging between the two presentations.
+class _MatchDisplayInfo {
+  const _MatchDisplayInfo({
+    required this.subtitleOverrideOrRoundName,
+    this.footer,
+    this.footerIsWarn = false,
+    this.isHomeWinner = false,
+    this.isAwayWinner = false,
+    required this.isTBD,
+    required this.isFinished,
+  });
+
+  final String subtitleOverrideOrRoundName;
+  final String? footer;
+  final bool footerIsWarn;
+  final bool isHomeWinner;
+  final bool isAwayWinner;
+  final bool isTBD;
+  final bool isFinished;
+}
 
 class KnockoutBracketScreen extends ConsumerStatefulWidget {
   final String leagueId;
@@ -52,6 +97,12 @@ class _KnockoutBracketScreenState
   Map<String, String> _teamImageUrls = {};
   final Set<String> _requestedUserImageIds = <String>{};
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  // ── View-mode state ────────────────────────────────────────────────────
+  // false => new "Rounds" list view (default, matches the reference video).
+  // true  => original full bracket tree view.
+  bool _showTree = false;
+  String? _selectedRound;
 
   static const double _colWidth = 240;
   static const double _centerWidth = 320;
@@ -198,11 +249,15 @@ class _KnockoutBracketScreenState
       }
 
       if (!mounted) return;
+
+      final defaultRound = _computeDefaultRound(koMatches);
+
       setState(() {
         _teamsById = {for (final t in teams) t.id: t};
         _teamImageUrls = localImages;
         _matches = koMatches;
         _isLoading = false;
+        _selectedRound ??= defaultRound;
       });
 
       final idsFromMatches = <String?>{
@@ -358,6 +413,158 @@ class _KnockoutBracketScreenState
     return _matchCardHeight + (maxMatches - 1) * _unit;
   }
 
+  // ── Shared match-display logic (used by both tree + list views) ────────
+
+  _MatchDisplayInfo _computeMatchDisplayInfo(KnockoutMatch match) {
+    final l10n = context.l10n;
+    final isTBD = match.homeTeamId == null || match.awayTeamId == null;
+
+    bool isHomeWinner = false;
+    bool isAwayWinner = false;
+
+    String? subtitle;
+    String? footer;
+    bool footerIsWarn = false;
+
+    final finished = _isFinished(match);
+
+    if (match.roundName == 'Play-off') {
+      subtitle = match.isSecondLeg
+          ? l10n.tr('admin_knockout_leg2')
+          : l10n.tr('admin_knockout_leg1');
+
+      final other = _findOtherLeg(match);
+      if (other != null && finished && _isFinished(other)) {
+        final winner = _aggregateWinner(match);
+        if (winner != null) {
+          isHomeWinner = (winner == match.homeTeamId);
+          isAwayWinner = (winner == match.awayTeamId);
+        }
+
+        final hId = match.homeTeamId!;
+        final aId = match.awayTeamId!;
+        final totals = <String, int>{};
+
+        void add(KnockoutMatch m) {
+          totals[m.homeTeamId!] =
+              (totals[m.homeTeamId!] ?? 0) + m.homeScore!;
+          totals[m.awayTeamId!] =
+              (totals[m.awayTeamId!] ?? 0) + m.awayScore!;
+        }
+
+        add(match);
+        add(other);
+
+        final hAgg = totals[hId] ?? 0;
+        final aAgg = totals[aId] ?? 0;
+
+        final agg =
+            '${l10n.tr('knockout_bracket_aggregate_prefix')}$hAgg - $aAgg';
+
+        String? pens;
+        if (hAgg == aAgg) {
+          final second = match.isSecondLeg
+              ? match
+              : (other.isSecondLeg ? other : null);
+          if (second?.tiebreakWinnerTeamId != null) {
+            pens =
+                '${l10n.tr('knockout_bracket_penalties_prefix')}${_teamName(second!.tiebreakWinnerTeamId) ?? second.tiebreakWinnerTeamId}';
+          } else {
+            pens = l10n.tr(
+                'knockout_bracket_aggregate_tied_penalties_required');
+            footerIsWarn = true;
+          }
+        }
+
+        footer = pens == null ? agg : '$agg • $pens';
+      }
+    } else {
+      if (finished) {
+        if (match.homeScore! > match.awayScore!) {
+          isHomeWinner = true;
+        } else if (match.awayScore! > match.homeScore!) {
+          isAwayWinner = true;
+        } else if (match.tiebreakWinnerTeamId != null) {
+          isHomeWinner = match.tiebreakWinnerTeamId == match.homeTeamId;
+          isAwayWinner = match.tiebreakWinnerTeamId == match.awayTeamId;
+          footer =
+              '${l10n.tr('knockout_bracket_penalties_prefix')}${_teamName(match.tiebreakWinnerTeamId) ?? match.tiebreakWinnerTeamId}';
+        } else {
+          footer = l10n.tr('knockout_bracket_draw_winner_required');
+          footerIsWarn = true;
+        }
+      }
+    }
+
+    return _MatchDisplayInfo(
+      subtitleOverrideOrRoundName: subtitle ?? match.roundName,
+      footer: footer,
+      footerIsWarn: footerIsWarn,
+      isHomeWinner: isHomeWinner,
+      isAwayWinner: isAwayWinner,
+      isTBD: isTBD,
+      isFinished: finished,
+    );
+  }
+
+  Color _statusAccentColor(ColorScheme cs, _MatchDisplayInfo info) {
+    if (info.isTBD) return cs.onSurface.withOpacity(0.22);
+    if (info.footerIsWarn) return const Color(0xFFF59E0B);
+    if (info.isFinished) return const Color(0xFF22C55E);
+    return cs.primary;
+  }
+
+  // ── Round bookkeeping shared by list + tab logic ────────────────────────
+
+  Map<String, List<KnockoutMatch>> _groupByRound() {
+    final rounds = <String, List<KnockoutMatch>>{};
+    for (final m in _matches) {
+      rounds.putIfAbsent(m.roundName, () => []).add(m);
+    }
+    return rounds;
+  }
+
+  /// Rounds in canonical order, for the tab bar. 'Final' and '3rd Place'
+  /// are merged into a single "Final" tab (the Final tab shows both the
+  /// title match and the bronze match beneath it).
+  List<String> _tabRoundOrder(Set<String> present) {
+    final tabs = <String>[];
+    for (final r in _roundOrder) {
+      if (r == '3rd Place') continue;
+      if (r == 'Final') {
+        if (present.contains('Final') || present.contains('3rd Place')) {
+          tabs.add('Final');
+        }
+        continue;
+      }
+      if (present.contains(r)) tabs.add(r);
+    }
+    return tabs;
+  }
+
+  String? _computeDefaultRound(List<KnockoutMatch> matches) {
+    if (matches.isEmpty) return null;
+
+    final byRound = <String, List<KnockoutMatch>>{};
+    for (final m in matches) {
+      byRound.putIfAbsent(m.roundName, () => []).add(m);
+    }
+
+    final tabs = _tabRoundOrder(byRound.keys.toSet());
+
+    for (final r in tabs) {
+      final relevant = r == 'Final'
+          ? <KnockoutMatch>[
+              ...(byRound['Final'] ?? const <KnockoutMatch>[]),
+              ...(byRound['3rd Place'] ?? const <KnockoutMatch>[]),
+            ]
+          : (byRound[r] ?? const <KnockoutMatch>[]);
+      if (relevant.any((m) => !_isFinished(m))) return r;
+    }
+
+    return tabs.isNotEmpty ? tabs.last : null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -384,6 +591,20 @@ class _KnockoutBracketScreenState
         leading: const BackButton(),
         actions: [
           IconButton(
+            tooltip: _showTree
+                ? 'Round-by-round view'
+                : 'Full bracket view',
+            onPressed: _isLoading
+                ? null
+                : () => setState(() => _showTree = !_showTree),
+            icon: Icon(
+              _showTree
+                  ? Icons.view_agenda_rounded
+                  : Icons.account_tree_rounded,
+              color: cs.primary,
+            ),
+          ),
+          IconButton(
             onPressed: _isLoading ? null : _loadData,
             icon: Icon(Icons.refresh, color: cs.primary),
             tooltip: l10n.tr('common_refresh'),
@@ -400,7 +621,9 @@ class _KnockoutBracketScreenState
                       const EdgeInsets.symmetric(horizontal: 16),
                   child: _matches.isEmpty
                       ? _buildEmptyState()
-                      : _buildPremiumBracket(),
+                      : (_showTree
+                          ? _buildPremiumBracket()
+                          : _buildListModeBody()),
                 )),
     );
   }
@@ -500,6 +723,785 @@ class _KnockoutBracketScreenState
       ),
     );
   }
+
+  Widget _buildEmptyRoundState() {
+    final cs = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.sports_soccer_rounded,
+                size: 40, color: cs.onSurface.withOpacity(0.25)),
+            const SizedBox(height: 12),
+            Text(
+              'No matches yet for this round.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: cs.onSurface.withOpacity(0.6),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // "ROUNDS" VIEW — round-tab selector + list of match cards (default UI)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  Widget _buildListModeBody() {
+    final rounds = _groupByRound();
+    final tabs = _tabRoundOrder(rounds.keys.toSet());
+
+    if (tabs.isEmpty) return _buildEmptyState();
+
+    final selected =
+        (_selectedRound != null && tabs.contains(_selectedRound))
+            ? _selectedRound!
+            : tabs.last;
+
+    return Column(
+      children: [
+        const SizedBox(height: 12),
+        _buildRoundTabs(tabs, selected),
+        const SizedBox(height: 18),
+        Expanded(
+          child: selected == 'Final'
+              ? _buildFinalHeroSection(rounds)
+              : _buildRoundListBody(selected, rounds),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRoundTabs(List<String> tabs, String selected) {
+    final cs = Theme.of(context).colorScheme;
+
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: tabs.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final r = tabs[i];
+          final isSelected = r == selected;
+          final label = r == 'Final' ? 'Final' : _roundDisplayName(r);
+
+          return InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: () => setState(() => _selectedRound = r),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 18, vertical: 10),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? cs.primary
+                    : cs.onSurface.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: isSelected
+                      ? cs.primary
+                      : cs.onSurface.withOpacity(0.14),
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: isSelected
+                        ? cs.onPrimary
+                        : cs.onSurface.withOpacity(0.7),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildRoundSummaryHeader(String round, int count) {
+    final cs = Theme.of(context).colorScheme;
+    final title = round == 'Final' ? 'Final' : _roundDisplayName(round);
+
+    return Row(
+      children: [
+        Text(
+          title.toUpperCase(),
+          style: TextStyle(
+            color: cs.onSurface,
+            fontWeight: FontWeight.w900,
+            fontSize: 15,
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(width: 8),
+        if (count > 0)
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: cs.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                color: cs.primary,
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRoundListBody(
+    String roundName,
+    Map<String, List<KnockoutMatch>> rounds,
+  ) {
+    final matches = List<KnockoutMatch>.from(
+        rounds[roundName] ?? const <KnockoutMatch>[]);
+
+    if (matches.isEmpty) return _buildEmptyRoundState();
+
+    matches.sort((a, b) {
+      final an = a.nextMatchId ?? '';
+      final bn = b.nextMatchId ?? '';
+      final c1 = an.compareTo(bn);
+      if (c1 != 0) return c1;
+
+      final c2 = (a.isSecondLeg ? 1 : 0)
+          .compareTo(b.isSecondLeg ? 1 : 0);
+      if (c2 != 0) return c2;
+
+      return a.id.compareTo(b.id);
+    });
+
+    final children = <Widget>[
+      _buildRoundSummaryHeader(roundName, matches.length),
+      const SizedBox(height: 16),
+    ];
+
+    if (roundName == 'Play-off') {
+      // Two-legged ties: no bracket-pair connector, just leg badges +
+      // aggregate footer (handled by _computeMatchDisplayInfo already).
+      for (final m in matches) {
+        children.add(_buildListMatchCard(m));
+      }
+    } else {
+      final matchesById = {for (final m in _matches) m.id: m};
+
+      final byNext = <String, List<KnockoutMatch>>{};
+      final singles = <KnockoutMatch>[];
+
+      for (final m in matches) {
+        final nm = (m.nextMatchId ?? '').trim();
+        if (nm.isEmpty) {
+          singles.add(m);
+          continue;
+        }
+        byNext.putIfAbsent(nm, () => []).add(m);
+      }
+
+      for (final entry in byNext.entries) {
+        final pair = entry.value;
+        final nextMatch = matchesById[entry.key];
+        children.add(_buildPairWithConnector(pair, nextMatch));
+        children.add(const SizedBox(height: 20));
+      }
+
+      for (final m in singles) {
+        children.add(_buildListMatchCard(m));
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: children,
+    );
+  }
+
+  /// Renders two feeder matches stacked on the left, a bracket connector,
+  /// and a compact preview of the match they feed into on the right —
+  /// mirroring the reference design's round-by-round bracket list.
+  Widget _buildPairWithConnector(
+    List<KnockoutMatch> pair,
+    KnockoutMatch? nextMatch,
+  ) {
+    final cs = Theme.of(context).colorScheme;
+    final top = pair.isNotEmpty ? pair[0] : null;
+    final bottom = pair.length > 1 ? pair[1] : null;
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: 5,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (top != null) _buildListMatchCard(top),
+                if (bottom != null) _buildListMatchCard(bottom),
+              ],
+            ),
+          ),
+          SizedBox(
+            width: 30,
+            child: CustomPaint(
+              painter: _BracketConnectorPainter(
+                color: cs.primary.withOpacity(0.45),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          Expanded(
+            flex: 4,
+            child: Center(child: _buildNextPreviewCard(nextMatch)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNextPreviewCard(KnockoutMatch? nextMatch) {
+    final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+
+    if (nextMatch == null) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: onSurface.withOpacity(0.03),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: onSurface.withOpacity(0.08)),
+        ),
+        child: Text(
+          'TBD',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: onSurface.withOpacity(0.4),
+            fontWeight: FontWeight.w800,
+            fontSize: 11,
+          ),
+        ),
+      );
+    }
+
+    final info = _computeMatchDisplayInfo(nextMatch);
+    final homeName = _teamName(nextMatch.homeTeamId) ??
+        (nextMatch.homeTeamId ?? l10n.tr('fixtures_tbd'));
+    final awayName = _teamName(nextMatch.awayTeamId) ??
+        (nextMatch.awayTeamId ?? l10n.tr('fixtures_tbd'));
+    final homeUrl = _teamImageUrlForId(nextMatch.homeTeamId);
+    final awayUrl = _teamImageUrlForId(nextMatch.awayTeamId);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+      decoration: BoxDecoration(
+        color: onSurface.withOpacity(0.035),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: onSurface.withOpacity(0.10)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _roundDisplayName(nextMatch.roundName).toUpperCase(),
+            style: TextStyle(
+              color: onSurface.withOpacity(0.4),
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _miniTeamRow(
+              homeUrl, homeName, nextMatch.homeScore, info.isHomeWinner),
+          const SizedBox(height: 8),
+          _miniTeamRow(
+              awayUrl, awayName, nextMatch.awayScore, info.isAwayWinner),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniTeamRow(String url, String name, int? score, bool isWinner) {
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+
+    return Row(
+      children: [
+        _TeamThumb(url: url, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: isWinner ? onSurface : onSurface.withOpacity(0.45),
+              fontWeight: isWinner ? FontWeight.w900 : FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          score == null ? '-' : '$score',
+          style: TextStyle(
+            color: isWinner ? cs.primary : onSurface.withOpacity(0.5),
+            fontWeight: FontWeight.w900,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The main, full-size match card used throughout the "Rounds" list view.
+  Widget _buildListMatchCard(KnockoutMatch match) {
+    final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+
+    final info = _computeMatchDisplayInfo(match);
+    final accent = _statusAccentColor(cs, info);
+
+    final homeName = _teamName(match.homeTeamId) ??
+        (match.homeTeamId ?? l10n.tr('fixtures_tbd'));
+    final awayName = _teamName(match.awayTeamId) ??
+        (match.awayTeamId ?? l10n.tr('fixtures_tbd'));
+    final homeUrl = _teamImageUrlForId(match.homeTeamId);
+    final awayUrl = _teamImageUrlForId(match.awayTeamId);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Stack(
+        children: [
+          Glass(
+            borderRadius: 18,
+            padding: const EdgeInsets.fromLTRB(20, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        info.subtitleOverrideOrRoundName.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: onSurface.withOpacity(0.5),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: info.isTBD
+                            ? onSurface.withOpacity(0.08)
+                            : (info.isFinished
+                                ? const Color(0xFF22C55E)
+                                    .withOpacity(0.14)
+                                : cs.primary.withOpacity(0.10)),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        info.isTBD
+                            ? 'TBD'
+                            : (info.isFinished
+                                ? l10n.tr(
+                                    'admin_knockout_status_completed')
+                                : l10n.tr(
+                                    'admin_knockout_status_pending')),
+                        style: TextStyle(
+                          color: info.isTBD
+                              ? onSurface.withOpacity(0.5)
+                              : (info.isFinished
+                                  ? const Color(0xFF22C55E)
+                                  : cs.primary),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _listTeamRow(
+                    homeUrl, homeName, match.homeScore, info.isHomeWinner),
+                const SizedBox(height: 10),
+                _listTeamRow(
+                    awayUrl, awayName, match.awayScore, info.isAwayWinner),
+                if (info.footer != null) ...[
+                  const SizedBox(height: 10),
+                  Divider(color: onSurface.withOpacity(0.08), height: 1),
+                  const SizedBox(height: 8),
+                  Text(
+                    info.footer!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: info.footerIsWarn
+                          ? const Color(0xFFF59E0B)
+                          : onSurface.withOpacity(0.6),
+                      fontSize: 11.5,
+                      fontWeight: info.footerIsWarn
+                          ? FontWeight.w900
+                          : FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          PositionedDirectional(
+            top: 0,
+            bottom: 0,
+            start: 0,
+            child: Container(
+              width: 4,
+              decoration: BoxDecoration(
+                color: accent,
+                borderRadius: const BorderRadiusDirectional.only(
+                  topStart: Radius.circular(18),
+                  bottomStart: Radius.circular(18),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _listTeamRow(String url, String name, int? score, bool isWinner) {
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+
+    return Row(
+      children: [
+        _TeamThumb(url: url, size: 30),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            name.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: isWinner ? onSurface : onSurface.withOpacity(0.42),
+              fontWeight: isWinner ? FontWeight.w900 : FontWeight.w600,
+              fontSize: 14.5,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          constraints: const BoxConstraints(minWidth: 36),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: isWinner
+                ? cs.primary.withOpacity(0.14)
+                : onSurface.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isWinner
+                  ? cs.primary.withOpacity(0.28)
+                  : onSurface.withOpacity(0.08),
+            ),
+          ),
+          child: Text(
+            score == null ? '-' : '$score',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isWinner ? cs.primary : onSurface.withOpacity(0.55),
+              fontWeight: FontWeight.w900,
+              fontSize: 15,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Final tab: hero card + bronze/3rd-place card ───────────────────────
+
+  Widget _buildFinalHeroSection(Map<String, List<KnockoutMatch>> rounds) {
+    final finalList = rounds['Final'] ?? const <KnockoutMatch>[];
+    final finalMatch = finalList.isNotEmpty ? finalList.first : null;
+
+    final thirdList = List<KnockoutMatch>.from(
+        rounds['3rd Place'] ?? const <KnockoutMatch>[])
+      ..sort((a, b) {
+        final aReady =
+            (a.homeTeamId != null && a.awayTeamId != null) ? 0 : 1;
+        final bReady =
+            (b.homeTeamId != null && b.awayTeamId != null) ? 0 : 1;
+        final c = aReady.compareTo(bReady);
+        if (c != 0) return c;
+        return a.id.compareTo(b.id);
+      });
+    final thirdMatch = thirdList.isNotEmpty ? thirdList.first : null;
+
+    if (finalMatch == null && thirdMatch == null) {
+      return _buildEmptyRoundState();
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        _buildRoundSummaryHeader('Final', finalMatch == null ? 0 : 1),
+        const SizedBox(height: 16),
+        _buildFinalHeroCard(finalMatch),
+        if (thirdMatch != null) ...[
+          const SizedBox(height: 18),
+          _buildBronzeCard(thirdMatch),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFinalHeroCard(KnockoutMatch? match) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
+    final homeId = match?.homeTeamId;
+    final awayId = match?.awayTeamId;
+
+    final homeName =
+        _teamName(homeId) ?? (homeId ?? l10n.tr('fixtures_tbd'));
+    final awayName =
+        _teamName(awayId) ?? (awayId ?? l10n.tr('fixtures_tbd'));
+    final homeUrl = _teamImageUrlForId(homeId);
+    final awayUrl = _teamImageUrlForId(awayId);
+
+    final info = match != null ? _computeMatchDisplayInfo(match) : null;
+    final finished = info?.isFinished ?? false;
+
+    String? championName;
+    String? championUrl;
+    if (finished && info != null) {
+      if (info.isHomeWinner) {
+        championName = homeName;
+        championUrl = homeUrl;
+      } else if (info.isAwayWinner) {
+        championName = awayName;
+        championUrl = awayUrl;
+      }
+    }
+    // championUrl currently unused beyond computation; reserved for future
+    // "champion" crest emphasis without altering existing layout contracts.
+    // ignore: unused_local_variable
+    final _unusedChampionUrl = championUrl;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(26),
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            cs.primary.withOpacity(0.26),
+            onSurface.withOpacity(0.04),
+            cs.secondary.withOpacity(0.22),
+          ],
+        ),
+        border: Border.all(color: onSurface.withOpacity(0.10)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: _finalSideColumn(
+                  url: homeUrl,
+                  name: homeName,
+                  score: match?.homeScore,
+                  emphasis: info?.isHomeWinner ?? false,
+                  alignEnd: false,
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.emoji_events_rounded,
+                    size: 52,
+                    color: finished
+                        ? const Color(0xFFFFD54F)
+                        : onSurface.withOpacity(0.28),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    championName != null
+                        ? championName.toUpperCase()
+                        : 'CHAMPION',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: onSurface.withOpacity(0.85),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 11,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ],
+              ),
+              Expanded(
+                child: _finalSideColumn(
+                  url: awayUrl,
+                  name: awayName,
+                  score: match?.awayScore,
+                  emphasis: info?.isAwayWinner ?? false,
+                  alignEnd: true,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Divider(color: onSurface.withOpacity(0.10), height: 1),
+          const SizedBox(height: 14),
+          Text(
+            finished
+                ? '${championName ?? ''} wins the Final'
+                : ((info?.isTBD ?? true)
+                    ? 'Awaiting finalists'
+                    : 'Final • Not yet played'),
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: onSurface.withOpacity(0.75),
+              fontWeight: FontWeight.w800,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _finalSideColumn({
+    required String url,
+    required String name,
+    required int? score,
+    required bool emphasis,
+    required bool alignEnd,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final onSurface = cs.onSurface;
+
+    return Column(
+      crossAxisAlignment:
+          alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        _TeamThumb(url: url, size: 46),
+        const SizedBox(height: 10),
+        Text(
+          name.toUpperCase(),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+          style: TextStyle(
+            color: emphasis ? cs.primary : onSurface,
+            fontWeight: FontWeight.w900,
+            fontSize: 12.5,
+            letterSpacing: 0.3,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          score == null ? '-' : '$score',
+          style: TextStyle(
+            color: emphasis ? cs.primary : onSurface.withOpacity(0.85),
+            fontWeight: FontWeight.w900,
+            fontSize: 30,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBronzeCard(KnockoutMatch match) {
+    final l10n = context.l10n;
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+    const bronze = Color(0xFFCD7F32);
+
+    final info = _computeMatchDisplayInfo(match);
+    final homeName = _teamName(match.homeTeamId) ??
+        (match.homeTeamId ?? l10n.tr('fixtures_tbd'));
+    final awayName = _teamName(match.awayTeamId) ??
+        (match.awayTeamId ?? l10n.tr('fixtures_tbd'));
+    final homeUrl = _teamImageUrlForId(match.homeTeamId);
+    final awayUrl = _teamImageUrlForId(match.awayTeamId);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: onSurface.withOpacity(0.035),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: bronze.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.workspace_premium_rounded,
+                  size: 16, color: bronze),
+              const SizedBox(width: 6),
+              const Text(
+                '3RD PLACE MATCH',
+                style: TextStyle(
+                  color: bronze,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 11,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _listTeamRow(
+              homeUrl, homeName, match.homeScore, info.isHomeWinner),
+          const SizedBox(height: 10),
+          _listTeamRow(
+              awayUrl, awayName, match.awayScore, info.isAwayWinner),
+        ],
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // "BRACKET" (TREE) VIEW — original full-tournament tree, kept intact
+  // ═══════════════════════════════════════════════════════════════════════
 
   Widget _buildPremiumBracket() {
     final l10n = context.l10n;
@@ -1260,107 +2262,20 @@ class _KnockoutBracketScreenState
   }
 
   Widget _buildMatchCard(KnockoutMatch match) {
-    final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
 
     final homeName = _teamName(match.homeTeamId) ??
-        (match.homeTeamId ?? l10n.tr('fixtures_tbd'));
+        (match.homeTeamId ?? context.l10n.tr('fixtures_tbd'));
     final awayName = _teamName(match.awayTeamId) ??
-        (match.awayTeamId ?? l10n.tr('fixtures_tbd'));
+        (match.awayTeamId ?? context.l10n.tr('fixtures_tbd'));
 
     final homeUrl = _teamImageUrlForId(match.homeTeamId);
     final awayUrl = _teamImageUrlForId(match.awayTeamId);
 
-    final isTBD =
-        match.homeTeamId == null || match.awayTeamId == null;
-
-    bool isHomeWinner = false;
-    bool isAwayWinner = false;
-
-    String? subtitle;
-    String? footer;
-
-    if (match.roundName == 'Play-off') {
-      subtitle = match.isSecondLeg
-          ? l10n.tr('admin_knockout_leg2')
-          : l10n.tr('admin_knockout_leg1');
-
-      final other = _findOtherLeg(match);
-      if (other != null &&
-          _isFinished(match) &&
-          _isFinished(other)) {
-        final winner = _aggregateWinner(match);
-        if (winner != null) {
-          isHomeWinner = (winner == match.homeTeamId);
-          isAwayWinner = (winner == match.awayTeamId);
-        }
-
-        final hId = match.homeTeamId!;
-        final aId = match.awayTeamId!;
-        final totals = <String, int>{};
-
-        void add(KnockoutMatch m) {
-          totals[m.homeTeamId!] =
-              (totals[m.homeTeamId!] ?? 0) + m.homeScore!;
-          totals[m.awayTeamId!] =
-              (totals[m.awayTeamId!] ?? 0) + m.awayScore!;
-        }
-
-        add(match);
-        add(other);
-
-        final hAgg = totals[hId] ?? 0;
-        final aAgg = totals[aId] ?? 0;
-
-        final agg =
-            '${l10n.tr('knockout_bracket_aggregate_prefix')}$hAgg - $aAgg';
-
-        String? pens;
-        if (hAgg == aAgg) {
-          final second = match.isSecondLeg
-              ? match
-              : (other.isSecondLeg ? other : null);
-          if (second?.tiebreakWinnerTeamId != null) {
-            pens =
-                '${l10n.tr('knockout_bracket_penalties_prefix')}${_teamName(second!.tiebreakWinnerTeamId) ?? second.tiebreakWinnerTeamId}';
-          } else {
-            pens = l10n.tr(
-                'knockout_bracket_aggregate_tied_penalties_required');
-          }
-        }
-
-        footer = pens == null ? agg : '$agg • $pens';
-      }
-    } else {
-      if (_isFinished(match)) {
-        if (match.homeScore! > match.awayScore!) {
-          isHomeWinner = true;
-        } else if (match.awayScore! > match.homeScore!) {
-          isAwayWinner = true;
-        } else if (match.tiebreakWinnerTeamId != null) {
-          isHomeWinner =
-              match.tiebreakWinnerTeamId == match.homeTeamId;
-          isAwayWinner =
-              match.tiebreakWinnerTeamId == match.awayTeamId;
-          footer =
-              '${l10n.tr('knockout_bracket_penalties_prefix')}${_teamName(match.tiebreakWinnerTeamId) ?? match.tiebreakWinnerTeamId}';
-        } else {
-          footer =
-              l10n.tr('knockout_bracket_draw_winner_required');
-        }
-      }
-    }
-
-    final leftStripeColor =
-        isTBD ? onSurface.withOpacity(0.22) : cs.primary;
-
-    final footerIsWarn = footer ==
-            l10n.tr('knockout_bracket_draw_winner_required') ||
-        footer ==
-            l10n.tr(
-                'knockout_bracket_aggregate_tied_penalties_required');
+    final info = _computeMatchDisplayInfo(match);
+    final leftStripeColor = _statusAccentColor(cs, info);
 
     return Stack(
       children: [
@@ -1372,7 +2287,7 @@ class _KnockoutBracketScreenState
               borderRadius: BorderRadius.circular(13),
               gradient: LinearGradient(
                 colors: [
-                  isTBD
+                  info.isTBD
                       ? onSurface.withOpacity(0.06)
                       : cs.primary.withOpacity(0.10),
                   Colors.transparent,
@@ -1389,7 +2304,7 @@ class _KnockoutBracketScreenState
                     children: [
                       Expanded(
                         child: Text(
-                          subtitle ?? match.roundName,
+                          info.subtitleOverrideOrRoundName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -1407,7 +2322,7 @@ class _KnockoutBracketScreenState
                               const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
-                            color: _isFinished(match)
+                            color: info.isFinished
                                 ? cs.primary.withOpacity(0.14)
                                 : onSurface.withOpacity(0.06),
                             borderRadius:
@@ -1417,13 +2332,13 @@ class _KnockoutBracketScreenState
                                     .withOpacity(0.10)),
                           ),
                           child: Text(
-                            _isFinished(match)
+                            info.isFinished
                                 ? context.l10n.tr(
                                     'admin_knockout_status_completed')
                                 : context.l10n.tr(
                                     'admin_knockout_status_pending'),
                             style: TextStyle(
-                              color: _isFinished(match)
+                              color: info.isFinished
                                   ? cs.primary
                                   : onSurface
                                       .withOpacity(0.55),
@@ -1439,7 +2354,7 @@ class _KnockoutBracketScreenState
                     url: homeUrl,
                     name: homeName,
                     score: match.homeScore?.toString() ?? '-',
-                    isWinner: isHomeWinner,
+                    isWinner: info.isHomeWinner,
                   ),
                   const SizedBox(height: 8),
                   Divider(
@@ -1450,23 +2365,23 @@ class _KnockoutBracketScreenState
                     url: awayUrl,
                     name: awayName,
                     score: match.awayScore?.toString() ?? '-',
-                    isWinner: isAwayWinner,
+                    isWinner: info.isAwayWinner,
                   ),
                   const Spacer(),
-                  if (footer != null)
+                  if (info.footer != null)
                     Align(
                       alignment:
                           AlignmentDirectional.centerStart,
                       child: Text(
-                        footer!,
+                        info.footer!,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: footerIsWarn
+                          color: info.footerIsWarn
                               ? const Color(0xFFF59E0B)
                               : onSurface.withOpacity(0.60),
                           fontSize: 11,
-                          fontWeight: footerIsWarn
+                          fontWeight: info.footerIsWarn
                               ? FontWeight.w900
                               : FontWeight.w700,
                         ),
@@ -1554,6 +2469,42 @@ class _KnockoutBracketScreenState
       ],
     );
   }
+}
+
+/// Draws a bracket-style connector linking two feeder matches (top/bottom
+/// on the left edge of this painter's box) into a single point on the
+/// right edge, used by the "Rounds" list view to visually connect a pair
+/// of matches to the next-round match they feed into.
+class _BracketConnectorPainter extends CustomPainter {
+  const _BracketConnectorPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+
+    final midX = size.width / 2;
+    final topY = size.height * 0.25;
+    final bottomY = size.height * 0.75;
+    final midY = size.height / 2;
+
+    final path = Path()
+      ..moveTo(0, topY)
+      ..lineTo(midX, topY)
+      ..lineTo(midX, bottomY)
+      ..lineTo(0, bottomY);
+    canvas.drawPath(path, paint);
+    canvas.drawLine(Offset(midX, midY), Offset(size.width, midY), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BracketConnectorPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class _TeamThumb extends StatelessWidget {
