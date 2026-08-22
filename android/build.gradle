@@ -1,3 +1,18 @@
+def localPropsFile = file('local.properties')
+def localProps = new Properties()
+if (localPropsFile.exists()) {
+    localPropsFile.withInputStream { localProps.load(it) }
+}
+
+// Values Flutter itself writes to android/local.properties on every
+// `flutter pub get` / `flutter build`. Falls back to the SDK versions
+// already used in android/app/build.gradle if local.properties doesn't
+// have them yet (e.g. a very first CI checkout).
+def flutterCompileSdk = (localProps.getProperty('flutter.compileSdkVersion') ?: '36').toInteger()
+def flutterMinSdk = (localProps.getProperty('flutter.minSdkVersion') ?: '24').toInteger()
+def flutterTargetSdk = (localProps.getProperty('flutter.targetSdkVersion') ?: '36').toInteger()
+def flutterNdkVersion = localProps.getProperty('flutter.ndkVersion') ?: '27.0.12077973'
+
 allprojects {
     repositories {
         google()
@@ -7,23 +22,44 @@ allprojects {
 
 rootProject.buildDir = '../build'
 
-subprojects { project ->
+subprojects { subproject ->
+    // Give every plugin subproject (app_links, record, etc.) — EXCEPT :app —
+    // a `flutter` extra property BEFORE its own build.gradle runs. This is
+    // the actual fix for:
+    //   "Could not get unknown property 'flutter' for extension 'android'"
+    // app_links-6.4.1's android/build.gradle reads flutter.compileSdkVersion
+    // while configuring its own android {} block, as part of evaluating its
+    // script. If that property isn't already defined at that point, the
+    // whole project evaluation throws immediately — before afterEvaluate
+    // (below) ever gets a chance to run.
+    // :app is skipped because it already gets the real FlutterExtension
+    // from "dev.flutter.flutter-gradle-plugin"; adding a second `flutter`
+    // property there is unnecessary and risks clashing with it.
+    if (subproject.name != 'app') {
+        subproject.ext.flutter = [
+            compileSdkVersion: flutterCompileSdk,
+            minSdkVersion    : flutterMinSdk,
+            targetSdkVersion : flutterTargetSdk,
+            ndkVersion       : flutterNdkVersion
+        ]
+    }
+
+    subproject.buildDir = "${rootProject.buildDir}/${subproject.name}"
+
+    // Safety net for the OTHER failure mode: plugins that apply
+    // com.android.library but don't set a namespace / compileSdk at all.
+    // That only surfaces once the plugin's own script has finished
+    // evaluating, so afterEvaluate is the right tool for this one.
     afterEvaluate {
-        if (project.hasProperty('android')) {
-            project.android {
+        if (subproject.hasProperty('android')) {
+            subproject.android {
                 if (namespace == null || namespace.toString().trim().isEmpty()) {
-                    namespace = "com.eleaguehub.generated.${project.name.replace('-', '_')}"
+                    namespace = "com.eleaguehub.generated.${subproject.name.replace('-', '_')}"
                 }
-                compileSdkVersion 36
+                compileSdkVersion flutterCompileSdk
             }
         }
     }
-
-    project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-
-subprojects {
-    project.evaluationDependsOn(':app')
 }
 
 tasks.register("clean", Delete) {
