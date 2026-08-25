@@ -561,6 +561,12 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
 
+        // NOTE: The "Global Chat" row that used to live here has been
+        // REMOVED per request — Global Chat is now reachable from
+        // Discover -> Community, and is intentionally no longer
+        // duplicated as a second entry point on Home. The underlying
+        // GlobalChatScreen and its '/global-chat' route are completely
+        // untouched; only this shortcut card was removed.
         Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(4),
@@ -619,15 +625,10 @@ class _HomeTab extends StatelessWidget {
               Divider(
                   color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
-                icon: Icons.forum_rounded,
-                title: _trOr(
-                    l10n, 'home_explore_global_chat', 'Global Chat'),
-                subtitle: _trOr(
-                  l10n,
-                  'home_explore_global_chat_sub',
-                  'Request access & chat in realtime',
-                ),
-                onTap: () => _navigate(context, '/global-chat'),
+                icon: Icons.groups_2_rounded,
+                title: 'Community',
+                subtitle: 'Global Chat, discussions & more',
+                onTap: () => _navigate(context, '/discovery/community'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),

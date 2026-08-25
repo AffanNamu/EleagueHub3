@@ -32,6 +32,7 @@ import '../../legal/contact_screen.dart';
 import '../../legal/privacy_policy_screen.dart';
 import '../../legal/terms_of_service_screen.dart';
 import '../../leagues/logic/coupon_config_service.dart';
+import '../../search/data/user_search_repository.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -50,6 +51,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   // instance even though the profile StreamBuilder rebuilds on every
   // snapshot (e.g. when other fields like avatar/plan change).
   bool _usernameEnsureTriggered = false;
+
+  // Same guard pattern for the "Teams Near You" country backfill — see
+  // UserSearchRepository.backfillCountryIfMissing(). This is what lets
+  // EXISTING users (who haven't touched their team profile since this
+  // feature shipped) get picked up automatically just by opening their
+  // own Profile tab, instead of only new saves populating `country`.
+  bool _countryBackfillTriggered = false;
 
   String _couponLeagueSubtitle({
     required bool enabled,
@@ -1269,6 +1277,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           !_usernameEnsureTriggered) {
                         _usernameEnsureTriggered = true;
                         unawaited(repo.ensureUsernameIfMissing());
+                      }
+
+                      // ── "Teams Near You" country backfill: fires once
+                      // per screen instance, best-effort, background.
+                      // Existing users who never re-save their team
+                      // profile still get a `country` value on their
+                      // user_search doc simply by opening this tab.
+                      if (uid.isNotEmpty &&
+                          profile != null &&
+                          !_countryBackfillTriggered) {
+                        _countryBackfillTriggered = true;
+                        unawaited(
+                          UserSearchRepository().backfillCountryIfMissing(),
+                        );
                       }
                       // ─────────────────────────────────────────────────
 

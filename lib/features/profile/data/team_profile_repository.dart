@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../core/services/country/country_resolver_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../search/data/user_search_repository.dart';
 import '../models/recent_match.dart';
@@ -123,12 +124,27 @@ class TeamProfileRepository {
           .timeout(const Duration(seconds: 15));
 
       final account = await UserProfileRepository().fetchByUserId(authUid);
+
+      // Resolve country alongside the existing resync so every team-profile
+      // save also keeps "Teams Near You" eligibility up to date — this is
+      // in addition to (not instead of) the background backfill that
+      // covers users who never touch their team profile at all (see
+      // UserSearchRepository.backfillCountryIfMissing(), called from the
+      // Profile screen).
+      String? country;
+      try {
+        country = await CountryResolverService.instance.resolveCountryCode();
+      } catch (_) {
+        country = null;
+      }
+
       unawaited(UserSearchRepository().syncSelfIndex(
         displayName: account?.displayName ?? '',
         shareId: account?.effectiveShareId ?? '',
         game: profile.game,
         badge: '',
         avatarUrl: account?.effectivePhotoUrl ?? '',
+        country: country,
       ));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));

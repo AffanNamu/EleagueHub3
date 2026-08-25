@@ -518,7 +518,26 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        // FIXED: the cover-photo edit control used to be a Positioned
+        // overlay floating on top of the banner image. GlassScaffold sets
+        // extendBodyBehindAppBar: true whenever an appBar is present, so
+        // the body (including that overlay) rendered UNDER the AppBar's
+        // Material layer — which still captures touches across its full
+        // width even in its visually "transparent" areas. The button was
+        // never actually reachable. Moving it into actions puts it in the
+        // same hit-test layer as the working chat/follow/more buttons.
         actions: [
+          if (_isOwner)
+            _uploadingBanner
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.edit_rounded),
+                    tooltip: 'Edit cover photo',
+                    onPressed: _showBannerEditSheet,
+                  ),
           if (!_isOwner) ...[
             _chatBusy
                 ? const Padding(
@@ -587,7 +606,6 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                           isOwner: _isOwner,
                           uploadingBanner: _uploadingBanner,
                           bannerUrlOptimizer: (u) => _cloudinaryOptimizedUrl(u, width: 800, crop: 'fill'),
-                          onEditBanner: _showBannerEditSheet,
                           hasActiveStatus: hasActiveStatus,
                           eligibleForStatus: eligibleForStatus,
                           onAvatarTap: () => _handleAvatarTap(
@@ -671,7 +689,6 @@ class _CoverAndHeader extends StatelessWidget {
     required this.isOwner,
     required this.uploadingBanner,
     required this.bannerUrlOptimizer,
-    required this.onEditBanner,
     required this.hasActiveStatus,
     required this.eligibleForStatus,
     required this.onAvatarTap,
@@ -684,7 +701,6 @@ class _CoverAndHeader extends StatelessWidget {
   final bool isOwner;
   final bool uploadingBanner;
   final String Function(String url) bannerUrlOptimizer;
-  final VoidCallback onEditBanner;
   final bool hasActiveStatus;
   final bool eligibleForStatus;
   final VoidCallback onAvatarTap;
@@ -696,10 +712,6 @@ class _CoverAndHeader extends StatelessWidget {
     final rawBannerUrl = teamProfile.bannerImageUrl.trim();
     final bannerUrl = rawBannerUrl.isNotEmpty ? bannerUrlOptimizer(rawBannerUrl) : '';
 
-    // Feature 2 — Status: an avatar with an active status gets a
-    // visually distinct lime ring; tapping it opens the viewer.
-    // Owners who are Pro/Elite but have no active status yet can tap
-    // the avatar to post one instead (see onAvatarTap).
     final bool avatarIsTappable = hasActiveStatus || (isOwner && eligibleForStatus);
 
     return Column(
@@ -747,27 +759,6 @@ class _CoverAndHeader extends StatelessWidget {
                     )
                   : null,
             ),
-            if (isOwner)
-              Positioned(
-                right: 12,
-                top: 12,
-                child: Material(
-                  color: Colors.black.withOpacity(0.45),
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: uploadingBanner ? null : onEditBanner,
-                    child: const Padding(
-                      padding: EdgeInsets.all(9),
-                      child: Icon(
-                        Icons.edit_rounded,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
             Positioned(
               left: 16,
               bottom: -36,
