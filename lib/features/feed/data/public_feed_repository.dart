@@ -77,6 +77,7 @@ class PublicFeedRepository {
     required String authorPhotoUrl,
     required String text,
     String mediaUrl = '',
+    String audioUrl = '', // NEW: Audio support
     PublicPostType postType = PublicPostType.text,
     String leagueId = '',
     String leagueName = '',
@@ -101,6 +102,7 @@ class PublicFeedRepository {
         'createdAtMs': now,
         'text': trimmedText.length > 2000 ? trimmedText.substring(0, 2000) : trimmedText,
         'mediaUrl': mediaUrl.trim(),
+        'audioUrl': audioUrl.trim(), // NEW: Audio support
         'postType': postType.storageValue,
         'leagueId': leagueId.trim(),
         'leagueName': leagueName.trim(),
@@ -118,16 +120,23 @@ class PublicFeedRepository {
   }
 
   /// "For You" == chronological feed for now (identical to Latest).
-  /// Kept as a separate method so a real ranking algorithm can replace
-  /// its internals later without changing call sites.
+  /// FIX: Removed `where('deleted', isEqualTo: false)` from the Firestore
+  /// query to avoid missing composite index errors (which caused the infinite spin).
+  /// Deletions are now securely filtered client-side.
   Stream<List<PublicPost>> watchForYouFeed({int limit = 30}) {
     return _postsCol
-        .where('deleted', isEqualTo: false)
         .orderBy('createdAtMs', descending: true)
-        .limit(limit)
+        .limit(limit + 10) // fetch extra to account for client-side filtering
         .snapshots()
-        .map((snap) => snap.docs.map(PublicPost.fromDoc).toList(growable: false))
-        .handleError((_) {});
+        .map((snap) => snap.docs
+            .map(PublicPost.fromDoc)
+            .where((post) => !post.deleted) // Client-side filter prevents index crashes
+            .take(limit)
+            .toList(growable: false))
+        .handleError((e) {
+          // Allow UI to see the error if something else breaks
+          throw e;
+        });
   }
 
   Stream<List<PublicPost>> watchLatestFeed({int limit = 30}) {

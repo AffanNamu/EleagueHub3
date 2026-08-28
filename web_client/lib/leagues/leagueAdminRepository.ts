@@ -1,14 +1,32 @@
-/*lib/leagues/leagueAdminRepository.ts*/
-
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { KnockoutMatch } from '@/types/match';
 
-// ── 1. POINT ADJUSTMENTS ─────────────────────────────────────────────────────
-export async function createPointAdjustmentWeb({
-  leagueId, teamId, type, points, reason, authUid
-}: {
-  leagueId: string; teamId: string; type: 'addition' | 'deduction'; points: number; reason: string; authUid: string;
-}) {
+// ── MATCH & KNOCKOUT UPDATES ─────────────────────────────────────────────────
+
+export async function updateMatchScoreWeb(leagueId: string, matchId: string, homeScore: number, awayScore: number) {
+  const matchRef = doc(db, 'leagues', leagueId, 'matches', matchId);
+  await updateDoc(matchRef, {
+    homeScore,
+    awayScore,
+    status: 'completed',
+    isPlayed: true,
+    updatedAtMs: Date.now()
+  });
+}
+
+export async function saveKnockoutMatchesWeb(leagueId: string, matches: Partial<KnockoutMatch>[]) {
+  const batch = writeBatch(db);
+  for (const m of matches) {
+    if (!m.id) continue;
+    const ref = doc(db, 'leagues', leagueId, 'knockout', m.id);
+    batch.set(ref, m, { merge: true });
+  }
+  await batch.commit();
+}
+
+// ── POINT ADJUSTMENTS ────────────────────────────────────────────────────────
+export async function createPointAdjustmentWeb({ leagueId, teamId, type, points, reason, authUid }: any) {
   const now = Date.now();
   const adjustmentRef = doc(collection(db, 'leagues', leagueId, 'pointAdjustments'));
   const teamRef = doc(db, 'leagues', leagueId, 'teams', teamId);
@@ -45,7 +63,7 @@ export async function createPointAdjustmentWeb({
   });
 }
 
-// ── 2. ANNOUNCEMENTS ─────────────────────────────────────────────────────────
+// ── ANNOUNCEMENTS ────────────────────────────────────────────────────────────
 export async function sendAnnouncementWeb(leagueId: string, title: string, message: string, authUid: string) {
   const annRef = doc(collection(db, 'leagues', leagueId, 'announcements'));
   const now = Date.now();
@@ -65,17 +83,14 @@ export async function sendAnnouncementWeb(leagueId: string, title: string, messa
   });
 }
 
-// ── 3. ROSTER CSV EXPORTER ───────────────────────────────────────────────────
+// ── ROSTER CSV EXPORTER ──────────────────────────────────────────────────────
 export async function generateRosterCsvString(leagueId: string): Promise<string> {
   const teamsSnap = await getDocs(collection(db, 'leagues', leagueId, 'teams'));
   const membershipsSnap = await getDocs(collection(db, 'leagues', leagueId, 'memberships'));
 
   const teams: any[] = [];
   const teamIds = new Set<string>();
-  teamsSnap.forEach(d => {
-    teams.push(d.data());
-    teamIds.add(d.id);
-  });
+  teamsSnap.forEach(d => { teams.push(d.data()); teamIds.add(d.id); });
 
   const orphanIds = new Set<string>();
   membershipsSnap.forEach(d => {
@@ -86,45 +101,31 @@ export async function generateRosterCsvString(leagueId: string): Promise<string>
   });
 
   let csv = 'userIdOrShareId,teamName,group\n';
-
   const escape = (str: string) => {
     if (!str) return '';
-    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) return `"${str.replace(/"/g, '""')}"`;
     return str;
   };
 
-  for (const t of teams) {
-    csv += `${escape(t.id)},${escape(t.name)},${escape(t.groupId || '')}\n`;
-  }
-  for (const uid of orphanIds) {
-    csv += `${escape(uid)},,\n`;
-  }
+  for (const t of teams) csv += `${escape(t.id)},${escape(t.name)},${escape(t.groupId || '')}\n`;
+  for (const uid of orphanIds) csv += `${escape(uid)},,\n`;
+  
   return csv;
 }
 
-// ── 4. LIVE SPACE CONTROLLER ─────────────────────────────────────────────────
+// ── LIVE SPACE CONTROLLER ────────────────────────────────────────────────────
 export async function toggleSpaceStatusWeb(leagueId: string, isLive: boolean, authUid: string, leagueName: string) {
   const spaceRef = doc(db, 'leagues', leagueId, 'space', 'current');
   const now = Date.now();
 
   if (isLive) {
     await setDoc(spaceRef, {
-      leagueId,
-      hostUserId: authUid,
-      hostUid: authUid,
-      title: `${leagueName} Live Space`,
-      isLive: true,
-      startedAtMs: now,
-      updatedAtMs: now,
+      leagueId, hostUserId: authUid, hostUid: authUid,
+      title: `${leagueName} Live Space`, isLive: true,
+      startedAtMs: now, updatedAtMs: now,
     }, { merge: true });
   } else {
-    await setDoc(spaceRef, {
-      isLive: false,
-      endedAtMs: now,
-      updatedAtMs: now,
-    }, { merge: true });
+    await setDoc(spaceRef, { isLive: false, endedAtMs: now, updatedAtMs: now }, { merge: true });
   }
 }
 
@@ -132,7 +133,7 @@ export async function deleteLeagueWeb(leagueId: string) {
   await deleteDoc(doc(db, 'leagues', leagueId));
 }
 
-// ── 5. COUPON CONFIG ─────────────────────────────────────────────────────────
+// ── COUPON CONFIG ────────────────────────────────────────────────────────────
 export async function ensureCouponConfigWeb(leagueId: string, authUid: string) {
   const ref = doc(db, 'leagues', leagueId, 'couponConfig', 'config');
   
@@ -175,26 +176,17 @@ export async function ensureCouponConfigWeb(leagueId: string, authUid: string) {
     const seedQty = (couponsEnabled && couponCount > 0) ? couponCount : 0;
 
     tx.set(ref, {
-      leagueId,
-      organizerUserId: authUid,
-      currency,
-      unitPrice: 1.0,
-      effectiveUnit: 1.0,
-      threshold: null,
-      thresholdDiscountPercent: 30.0,
-      discountPercent: seededDiscount,
-      userPaysPercent: 100 - seededDiscount,
-      organizerPaysPercent: 100,
-      qtyTotal: seedQty,
-      qtyRemaining: seedQty,
-      createdAtMs: nowMs,
-      updatedAtMs: nowMs,
-      version: 1,
+      leagueId, organizerUserId: authUid, currency,
+      unitPrice: 1.0, effectiveUnit: 1.0, threshold: null,
+      thresholdDiscountPercent: 30.0, discountPercent: seededDiscount,
+      userPaysPercent: 100 - seededDiscount, organizerPaysPercent: 100,
+      qtyTotal: seedQty, qtyRemaining: seedQty,
+      createdAtMs: nowMs, updatedAtMs: nowMs, version: 1,
     });
   });
 }
 
-// ── 6. COUPON CODES (WITH REAL PRICING MATH) ─────────────────────────────────
+// ── COUPON CODES (WITH REAL PRICING MATH) ────────────────────────────────────
 export async function generateCouponCodesWeb(leagueId: string, authUid: string, count: number, customCodeStr?: string): Promise<string[]> {
   const out: string[] = [];
   const customRaw = (customCodeStr || '').trim().toUpperCase();
@@ -205,9 +197,7 @@ export async function generateCouponCodesWeb(leagueId: string, authUid: string, 
   const generateRandomCode = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let res = 'ESL';
-    for (let i = 0; i < 12; i++) {
-      res += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    for (let i = 0; i < 12; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
     return res;
   };
 
@@ -247,10 +237,7 @@ export async function generateCouponCodesWeb(leagueId: string, authUid: string, 
       if (accessFee <= 0) {
         const other = cfgCurrency === 'NGN' ? 'USD' : 'NGN';
         const otherFee = getAccessFee(pricingMap, other);
-        if (otherFee > 0) {
-          accessFee = otherFee;
-          currencyUsed = other;
-        }
+        if (otherFee > 0) { accessFee = otherFee; currencyUsed = other; }
       }
       if (accessFee <= 0) throw new Error('pricingMissing');
 
@@ -262,29 +249,17 @@ export async function generateCouponCodesWeb(leagueId: string, authUid: string, 
       const writeNowMs = nowMs > prevUpdated ? nowMs : prevUpdated + 1;
 
       tx.set(codeRef, {
-        leagueId,
-        organizerUserId: authUid,
-        currency: currencyUsed,
-        discountPercent,
-        expectedAmount,
-        usedBy: '',
-        usedAtMs: 0,
-        createdAtMs: writeNowMs,
-        updatedAtMs: writeNowMs,
-        version: 1,
+        leagueId, organizerUserId: authUid, currency: currencyUsed,
+        discountPercent, expectedAmount, usedBy: '', usedAtMs: 0,
+        createdAtMs: writeNowMs, updatedAtMs: writeNowMs, version: 1,
       });
 
-      tx.update(cfgSnap.ref, {
-        qtyRemaining: remaining - 1,
-        updatedAtMs: writeNowMs
-      });
-
+      tx.update(cfgSnap.ref, { qtyRemaining: remaining - 1, updatedAtMs: writeNowMs });
       out.push(codeId);
     });
     return out;
   }
 
-  // Random generation loop
   for (let i = 0; i < effectiveCount; i++) {
     let attempts = 0;
     while (true) {
@@ -301,7 +276,6 @@ export async function generateCouponCodesWeb(leagueId: string, authUid: string, 
           if (remaining <= 0) throw new Error('noRemaining');
 
           const discountPercent = Number(cfg.discountPercent !== undefined ? cfg.discountPercent : Math.max(0, 100 - Number(cfg.userPaysPercent || 0)));
-          
           const pricingSnap = await tx.get(doc(db, 'app', 'pricing'));
           const pricingMap = pricingSnap.exists() ? pricingSnap.data() : {};
           const cfgCurrency = (cfg.currency || 'USD').toUpperCase();
@@ -320,10 +294,7 @@ export async function generateCouponCodesWeb(leagueId: string, authUid: string, 
           if (accessFee <= 0) {
             const other = cfgCurrency === 'NGN' ? 'USD' : 'NGN';
             const otherFee = getAccessFee(pricingMap, other);
-            if (otherFee > 0) {
-              accessFee = otherFee;
-              currencyUsed = other;
-            }
+            if (otherFee > 0) { accessFee = otherFee; currencyUsed = other; }
           }
           if (accessFee <= 0) throw new Error('pricingMissing');
 
@@ -339,22 +310,12 @@ export async function generateCouponCodesWeb(leagueId: string, authUid: string, 
           const writeNowMs = nowMs > prevUpdated ? nowMs : prevUpdated + 1;
 
           tx.set(codeRef, {
-            leagueId,
-            organizerUserId: authUid,
-            currency: currencyUsed,
-            discountPercent,
-            expectedAmount,
-            usedBy: '',
-            usedAtMs: 0,
-            createdAtMs: writeNowMs,
-            updatedAtMs: writeNowMs,
-            version: 1,
+            leagueId, organizerUserId: authUid, currency: currencyUsed,
+            discountPercent, expectedAmount, usedBy: '', usedAtMs: 0,
+            createdAtMs: writeNowMs, updatedAtMs: writeNowMs, version: 1,
           });
 
-          tx.update(cfgSnap.ref, {
-            qtyRemaining: remaining - 1,
-            updatedAtMs: writeNowMs
-          });
+          tx.update(cfgSnap.ref, { qtyRemaining: remaining - 1, updatedAtMs: writeNowMs });
         });
         out.push(codeId);
         break;

@@ -1,45 +1,15 @@
-'use client';
+import { useState, useEffect } from 'react';
+import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase';
+import { PrivateThread, PrivateMessage, sendPrivateMessageWeb } from '@/lib/chat/privateChatRepository';
+import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
 
-import { useCallback, useEffect, useState } from 'react';
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  where,
-  limit as fsLimit,
-} from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase';
-import { PrivateMessage, PrivateThread, privateMessageFromDoc, privateThreadFromDoc } from '@/lib/models/privateChat';
-import {
-  sendPrivateText,
-  sendPrivateImage,
-  sendPrivateVoice,
-  uploadPrivateChatImage,
-  uploadPrivateChatVoice,
-} from '@/lib/services/privateChatRepository';
-
-/**
- * Streams the signed-in user's DM inbox, ordered by most recent message.
- * Waits for auth state before querying (unlike some of the older hooks in
- * this codebase that read auth.currentUser synchronously at mount) since
- * the underlying Firestore rule requires signedIn() and a query fired
- * before auth resolves would just fail with permission-denied.
- */
 export function usePrivateThreads() {
   const [threads, setThreads] = useState<PrivateThread[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let unsubSnapshot: (() => void) | null = null;
-
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
-      if (unsubSnapshot) {
-        unsubSnapshot();
-        unsubSnapshot = null;
-      }
-
+    const unsubAuth = auth.onAuthStateChanged(user => {
       if (!user) {
         setThreads([]);
         setLoading(false);
@@ -49,39 +19,30 @@ export function usePrivateThreads() {
       const q = query(
         collection(db, 'private_threads'),
         where('participantIds', 'array-contains', user.uid),
-        orderBy('lastMessageAtMs', 'desc'),
+        orderBy('lastMessageAtMs', 'desc')
       );
 
-      unsubSnapshot = onSnapshot(
-        q,
-        (snap) => {
-          setThreads(snap.docs.map((d) => privateThreadFromDoc(d.id, d.data())));
-          setLoading(false);
-        },
-        (err) => {
-          console.error('[usePrivateThreads] stream error:', err);
-          setLoading(false);
-        },
-      );
+      const unsubSnap = onSnapshot(q, (snap) => {
+        setThreads(snap.docs.map(d => ({ id: d.id, ...d.data() } as PrivateThread)));
+        setLoading(false);
+      }, (err) => {
+        console.error(err);
+        setLoading(false);
+      });
+
+      return () => unsubSnap();
     });
 
-    return () => {
-      unsubAuth();
-      if (unsubSnapshot) unsubSnapshot();
-    };
+    return () => unsubAuth();
   }, []);
 
   return { threads, loading };
 }
 
-/**
- * Streams messages for one thread (newest first, capped at 100 — matches
- * PrivateChatRepository.dart's watchMessages default) plus send helpers
- * for text/image/voice.
- */
-export function usePrivateChat(threadId: string) {
+export function usePrivateMessages(threadId: string) {
   const [messages, setMessages] = useState<PrivateMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const authUid = auth.currentUser?.uid;
 
   useEffect(() => {
     if (!threadId) return;
@@ -89,52 +50,34 @@ export function usePrivateChat(threadId: string) {
     const q = query(
       collection(db, 'private_threads', threadId, 'messages'),
       orderBy('createdAtMs', 'desc'),
-      fsLimit(100),
+      limit(100)
     );
 
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setMessages(snap.docs.map((d) => privateMessageFromDoc(d.id, d.data())));
-        setLoading(false);
-      },
-      (err) => {
-        console.error('[usePrivateChat] stream error:', err);
-        setLoading(false);
-      },
-    );
+    const unsub = onSnapshot(q, (snap) => {
+      setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() } as PrivateMessage)));
+      setLoading(false);
+    });
 
     return () => unsub();
   }, [threadId]);
 
-  const sendText = useCallback(
-    async (text: string) => {
-      const uid = auth.currentUser?.uid;
-      if (!uid) throw new Error('Please sign in to continue.');
-      await sendPrivateText(threadId, uid, text);
-    },
-    [threadId],
-  );
+  const sendText = async (text: string) => {
+    if (!authUid) throw new Error('Not authenticated');
+    await sendPrivateMessageWeb(threadId, authUid, 'text', text);
+  };
 
-  const sendImage = useCallback(
-    async (file: File) => {
-      const uid = auth.currentUser?.uid;
-      if (!uid) throw new Error('Please sign in to continue.');
-      const { secureUrl } = await uploadPrivateChatImage(threadId, file);
-      await sendPrivateImage(threadId, uid, secureUrl);
-    },
-    [threadId],
-  );
+  const sendImage = async (file: File) => {
+    if (!authUid) throw new Error('Not authenticated');
+    const { secureUrl } = await uploadImageFile({ file, folder: `eleaguehub/chatrooms/private/${threadId}` });
+    await sendPrivateMessageWeb(threadId, authUid, 'image', '', secureUrl, '');
+  };
 
-  const sendVoice = useCallback(
-    async (blob: Blob) => {
-      const uid = auth.currentUser?.uid;
-      if (!uid) throw new Error('Please sign in to continue.');
-      const { secureUrl } = await uploadPrivateChatVoice(threadId, blob);
-      await sendPrivateVoice(threadId, uid, secureUrl);
-    },
-    [threadId],
-  );
+  const sendVoice = async (file: File) => {
+    if (!authUid) throw new Error('Not authenticated');
+    // Important: Cloudinary requires resourceType: 'video' for audio files
+    const { secureUrl } = await uploadImageFile({ file, folder: `chat_voice_messages/private/${threadId}`, resourceType: 'video' });
+    await sendPrivateMessageWeb(threadId, authUid, 'voice', '', '', secureUrl);
+  };
 
   return { messages, loading, sendText, sendImage, sendVoice };
 }

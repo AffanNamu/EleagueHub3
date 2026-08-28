@@ -1,53 +1,79 @@
-/*hooks/useLeagues.ts*/
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { League } from '@/types/league';
+import { LeagueData } from '@/lib/models/league';
 
 export function useLeagues() {
-  const [leagues, setLeagues] = useState<League[]>([]);
+  const [leagues, setLeagues] = useState<LeagueData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth.currentUser) {
-      setLoading(false);
-      return;
-    }
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        setLeagues([]);
+        setLoading(false);
+        return;
+      }
 
-    const uid = auth.currentUser.uid;
+      const uid = user.uid.trim();
+      const leaguesRef = collection(db, 'leagues');
 
-    // Fetch leagues where the user is either the owner OR in the memberIds array
-    // Firestore requires separate queries for OR logic across different fields, 
-    // so we listen to both and merge them client-side.
-    const ownerQuery = query(collection(db, 'leagues'), where('organizerId', '==', uid));
-    const memberQuery = query(collection(db, 'leagues'), where('memberIds', 'array-contains', uid));
+      // STRICT PARITY: Matches Flutter's `_fetchLeaguesFromFirestoreForWeb` logic.
+      // Firestore requires separate queries for OR logic across different fields.
+      const queries = [
+        query(leaguesRef, where('memberIds', 'array-contains', uid)),
+        query(leaguesRef, where('organizerUid', '==', uid)),
+        query(leaguesRef, where('ownerUid', '==', uid)),
+        query(leaguesRef, where('ownerId', '==', uid)),
+        query(leaguesRef, where('organizerUserId', '==', uid)),
+      ];
 
-    const handleData = () => {
-      const merged = new Map<string, League>();
-      ownerDocs.forEach(d => merged.set(d.id, d));
-      memberDocs.forEach(d => merged.set(d.id, d));
-      setLeagues(Array.from(merged.values()));
-      setLoading(false);
-    };
+      const unsubscribes: Unsubscribe[] = [];
+      const queryResults = new Map<number, LeagueData[]>();
+      let loadedCount = 0;
 
-    let ownerDocs: League[] = [];
-    let memberDocs: League[] = [];
-    let loaded1 = false, loaded2 = false;
+      const handleData = () => {
+        if (loadedCount < queries.length) return;
+        
+        const merged = new Map<string, LeagueData>();
+        for (const docs of queryResults.values()) {
+          docs.forEach(d => {
+            // Guarantee ID exists exactly like Flutter's `map['id'] = entry.key;`
+            if (!d.id) d.id = d.id; 
+            merged.set(d.id, d);
+          });
+        }
+        
+        setLeagues(Array.from(merged.values()));
+        setLoading(false);
+      };
 
-    const unsub1 = onSnapshot(ownerQuery, (snap) => {
-      ownerDocs = snap.docs.map(d => ({ id: d.id, ...d.data() } as League));
-      loaded1 = true;
-      if (loaded2) handleData();
-    }, (err) => setError(err.message));
+      queries.forEach((q, index) => {
+        const unsub = onSnapshot(q, (snap) => {
+          queryResults.set(
+            index, 
+            snap.docs.map(d => ({ id: d.id, ...d.data() } as LeagueData))
+          );
+          
+          if (loadedCount < queries.length) {
+            loadedCount++;
+          }
+          handleData();
+        }, (err) => {
+          console.error(`[useLeagues] Query ${index} failed:`, err);
+          setError(err.message);
+        });
+        
+        unsubscribes.push(unsub);
+      });
 
-    const unsub2 = onSnapshot(memberQuery, (snap) => {
-      memberDocs = snap.docs.map(d => ({ id: d.id, ...d.data() } as League));
-      loaded2 = true;
-      if (loaded1) handleData();
-    }, (err) => setError(err.message));
+      return () => {
+        unsubscribes.forEach(unsub => unsub());
+      };
+    });
 
-    return () => { unsub1(); unsub2(); };
+    return () => unsubscribeAuth();
   }, []);
 
   return { leagues, loading, error };

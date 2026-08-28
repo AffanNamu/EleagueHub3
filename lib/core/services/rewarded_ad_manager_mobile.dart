@@ -7,7 +7,9 @@
 //     in google_mobile_ads v5.x. SSV is now configured in AdMob console.
 //   • Fixed AdError → AdError is the correct type for
 //     onAdFailedToShowFullScreenContent in v5.
-//   • All other logic is unchanged and production-ready.
+//   • IMPLEMENTED FAIL-OPEN: Users are granted access (returns true) if ads 
+//     fail to load, fail to show, or timeout, ensuring a smooth UX.
+//   • ADDED PRODUCTION KEYS: Android key updated to real production Ad Unit ID.
 // ---------------------------------------------------------------------------
 
 import 'dart:async';
@@ -15,10 +17,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-// ── Ad unit IDs (Google-provided TEST ids) ───────────────────────────────────
+// ── Ad unit IDs ──────────────────────────────────────────────────────────────
 
-const String _testRewardedAndroid = 'ca-app-pub-3940256099942544/5224354917';
-const String _testRewardedIOS     = 'ca-app-pub-3940256099942544/1712485313';
+// Your real production Android Ad Unit ID
+const String _rewardedAndroid = 'ca-app-pub-9284565371998347/5830580550';
+// NOTE: Still using the test key for iOS. Update this when you set up your iOS app in AdMob!
+const String _rewardedIOS     = 'ca-app-pub-3940256099942544/1712485313';
 
 const Duration _loadTimeout = Duration(seconds: 15);
 
@@ -41,8 +45,8 @@ bool get _adsSupported =>
 
 String get _adUnitId =>
     defaultTargetPlatform == TargetPlatform.iOS
-        ? _testRewardedIOS
-        : _testRewardedAndroid;
+        ? _rewardedIOS
+        : _rewardedAndroid;
 
 // ── Public API (identical signatures to stub) ─────────────────────────────────
 
@@ -54,8 +58,8 @@ Future<void> preload({String placement = 'preload'}) async {
 
 /// Gate: show the rewarded ad and return whether the reward was earned.
 ///
-/// Returns `true`  → reward earned → caller may proceed with action.
-/// Returns `false` → ad not completed / failed → caller must NOT proceed.
+/// Returns `true`  → reward earned (OR ad failed to load/show) → caller proceeds.
+/// Returns `false` → ad actively closed/skipped by user → caller must NOT proceed.
 Future<bool> showRewardedGate({required String placement}) async {
   if (!_adsSupported) return true;
 
@@ -66,9 +70,14 @@ Future<bool> showRewardedGate({required String placement}) async {
 
   final ad = await _getOrLoadRewardedAd(placement: placement);
   if (ad == null) {
-    // Ad failed to load.
-    // Do not silently allow — return false so caller can show a snack.
-    return false;
+    // ── FAIL-OPEN ─────────────────────────────────────────────────────────
+    // Ad failed to load (e.g., no internet, no fill).
+    // Silently allow the user through.
+    if (kDebugMode) {
+      debugPrint('[RewardedAdManager] Ad absent. Granting free pass.');
+    }
+    unawaited(preload(placement: '$placement:retry_after_load_fail'));
+    return true; 
   }
 
   _isShowing = true;
@@ -116,7 +125,9 @@ Future<bool> showRewardedGate({required String placement}) async {
         );
       }
 
-      if (!completer.isCompleted) completer.complete(false);
+      // ── FAIL-OPEN ─────────────────────────────────────────────────────
+      // The ad broke on our end, don't punish the user.
+      if (!completer.isCompleted) completer.complete(true);
 
       unawaited(preload(placement: '$placement:after_show_fail'));
     },
@@ -163,7 +174,8 @@ Future<bool> showRewardedGate({required String placement}) async {
             '[RewardedAdManager] show() timed out (placement=$placement)',
           );
         }
-        return false;
+        // ── FAIL-OPEN ───────────────────────────────────────────────────
+        return true; 
       },
     );
 
@@ -176,7 +188,9 @@ Future<bool> showRewardedGate({required String placement}) async {
       ad.dispose();
     } catch (_) {}
     _isShowing = false;
-    return false;
+    
+    // ── FAIL-OPEN ─────────────────────────────────────────────────────
+    return true; 
   }
 }
 
@@ -212,10 +226,6 @@ Future<RewardedAd?> _getOrLoadRewardedAd({
       onAdLoaded: (RewardedAd ad) {
         _isLoading  = false;
         _rewardedAd = ad;
-
-        // NOTE: setServerSideVerificationOptions() was removed in
-        // google_mobile_ads v5.x. SSV custom data is now configured
-        // directly in the AdMob console under the ad unit settings.
 
         if (kDebugMode) {
           debugPrint(

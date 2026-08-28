@@ -1,3 +1,4 @@
+//leagues/[id]/admin/knockout-draw/page.tsx
 'use client';
 
 import { useState } from 'react';

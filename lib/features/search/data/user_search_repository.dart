@@ -19,14 +19,6 @@ class UserSearchRepository {
   CollectionReference<Map<String, dynamic>> get _col =>
       _firestore.collection('user_search');
 
-  /// Keeps this user's search index entry in sync. Call after any write
-  /// to UserProfile.teamName, shareId, avatar, or TeamProfile.game/badge.
-  /// Best-effort — never throws to the caller.
-  ///
-  /// [country] is optional so existing call-sites that don't yet resolve
-  /// a country keep compiling unchanged. When omitted, any existing
-  /// `country` value already on the doc is left untouched (merge: true) —
-  /// this call never clears a country that was previously set/backfilled.
   Future<void> syncSelfIndex({
     required String displayName,
     required String shareId,
@@ -34,6 +26,7 @@ class UserSearchRepository {
     required String badge,
     required String avatarUrl,
     String? country,
+    String? usernameLower,
   }) async {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) return;
@@ -44,7 +37,7 @@ class UserSearchRepository {
         'displayName': displayName.trim(),
         'displayNameLower': displayName.trim().toLowerCase(),
         'shareId': shareId.trim(),
-        'shareIdLower': shareId.trim().toLowerCase(), // Added for case-insensitive ID search
+        'shareIdLower': shareId.trim().toLowerCase(),
         'game': game.trim(),
         'badge': badge.trim(),
         'avatarUrl': avatarUrl.trim(),
@@ -56,6 +49,11 @@ class UserSearchRepository {
         payload['country'] = trimmedCountry;
       }
 
+      final trimmedUsername = (usernameLower ?? '').trim().toLowerCase();
+      if (trimmedUsername.isNotEmpty) {
+        payload['usernameLower'] = trimmedUsername;
+      }
+
       await _col.doc(uid).set(payload, SetOptions(merge: true)).timeout(const Duration(seconds: 12));
     } catch (e) {
       if (kDebugMode) {
@@ -64,9 +62,6 @@ class UserSearchRepository {
     }
   }
 
-  /// Convenience: reads the current UserProfile + TeamProfile for the
-  /// signed-in user and re-syncs the index from both. Safe to call
-  /// after any edit to either doc — avoids partial-field overwrites.
   Future<void> resyncSelfFromSources({
     required String displayName,
     required String shareId,
@@ -74,6 +69,7 @@ class UserSearchRepository {
     required String game,
     required String badge,
     String? country,
+    String? usernameLower,
   }) => syncSelfIndex(
         displayName: displayName,
         shareId: shareId,
@@ -81,15 +77,35 @@ class UserSearchRepository {
         badge: badge,
         avatarUrl: avatarUrl,
         country: country,
+        usernameLower: usernameLower,
       );
 
-  /// Background, best-effort backfill of the `country` field for the
-  /// currently signed-in user's own search-index doc, IF it is missing.
-  /// Safe to call repeatedly (no-ops once a country is set) — mirrors
-  /// UserProfileRepository.ensureUsernameIfMissing()'s pattern so every
-  /// existing user picks up "Teams Near You" eligibility the next time
-  /// they simply open their own Profile tab, without needing to touch
-  /// their team profile first. Never throws.
+  /// Best-effort, called immediately after UserProfileRepository commits
+  /// a username reservation (both manual edit and auto-assignment), so
+  /// the search index stays in sync without every caller having to know
+  /// about it. Writes ONLY userId/usernameLower/updatedAtMs — never
+  /// throws.
+  Future<void> syncUsername(String usernameLower) async {
+    final uid = _auth.currentUser?.uid.trim() ?? '';
+    final lower = usernameLower.trim().toLowerCase();
+    if (uid.isEmpty || lower.isEmpty) return;
+
+    try {
+      await _col.doc(uid).set(
+        <String, dynamic>{
+          'userId': uid,
+          'usernameLower': lower,
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 12));
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[UserSearchRepository] syncUsername failed (non-fatal): $e');
+      }
+    }
+  }
+
   Future<void> backfillCountryIfMissing() async {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) return;
@@ -126,10 +142,6 @@ class UserSearchRepository {
     }
   }
 
-  /// "Teams Near You" — teams sharing the viewer's resolved country.
-  /// Excludes the viewer themselves. Best-effort: returns an empty list
-  /// on any failure rather than throwing, since this powers an
-  /// auto-loading section that shouldn't block the rest of the screen.
   Future<List<UserSearchEntry>> fetchNearby({
     required String countryCode,
     int limit = 20,
@@ -143,7 +155,7 @@ class UserSearchRepository {
       final snap = await _col
           .where('country', isEqualTo: cc)
           .orderBy('updatedAtMs', descending: true)
-          .limit(limit + 1) // +1 headroom in case self needs excluding
+          .limit(limit + 1)
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 15));
 
@@ -162,18 +174,16 @@ class UserSearchRepository {
     }
   }
 
-  /// Prefix search on display name (case-insensitive). Also tries an
-  /// exact shareId match so users can search by their friend's Team ID.
   Future<List<UserSearchEntry>> search(String query, {int limit = 20}) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return const [];
 
-    final lower = trimmed.toLowerCase();
+    var lower = trimmed.toLowerCase();
+    if (lower.startsWith('@')) lower = lower.substring(1);
 
     try {
       final results = <String, UserSearchEntry>{};
 
-      // 1. Prefix match on display name (case-insensitive).
       final nameSnap = await _col
           .orderBy('displayNameLower')
           .startAt([lower])
@@ -187,9 +197,28 @@ class UserSearchRepository {
         results[entry.userId] = entry;
       }
 
-      // 2. Exact shareId match (Team ID).
+      // Exact username match — trigger for @-prefixed queries or once
+      // enough characters have been typed that it's plausibly a username.
+      if (trimmed.startsWith('@') || lower.length >= 3) {
+        try {
+          final usernameSnap = await _col
+              .where('usernameLower', isEqualTo: lower)
+              .limit(5)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 12));
+
+          for (final d in usernameSnap.docs) {
+            final entry = UserSearchEntry.fromDoc(d);
+            results[entry.userId] = entry;
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('[UserSearchRepository] username search failed: $e');
+          }
+        }
+      }
+
       if (trimmed.length >= 3) {
-        // Try the new lowercase field first
         final idSnap = await _col
             .where('shareIdLower', isEqualTo: lower)
             .limit(5)
@@ -201,8 +230,6 @@ class UserSearchRepository {
           results[entry.userId] = entry;
         }
 
-        // Fallback: Check the exact case-sensitive field for older profiles
-        // that haven't been re-synced since the code update.
         if (results.isEmpty) {
           final idSnapExact = await _col
               .where('shareId', isEqualTo: trimmed)

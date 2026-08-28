@@ -85,7 +85,7 @@ Future<bool?> _showWarningDialog(BuildContext context) {
 
                 // ── Title ────────────────────────────────────────────────────
                 Text(
-                  'Delete Account',
+                  'Close Account',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w900,
                     fontSize: 22,
@@ -170,7 +170,7 @@ Future<bool?> _showWarningDialog(BuildContext context) {
                       ),
                     ),
                     child: const Text(
-                      'Yes, Delete My Account',
+                      'Yes, Close My Account',
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 14,
@@ -502,7 +502,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                         ),
                       ),
                       child: const Text(
-                        'Delete Account',
+                        'Close Account',
                         style: TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 14,
@@ -557,7 +557,7 @@ Future<bool> _performDeletion(
     // Show brief success snack before router redirect takes over
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Account deleted successfully.'),
+        content: Text('Account Closed successfully.'),
         behavior: SnackBarBehavior.floating,
         duration: Duration(seconds: 2),
       ),
@@ -626,7 +626,7 @@ Future<bool> _performDeletion(
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          result.errorMessage ?? 'Account deletion failed. Please try again.',
+          result.errorMessage ?? 'Account closing failed. Please try again.',
         ),
         behavior: SnackBarBehavior.floating,
         backgroundColor: Theme.of(context).colorScheme.error,
@@ -670,7 +670,7 @@ class _DeletionLoadingDialog extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               Text(
-                'Deleting Account',
+                'Closing Account',
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w900,
                   fontSize: 18,

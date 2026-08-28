@@ -10,6 +10,7 @@ class UserSearchEntry {
     required this.badge,
     required this.avatarUrl,
     required this.country,
+    required this.usernameLower,
   });
 
   final String userId;
@@ -18,11 +19,8 @@ class UserSearchEntry {
   final String game;
   final String badge;
   final String avatarUrl;
-
-  /// ISO-3166-1 alpha-2 country code (e.g. "NG", "US"), or '' if not yet
-  /// resolved/synced. Powers the "Teams Near You" section — see
-  /// UserSearchRepository.fetchNearby() and .backfillCountryIfMissing().
   final String country;
+  final String usernameLower;
 
   factory UserSearchEntry.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final map = doc.data() ?? {};
@@ -34,6 +32,7 @@ class UserSearchEntry {
       badge: (map['badge'] as String? ?? '').trim(),
       avatarUrl: (map['avatarUrl'] as String? ?? '').trim(),
       country: (map['country'] as String? ?? '').trim().toUpperCase(),
+      usernameLower: (map['usernameLower'] as String? ?? '').trim().toLowerCase(),
     );
   }
 }

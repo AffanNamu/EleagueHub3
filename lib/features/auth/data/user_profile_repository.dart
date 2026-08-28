@@ -9,6 +9,7 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 
 import '../../master_leagues/domain/master_league_plan.dart';
+import '../../search/data/user_search_repository.dart';
 import '../../verification/domain/badge_model.dart';
 import '../../verification/logic/badge_service.dart';
 import '../domain/username_utils.dart';
@@ -22,9 +23,6 @@ class UserProfileRepositoryException implements Exception {
   String toString() => message;
 }
 
-/// Thrown specifically when a username is unavailable (already taken
-/// by a different user, or reserved). Callers that want a distinct
-/// "taken" UI state (as opposed to a generic error) can catch this.
 class UsernameUnavailableException extends UserProfileRepositoryException {
   const UsernameUnavailableException(super.message);
 }
@@ -42,14 +40,6 @@ class UserProfileRepository {
   CollectionReference<Map<String, dynamic>> get _usersCol =>
       _firestore.collection('users');
 
-  /// Top-level collection used purely as an atomic uniqueness
-  /// reservation for usernames. Doc ID == canonical lowercase
-  /// username. Doc body: {userId, createdAtMs}. This collection is
-  /// intentionally separate from `/users/{uid}` so that "is this
-  /// username taken" can be answered with a single, cheap, indexed
-  /// document read/write instead of a query, and so uniqueness can be
-  /// enforced transactionally without contending on the user's own
-  /// document for unrelated concurrent writes.
   CollectionReference<Map<String, dynamic>> get _usernamesCol =>
       _firestore.collection('usernames');
 
@@ -191,27 +181,6 @@ class UserProfileRepository {
     }
   }
 
-  // ── FIXED: reverted to a plain server-then-cache read.
-  //
-  // A previous edit (not from this thread's fixes) added a
-  // "SYNCHRONOUS AUTO-HEAL" block here that, whenever the local device
-  // cache showed an active paid plan but the SERVER document did not,
-  // would automatically WRITE the cached plan data back to the server
-  // -- using `receiptId: 'auto_healed_receipt'` when the cached
-  // receipt was empty. That is a fabricated, unverifiable receipt ID
-  // written directly to Firestore from the client, with no purchase
-  // verification of any kind. Any device whose local cache ever
-  // contained a "Pro"/"Elite" record (including a genuinely expired
-  // one that was merely still numerically in the future relative to
-  // some earlier moment, or a corrupted/tampered local database) could
-  // silently re-grant itself a paid plan on the next app launch. This
-  // is a real security hole and has been removed. Entitlement writes
-  // now only ever happen through activatePlanSubscription(), called
-  // either directly with a real, provider-verified receipt, or via
-  // MasterLeagueEntitlementService.activateAfterPayment(), which for
-  // Google Play now routes through the Cloudflare Worker for genuine
-  // server-side verification against the Play Developer API before
-  // anything is written.
   Future<UserProfile?> fetchByUserId(String userId) async {
     _requireAuthUid();
 
@@ -350,11 +319,6 @@ class UserProfileRepository {
     }
   }
 
-  /// Looks up a user by their username (with or without a leading
-  /// '@'). Reserved for future use (mentions, "open profile by
-  /// username", share links) — not wired into any UI yet, but kept
-  /// here alongside the other lookup helpers so this repository stays
-  /// the single source of truth for username reads.
   Future<UserProfile?> fetchByUsername(String username) async {
     try {
       _requireAuthUid();
@@ -493,22 +457,6 @@ class UserProfileRepository {
     }
   }
 
-  /// Ensures a payload will satisfy Firestore's `create` rule for
-  /// `/users/{userId}` when the document does not already exist.
-  ///
-  /// A `.set(data, SetOptions(merge: true))` call is evaluated by
-  /// Firestore's `create` rule when the target document does not yet
-  /// exist, and by the `update` rule when it does. The `create` rule
-  /// requires `keys().hasAll(['userId','teamName','authProvider',
-  /// 'createdAt','updatedAt'])`, but activatePlanSubscription() below
-  /// only ever sends plan-related fields plus userId/updatedAt. So if
-  /// a user's `/users/{uid}` document does not already exist at the
-  /// moment they buy Pro/Elite (fresh install, a profile-creation
-  /// race, or an account that never went through createIfMissing),
-  /// that write would fail `hasAll(...)` and get rejected with
-  /// permission-denied. This fills in sane baseline defaults first so
-  /// the write is accepted as a valid `create` instead of silently
-  /// failing.
   Future<Map<String, dynamic>> _ensureCreateCompliantPayload(
     String authUid,
     Map<String, dynamic> payload,
@@ -539,10 +487,6 @@ class UserProfileRepository {
             .timeout(const Duration(seconds: 4));
         docExists = cacheSnap.exists;
       } catch (_) {
-        // Unknown — default to "exists" so we don't unnecessarily
-        // overwrite a real profile's teamName/authProvider with
-        // fallback values. If it genuinely doesn't exist, the write
-        // will fail below and be retried/reported normally.
         docExists = true;
       }
     }
@@ -576,13 +520,6 @@ class UserProfileRepository {
     };
   }
 
-  /// Writes an arbitrary payload to /users/{authUid}. If the target
-  /// document doesn't exist yet, baseline fields required by the
-  /// Firestore `create` rule are injected automatically (see
-  /// [_ensureCreateCompliantPayload]). If the FIRST write attempt still
-  /// fails with `permission-denied` (e.g. a stale ID token right after
-  /// a purchase), forces a fresh ID token and retries exactly once
-  /// before giving up.
   Future<void> _writeUserDocWithRetry(
     String authUid,
     Map<String, dynamic> payload,
@@ -664,7 +601,6 @@ class UserProfileRepository {
         'planReceiptId': receiptId,
         'planProvider': provider,
         'updatedAt': now,
-        // backward compatibility with old premium-only screens
         if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
           'isPremium': true,
         if (plan == MasterLeaguePlan.pro || plan == MasterLeaguePlan.elite)
@@ -673,7 +609,6 @@ class UserProfileRepository {
 
       await _writeUserDocWithRetry(authUid, payload);
 
-      // ── Sync verification badges right after activation ──────────────
       if (!plan.isFree) {
         try {
           if (plan == MasterLeaguePlan.elite) {
@@ -700,8 +635,6 @@ class UserProfileRepository {
     }
   }
 
-  /// Backfills verification badges for the CURRENTLY signed-in user
-  /// based on the plan already recorded on their Firestore profile.
   Future<void> syncBadgesForCurrentUser() async {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) return;
@@ -814,38 +747,6 @@ class UserProfileRepository {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // USERNAME SYSTEM
-  //
-  // Single source of truth for username uniqueness, generation, and
-  // editing. All username reads/writes in the app MUST go through
-  // this section — never write `username`/`usernameLower` via
-  // saveOrUpdateSelf()/toJson() or any other path, or the
-  // `usernames/{usernameLower}` reservation collection will desync
-  // from `users/{uid}`.
-  //
-  // Uniqueness is enforced with two SEQUENTIAL writes per attempt
-  // (see [_reserveAndWriteUsername] for exactly why this can't be a
-  // single runTransaction() the way it originally was):
-  //   1. Reserve `usernames/{candidateLower}` (its own small
-  //      transaction, so two concurrent attempts at the same
-  //      candidate can never both succeed).
-  //   2. Once that reservation has actually committed, update
-  //      `users/{uid}` with the new username/usernameLower. The
-  //      Firestore rule for that update requires the reservation to
-  //      already exist, which is now guaranteed since step 1 already
-  //      committed before step 2 begins.
-  //   3. Best-effort: delete the OLD reservation doc (if any, and if
-  //      different).
-  // If step 2 fails after step 1 succeeded, the just-created
-  // reservation is rolled back (deleted) so a failed save can't
-  // permanently squat on a username.
-  // ─────────────────────────────────────────────────────────────────────
-
-  /// Best-effort, NON-transactional availability check — safe to call
-  /// on every keystroke (debounced) for live UI feedback ("Available"
-  /// / "Taken"). This does NOT reserve the name; a final authoritative
-  /// check happens again as part of [updateUsername]'s reservation step.
   Future<bool> isUsernameAvailable(String candidate, {String? forUserId}) async {
     try {
       final authUid = _requireAuthUid();
@@ -867,34 +768,10 @@ class UserProfileRepository {
       if (kDebugMode) {
         debugPrint('UserProfileRepository.isUsernameAvailable failed: $e');
       }
-      // Fail closed for UI purposes (treat as "can't tell yet") by
-      // rethrowing a friendly error the caller can display distinctly
-      // from a hard "taken" state.
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
 
-  /// Reserves [candidateLower] for [authUid] and points their profile
-  /// at it, releasing [previousLower] (if any). Throws
-  /// [UsernameUnavailableException] if the candidate is taken by
-  /// someone else or fails validation. Returns normally on success.
-  ///
-  /// FIXED (username save bug): this used to be a single
-  /// `runTransaction()` that both created `usernames/{candidateLower}`
-  /// AND updated `users/{uid}` in the same transaction. That looked
-  /// correct but doesn't work with the security rules as written: the
-  /// `users/{uid}` update rule requires
-  /// `exists(usernames/{candidateLower})`, and Firestore Security
-  /// Rules evaluate every write in a transaction against the database
-  /// state as it existed BEFORE that transaction's own writes are
-  /// applied — a write earlier in the same transaction is not visible
-  /// to a rule check on a later write in that same transaction. So
-  /// `exists(...)` was always evaluating to `false` for the brand-new
-  /// reservation, and the `users/{uid}` write was silently rejected
-  /// with `permission-denied` even for a genuinely available username
-  /// (hence: availability check says free, Save says "Something went
-  /// wrong"). The fix is to commit the reservation first, THEN update
-  /// the profile as a separate write, with rollback if step 2 fails.
   Future<void> _reserveAndWriteUsername({
     required String authUid,
     required String candidateLower,
@@ -911,10 +788,6 @@ class UserProfileRepository {
     final userRef = _usersCol.doc(authUid);
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // ── STEP 1: reserve the new username as its own committed write ──────
-    // Kept as a small transaction purely to race-proof it against two
-    // people claiming the same candidate at the same instant — NOT
-    // combined with step 2 (see doc comment above for why).
     await _firestore.runTransaction((txn) async {
       final newSnap = await txn.get(newRef);
       if (newSnap.exists) {
@@ -924,8 +797,6 @@ class UserProfileRepository {
             'That username is already taken.',
           );
         }
-        // Already reserved by this same user (e.g. a retried call
-        // after a prior partial failure) — nothing further to do here.
         return;
       }
 
@@ -935,7 +806,6 @@ class UserProfileRepository {
       });
     }).timeout(const Duration(seconds: 20));
 
-    // ── STEP 2: point the profile at the now-committed reservation ───────
     try {
       await userRef.set(
         <String, dynamic>{
@@ -947,26 +817,21 @@ class UserProfileRepository {
         SetOptions(merge: true),
       ).timeout(const Duration(seconds: 20));
     } catch (e) {
-      // Roll back the reservation so a failed save doesn't permanently
-      // lock this username away from everyone (including this same
-      // user retrying immediately after).
       try {
         final snap = await newRef.get();
         final owner = (snap.data()?['userId'] as String? ?? '').trim();
         if (snap.exists && owner == authUid) {
           await newRef.delete();
         }
-      } catch (_) {
-        // Best-effort rollback only — surfacing the original error
-        // below matters more than this cleanup succeeding.
-      }
+      } catch (_) {}
       rethrow;
     }
 
-    // ── STEP 3: release the OLD reservation, best-effort ──────────────────
-    // The profile already points at the new username at this point
-    // regardless of whether this cleanup succeeds, so failures here are
-    // non-fatal.
+    // Keep the search index in sync so this username is immediately
+    // findable via UserSearchRepository.search(). Best-effort — must
+    // never block or fail the username save itself.
+    unawaited(UserSearchRepository().syncUsername(candidateLower));
+
     if (previousLower.isNotEmpty && previousLower != candidateLower) {
       try {
         final oldRef = _usernamesCol.doc(previousLower);
@@ -987,14 +852,6 @@ class UserProfileRepository {
     }
   }
 
-  /// Explicit, user-initiated username change. Validates format,
-  /// rejects reserved words, and atomically enforces uniqueness. On
-  /// success the new username is immediately reflected in
-  /// `watchByUserId` (the transaction updates `users/{uid}` too).
-  ///
-  /// Throws [UsernameUnavailableException] if the name is taken,
-  /// reserved, or invalid; a generic [UserProfileRepositoryException]
-  /// for network/permission issues.
   Future<void> updateUsername(String newUsername) async {
     try {
       final authUid = _requireAuthUid();
@@ -1017,7 +874,6 @@ class UserProfileRepository {
       final previousLower = current?.usernameLower.trim() ?? '';
 
       if (previousLower == candidateLower) {
-        // No-op: saving the same username the user already has.
         return;
       }
 
@@ -1032,19 +888,6 @@ class UserProfileRepository {
     }
   }
 
-  /// Lazily assigns a username to the currently signed-in user IF
-  /// they don't already have one — for both brand-new accounts and
-  /// pre-existing accounts created before the username system
-  /// existed. Safe to call repeatedly (no-ops once a username is
-  /// set). Does not touch shareId or any unrelated profile field.
-  ///
-  /// Generation strategy: normalize the display name into a base
-  /// candidate, then try `base`, `base1`, `base2`, ... each as a full
-  /// atomic reserve-and-write attempt, so there is never a "checked
-  /// then someone else took it" gap between generation and
-  /// reservation. Silently gives up after a reasonable number of
-  /// attempts rather than looping forever or throwing — this runs in
-  /// the background from the Profile screen and must never crash it.
   Future<void> ensureUsernameIfMissing() async {
     final authUid = _auth.currentUser?.uid.trim() ?? '';
     if (authUid.isEmpty) return;
@@ -1090,13 +933,10 @@ class UserProfileRepository {
           }
           return;
         } on UsernameUnavailableException {
-          // Taken — try the next suffix.
           continue;
         }
       }
 
-      // Last-resort: guaranteed-unique suffix derived from the uid
-      // itself, so this always terminates successfully.
       final uidTail =
           authUid.replaceAll(RegExp(r'[^a-z0-9]', caseSensitive: false), '')
               .toLowerCase();
@@ -1130,8 +970,6 @@ class UserProfileRepository {
           '[UserProfileRepository] ensureUsernameIfMissing error: $e',
         );
       }
-      // Never throw from here — this is a best-effort background
-      // migration/generation step, not a user-initiated action.
     }
   }
 
@@ -1250,10 +1088,6 @@ class UserProfileRepository {
         SetOptions(merge: false),
       ).timeout(const Duration(seconds: 20));
 
-      // Best-effort: assign a username right away for brand-new
-      // profiles. Failure here must never block onboarding — if it
-      // fails (offline, etc.) the Profile screen's own
-      // ensureUsernameIfMissing() call will retry on next load.
       try {
         await ensureUsernameIfMissing();
       } catch (e) {

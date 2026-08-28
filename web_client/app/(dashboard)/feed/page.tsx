@@ -1,80 +1,167 @@
 'use client';
 
-import { useOrganizerFeed } from '@/hooks/useOrganizerFeed';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
+import { PublicPost, toggleLikeWeb, deletePostWeb, createPostWeb } from '@/lib/feed/publicFeedRepository';
+import { PostCard } from '@/components/feed/PostCard';
+import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
+import { Loader2, Plus, X, Image as ImageIcon, Music2 } from 'lucide-react';
 import { Glass } from '@/components/ui/Glass';
-import { Loader2, Activity, Megaphone, Trophy, Star } from 'lucide-react';
-import Link from 'next/link';
 
-export default function FollowedOrganizerFeedScreen() {
-  const { feed, loading } = useOrganizerFeed();
+export default function PublicFeedScreen() {
+  const router = useRouter();
+  const [posts, setPosts] = useState<PublicPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [authUid, setAuthUid] = useState<string | null>(null);
 
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-brand-lime" /></div>;
+  // Create Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [postText, setPostText] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const imageRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(user => setAuthUid(user?.uid || null));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'public_posts'), orderBy('createdAtMs', 'desc'), limit(50));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const data = snap.docs.map(doc => ({ postId: doc.id, ...doc.data() } as PublicPost));
+      // Strict Parity: Client-side filtering bypasses complex index requirements
+      setPosts(data.filter(p => !p.deleted));
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleCreateSubmit = async () => {
+    if (!authUid) return;
+    if (!postText.trim() && !imageFile && !audioFile) return alert("Add text, an image, or sound.");
+    
+    setUploading(true);
+    try {
+      let mediaUrl = '';
+      let audioUrl = '';
+
+      if (imageFile) {
+        const imgRes = await uploadImageFile({ file: imageFile, folder: 'eleaguehub/public_posts' });
+        mediaUrl = imgRes.secureUrl;
+      }
+
+      // Cloudinary handles audio files under the resource_type: "video" natively
+      if (audioFile) {
+        const audRes = await uploadImageFile({ file: audioFile, folder: 'eleaguehub/public_posts', resourceType: 'video' });
+        audioUrl = audRes.secureUrl;
+      }
+
+      await createPostWeb({
+        authorId: authUid,
+        authorDisplayName: auth.currentUser?.displayName || 'User',
+        authorPhotoUrl: auth.currentUser?.photoURL || '',
+        text: postText,
+        mediaUrl,
+        audioUrl
+      });
+
+      setIsModalOpen(false);
+      setPostText('');
+      setImageFile(null);
+      setAudioFile(null);
+    } catch (err: any) {
+      alert("Upload failed: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto pb-10">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-2">
-          <Activity className="w-6 h-6 text-brand-lime" />
-          My Feed
-        </h1>
-        <p className="text-gray-400 mt-1">Updates from organizers you follow.</p>
+    <div className="max-w-2xl mx-auto pb-24 px-4 sm:px-0">
+      
+      {/* ── TABS ── */}
+      <div className="flex gap-2 mb-6 sticky top-16 z-30 bg-[#070B14]/90 backdrop-blur-md py-4">
+        <button className="flex-1 py-3 bg-[#BEF264] text-[#0F172A] font-black rounded-xl text-sm shadow-lg shadow-[#BEF264]/20">For You</button>
+        <button className="flex-1 py-3 bg-[#0B1221] text-gray-400 font-black rounded-xl text-sm border border-[#1E293B]">Latest</button>
       </div>
 
-      <div className="space-y-4">
-        {feed.length === 0 ? (
-          <Glass className="p-10 text-center flex flex-col items-center">
-            <Activity className="w-16 h-16 text-gray-500 mb-4 opacity-50" />
-            <h3 className="text-xl font-bold text-white mb-2">Your feed is quiet</h3>
-            <p className="text-gray-400 mb-6">Follow organizers to get updates on their latest tournaments and announcements.</p>
-            <Link href="/master-leagues/discovery" className="px-6 py-3 bg-[#38BDF8]/10 text-[#38BDF8] font-bold rounded-xl border border-[#38BDF8]/30 hover:bg-[#38BDF8]/20">
-              Discover Hubs
-            </Link>
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 text-[#BEF264] animate-spin" /></div>
+      ) : posts.length === 0 ? (
+        <div className="text-center py-20 bg-[#0B1221] border border-[#1E293B] rounded-3xl">
+          <p className="text-gray-400 font-bold">No posts yet. Be the first to share something!</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {posts.map(post => (
+            <PostCard 
+              key={post.postId} 
+              post={post} 
+              isOwner={post.authorId === authUid} 
+              onLike={() => authUid && toggleLikeWeb(post.postId, authUid)}
+              onDelete={() => authUid && deletePostWeb(post.postId, authUid)}
+              onOpenLeague={() => router.push(`/leagues/${post.leagueId}`)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── CREATE FAB ── */}
+      {authUid && (
+        <button 
+          onClick={() => setIsModalOpen(true)}
+          className="fixed bottom-20 right-6 md:right-10 w-14 h-14 bg-[#BEF264] text-[#0F172A] rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform z-40"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
+
+      {/* ── CREATE MODAL ── */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <Glass className="w-full max-w-lg bg-[#0F172A] border border-[#1E293B] rounded-3xl p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-black text-white">Create Post</h2>
+              <button onClick={() => !uploading && setIsModalOpen(false)} className="text-gray-500 hover:text-white"><X className="w-5 h-5"/></button>
+            </div>
+
+            <textarea 
+              value={postText} onChange={e => setPostText(e.target.value)}
+              placeholder="What's happening in your competitive scene?"
+              className="w-full h-32 bg-[#0B1221] border border-[#1E293B] rounded-xl p-4 text-white resize-none outline-none focus:border-[#BEF264] mb-4"
+              disabled={uploading}
+            />
+
+            <div className="flex flex-col gap-3 mb-6">
+              {/* Media Previews */}
+              {imageFile && <div className="p-3 bg-[#1E293B] rounded-xl text-xs font-bold text-white flex justify-between">Image attached: {imageFile.name} <button onClick={() => setImageFile(null)}><X className="w-4 h-4 text-red-500"/></button></div>}
+              {audioFile && <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs font-bold text-amber-500 flex justify-between">Audio attached: {audioFile.name} <button onClick={() => setAudioFile(null)}><X className="w-4 h-4 text-red-500"/></button></div>}
+
+              {/* Upload Buttons */}
+              <div className="flex gap-2">
+                <input type="file" accept="image/*" ref={imageRef} onChange={e => setImageFile(e.target.files?.[0] || null)} className="hidden" />
+                <input type="file" accept="audio/*" ref={audioRef} onChange={e => setAudioFile(e.target.files?.[0] || null)} className="hidden" />
+                
+                <button onClick={() => imageRef.current?.click()} disabled={uploading} className="flex-1 py-3 bg-[#1E293B] hover:bg-[#2A3A52] rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2"><ImageIcon className="w-4 h-4"/> Image</button>
+                <button onClick={() => audioRef.current?.click()} disabled={uploading} className="flex-1 py-3 bg-[#1E293B] hover:bg-[#2A3A52] rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2"><Music2 className="w-4 h-4"/> Sound</button>
+              </div>
+            </div>
+
+            <button 
+              onClick={handleCreateSubmit} disabled={uploading}
+              className="w-full py-4 bg-[#BEF264] text-[#0F172A] font-black rounded-xl hover:brightness-110 disabled:opacity-50 flex justify-center shadow-lg shadow-[#BEF264]/10"
+            >
+              {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Post to Feed'}
+            </button>
           </Glass>
-        ) : (
-          feed.map((item) => {
-            const isAnnouncement = item.type === 'announcement';
-            const isLeague = item.type === 'new_league';
-            const Icon = isAnnouncement ? Megaphone : isLeague ? Trophy : Star;
-            const colorClass = isAnnouncement ? 'text-[#38BDF8] bg-[#38BDF8]/10 border-[#38BDF8]/20' : 'text-brand-lime bg-brand-lime/10 border-brand-lime/20';
-
-            return (
-              <Glass key={item.id} className="p-5 flex gap-4">
-                <div className="shrink-0 pt-1">
-                  {item.organizerLogo ? (
-                    <img src={item.organizerLogo} className="w-12 h-12 rounded-full object-cover" alt="" />
-                  ) : (
-                    <div className="w-12 h-12 rounded-full bg-brand-surface border border-white/10 flex items-center justify-center">
-                      <Icon className="w-5 h-5 text-gray-400" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-bold text-white">{item.organizerName}</span>
-                    <span className="text-xs text-gray-500">•</span>
-                    <span className="text-xs text-gray-500">{new Date(item.createdAtMs).toLocaleDateString()}</span>
-                  </div>
-                  
-                  {/* Meta Chip mapped from Dart */}
-                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider mb-3 ${colorClass}`}>
-                    <Icon className="w-3 h-3" />
-                    {isAnnouncement ? 'Announcement' : 'New Tournament'}
-                  </div>
-
-                  <h3 className="text-lg font-bold text-white mb-1">{item.title}</h3>
-                  <p className="text-sm text-gray-300 mb-4">{item.description}</p>
-
-                  {item.targetId && isLeague && (
-                    <Link href={`/leagues/${item.targetId}`} className="inline-block px-4 py-2 bg-brand-surface border border-white/10 rounded-lg text-sm font-bold text-white hover:bg-white/5 transition-colors">
-                      View Tournament
-                    </Link>
-                  )}
-                </div>
-              </Glass>
-            );
-          })
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+//profile/model/squad.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'formation_detector.dart';

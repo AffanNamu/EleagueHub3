@@ -1,4 +1,4 @@
-// lib/features/profile/presentation/settigs_screen.dart
+// lib/features/profile/presentation/settings_screen.dart
 
 import 'dart:async';
 
@@ -19,10 +19,12 @@ import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/auth_service.dart';
+import '../../leagues/presentation/upgrade_plan_screen.dart';
 import '../../live/logic/quick_message_policy.dart';
 import '../../live/logic/quick_messages_controller.dart';
 import '../../master_leagues/domain/master_league.dart';
 import '../../master_leagues/logic/master_leagues_providers.dart';
+import '../../master_leagues/presentation/organizer_verification_application_screen.dart';
 import 'delete_account_flow.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
@@ -51,7 +53,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
   final TextEditingController _quickInput = TextEditingController();
   bool _savingQuick = false;
-  bool _verificationBusy = false;
 
   // ── Session / account state ────────────────────────────────────────────
   bool _loggingOut = false;
@@ -308,6 +309,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     if (items.isEmpty) return null;
 
     for (final item in items) {
+      if (item.verificationStatus.trim().toLowerCase() == 'info_requested') {
+        return item;
+      }
+    }
+
+    for (final item in items) {
       if (!item.isVerifiedOrganizer && !item.isVerificationPending) {
         return item;
       }
@@ -322,94 +329,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     return items.first;
   }
 
-  Future<void> _handleVerificationAction(MasterLeague workspace) async {
-    if (_verificationBusy) return;
-
-    setState(() => _verificationBusy = true);
-    try {
-      final paymentSvc = ref.read(masterLeaguePaymentServiceProvider);
-      final repo = ref.read(masterLeaguesRepositoryProvider);
-      final userId =
-          FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-
-      if (workspace.isVerifiedOrganizer) {
-        _snack('This organizer is already verified.');
-        return;
-      }
-
-      if (workspace.canRenewVerification &&
-          !workspace.isVerificationPending &&
-          workspace.verificationExpired) {
-        final payment =
-            await paymentSvc.payForOrganizerVerificationRenewal(
-          context: context,
-          userId: userId,
+  Future<void> _openVerificationApplication(MasterLeague workspace) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => OrganizerVerificationApplicationScreen(
           masterLeagueId: workspace.id,
           masterLeagueName: workspace.name,
-        );
-
-        if (!mounted) return;
-
-        if (!payment.success) {
-          _snack(
-            payment.errorMessage ??
-                'Verification renewal payment failed.',
-            error: true,
-          );
-          return;
-        }
-
-        await repo.submitVerificationRenewalRequest(
-          masterLeagueId: workspace.id,
-          attemptId: payment.attemptId,
-          paymentId: payment.paymentId,
-          receiptId: payment.receiptId ?? '',
-          note: '',
-        );
-
-        ref.invalidate(createdMasterLeaguesProvider);
-        ref.invalidate(masterLeagueByIdProvider(workspace.id));
-        _snack('Verification renewal request submitted.');
-        return;
-      }
-
-      if (!workspace.isVerificationPending) {
-        final payment = await paymentSvc.payForOrganizerVerification(
-          context: context,
-          userId: userId,
-          masterLeagueId: workspace.id,
-          masterLeagueName: workspace.name,
-        );
-
-        if (!mounted) return;
-
-        if (!payment.success) {
-          _snack(
-            payment.errorMessage ?? 'Verification payment failed.',
-            error: true,
-          );
-          return;
-        }
-
-        await repo.submitVerificationRequest(
-          masterLeagueId: workspace.id,
-          attemptId: payment.attemptId,
-          paymentId: payment.paymentId,
-          receiptId: payment.receiptId ?? '',
-          note: '',
-        );
-
-        ref.invalidate(createdMasterLeaguesProvider);
-        ref.invalidate(masterLeagueByIdProvider(workspace.id));
-        _snack('Verification request submitted.');
-        return;
-      }
-
-      _snack('A verification request is already pending review.');
-    } catch (e) {
-      _snack('$e', error: true);
-    } finally {
-      if (mounted) setState(() => _verificationBusy = false);
+        ),
+      ),
+    );
+    if (result == true && mounted) {
+      ref.invalidate(createdMasterLeaguesProvider);
+      ref.invalidate(masterLeagueByIdProvider(workspace.id));
     }
   }
 
@@ -574,6 +505,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       }
     } finally {
       if (mounted) setState(() => _deletingAccount = false);
+    }
+  }
+
+  // ── Premium upgrade ───────────────────────────────────────────────────
+  //
+  // UPDATED: this used to just show a "not implemented yet" snackbar.
+  // Payment now happens exclusively inside UpgradePlanScreen — this
+  // just opens it and refreshes the premium flag on success.
+  Future<void> _handleUpgradeTap() async {
+    final upgraded = await UpgradePlanScreen.open(context);
+    if (!mounted) return;
+    if (upgraded) {
+      ref.invalidate(isPremiumProvider);
+      _snack('Plan updated.');
     }
   }
 
@@ -933,6 +878,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           statusTitle = 'Verified';
                           statusSubtitle =
                               'Your organizer is already verified.';
+                        } else if (workspace.verificationStatus
+                                .trim()
+                                .toLowerCase() ==
+                            'info_requested') {
+                          statusColor = const Color(0xFFF59E0B);
+                          statusIcon = Icons.edit_document;
+                          statusTitle = 'Additional Info Requested';
+                          statusSubtitle =
+                              'eSportlyic needs more information before deciding. '
+                              'Resubmit your application to continue.';
+                          actionLabel = 'Resubmit Application';
                         } else if (workspace.isVerificationPending) {
                           statusColor = const Color(0xFFF59E0B);
                           statusIcon = Icons.hourglass_top_rounded;
@@ -958,7 +914,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
                         final canPress =
                             !workspace.isVerifiedOrganizer &&
-                                !workspace.isVerificationPending;
+                                (!workspace.isVerificationPending ||
+                                    workspace.verificationStatus
+                                            .trim()
+                                            .toLowerCase() ==
+                                        'info_requested');
 
                         return Glass(
                           borderRadius: 20,
@@ -1027,32 +987,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 SizedBox(
                                   width: double.infinity,
                                   child: FilledButton.icon(
-                                    onPressed: _verificationBusy
-                                        ? null
-                                        : () =>
-                                            _handleVerificationAction(
-                                              workspace,
-                                            ),
-                                    icon: _verificationBusy
-                                        ? const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child:
-                                                CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : Icon(
-                                            workspace.verificationExpired
-                                                ? Icons.refresh_rounded
-                                                : Icons
-                                                    .verified_user_outlined,
-                                          ),
+                                    onPressed: () =>
+                                        _openVerificationApplication(
+                                            workspace),
+                                    icon: Icon(
+                                      workspace.verificationExpired
+                                          ? Icons.refresh_rounded
+                                          : Icons
+                                              .verified_user_outlined,
+                                    ),
                                     label: Text(
-                                      _verificationBusy
-                                          ? 'Processing...'
-                                          : actionLabel,
+                                      actionLabel,
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w900,
                                       ),
@@ -1432,22 +1377,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                               Material(
                                 color: Colors.transparent,
                                 child: InkWell(
-                                  onTap: () {
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(
-                                      SnackBar(
-                                        behavior:
-                                            SnackBarBehavior.floating,
-                                        content: Text(
-                                          _trOr(
-                                            l10n,
-                                            'quick_messages_upgrade_soon',
-                                            'Upgrade flow not implemented yet.',
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
+                                  onTap: _handleUpgradeTap,
                                   borderRadius:
                                       BorderRadius.circular(10),
                                   child: Ink(
@@ -1672,7 +1602,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Powered by NCT Ventures',
+                              'Powered by Nassara CoreTech',
                               style: TextStyle(
                                 color: onSurface.withOpacity(0.50),
                                 fontSize: 12,
@@ -1718,7 +1648,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Delete Account',
+                        'close Account',
                         style: TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 15,
@@ -1727,7 +1657,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Permanently deletes your account and all associated data. This action cannot be undone.',
+                        'Permanently close your account and all associated data. This action cannot be undone.',
                         style: TextStyle(
                           color: onSurface.withOpacity(0.55),
                           fontSize: 12,
@@ -1774,7 +1704,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           label: Text(
                             _deletingAccount
                                 ? 'Processing…'
-                                : 'Delete Account',
+                                : 'Closing Account',
                             style: const TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 14,

@@ -1,3 +1,4 @@
+//profile/models/user_stats.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Cached aggregate stats. Lives at users/{uid}/stats/summary.

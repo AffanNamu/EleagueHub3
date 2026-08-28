@@ -218,6 +218,60 @@ class MasterLeagueCard extends ConsumerWidget {
     );
   }
 
+  // ── Verification type label (shown together with the logo image) ─────────
+  //
+  // NEW: previously the organizer's verification status was only a small
+  // icon (see the "Legacy organizer verified badge" Icon in the name Wrap
+  // below). This adds an explicit text label directly beneath the name —
+  // right next to the same logo rendered to its left — so the image and
+  // the verification TYPE are read together at a glance instead of
+  // requiring the user to notice a tiny icon. Uses only
+  // masterLeague.isVerifiedOrganizer / isVerificationPending, the same
+  // two getters already used elsewhere in this file.
+  Widget _verificationLabel(Brightness brightness) {
+    if (masterLeague.isVerifiedOrganizer) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.verified_rounded, size: 13, color: Color(0xFF1D9BF0)),
+            SizedBox(width: 4),
+            Text(
+              'Verified Organizer',
+              style: TextStyle(
+                color: Color(0xFF1D9BF0),
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (masterLeague.isVerificationPending) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.verified_outlined, size: 13, color: Color(0xFFF59E0B)),
+            SizedBox(width: 4),
+            Text(
+              'Verification Pending',
+              style: TextStyle(
+                color: Color(0xFFF59E0B),
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
   // ── Hero body ─────────────────────────────────────────────────────────────
 
   Widget _buildHero(
@@ -297,6 +351,11 @@ class MasterLeagueCard extends ConsumerWidget {
                         ),
                     ],
                   ),
+
+                  // NEW: explicit verification-type text, shown together
+                  // with the logo (which sits to the left of this whole
+                  // column) rather than relying on the small icon alone.
+                  _verificationLabel(brightness),
 
                   // Owner name + new badge icons
                   // Only show if ownerName is not empty.

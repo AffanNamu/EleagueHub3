@@ -1,4 +1,4 @@
-/*leaguesRepository.ts*/
+/*lib/leagues/leaguesRepository.ts*/
 
 import {
   collection,
@@ -11,6 +11,7 @@ import {
   limit,
   updateDoc,
   setDoc,
+  deleteDoc,
   arrayRemove,
   arrayUnion,
 } from 'firebase/firestore';
@@ -172,10 +173,36 @@ export async function countCreatedLeagues(uid: string): Promise<number> {
 }
 
 export async function leaveLeagueWeb(leagueId: string, uid: string): Promise<void> {
-  await updateDoc(doc(db, 'leagues', leagueId), {
+  // STRICT PARITY: Prevent Owners from leaving their own league from the list view
+  const leagueRef = doc(db, 'leagues', leagueId);
+  const snap = await getDoc(leagueRef);
+  
+  if (!snap.exists()) {
+    throw new Error("We couldn't find this league. Please refresh and try again.");
+  }
+
+  const data = snap.data();
+  if (
+    data.organizerUid === uid ||
+    data.ownerUid === uid ||
+    data.ownerId === uid ||
+    data.organizerUserId === uid
+  ) {
+    throw new Error("League owners cannot remove their own league from the list here. Please use the owner/admin area.");
+  }
+
+  // Remove memberId array entry
+  await updateDoc(leagueRef, {
     memberIds: arrayRemove(uid),
     updatedAtMs: Date.now(),
   });
+
+  // STRICT PARITY: Delete membership sub-document
+  try {
+    await deleteDoc(doc(db, 'leagues', leagueId, 'memberships', uid));
+  } catch (e) {
+    console.warn('Membership delete failed (non-fatal)', e);
+  }
 }
 
 export async function joinLeagueByCode(
@@ -185,35 +212,63 @@ export async function joinLeagueByCode(
 ): Promise<string> {
   const normalized = code.trim().toUpperCase();
   if (!normalized) {
-    throw new Error('Please enter a join code.');
+    throw new Error('Please enter a valid league code.');
   }
 
-  const snap = await getDocs(query(collection(db, 'leagues'), where('code', '==', normalized), limit(1)));
+  let snap;
+  try {
+    snap = await getDocs(query(collection(db, 'leagues'), where('code', '==', normalized), limit(1)));
+  } catch (e: any) {
+    // STRICT PARITY: Handle Firestore Rules throwing permission-denied on a code query
+    if (e.code === 'permission-denied') {
+      throw new Error("We couldn't find a league with that code. Please check the code and try again.");
+    }
+    throw e;
+  }
+
   if (snap.empty) {
-    throw new Error('No league found with that code. Please check and try again.');
+    throw new Error("We couldn't find a league with that code.");
   }
 
   const leagueDoc = snap.docs[0];
   const leagueId = leagueDoc.id;
+  const leagueData = leagueDoc.data();
 
+  // STRICT PARITY: Enforce the 3-League Free Limit for Joining
+  const memberIds = leagueData.memberIds || [];
+  if (!memberIds.includes(uid)) {
+    const isPremium = await detectPremiumUser(uid);
+    if (!isPremium) {
+      const userLeaguesSnap = await getDocs(query(collection(db, 'leagues'), where('memberIds', 'array-contains', uid)));
+      if (userLeaguesSnap.size >= 3) {
+        throw new Error('Free users can only have 3 leagues total on the leagues screen. Upgrade to Premium to join more leagues.');
+      }
+    }
+  }
+
+  // First write memberIds to satisfy Firestore Rules for membership subcollection write
   await updateDoc(doc(db, 'leagues', leagueId), {
     memberIds: arrayUnion(uid),
     updatedAtMs: Date.now(),
   });
 
   if (mode === 'participant') {
-    const membershipRef = doc(db, 'leagues', leagueId, 'memberships', uid);
-    const existing = await getDoc(membershipRef);
-    if (!existing.exists()) {
-      await setDoc(membershipRef, {
-        id: uid,
-        leagueId,
-        userId: uid,
-        teamId: null,
-        role: 1,
-        updatedAtMs: Date.now(),
-        version: 1,
-      });
+    try {
+      const membershipRef = doc(db, 'leagues', leagueId, 'memberships', uid);
+      const existing = await getDoc(membershipRef);
+      if (!existing.exists()) {
+        await setDoc(membershipRef, {
+          id: uid,
+          leagueId,
+          userId: uid,
+          teamId: null,
+          role: 1, // LeagueRole.member
+          updatedAtMs: Date.now(),
+          version: 1,
+        }, { merge: true });
+      }
+    } catch (e) {
+      console.warn('Membership write failed after memberIds update (non-fatal)', e);
     }
   }
 
@@ -238,13 +293,20 @@ async function generateUniqueJoinCode(): Promise<string> {
   return generateJoinCodeRaw(8);
 }
 
+function deriveShareIdFromUid(uid: string): string {
+  const clean = uid.replace(/[^A-Za-z0-9]/g, '').trim();
+  if (!clean) return '';
+  const base = clean.length >= 8 ? clean.substring(0, 8) : clean.padEnd(8, 'X');
+  return `eS${base}`;
+}
+
 export interface CreateLeagueFormPayload {
   name: string;
   description: string;
   leagueImageUrl: string;
   sponsorImageUrl: string;
   format: LeagueFormat;
-  worldCupFormat: number;
+  worldCupFormat: number | string; // Handled dynamically 
   category: FootballCategory;
   isPrivate: boolean;
   homeAway: boolean;
@@ -257,8 +319,14 @@ export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Prom
   const newLeagueDoc = doc(leaguesRef);
   const nowMs = Date.now();
 
-  const maxTeams = payload.format === 'classic' ? 20 : payload.format === 'uclGroup' ? 32 : payload.format === 'uclSwiss' ? 36 : payload.worldCupFormat;
+  const maxTeams = payload.format === 'classic' ? 20 
+                 : payload.format === 'uclGroup' ? 32 
+                 : payload.format === 'uclSwiss' ? 36 
+                 : payload.worldCupFormat === 'fifa2022' ? 32 : 48;
 
+  const derivedOrganizerUserId = deriveShareIdFromUid(payload.organizerUid) || payload.organizerUid;
+
+  // STRICT PARITY: Fully matching the Flutter Model and Firestore Rules constraints
   const documentPayload = {
     id: newLeagueDoc.id,
     name: payload.name.trim(),
@@ -277,8 +345,13 @@ export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Prom
     region: 'Global',
     maxTeams: maxTeams,
     season: '2026',
+    
+    // Crucial for Firebase Rules evaluation:
     organizerUid: payload.organizerUid,
-    organizerUserId: payload.organizerUid.slice(0, 8),
+    ownerUid: payload.organizerUid,
+    ownerId: payload.organizerUid,
+    organizerUserId: derivedOrganizerUserId,
+    
     code: code,
     qrPayloadOverride: '',
     updatedAtMs: nowMs,
@@ -288,19 +361,20 @@ export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Prom
     settings: {
       doubleRoundRobin: payload.homeAway,
       lastPulledAtMs: 0,
-      worldCupFormatStr: payload.format === 'worldCup' ? `fifa${payload.worldCupFormat}` : 'fifa2022'
+      worldCupFormat: payload.format === 'worldCup' ? payload.worldCupFormat : 'fifa2022'
     }
   };
 
   await setDoc(newLeagueDoc, documentPayload);
 
+  // Add the creator's membership immediately
   const membershipDocRef = doc(db, 'leagues', newLeagueDoc.id, 'memberships', payload.organizerUid);
   await setDoc(membershipDocRef, {
     id: payload.organizerUid,
     leagueId: newLeagueDoc.id,
     userId: payload.organizerUid,
     teamId: null,
-    role: 0,
+    role: 0, // 0 = Organizer
     updatedAtMs: nowMs,
     version: 1,
   });

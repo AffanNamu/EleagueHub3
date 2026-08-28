@@ -9,11 +9,13 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../auth/domain/username_utils.dart';
 import '../../leagues/models/league_format.dart';
-import '../../leagues/models/league_settings.dart'; // NEW: required for WorldCupFormatX extension
+import '../../leagues/models/league_settings.dart';
 import '../domain/competition_template.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
+import '../domain/organizer_verification_request.dart';
 
 class UserFriendlyException implements Exception {
   final String message;
@@ -21,6 +23,14 @@ class UserFriendlyException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Thrown specifically when an organizer-workspace username is
+/// unavailable — mirrors UsernameUnavailableException from the personal
+/// username system, kept as its own type so UI can distinguish "taken"
+/// from a generic error.
+class WorkspaceUsernameUnavailableException extends UserFriendlyException {
+  const WorkspaceUsernameUnavailableException(super.message);
 }
 
 class MasterLeaguesRepositoryFirebase {
@@ -44,6 +54,15 @@ class MasterLeaguesRepositoryFirebase {
 
   CollectionReference<Map<String, dynamic>> get _verificationRequests =>
       _firestore.collection('master_league_verification_requests');
+
+  /// Pure uniqueness-reservation collection for organizer-workspace
+  /// usernames. Doc ID == canonical lowercase username. Doc body:
+  /// {masterLeagueId, ownerId, createdAtMs}. Kept fully separate from
+  /// the personal `usernames/{...}` collection so a person's own
+  /// username and their organizer workspace's username never collide
+  /// or share a namespace.
+  CollectionReference<Map<String, dynamic>> get _organizerUsernames =>
+      _firestore.collection('organizer_usernames');
 
   static const Set<String> _allowedSocialKeys = <String>{
     'website',
@@ -77,28 +96,6 @@ class MasterLeaguesRepositoryFirebase {
     return p == 'google_play_billing' || p == 'google_play';
   }
 
-  // ── DEBUG VISIBILITY (temporary diagnostic aid) ─────────────────────────
-  //
-  // _rethrowFriendly() previously swallowed the raw FirebaseException
-  // (code/message/plugin) into a generic user-facing string, so the only
-  // way to see what Firestore actually rejected and why was to dig
-  // through `flutter run` terminal output. That's not usable here: this
-  // project has no local `flutter` toolchain — the only build that ever
-  // gets installed and tested is whatever GitHub Actions produces, which
-  // is a release (or at least non-debug) build. In a release build,
-  // `kDebugMode` is `false`, so gating this on `kDebugMode` (as an
-  // earlier version of this file did) silently suppressed it in the
-  // ONLY environment actually used for testing.
-  //
-  // FORCE_SHOW_DEBUG_DETAILS below is a manual override so the raw
-  // Firestore error (code/message/plugin) always gets appended to the
-  // on-screen message, regardless of build type. This is intentionally
-  // loud and easy to find so it doesn't get forgotten:
-  //
-  // *** TEMPORARY — set this back to `false` once the master_leagues
-  // create bug is confirmed fixed. Leaving it `true` exposes internal
-  // Firestore error text to end users on any error, not just while
-  // debugging. ***
   static const bool _forceShowDebugDetails = true;
 
   String _debugSuffix(Object error, {String stage = ''}) {
@@ -651,6 +648,233 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  /// "Organizers Near You" — same country-bucket approach as
+  /// UserSearchRepository.fetchNearby(). Best-effort: returns an empty
+  /// list on failure (e.g. missing composite index) rather than
+  /// throwing, since this backs an auto-loading section.
+  Future<List<MasterLeague>> discoverNearbyOrganizers({
+    required String countryCode,
+    int limit = 12,
+  }) async {
+    final cc = countryCode.trim().toUpperCase();
+    if (cc.isEmpty) return const <MasterLeague>[];
+
+    try {
+      _requireAuthUid();
+
+      final snap = await _col
+          .where('country', isEqualTo: cc)
+          .orderBy('updatedAtMs', descending: true)
+          .limit(limit)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      return snap.docs
+          .map((d) => MasterLeague.fromMap(d.id, d.data()))
+          .where((ml) => ml.name.trim().isNotEmpty && ml.isActive)
+          .toList(growable: false);
+    } catch (e) {
+      _log(e);
+      return const <MasterLeague>[];
+    }
+  }
+
+  /// Best-effort background sync of this workspace's country, mirroring
+  /// UserSearchRepository.backfillCountryIfMissing(). Safe to call
+  /// repeatedly — no-ops once a country is already set. Owner-only;
+  /// silently returns for non-owners or on any failure.
+  Future<void> backfillWorkspaceCountryIfMissing({
+    required String masterLeagueId,
+    required String countryCode,
+  }) async {
+    final id = masterLeagueId.trim();
+    final cc = countryCode.trim().toUpperCase();
+    if (id.isEmpty || cc.isEmpty) return;
+
+    try {
+      final uid = _requireAuthUid();
+      final ref = _col.doc(id);
+      final snap = await ref
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+      if (!snap.exists) return;
+
+      final data = snap.data() ?? <String, dynamic>{};
+      final ownerId =
+          (data['ownerId'] as String? ?? data['ownerUid'] as String? ?? '')
+              .trim();
+      if (ownerId != uid) return;
+
+      final existing = (data['country'] as String? ?? '').trim();
+      if (existing.isNotEmpty) return;
+
+      await ref.set(
+        <String, dynamic>{'country': cc, 'updatedAtMs': _nowMs()},
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 12));
+    } catch (e) {
+      _log(e);
+    }
+  }
+
+  // ── Organizer-workspace username system ──────────────────────────────
+  //
+  // Same reserve-then-write, two-sequential-writes pattern proven in
+  // UserProfileRepository._reserveAndWriteUsername() (see that method's
+  // doc comment for exactly why this can't be a single transaction).
+
+  Future<bool> isWorkspaceUsernameAvailable(
+    String candidate, {
+    String? forMasterLeagueId,
+  }) async {
+    try {
+      _requireAuthUid();
+      final lower = candidate.trim().toLowerCase();
+      if (!UsernameUtils.isValidUsername(lower)) return false;
+
+      final doc = await _organizerUsernames
+          .doc(lower)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      if (!doc.exists) return true;
+
+      final owner = (doc.data()?['masterLeagueId'] as String? ?? '').trim();
+      return owner.isEmpty || owner == (forMasterLeagueId ?? '').trim();
+    } catch (e) {
+      _log(e);
+      return false;
+    }
+  }
+
+  Future<void> updateWorkspaceUsername({
+    required String masterLeagueId,
+    required String newUsername,
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      final candidateLower = newUsername.trim().toLowerCase();
+
+      if (!UsernameUtils.isValidFormat(candidateLower)) {
+        throw WorkspaceUsernameUnavailableException(
+          'Usernames must be ${UsernameUtils.minLength}-'
+          '${UsernameUtils.maxLength} characters: letters, numbers, '
+          'and underscore only.',
+        );
+      }
+      if (UsernameUtils.isReserved(candidateLower)) {
+        throw const WorkspaceUsernameUnavailableException(
+          'That username is reserved. Please choose another.',
+        );
+      }
+
+      final ml = await getById(id);
+      if (ml == null) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+      if (ml.ownerId.trim() != uid) {
+        throw const UserFriendlyException(
+          'Only the Master League owner can change its username.',
+        );
+      }
+
+      final previousLower = ml.usernameLower.trim();
+      if (previousLower == candidateLower) return;
+
+      final newRef = _organizerUsernames.doc(candidateLower);
+      final mlRef = _col.doc(id);
+      final now = _nowMs();
+
+      await _firestore.runTransaction((txn) async {
+        final newSnap = await txn.get(newRef);
+        if (newSnap.exists) {
+          final owner =
+              (newSnap.data()?['masterLeagueId'] as String? ?? '').trim();
+          if (owner.isNotEmpty && owner != id) {
+            throw const WorkspaceUsernameUnavailableException(
+              'That username is already taken.',
+            );
+          }
+          return;
+        }
+
+        txn.set(newRef, <String, dynamic>{
+          'masterLeagueId': id,
+          'ownerId': uid,
+          'createdAtMs': now,
+        });
+      }).timeout(const Duration(seconds: 20));
+
+      try {
+        await mlRef.set(
+          <String, dynamic>{
+            'usernameLower': candidateLower,
+            'updatedAtMs': now,
+          },
+          SetOptions(merge: true),
+        ).timeout(const Duration(seconds: 20));
+      } catch (e) {
+        try {
+          final snap = await newRef.get();
+          final owner =
+              (snap.data()?['masterLeagueId'] as String? ?? '').trim();
+          if (snap.exists && owner == id) {
+            await newRef.delete();
+          }
+        } catch (_) {}
+        rethrow;
+      }
+
+      if (previousLower.isNotEmpty && previousLower != candidateLower) {
+        try {
+          final oldRef = _organizerUsernames.doc(previousLower);
+          final oldSnap = await oldRef.get();
+          final oldOwner =
+              (oldSnap.data()?['masterLeagueId'] as String? ?? '').trim();
+          if (oldSnap.exists && oldOwner == id) {
+            await oldRef.delete();
+          }
+        } catch (e) {
+          _log(e);
+        }
+      }
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Exact-match lookup by organizer-workspace username (with or
+  /// without a leading '@'). Returns null if unclaimed or not found.
+  Future<MasterLeague?> fetchWorkspaceByUsername(String username) async {
+    try {
+      _requireAuthUid();
+      var normalized = username.trim().toLowerCase();
+      if (normalized.startsWith('@')) {
+        normalized = normalized.substring(1);
+      }
+      if (normalized.isEmpty) return null;
+
+      final reservation = await _organizerUsernames
+          .doc(normalized)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+
+      if (!reservation.exists) return null;
+
+      final targetId =
+          (reservation.data()?['masterLeagueId'] as String? ?? '').trim();
+      if (targetId.isEmpty) return null;
+
+      return await getById(targetId);
+    } catch (e) {
+      _log(e);
+      return null;
+    }
+  }
+
   Future<void> followWorkspace(String masterLeagueId) async {
     try {
       final uid = _requireAuthUid();
@@ -997,6 +1221,360 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  Stream<OrganizerVerificationRequest?> watchLatestVerificationRequest(
+    String masterLeagueId,
+  ) {
+    try {
+      _requireAuthUid();
+      final id = masterLeagueId.trim();
+      if (id.isEmpty) {
+        return Stream<OrganizerVerificationRequest?>.value(null);
+      }
+
+      return _verificationRequests
+          .where('masterLeagueId', isEqualTo: id)
+          .orderBy('submittedAtMs', descending: true)
+          .limit(1)
+          .snapshots(includeMetadataChanges: true)
+          .map((snap) {
+        if (snap.docs.isEmpty) return null;
+        return OrganizerVerificationRequest.fromDoc(snap.docs.first);
+      }).handleError((error, st) {
+        _log(error, st);
+      });
+    } catch (_) {
+      return Stream<OrganizerVerificationRequest?>.value(null);
+    }
+  }
+
+  Future<void> submitVerificationApplication({
+    required String masterLeagueId,
+    required String attemptId,
+    required String paymentId,
+    required String receiptId,
+    required OrganizerVerificationApplicationData application,
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      final safeMasterLeagueId = masterLeagueId.trim();
+      final safeAttemptId = attemptId.trim();
+      final safePaymentId = paymentId.trim();
+      final safeReceiptId = receiptId.trim();
+
+      final validationError = application.validate();
+      if (validationError != null) {
+        throw UserFriendlyException(validationError);
+      }
+
+      if (safeMasterLeagueId.isEmpty ||
+          safeAttemptId.isEmpty ||
+          safePaymentId.isEmpty ||
+          safeReceiptId.isEmpty) {
+        throw const UserFriendlyException(
+          'Verification payment details are incomplete.',
+        );
+      }
+
+      final ml = await getById(safeMasterLeagueId);
+      if (ml == null) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+      if (ml.ownerId.trim() != uid) {
+        throw const UserFriendlyException(
+          'Only the owner can submit organizer verification.',
+        );
+      }
+      if (ml.isVerifiedOrganizer) {
+        throw const UserFriendlyException(
+          'This organizer is already verified.',
+        );
+      }
+      if (ml.isVerificationPending) {
+        throw const UserFriendlyException(
+          'A verification application is already pending review.',
+        );
+      }
+
+      final paymentSnap = await _payments
+          .doc(safePaymentId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (!paymentSnap.exists) {
+        throw const UserFriendlyException(
+          'Verified payment record was not found.',
+        );
+      }
+
+      final paymentData =
+          (paymentSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final paymentUid = (paymentData['userId'] as String? ?? '').trim();
+      if (paymentUid != uid) {
+        throw const UserFriendlyException(
+          'This payment does not belong to your account.',
+        );
+      }
+
+      final paymentProvider = (paymentData['provider'] as String? ?? '');
+      final isGooglePlayPayment = _isGooglePlayProvider(paymentProvider);
+      final verification = (paymentData['verification'] is Map)
+          ? (paymentData['verification'] as Map).cast<String, dynamic>()
+          : <String, dynamic>{};
+      final verified =
+          isGooglePlayPayment ? true : (verification['verified'] == true);
+      if (!verified) {
+        throw const UserFriendlyException(
+          'Payment is not verified yet. Please try again.',
+        );
+      }
+
+      final fulfilledVerificationRequestId =
+          (paymentData['fulfilledVerificationRequestId'] as String? ?? '')
+              .trim();
+      if (fulfilledVerificationRequestId.isNotEmpty) {
+        final existingReq = await _verificationRequests
+            .doc(fulfilledVerificationRequestId)
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 15));
+        if (existingReq.exists) {
+          throw const UserFriendlyException(
+            'An application has already been submitted for this payment.',
+          );
+        }
+      }
+
+      final attemptSnap = await _attempts
+          .doc(safeAttemptId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (!attemptSnap.exists) {
+        throw const UserFriendlyException('Payment attempt was not found.');
+      }
+
+      final attemptData =
+          (attemptSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final attemptUid = (attemptData['userId'] as String? ?? '').trim();
+      if (attemptUid != uid) {
+        throw const UserFriendlyException(
+          'This payment attempt does not belong to your account.',
+        );
+      }
+
+      final requestRef = _verificationRequests.doc();
+      final now = _nowMs();
+      final appMap = application.toMap();
+
+      await _firestore.runTransaction((txn) async {
+        final payRef = _payments.doc(safePaymentId);
+        final attRef = _attempts.doc(safeAttemptId);
+        final mlRef = _col.doc(safeMasterLeagueId);
+
+        final payDoc = await txn.get(payRef);
+        if (!payDoc.exists) {
+          throw const UserFriendlyException(
+            'Verified payment record was not found.',
+          );
+        }
+        final payMap =
+            (payDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final txnIsGooglePlay =
+            _isGooglePlayProvider(payMap['provider'] as String?);
+        final payVerification = (payMap['verification'] is Map)
+            ? (payMap['verification'] as Map).cast<String, dynamic>()
+            : <String, dynamic>{};
+        final txnVerified =
+            txnIsGooglePlay ? true : (payVerification['verified'] == true);
+        if (!txnVerified) {
+          throw const UserFriendlyException(
+            'Payment is not verified yet. Please try again.',
+          );
+        }
+
+        final alreadyReqId =
+            (payMap['fulfilledVerificationRequestId'] as String? ?? '')
+                .trim();
+        if (alreadyReqId.isNotEmpty) {
+          throw const UserFriendlyException(
+            'An application has already been submitted for this payment.',
+          );
+        }
+
+        final mlDoc = await txn.get(mlRef);
+        if (!mlDoc.exists) {
+          throw const UserFriendlyException(
+            "We couldn't find that Master League.",
+          );
+        }
+        final mlData =
+            (mlDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final ownerId = (mlData['ownerId'] as String? ??
+                mlData['ownerUid'] as String? ??
+                '')
+            .trim();
+        if (ownerId != uid) {
+          throw const UserFriendlyException(
+            'Only the owner can submit organizer verification.',
+          );
+        }
+
+        final currentStatus =
+            (mlData['verificationStatus'] as String? ?? 'none')
+                .trim()
+                .toLowerCase();
+        final currentVerified = (mlData['verifiedBadge'] == true);
+        if (currentVerified || currentStatus == 'approved') {
+          throw const UserFriendlyException(
+            'This organizer is already verified.',
+          );
+        }
+        if (currentStatus == 'pending') {
+          throw const UserFriendlyException(
+            'A verification application is already pending review.',
+          );
+        }
+
+        txn.set(requestRef, <String, dynamic>{
+          'requestId': requestRef.id,
+          'masterLeagueId': safeMasterLeagueId,
+          'ownerId': uid,
+          'status': 'pending',
+          'requestType': 'initial',
+          'provider':
+              (paymentData['provider'] as String? ?? 'flutterwave').trim(),
+          'receiptId': safeReceiptId,
+          'paymentId': safePaymentId,
+          'attemptId': safeAttemptId,
+          'submittedAtMs': now,
+          'reviewedAtMs': 0,
+          'reviewedBy': '',
+          'note': '',
+          'resubmittedAtMs': 0,
+          ...appMap,
+        });
+
+        txn.update(mlRef, <String, dynamic>{
+          'verificationStatus': 'pending',
+          'verifiedBadge': false,
+          'verificationRequestId': requestRef.id,
+          'verificationReceiptId': safeReceiptId,
+          'verificationPaymentId': safePaymentId,
+          'verificationProvider':
+              (paymentData['provider'] as String? ?? 'flutterwave').trim(),
+          'verificationRequestedAtMs': now,
+          'verificationApprovedAtMs': 0,
+          'verificationExpiresAtMs': 0,
+          'verificationReviewedBy': '',
+          'verificationNote': '',
+          'verificationRequestType': 'initial',
+          'updatedAtMs': now,
+        });
+
+        txn.update(payRef, <String, dynamic>{
+          'fulfilledVerificationRequestId': requestRef.id,
+          'fulfilledAtMs': now,
+          'updatedAtMs': now,
+        });
+
+        final nextAttempt = Map<String, dynamic>.from(attemptData)
+          ..addAll(<String, dynamic>{
+            'status': 'fulfilled',
+            'fulfilledVerificationRequestId': requestRef.id,
+            'receiptId': safeReceiptId,
+            'paymentId': safePaymentId,
+            'updatedAtMs': now,
+          });
+
+        txn.set(attRef, nextAttempt, SetOptions(merge: false));
+      });
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  Future<void> resubmitVerificationApplication({
+    required String masterLeagueId,
+    required String requestId,
+    required OrganizerVerificationApplicationData application,
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      final safeMasterLeagueId = masterLeagueId.trim();
+      final safeRequestId = requestId.trim();
+
+      final validationError = application.validate();
+      if (validationError != null) {
+        throw UserFriendlyException(validationError);
+      }
+      if (safeMasterLeagueId.isEmpty || safeRequestId.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find that verification application.",
+        );
+      }
+
+      final now = _nowMs();
+      final appMap = application.toMap();
+
+      await _firestore.runTransaction((txn) async {
+        final reqRef = _verificationRequests.doc(safeRequestId);
+        final mlRef = _col.doc(safeMasterLeagueId);
+
+        final reqDoc = await txn.get(reqRef);
+        if (!reqDoc.exists) {
+          throw const UserFriendlyException(
+            "We couldn't find that verification application.",
+          );
+        }
+        final reqData =
+            (reqDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final reqOwnerId = (reqData['ownerId'] as String? ?? '').trim();
+        if (reqOwnerId != uid) {
+          throw const UserFriendlyException(
+            'Only the applicant can resubmit this application.',
+          );
+        }
+        final reqStatus =
+            (reqData['status'] as String? ?? '').trim().toLowerCase();
+        if (reqStatus != 'info_requested') {
+          throw const UserFriendlyException(
+            'This application is not awaiting additional information.',
+          );
+        }
+
+        final mlDoc = await txn.get(mlRef);
+        if (!mlDoc.exists) {
+          throw const UserFriendlyException(
+            "We couldn't find that Master League.",
+          );
+        }
+        final mlData =
+            (mlDoc.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+        final ownerId = (mlData['ownerId'] as String? ??
+                mlData['ownerUid'] as String? ??
+                '')
+            .trim();
+        if (ownerId != uid) {
+          throw const UserFriendlyException(
+            'Only the owner can resubmit verification.',
+          );
+        }
+
+        txn.update(reqRef, <String, dynamic>{
+          'status': 'pending',
+          'resubmittedAtMs': now,
+          ...appMap,
+        });
+
+        txn.update(mlRef, <String, dynamic>{
+          'verificationStatus': 'pending',
+          'updatedAtMs': now,
+        });
+      });
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
   Future<void> checkMasterLeagueLimitOrThrow(MasterLeaguePlan plan) async {
     final uid = _requireAuthUid();
 
@@ -1050,14 +1628,10 @@ class MasterLeaguesRepositoryFirebase {
     return 'ml_${ownerUid}_$slot';
   }
 
- 
-  /// issue when reading a slot that doesn't exist yet.
   Future<String> _allocateMasterLeagueIdForPlan(MasterLeaguePlan plan) async {
     final uid = _requireAuthUid();
 
     if (plan == MasterLeaguePlan.elite) {
-      // UUIDv4 collisions are astronomically unlikely; no existence
-      // check needed for Elite's unrestricted, randomly-generated ids.
       return _uuid.v4();
     }
 
@@ -1085,6 +1659,7 @@ class MasterLeaguesRepositoryFirebase {
     required String name,
     MasterLeaguePlan plan = MasterLeaguePlan.basic,
     MasterLeagueCompetitionDraft? initialCompetition,
+    String country = '',
   }) async {
     final uid = _requireAuthUid();
 
@@ -1124,15 +1699,6 @@ class MasterLeaguesRepositoryFirebase {
       }
     }
 
-    // ── FIXED (diagnostic): each Firestore call below is now wrapped
-    // individually and tagged with a `stage` before going through
-    // _rethrowFriendly(), instead of one big try/catch around the
-    // whole method. Firestore's permission-denied error never says
-    // WHICH read/write in a sequence was actually rejected, so a
-    // single generic catch here was indistinguishable whether the id
-    // allocation, the doc write, or the read-back failed. With
-    // per-call tagging, the on-screen [DEBUG] text will now say
-    // exactly which stage failed.
     late final String id;
     try {
       id = await _allocateMasterLeagueIdForPlan(plan);
@@ -1145,6 +1711,7 @@ class MasterLeaguesRepositoryFirebase {
 
     final ref = _col.doc(id);
     final now = _nowMs();
+    final safeCountry = country.trim().toUpperCase();
 
     final docData = <String, dynamic>{
       'name': trimmed,
@@ -1183,6 +1750,7 @@ class MasterLeaguesRepositoryFirebase {
       'verificationReviewedBy': '',
       'verificationNote': '',
       'verificationRequestType': 'initial',
+      if (safeCountry.isNotEmpty) 'country': safeCountry,
     };
 
     if (kDebugMode) {
@@ -1223,6 +1791,7 @@ class MasterLeaguesRepositoryFirebase {
     required String paymentId,
     required String receiptId,
     required MasterLeagueCompetitionDraft competition,
+    String country = '',
   }) async {
     try {
       final uid = _requireAuthUid();
@@ -1230,6 +1799,7 @@ class MasterLeaguesRepositoryFirebase {
       final safeAttemptId = attemptId.trim();
       final safePaymentId = paymentId.trim();
       final safeReceiptId = receiptId.trim();
+      final safeCountry = country.trim().toUpperCase();
 
       if (safeName.isEmpty) {
         throw const UserFriendlyException('Please enter a master league name.');
@@ -1433,6 +2003,7 @@ class MasterLeaguesRepositoryFirebase {
             'verificationReviewedBy': '',
             'verificationNote': '',
             'verificationRequestType': 'initial',
+            if (safeCountry.isNotEmpty) 'country': safeCountry,
           },
         );
 

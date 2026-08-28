@@ -39,6 +39,8 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
     );
   }
 
+  // NOTE: You will need to update `showCreatePostSheet` inside `create_post_sheet.dart` 
+  // to collect an `audioUrl` and pass it to the repository's `createPost` method!
   Future<void> _handleCreateTap(UserProfile? account) async {
     final displayName = _userRepo.displayNameForProfile(account, fallbackUserId: _selfUid);
     final result = await showCreatePostSheet(
@@ -235,6 +237,52 @@ class _TabChip extends StatelessWidget {
   }
 }
 
+/// A stateful widget to handle the manual toggle of audio on images
+class _AudioToggleButton extends StatefulWidget {
+  final String audioUrl;
+  const _AudioToggleButton({required this.audioUrl});
+
+  @override
+  State<_AudioToggleButton> createState() => _AudioToggleButtonState();
+}
+
+class _AudioToggleButtonState extends State<_AudioToggleButton> {
+  bool _isPlaying = false;
+
+  void _toggleAudio() {
+    setState(() {
+      _isPlaying = !_isPlaying;
+    });
+
+    // TODO: Add your Audio Player package logic here!
+    // Example using 'audioplayers' package:
+    // if (_isPlaying) {
+    //   audioPlayer.play(UrlSource(widget.audioUrl));
+    // } else {
+    //   audioPlayer.pause();
+    // }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _toggleAudio,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.6),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          _isPlaying ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+          color: Colors.white,
+          size: 20,
+        ),
+      ),
+    );
+  }
+}
+
 class _PostCard extends StatelessWidget {
   const _PostCard({
     required this.post,
@@ -313,18 +361,40 @@ class _PostCard extends StatelessWidget {
               ),
             ),
           ],
+          
+          // NEW: Social Media Sizing & Audio Overlay
           if (post.mediaUrl.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             ClipRRect(
               borderRadius: BorderRadius.circular(14),
-              child: Image.network(
-                post.mediaUrl,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              child: Stack(
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxHeight: 450, // Social media max height
+                      minHeight: 200,
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Image.network(
+                        post.mediaUrl,
+                        fit: BoxFit.cover, // Ensures normal social media crop
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+                  // If the image has an audio file attached, show the manual play button
+                  if (post.audioUrl.trim().isNotEmpty)
+                    Positioned(
+                      bottom: 12,
+                      right: 12,
+                      child: _AudioToggleButton(audioUrl: post.audioUrl),
+                    ),
+                ],
               ),
             ),
           ],
+
           if (post.leagueId.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             InkWell(

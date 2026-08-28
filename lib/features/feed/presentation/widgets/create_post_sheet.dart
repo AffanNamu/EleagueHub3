@@ -11,7 +11,7 @@ import '../../../../core/services/safe_image_picker.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/public_feed_repository.dart';
 
-Future<String> _uploadPostImageToCloudinary(PlatformFile picked) async {
+Future<String> _uploadPostMediaToCloudinary(PlatformFile picked, {required bool isAudio}) async {
   final cloudName = const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
   final uploadPreset =
       const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
@@ -19,7 +19,7 @@ Future<String> _uploadPostImageToCloudinary(PlatformFile picked) async {
     throw StateError('Cloudinary is not configured.');
   }
 
-  final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+  final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/${isAudio ? 'video' : 'image'}/upload');
   final ts = DateTime.now().millisecondsSinceEpoch;
 
   http.MultipartFile filePart;
@@ -31,20 +31,20 @@ Future<String> _uploadPostImageToCloudinary(PlatformFile picked) async {
   } else if (path.isNotEmpty) {
     filePart = await http.MultipartFile.fromPath('file', path, filename: picked.name);
   } else {
-    throw StateError('Selected image is not accessible.');
+    throw StateError('Selected file is not accessible.');
   }
 
   final req = http.MultipartRequest('POST', uploadUrl)
     ..fields['upload_preset'] = uploadPreset
-    ..fields['resource_type'] = 'image'
+    ..fields['resource_type'] = isAudio ? 'video' : 'image' // Cloudinary uses 'video' for audio files
     ..fields['folder'] = 'eleaguehub/public_posts'
-    ..fields['public_id'] = 'post_$ts'
+    ..fields['public_id'] = 'post_${isAudio ? 'audio' : 'image'}_$ts'
     ..files.add(filePart);
 
   final client = http.Client();
   try {
-    final streamed = await client.send(req).timeout(const Duration(seconds: 45));
-    final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 45));
+    final streamed = await client.send(req).timeout(const Duration(seconds: 60));
+    final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 60));
 
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       String message = 'Upload failed (HTTP ${resp.statusCode}).';
@@ -70,19 +70,20 @@ Future<String> _uploadPostImageToCloudinary(PlatformFile picked) async {
 }
 
 /// Shows the "create post" bottom sheet used by the "+" button in the
-/// Public Feed. The caller is responsible for only offering this to
-/// Pro/Elite users — real enforcement is the Firestore rule.
+/// Public Feed. Handles optional image and optional audio uploads.
 Future<bool?> showCreatePostSheet(
   BuildContext context, {
   required String authorDisplayName,
   required String authorPhotoUrl,
 }) {
   final textController = TextEditingController();
-  PlatformFile? picked;
+  PlatformFile? pickedImage;
+  PlatformFile? pickedAudio;
 
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
+    backgroundColor: Colors.transparent,
     builder: (ctx) {
       final brightness = Theme.of(ctx).brightness;
       bool busy = false;
@@ -98,15 +99,38 @@ Future<bool?> showCreatePostSheet(
               return;
             }
             setSheetState(() {
-              picked = result.file;
+              pickedImage = result.file;
               error = null;
             });
           }
 
+          Future<void> pickAudio() async {
+            try {
+              final result = await FilePicker.platform.pickFiles(
+                type: FileType.audio,
+                withData: true,
+              );
+              if (result != null && result.files.isNotEmpty) {
+                // Ensure file size is reasonable for audio (e.g., max 10MB)
+                final file = result.files.first;
+                if (file.size > 10 * 1024 * 1024) {
+                   setSheetState(() => error = 'Audio file is too large. Max 10MB.');
+                   return;
+                }
+                setSheetState(() {
+                  pickedAudio = file;
+                  error = null;
+                });
+              }
+            } catch (e) {
+              setSheetState(() => error = 'Could not pick audio file.');
+            }
+          }
+
           Future<void> submit() async {
             final text = textController.text.trim();
-            if (text.isEmpty && picked == null) {
-              setSheetState(() => error = 'Please add some text or an image.');
+            if (text.isEmpty && pickedImage == null && pickedAudio == null) {
+              setSheetState(() => error = 'Please add some text, an image, or sound.');
               return;
             }
 
@@ -119,8 +143,13 @@ Future<bool?> showCreatePostSheet(
               await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
 
               String mediaUrl = '';
-              if (picked != null) {
-                mediaUrl = await _uploadPostImageToCloudinary(picked!);
+              String audioUrl = '';
+
+              if (pickedImage != null) {
+                mediaUrl = await _uploadPostMediaToCloudinary(pickedImage!, isAudio: false);
+              }
+              if (pickedAudio != null) {
+                audioUrl = await _uploadPostMediaToCloudinary(pickedAudio!, isAudio: true);
               }
 
               await PublicFeedRepository().createPost(
@@ -128,6 +157,7 @@ Future<bool?> showCreatePostSheet(
                 authorPhotoUrl: authorPhotoUrl,
                 text: text,
                 mediaUrl: mediaUrl,
+                audioUrl: audioUrl,
               );
 
               if (!ctx.mounted) return;
@@ -143,8 +173,14 @@ Future<bool?> showCreatePostSheet(
           return Padding(
             padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
             child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+              child: Container(
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: AppTheme.cardColor(brightness),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: AppTheme.cardBorder(brightness)),
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,7 +189,7 @@ Future<bool?> showCreatePostSheet(
                       'Create Post',
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
-                        fontSize: 16,
+                        fontSize: 18,
                         color: AppTheme.primaryText(brightness),
                       ),
                     ),
@@ -166,62 +202,117 @@ Future<bool?> showCreatePostSheet(
                         fontSize: 12,
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     TextField(
                       controller: textController,
                       maxLength: 2000,
-                      maxLines: 5,
+                      maxLines: 4,
                       enabled: !busy,
-                      decoration: const InputDecoration(
+                      style: TextStyle(
+                        color: AppTheme.primaryText(brightness),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: InputDecoration(
                         hintText: "What's happening in your competitive scene?",
+                        hintStyle: TextStyle(color: AppTheme.secondaryText(brightness)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: AppTheme.cardBorder(brightness)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: AppTheme.cardBorder(brightness)),
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    InkWell(
-                      onTap: busy ? null : pickImage,
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
+                    const SizedBox(height: 12),
+
+                    // Media Previews
+                    if (pickedImage != null)
+                      Container(
                         height: 120,
                         width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 12),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
-                          color: AppTheme.searchBackground(brightness),
-                          border: Border.all(color: AppTheme.searchOutline(brightness)),
+                          image: DecorationImage(
+                            image: MemoryImage(pickedImage!.bytes!),
+                            fit: BoxFit.cover,
+                          ),
                         ),
-                        child: picked == null
-                            ? Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.add_photo_alternate_outlined,
-                                        color: AppTheme.secondaryText(brightness), size: 28),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'Add an image (optional)',
-                                      style: TextStyle(
-                                        color: AppTheme.secondaryText(brightness),
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: (picked!.bytes != null)
-                                    ? Image.memory(picked!.bytes!, fit: BoxFit.cover, width: double.infinity)
-                                    : Center(
-                                        child: Text(
-                                          picked!.name,
-                                          style: TextStyle(color: AppTheme.primaryText(brightness)),
-                                        ),
-                                      ),
-                              ),
+                        child: Align(
+                          alignment: Alignment.topRight,
+                          child: IconButton(
+                            icon: const Icon(Icons.cancel, color: Colors.white),
+                            onPressed: busy ? null : () => setSheetState(() => pickedImage = null),
+                          ),
+                        ),
                       ),
+
+                    if (pickedAudio != null)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.limeAccent.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.limeAccentDark.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.music_note, color: AppTheme.limeAccentDark),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                pickedAudio!.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: AppTheme.primaryText(brightness),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 20),
+                              color: AppTheme.secondaryText(brightness),
+                              onPressed: busy ? null : () => setSheetState(() => pickedAudio = null),
+                            )
+                          ],
+                        ),
+                      ),
+
+                    // Media Picker Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: busy ? null : pickImage,
+                            icon: const Icon(Icons.image_outlined),
+                            label: const Text('Image'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: busy ? null : pickAudio,
+                            icon: const Icon(Icons.audiotrack_outlined),
+                            label: const Text('Sound'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+
                     if (error != null) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       Text(
                         error!,
                         style: TextStyle(
@@ -231,22 +322,25 @@ Future<bool?> showCreatePostSheet(
                         ),
                       ),
                     ],
-                    const SizedBox(height: 12),
+
+                    const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.limeAccent,
                           foregroundColor: AppTheme.darkText,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         ),
                         onPressed: busy ? null : submit,
                         child: busy
                             ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkText),
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.darkText),
                               )
-                            : const Text('Post', style: TextStyle(fontWeight: FontWeight.w900)),
+                            : const Text('Post to Feed', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                       ),
                     ),
                   ],

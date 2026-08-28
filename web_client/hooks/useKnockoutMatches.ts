@@ -19,14 +19,14 @@ export function useKnockoutMatches(leagueId: string) {
         ...doc.data()
       })) as KnockoutMatch[];
       
-      // Mimic your Flutter sorting logic (Round of 16 -> Quarter -> Semi -> Final)
-      const roundOrder = ['Play-off', 'Round of 16', 'Quarter Finals', 'Semi Finals', '3rd Place', 'Final'];
+      // Strict Parity with Flutter: Round of 32 added for World Cup format
+      const roundOrder = ['Play-off', 'Round of 32', 'Round of 16', 'Quarter Finals', 'Semi Finals', '3rd Place', 'Final'];
       
       matchesData.sort((a, b) => {
         const ai = roundOrder.indexOf(a.roundName);
         const bi = roundOrder.indexOf(b.roundName);
         if (ai !== bi) return ai - bi;
-        return a.id.localeCompare(b.id);
+        return (a.id || '').localeCompare(b.id || '');
       });
 
       setMatches(matchesData);

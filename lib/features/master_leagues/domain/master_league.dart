@@ -180,6 +180,8 @@ class MasterLeague {
     required this.verificationReviewedBy,
     required this.verificationNote,
     required this.verificationRequestType,
+    this.country = '',
+    this.usernameLower = '',
   });
 
   final String id;
@@ -210,6 +212,21 @@ class MasterLeague {
   final String verificationReviewedBy;
   final String verificationNote;
   final String verificationRequestType;
+
+  /// ISO-3166-1 alpha-2 country code for this workspace, or '' if not
+  /// yet set. Powers "Organizers Near You" — same country-bucket
+  /// approach as Teams Near You (see UserSearchRepository.fetchNearby).
+  final String country;
+
+  /// Canonical lowercase organizer-workspace username (no leading '@'),
+  /// or '' if never claimed. Reserved atomically via the top-level
+  /// `organizer_usernames/{usernameLower}` collection — kept fully
+  /// separate from personal-account usernames (`usernames/{...}`) so
+  /// the two namespaces never collide.
+  final String usernameLower;
+
+  bool get hasUsername => usernameLower.trim().isNotEmpty;
+  String get usernameDisplay => hasUsername ? '@$usernameLower' : '';
 
   static int _asInt(dynamic v) {
     if (v is int) return v;
@@ -336,6 +353,8 @@ class MasterLeague {
       verificationNote: (map['verificationNote'] as String? ?? '').trim(),
       verificationRequestType:
           (map['verificationRequestType'] as String? ?? 'initial').trim(),
+      country: (map['country'] as String? ?? '').trim().toUpperCase(),
+      usernameLower: (map['usernameLower'] as String? ?? '').trim().toLowerCase(),
     );
   }
 

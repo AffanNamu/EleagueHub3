@@ -48,6 +48,7 @@ class PublicPost {
     required this.createdAtMs,
     required this.text,
     required this.mediaUrl,
+    required this.audioUrl, // NEW: Audio support
     required this.postType,
     required this.leagueId,
     required this.leagueName,
@@ -67,6 +68,7 @@ class PublicPost {
   final int createdAtMs;
   final String text;
   final String mediaUrl;
+  final String audioUrl; // NEW: Audio support
   final PublicPostType postType;
 
   /// Optional — populated for competitionPromo / matchResult posts so
@@ -97,6 +99,7 @@ class PublicPost {
       createdAtMs: _asInt(map['createdAtMs']),
       text: (map['text'] as String? ?? '').trim(),
       mediaUrl: (map['mediaUrl'] as String? ?? '').trim(),
+      audioUrl: (map['audioUrl'] as String? ?? '').trim(), // NEW: Audio support
       postType: PublicPostTypeX.fromStorage(map['postType'] as String?),
       leagueId: (map['leagueId'] as String? ?? '').trim(),
       leagueName: (map['leagueName'] as String? ?? '').trim(),

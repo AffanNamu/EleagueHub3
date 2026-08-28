@@ -79,7 +79,7 @@ export default function ManageTeamsScreen() {
     try {
       const profile = await resolveTeamParticipant(val);
       if (!profile) {
-        setError('No user found with that uid, or the uid is too short (short share-codes are not yet supported on web).');
+        setError('No user found with that uid, or the uid is too short.');
         return;
       }
       if (teams.some((t) => t.id === profile.userId)) {
@@ -128,7 +128,7 @@ export default function ManageTeamsScreen() {
   };
 
   const handleDeleteTeam = async (teamId: string) => {
-    if (!confirm('Are you sure you want to remove this team? This might affect existing matches.')) return;
+    if (!confirm('Are you sure you want to remove this team?')) return;
     try {
       await deleteDoc(doc(db, 'leagues', leagueId, 'teams', teamId));
     } catch (err: any) {
@@ -213,8 +213,6 @@ export default function ManageTeamsScreen() {
 
         let teamsForGeneration = teams;
         if (!structureValid) {
-          // Auto-assign groups deterministically, 4 teams per group,
-          // mirroring the Flutter app's auto-assign behavior for World Cup.
           const sorted = [...teams].sort((a, b) => a.id.localeCompare(b.id));
           const now = Date.now();
           const batch = writeBatch(db);
@@ -230,7 +228,7 @@ export default function ManageTeamsScreen() {
 
         fixtures = FixtureGenerator.generateGroupStage(league, teamsForGeneration);
       } else if (isSwiss) {
-        alert('Swiss-format fixture generation is not yet available on web. Please use the Flutter app to generate Swiss fixtures for this league.');
+        alert('Swiss-format fixture generation is not yet available on web. Please use the Flutter app.');
         return;
       }
 
@@ -259,15 +257,15 @@ export default function ManageTeamsScreen() {
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-10 px-4 sm:px-6">
       <div className="flex items-center gap-4">
-        <button onClick={() => router.back()} className="p-2 bg-brand-surface hover:bg-white/10 rounded-xl transition-colors">
+        <button onClick={() => router.back()} className="p-2.5 bg-[#0B1221] border border-[#1E293B] hover:border-[#2A3A52] rounded-xl transition-colors">
           <ArrowLeft className="w-5 h-5 text-white" />
         </button>
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-brand-red flex items-center gap-2">
-            <Shield className="w-6 h-6" />
+          <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-3">
+            <Shield className="w-6 h-6 text-[#BEF264]" />
             Team & Roster Management
           </h1>
-          <p className="text-gray-400 mt-1 text-sm">Add real participants, assign groups, and manage point penalties.</p>
+          <p className="text-sm font-semibold text-gray-400 mt-1">Add participants, assign groups, and manage point penalties.</p>
         </div>
       </div>
 
@@ -275,12 +273,12 @@ export default function ManageTeamsScreen() {
         <div className="lg:col-span-1 space-y-6">
           <CsvImporter leagueId={leagueId} isGroupFormat={isGroupFormat} allowedGroups={allowedGroups} onSuccess={() => {}} />
 
-          <Glass className="p-6">
-            <h2 className="text-lg font-bold text-white mb-1">Add Participant</h2>
-            <p className="text-xs text-gray-400 mb-4">Enter the participant's full uid to register their team.</p>
+          <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl">
+            <h2 className="text-lg font-black text-white mb-1">Add Participant</h2>
+            <p className="text-xs font-semibold text-gray-400 mb-4">Enter the participant's full uid to register their team.</p>
 
             {error && (
-              <div className="text-xs text-brand-red mb-4 flex items-start gap-2 bg-brand-red/10 border border-brand-red/20 rounded-lg p-3">
+              <div className="text-xs font-bold text-red-500 mb-4 flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
               </div>
             )}
@@ -294,42 +292,42 @@ export default function ManageTeamsScreen() {
                   onChange={(e) => { setLookupValue(e.target.value); setResolved(null); }}
                   onKeyDown={(e) => e.key === 'Enter' && handleLookup()}
                   placeholder="Participant uid"
-                  className="flex-1 bg-brand-surface border border-white/10 rounded-lg p-3 text-white focus:border-brand-lime transition-colors text-sm"
+                  className="flex-1 bg-[#070B14] border border-[#1E293B] rounded-xl p-3 text-sm font-bold text-white focus:border-[#BEF264] outline-none transition-colors"
                 />
                 <button
                   onClick={handleLookup}
                   disabled={resolving || !lookupValue.trim()}
-                  className="px-4 bg-white/10 text-white text-sm font-bold rounded-lg hover:bg-white/20 disabled:opacity-50 transition-colors"
+                  className="px-5 bg-[#1E293B] text-white text-xs font-black rounded-xl hover:bg-[#2A3A52] disabled:opacity-50 transition-colors"
                 >
                   {resolving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Find'}
                 </button>
               </div>
 
               {resolved && (
-                <div className="p-3 bg-brand-lime/10 border border-brand-lime/30 rounded-xl flex items-center gap-3">
+                <div className="p-4 bg-[#BEF264]/10 border border-[#BEF264]/30 rounded-2xl flex items-center gap-3">
                   {resolved.photoUrl ? (
-                    <img src={resolved.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
+                    <img src={resolved.photoUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
                   ) : (
-                    <div className="w-9 h-9 rounded-full bg-brand-surfaceDark flex items-center justify-center">
-                      <Shield className="w-4 h-4 text-gray-400" />
+                    <div className="w-10 h-10 rounded-full bg-[#1E293B] flex items-center justify-center">
+                      <Shield className="w-5 h-5 text-gray-400" />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-white truncate">{resolved.teamName}</p>
-                    <p className="text-[11px] text-gray-400 truncate">{resolved.userId}</p>
+                    <p className="text-sm font-black text-white truncate">{resolved.teamName}</p>
+                    <p className="text-[11px] font-bold text-gray-400 truncate">{resolved.userId}</p>
                   </div>
                 </div>
               )}
 
               {isGroupFormat && resolved && (
                 <div>
-                  <label className="block text-xs font-bold text-gray-300 mb-1">Assign to Group</label>
+                  <label className="block text-xs font-bold text-gray-300 mb-2">Assign to Group</label>
                   <select
                     value={selectedGroup}
                     onChange={(e) => setSelectedGroup(e.target.value)}
-                    className="w-full bg-brand-surface border border-white/10 rounded-lg p-3 text-white text-sm focus:border-brand-lime"
+                    className="w-full bg-[#070B14] border border-[#1E293B] rounded-xl p-3 text-sm font-bold text-white focus:border-[#BEF264] outline-none"
                   >
-                    {allowedGroups.map((g) => <option key={g} value={g} className="text-slate-900">{g}</option>)}
+                    {allowedGroups.map((g) => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
               )}
@@ -337,49 +335,49 @@ export default function ManageTeamsScreen() {
               <button
                 onClick={handleAddTeam}
                 disabled={adding || !resolved}
-                className="w-full py-3 bg-brand-lime text-brand-navy font-bold rounded-lg hover:bg-brand-lime/90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                className="w-full py-3.5 bg-[#BEF264] text-[#0F172A] font-black rounded-xl hover:brightness-110 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm shadow-lg shadow-[#BEF264]/10"
               >
                 {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
                 Add Team
               </button>
             </div>
-          </Glass>
+          </div>
 
-          <Glass className="p-6">
-            <h3 className="text-sm font-bold text-white mb-2">Generate Fixtures</h3>
-            <p className="text-xs text-gray-400 mb-4">
+          <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl">
+            <h3 className="text-base font-black text-white mb-2">Generate Fixtures</h3>
+            <p className="text-xs font-semibold text-gray-400 mb-4">
               {teams.length} / {maxTeams} teams {requiredCountReached ? '— ready to generate.' : '— add more teams to unlock.'}
             </p>
             <button
               onClick={handleGenerateFixtures}
               disabled={generating || !requiredCountReached}
-              className="w-full py-3 bg-white/10 border border-brand-lime/40 text-brand-lime font-bold rounded-lg hover:bg-brand-lime/10 transition-all disabled:opacity-40 flex items-center justify-center gap-2 text-sm"
+              className="w-full py-3.5 bg-[#1E293B] border border-[#BEF264]/40 text-[#BEF264] font-black rounded-xl hover:bg-[#1E293B]/80 transition-all disabled:opacity-40 flex items-center justify-center gap-2 text-xs"
             >
               {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
               Generate Fixtures
             </button>
-          </Glass>
+          </div>
         </div>
 
         <div className="lg:col-span-2">
-          <Glass className="p-4 sm:p-6 h-full">
+          <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl h-full flex flex-col">
             <div className="flex justify-between items-center mb-6 flex-wrap gap-2">
-              <h2 className="text-lg font-bold text-white">Registered Roster</h2>
-              <span className="text-sm font-normal text-brand-lime bg-brand-lime/10 px-3 py-1.5 rounded-md border border-brand-lime/20">
+              <h2 className="text-lg font-black text-white">Registered Roster</h2>
+              <span className="text-xs font-black text-[#BEF264] bg-[#BEF264]/10 px-3 py-1.5 rounded-xl border border-[#BEF264]/20">
                 {teams.length} / {maxTeams || '∞'} Teams
               </span>
             </div>
 
             {teamsLoading ? (
-              <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 text-brand-lime animate-spin" /></div>
+              <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-[#BEF264] animate-spin" /></div>
             ) : teams.length === 0 ? (
-              <div className="text-center py-10 text-gray-500">
-                <Shield className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>No teams added yet.</p>
+              <div className="text-center py-16 text-gray-500">
+                <Shield className="w-12 h-12 mx-auto mb-3 opacity-30 text-[#BEF264]" />
+                <p className="text-sm font-bold">No teams added yet.</p>
               </div>
             ) : (
-              <div className="space-y-3 overflow-x-auto">
-                <div className="hidden sm:flex items-center justify-between px-3 pb-2 text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-white/5 min-w-[560px]">
+              <div className="space-y-3 overflow-x-auto flex-1">
+                <div className="hidden sm:flex items-center justify-between px-4 pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-[#1E293B] min-w-[560px]">
                   <div className="flex-1">Team</div>
                   {isGroupFormat && <div className="w-20 text-center">Group</div>}
                   <div className="w-20 text-center">Base Pts</div>
@@ -392,16 +390,16 @@ export default function ManageTeamsScreen() {
                   const imgUrl = team.teamImageUrl || team.logoUrl;
 
                   return (
-                    <div key={team.id} className={`flex items-center justify-between p-3 border rounded-xl transition-colors gap-2 min-w-[560px] sm:min-w-0 ${isEditing ? 'bg-brand-lime/5 border-brand-lime/30' : 'bg-brand-surface border-white/5 hover:bg-white/5'}`}>
+                    <div key={team.id} className={`flex items-center justify-between p-4 border rounded-2xl transition-colors gap-2 min-w-[560px] sm:min-w-0 ${isEditing ? 'bg-[#BEF264]/5 border-[#BEF264]/30' : 'bg-[#070B14] border-[#1E293B]'}`}>
                       <div className="flex items-center gap-3 flex-1 min-w-0 pr-4">
                         {imgUrl ? (
-                          <img src={imgUrl} alt={team.name} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                          <img src={imgUrl} alt={team.name} className="w-9 h-9 rounded-full object-cover shrink-0 border border-white/10" />
                         ) : (
-                          <div className="w-8 h-8 rounded-full bg-brand-surfaceDark flex items-center justify-center shrink-0">
+                          <div className="w-9 h-9 rounded-full bg-[#1E293B] flex items-center justify-center shrink-0 border border-white/10">
                             <Shield className="w-4 h-4 text-gray-400" />
                           </div>
                         )}
-                        <span className="font-bold text-white truncate text-sm">{team.name}</span>
+                        <span className="font-black text-white truncate text-sm">{team.name}</span>
                       </div>
 
                       {isGroupFormat && (
@@ -409,15 +407,15 @@ export default function ManageTeamsScreen() {
                           {isEditing ? (
                             <input
                               type="text" value={editGroup} onChange={(e) => setEditGroup(e.target.value)}
-                              className="w-full bg-brand-navy border border-white/10 rounded px-2 py-1 text-center text-xs text-white"
+                              className="w-full bg-[#0B1221] border border-white/10 rounded-lg px-2 py-1 text-center text-xs font-bold text-white outline-none focus:border-[#BEF264]"
                             />
                           ) : (
-                            <span className="text-xs font-bold text-gray-400 bg-white/5 px-2 py-1 rounded">{team.groupId || '-'}</span>
+                            <span className="text-xs font-black text-gray-300 bg-[#1E293B] px-2.5 py-1 rounded-lg">{team.groupId || '-'}</span>
                           )}
                         </div>
                       )}
 
-                      <div className="w-20 text-center font-mono text-sm text-gray-400">
+                      <div className="w-20 text-center font-mono text-sm font-bold text-gray-400">
                         {team.basePoints || 0}
                       </div>
 
@@ -425,10 +423,10 @@ export default function ManageTeamsScreen() {
                         {isEditing ? (
                           <input
                             type="number" value={editAdjustment} onChange={(e) => setEditAdjustment(parseInt(e.target.value) || 0)}
-                            className="w-full bg-brand-navy border border-white/10 rounded px-2 py-1 text-center text-xs text-white"
+                            className="w-full bg-[#0B1221] border border-white/10 rounded-lg px-2 py-1 text-center text-xs font-bold text-white outline-none focus:border-[#BEF264]"
                           />
                         ) : (
-                          <span className={`text-sm font-black tabular-nums ${team.adminAdjustment! > 0 ? 'text-brand-lime' : team.adminAdjustment! < 0 ? 'text-brand-red' : 'text-gray-500'}`}>
+                          <span className={`text-sm font-black tabular-nums ${team.adminAdjustment! > 0 ? 'text-[#BEF264]' : team.adminAdjustment! < 0 ? 'text-red-500' : 'text-gray-500'}`}>
                             {team.adminAdjustment! > 0 ? `+${team.adminAdjustment}` : team.adminAdjustment || 0}
                           </span>
                         )}
@@ -437,13 +435,13 @@ export default function ManageTeamsScreen() {
                       <div className="w-20 flex justify-end gap-1">
                         {isEditing ? (
                           <>
-                            <button onClick={() => saveEdit(team)} className="p-1.5 text-brand-lime hover:bg-brand-lime/10 rounded-md transition-colors"><Check className="w-4 h-4" /></button>
-                            <button onClick={() => setEditingId(null)} className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-md transition-colors"><X className="w-4 h-4" /></button>
+                            <button onClick={() => saveEdit(team)} className="p-2 text-[#BEF264] hover:bg-[#BEF264]/10 rounded-xl transition-colors"><Check className="w-4 h-4" /></button>
+                            <button onClick={() => setEditingId(null)} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><X className="w-4 h-4" /></button>
                           </>
                         ) : (
                           <>
-                            <button onClick={() => startEditing(team)} className="p-1.5 text-gray-400 hover:text-brand-lime hover:bg-brand-lime/10 rounded-md transition-colors"><Edit2 className="w-4 h-4" /></button>
-                            <button onClick={() => handleDeleteTeam(team.id)} className="p-1.5 text-gray-400 hover:text-brand-red hover:bg-brand-red/10 rounded-md transition-colors"><Trash2 className="w-4 h-4" /></button>
+                            <button onClick={() => startEditing(team)} className="p-2 text-gray-400 hover:text-[#BEF264] hover:bg-[#BEF264]/10 rounded-xl transition-colors"><Edit2 className="w-4 h-4" /></button>
+                            <button onClick={() => handleDeleteTeam(team.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"><Trash2 className="w-4 h-4" /></button>
                           </>
                         )}
                       </div>
@@ -452,7 +450,7 @@ export default function ManageTeamsScreen() {
                 })}
               </div>
             )}
-          </Glass>
+          </div>
         </div>
       </div>
     </div>

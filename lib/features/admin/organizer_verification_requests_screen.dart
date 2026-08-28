@@ -8,6 +8,7 @@ import '../../core/services/app_admins_service.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
 import '../../features/master_leagues/data/organizer_feed_firebase.dart';
+import '../../features/master_leagues/domain/organizer_verification_request.dart';
 
 class OrganizerVerificationRequestsScreen extends StatefulWidget {
   const OrganizerVerificationRequestsScreen({super.key});
@@ -51,11 +52,10 @@ class _OrganizerVerificationRequestsScreenState
         .snapshots();
   }
 
+  /// action: 'approve' | 'reject' | 'info_requested'
   Future<void> _reviewRequest({
-    required String requestId,
-    required String masterLeagueId,
-    required String ownerId,
-    required bool approve,
+    required OrganizerVerificationRequest req,
+    required String action,
   }) async {
     final adminUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (adminUid.isEmpty) {
@@ -64,34 +64,45 @@ class _OrganizerVerificationRequestsScreenState
     }
 
     final noteCtrl = TextEditingController();
+    final requiresNote = action != 'approve';
+
+    final titleFor = {
+      'approve': 'Approve verification',
+      'reject': 'Reject verification',
+      'info_requested': 'Request additional information',
+    }[action]!;
 
     final note = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(approve ? 'Approve verification' : 'Reject verification'),
+        title: Text(titleFor),
         content: TextField(
           controller: noteCtrl,
           maxLines: 4,
-          decoration: const InputDecoration(
-            labelText: 'Review note',
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: requiresNote ? 'Review note (required)' : 'Review note (optional)',
             alignLabelWithHint: true,
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(''),
+            onPressed: () => Navigator.of(ctx).pop(null),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(noteCtrl.text.trim()),
-            child: Text(approve ? 'Approve' : 'Reject'),
+            onPressed: () {
+              final text = noteCtrl.text.trim();
+              if (requiresNote && text.isEmpty) return;
+              Navigator.of(ctx).pop(text);
+            },
+            child: Text(titleFor),
           ),
         ],
       ),
     );
 
     noteCtrl.dispose();
-
     if (note == null) return;
 
     setState(() => _busy = true);
@@ -100,10 +111,10 @@ class _OrganizerVerificationRequestsScreenState
       final now = DateTime.now().millisecondsSinceEpoch;
       final requestRef = FirebaseFirestore.instance
           .collection('master_league_verification_requests')
-          .doc(requestId);
+          .doc(req.requestId);
       final mlRef = FirebaseFirestore.instance
           .collection('master_leagues')
-          .doc(masterLeagueId);
+          .doc(req.masterLeagueId);
 
       bool approvedRenewal = false;
 
@@ -115,10 +126,9 @@ class _OrganizerVerificationRequestsScreenState
 
         final requestData =
             (requestSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-        final status = (requestData['status'] as String? ?? '')
-            .trim()
-            .toLowerCase();
-        if (status != 'pending') {
+        final status =
+            (requestData['status'] as String? ?? '').trim().toLowerCase();
+        if (status != 'pending' && status != 'info_requested') {
           throw StateError('Only pending requests can be reviewed.');
         }
 
@@ -126,6 +136,7 @@ class _OrganizerVerificationRequestsScreenState
             (requestData['requestType'] as String? ?? 'initial')
                 .trim()
                 .toLowerCase();
+        final logoUrl = (requestData['logoUrl'] as String? ?? '').trim();
 
         final mlSnap = await txn.get(mlRef);
         if (!mlSnap.exists) {
@@ -136,16 +147,34 @@ class _OrganizerVerificationRequestsScreenState
             (mlSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
         final currentExpiry =
             ((mlData['verificationExpiresAtMs'] as num?) ?? 0).toInt();
+        final currentLogoUrl = (mlData['logoUrl'] as String? ?? '').trim();
 
-        final updateStatus = approve ? 'approved' : 'rejected';
+        final newRequestStatus = switch (action) {
+          'approve' => 'approved',
+          'reject' => 'rejected',
+          _ => 'info_requested',
+        };
 
         txn.update(requestRef, <String, dynamic>{
-          'status': updateStatus,
+          'status': newRequestStatus,
           'reviewedAtMs': now,
           'reviewedBy': adminUid,
           'note': note,
         });
 
+        if (action == 'info_requested') {
+          txn.update(mlRef, <String, dynamic>{
+            'verificationStatus': 'info_requested',
+            'verifiedBadge': false,
+            'verificationReviewedBy': adminUid,
+            'verificationNote': note,
+            'verificationRequestType': requestType,
+            'updatedAtMs': now,
+          });
+          return;
+        }
+
+        final approve = action == 'approve';
         int nextExpiryMs = currentExpiry;
         if (approve) {
           if (requestType == 'renewal') {
@@ -157,12 +186,10 @@ class _OrganizerVerificationRequestsScreenState
             const durationMs = 90 * 24 * 60 * 60 * 1000;
             nextExpiryMs = now + durationMs;
           }
-        } else {
-          nextExpiryMs = currentExpiry;
         }
 
-        txn.update(mlRef, <String, dynamic>{
-          'verificationStatus': updateStatus,
+        final mlUpdate = <String, dynamic>{
+          'verificationStatus': newRequestStatus,
           'verifiedBadge': approve,
           'verificationApprovedAtMs': approve ? now : 0,
           'verificationExpiresAtMs': approve ? nextExpiryMs : currentExpiry,
@@ -170,15 +197,23 @@ class _OrganizerVerificationRequestsScreenState
           'verificationNote': note,
           'verificationRequestType': requestType,
           'updatedAtMs': now,
-        });
+        };
+
+        // Propagate the approved logo as the organizer's official
+        // identity, but never overwrite a logo the owner already set.
+        if (approve && logoUrl.isNotEmpty && currentLogoUrl.isEmpty) {
+          mlUpdate['logoUrl'] = logoUrl;
+        }
+
+        txn.update(mlRef, mlUpdate);
 
         if (approve) {
           final userRef =
-              FirebaseFirestore.instance.collection('users').doc(ownerId);
+              FirebaseFirestore.instance.collection('users').doc(req.ownerId);
           txn.set(
             userRef,
             <String, dynamic>{
-              'lastVerifiedMasterLeagueId': masterLeagueId,
+              'lastVerifiedMasterLeagueId': req.masterLeagueId,
               'updatedAt': now,
             },
             SetOptions(merge: true),
@@ -186,10 +221,10 @@ class _OrganizerVerificationRequestsScreenState
         }
       });
 
-      if (approve) {
+      if (action == 'approve') {
         try {
           await _feed.addVerificationApprovedEvent(
-            masterLeagueId: masterLeagueId,
+            masterLeagueId: req.masterLeagueId,
             actorId: adminUid,
             actorName: 'Admin',
             isRenewal: approvedRenewal,
@@ -197,11 +232,11 @@ class _OrganizerVerificationRequestsScreenState
         } catch (_) {}
       }
 
-      _snack(
-        approve
-            ? 'Verification approved successfully.'
-            : 'Verification rejected successfully.',
-      );
+      _snack(switch (action) {
+        'approve' => 'Verification approved successfully.',
+        'reject' => 'Verification rejected successfully.',
+        _ => 'Additional information requested from the applicant.',
+      });
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -215,6 +250,8 @@ class _OrganizerVerificationRequestsScreenState
         return const Color(0xFF1D9BF0);
       case 'rejected':
         return cs.error;
+      case 'info_requested':
+        return const Color(0xFFF59E0B);
       case 'pending':
       default:
         return const Color(0xFFF59E0B);
@@ -287,7 +324,7 @@ class _OrganizerVerificationRequestsScreenState
               padding: const EdgeInsets.all(16),
               child: Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 860),
+                  constraints: const BoxConstraints(maxWidth: 900),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -298,7 +335,7 @@ class _OrganizerVerificationRequestsScreenState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Review organizer verification requests',
+                              'Review organizer verification applications',
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 color: cs.onSurface,
@@ -313,6 +350,12 @@ class _OrganizerVerificationRequestsScreenState
                                   label: const Text('Pending'),
                                   selected: _filter == 'pending',
                                   onSelected: (_) => setState(() => _filter = 'pending'),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('Info Requested'),
+                                  selected: _filter == 'info_requested',
+                                  onSelected: (_) =>
+                                      setState(() => _filter = 'info_requested'),
                                 ),
                                 ChoiceChip(
                                   label: const Text('Approved'),
@@ -354,7 +397,7 @@ class _OrganizerVerificationRequestsScreenState
                           borderRadius: 22,
                           padding: const EdgeInsets.all(18),
                           child: Text(
-                            'No $_filter verification requests found.',
+                            'No $_filter verification applications found.',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: cs.onSurface.withOpacity(0.72),
                               fontWeight: FontWeight.w700,
@@ -363,29 +406,9 @@ class _OrganizerVerificationRequestsScreenState
                         )
                       else
                         ...docs.map((doc) {
-                          final data = doc.data();
-                          final requestId =
-                              (data['requestId'] as String? ?? doc.id).trim();
-                          final masterLeagueId =
-                              (data['masterLeagueId'] as String? ?? '').trim();
-                          final ownerId = (data['ownerId'] as String? ?? '').trim();
-                          final status = (data['status'] as String? ?? 'pending').trim();
-                          final requestType =
-                              (data['requestType'] as String? ?? 'initial')
-                                  .trim();
-                          final provider = (data['provider'] as String? ?? '').trim();
-                          final receiptId = (data['receiptId'] as String? ?? '').trim();
-                          final paymentId = (data['paymentId'] as String? ?? '').trim();
-                          final note = (data['note'] as String? ?? '').trim();
-                          final reviewedBy =
-                              (data['reviewedBy'] as String? ?? '').trim();
-                          final submittedAtMs =
-                              (data['submittedAtMs'] as num?)?.toInt() ?? 0;
-                          final reviewedAtMs =
-                              (data['reviewedAtMs'] as num?)?.toInt() ?? 0;
-
-                          final statusColor = _statusColor(status, cs);
-                          final requestTypeColor = _typeColor(requestType, cs);
+                          final req = OrganizerVerificationRequest.fromDoc(doc);
+                          final statusColor = _statusColor(req.status, cs);
+                          final requestTypeColor = _typeColor(req.requestType, cs);
 
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 12),
@@ -397,11 +420,26 @@ class _OrganizerVerificationRequestsScreenState
                                 children: [
                                   Row(
                                     children: [
+                                      if (req.logoUrl.trim().isNotEmpty) ...[
+                                        ClipOval(
+                                          child: Image.network(
+                                            req.logoUrl,
+                                            width: 36,
+                                            height: 36,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                const SizedBox(width: 36, height: 36),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                      ],
                                       Expanded(
                                         child: Text(
-                                          masterLeagueId.isEmpty
-                                              ? 'Verification Request'
-                                              : 'Master League: $masterLeagueId',
+                                          req.orgName.trim().isNotEmpty
+                                              ? req.orgName
+                                              : (req.masterLeagueId.isEmpty
+                                                  ? 'Verification Request'
+                                                  : 'Master League: ${req.masterLeagueId}'),
                                           style: theme.textTheme.titleSmall?.copyWith(
                                             fontWeight: FontWeight.w900,
                                             color: cs.onSurface,
@@ -421,7 +459,7 @@ class _OrganizerVerificationRequestsScreenState
                                           ),
                                         ),
                                         child: Text(
-                                          requestType.toUpperCase(),
+                                          req.requestType.toUpperCase(),
                                           style: TextStyle(
                                             color: requestTypeColor,
                                             fontWeight: FontWeight.w900,
@@ -443,7 +481,7 @@ class _OrganizerVerificationRequestsScreenState
                                           ),
                                         ),
                                         child: Text(
-                                          status.toUpperCase(),
+                                          req.status.toUpperCase(),
                                           style: TextStyle(
                                             color: statusColor,
                                             fontWeight: FontWeight.w900,
@@ -454,37 +492,103 @@ class _OrganizerVerificationRequestsScreenState
                                     ],
                                   ),
                                   const SizedBox(height: 10),
-                                  _kv(theme, cs, 'Request ID', requestId),
-                                  _kv(theme, cs, 'Request Type', requestType),
-                                  _kv(theme, cs, 'Owner UID', ownerId),
-                                  _kv(theme, cs, 'Provider', provider.isEmpty ? '—' : provider),
-                                  _kv(theme, cs, 'Receipt ID', receiptId.isEmpty ? '—' : receiptId),
-                                  _kv(theme, cs, 'Payment ID', paymentId.isEmpty ? '—' : paymentId),
+                                  if (req.isLegacyPaymentOnly)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        'Legacy request \u2014 submitted before the '
+                                        'application form existed. Payment info only.',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: cs.onSurface.withOpacity(0.55),
+                                          fontWeight: FontWeight.w700,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    )
+                                  else ...[
+                                    _kv(theme, cs, 'Org type', req.orgType.isEmpty ? '\u2014' : req.orgType),
+                                    _kv(theme, cs, 'Country', req.orgCountry.isEmpty ? '\u2014' : req.orgCountry),
+                                    _kv(theme, cs, 'Location',
+                                        [req.orgCity, req.orgRegion].where((s) => s.isNotEmpty).join(', ').ifEmptyDash()),
+                                    _kv(theme, cs, 'Applicant', req.applicantFullName.isEmpty ? '\u2014' : req.applicantFullName),
+                                    _kv(theme, cs, 'Role', req.applicantRole.isEmpty ? '\u2014' : req.applicantRole),
+                                    _kv(theme, cs, 'Email', req.contactEmail.isEmpty ? '\u2014' : req.contactEmail),
+                                    _kv(theme, cs, 'Phone', req.contactPhone.isEmpty ? '\u2014' : req.contactPhone),
+                                    _kv(theme, cs, 'Website', req.website.isEmpty ? '\u2014' : req.website),
+                                    if (req.orgDescription.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Text('What they do:',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                              color: cs.onSurface.withOpacity(0.70),
+                                              fontWeight: FontWeight.w900)),
+                                      Text(req.orgDescription,
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                              color: cs.onSurface.withOpacity(0.82),
+                                              fontWeight: FontWeight.w700, height: 1.35)),
+                                    ],
+                                    if (req.verificationReason.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Text('Why they want verification:',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                              color: cs.onSurface.withOpacity(0.70),
+                                              fontWeight: FontWeight.w900)),
+                                      Text(req.verificationReason,
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                              color: cs.onSurface.withOpacity(0.82),
+                                              fontWeight: FontWeight.w700, height: 1.35)),
+                                    ],
+                                    if (req.supportingLinks.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Text('Supporting links:',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                              color: cs.onSurface.withOpacity(0.70),
+                                              fontWeight: FontWeight.w900)),
+                                      Text(req.supportingLinks,
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                              color: cs.onSurface.withOpacity(0.82),
+                                              fontWeight: FontWeight.w700, height: 1.35)),
+                                    ],
+                                  ],
+                                  const SizedBox(height: 8),
+                                  _kv(theme, cs, 'Request ID', req.requestId),
+                                  _kv(theme, cs, 'Owner UID', req.ownerId),
+                                  _kv(theme, cs, 'Provider', req.provider.isEmpty ? '\u2014' : req.provider),
+                                  _kv(theme, cs, 'Receipt ID', req.receiptId.isEmpty ? '\u2014' : req.receiptId),
+                                  _kv(theme, cs, 'Payment ID', req.paymentId.isEmpty ? '\u2014' : req.paymentId),
                                   _kv(
                                     theme,
                                     cs,
                                     'Submitted',
-                                    submittedAtMs > 0
-                                        ? DateTime.fromMillisecondsSinceEpoch(submittedAtMs)
+                                    req.submittedAtMs > 0
+                                        ? DateTime.fromMillisecondsSinceEpoch(req.submittedAtMs)
                                             .toLocal()
                                             .toString()
-                                        : '—',
+                                        : '\u2014',
                                   ),
-                                  if (reviewedAtMs > 0)
+                                  if (req.resubmittedAtMs > 0)
+                                    _kv(
+                                      theme,
+                                      cs,
+                                      'Resubmitted',
+                                      DateTime.fromMillisecondsSinceEpoch(req.resubmittedAtMs)
+                                          .toLocal()
+                                          .toString(),
+                                    ),
+                                  if (req.reviewedAtMs > 0)
                                     _kv(
                                       theme,
                                       cs,
                                       'Reviewed',
-                                      DateTime.fromMillisecondsSinceEpoch(reviewedAtMs)
+                                      DateTime.fromMillisecondsSinceEpoch(req.reviewedAtMs)
                                           .toLocal()
                                           .toString(),
                                     ),
-                                  if (reviewedBy.isNotEmpty)
-                                    _kv(theme, cs, 'Reviewed By', reviewedBy),
-                                  if (note.isNotEmpty) ...[
+                                  if (req.reviewedBy.isNotEmpty)
+                                    _kv(theme, cs, 'Reviewed By', req.reviewedBy),
+                                  if (req.note.isNotEmpty) ...[
                                     const SizedBox(height: 10),
                                     Text(
-                                      'Note:',
+                                      'Admin note:',
                                       style: theme.textTheme.bodySmall?.copyWith(
                                         color: cs.onSurface.withOpacity(0.70),
                                         fontWeight: FontWeight.w900,
@@ -492,7 +596,7 @@ class _OrganizerVerificationRequestsScreenState
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      note,
+                                      req.note,
                                       style: theme.textTheme.bodySmall?.copyWith(
                                         color: cs.onSurface.withOpacity(0.82),
                                         fontWeight: FontWeight.w700,
@@ -506,18 +610,18 @@ class _OrganizerVerificationRequestsScreenState
                                     runSpacing: 10,
                                     children: [
                                       OutlinedButton.icon(
-                                        onPressed: masterLeagueId.isEmpty
+                                        onPressed: req.masterLeagueId.isEmpty
                                             ? null
-                                            : () => context.push('/master-leagues/$masterLeagueId'),
+                                            : () => context.push('/master-leagues/${req.masterLeagueId}'),
                                         icon: const Icon(Icons.open_in_new_rounded),
                                         label: const Text('Open Master League'),
                                       ),
                                       OutlinedButton.icon(
-                                        onPressed: ownerId.isEmpty
+                                        onPressed: req.ownerId.isEmpty
                                             ? null
                                             : () async {
                                                 await Clipboard.setData(
-                                                  ClipboardData(text: ownerId),
+                                                  ClipboardData(text: req.ownerId),
                                                 );
                                                 if (!context.mounted) return;
                                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -530,36 +634,36 @@ class _OrganizerVerificationRequestsScreenState
                                         icon: const Icon(Icons.copy_rounded),
                                         label: const Text('Copy Owner UID'),
                                       ),
-                                      if (status == 'pending') ...[
+                                      if (req.status == 'pending' || req.status == 'info_requested') ...[
                                         FilledButton.icon(
                                           onPressed: _busy
                                               ? null
-                                              : () => _reviewRequest(
-                                                    requestId: requestId,
-                                                    masterLeagueId: masterLeagueId,
-                                                    ownerId: ownerId,
-                                                    approve: true,
-                                                  ),
+                                              : () => _reviewRequest(req: req, action: 'approve'),
                                           icon: const Icon(Icons.verified_rounded),
                                           label: Text(
-                                            requestType.toLowerCase() == 'renewal'
+                                            req.requestType.toLowerCase() == 'renewal'
                                                 ? 'Approve Renewal'
                                                 : 'Approve',
                                             style: const TextStyle(fontWeight: FontWeight.w900),
                                           ),
                                         ),
+                                        OutlinedButton.icon(
+                                          onPressed: _busy
+                                              ? null
+                                              : () => _reviewRequest(req: req, action: 'info_requested'),
+                                          icon: const Icon(Icons.help_outline_rounded),
+                                          label: const Text(
+                                            'Request Info',
+                                            style: TextStyle(fontWeight: FontWeight.w900),
+                                          ),
+                                        ),
                                         FilledButton.tonalIcon(
                                           onPressed: _busy
                                               ? null
-                                              : () => _reviewRequest(
-                                                    requestId: requestId,
-                                                    masterLeagueId: masterLeagueId,
-                                                    ownerId: ownerId,
-                                                    approve: false,
-                                                  ),
+                                              : () => _reviewRequest(req: req, action: 'reject'),
                                           icon: const Icon(Icons.close_rounded),
                                           label: Text(
-                                            requestType.toLowerCase() == 'renewal'
+                                            req.requestType.toLowerCase() == 'renewal'
                                                 ? 'Reject Renewal'
                                                 : 'Reject',
                                             style: const TextStyle(fontWeight: FontWeight.w900),
@@ -612,4 +716,8 @@ class _OrganizerVerificationRequestsScreenState
       ),
     );
   }
+}
+
+extension _EmptyDash on String {
+  String ifEmptyDash() => trim().isEmpty ? '\u2014' : this;
 }
