@@ -303,9 +303,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
-  Future<MasterLeague?> _resolveVerificationWorkspace(
+  // FIXED: this was previously `Future<MasterLeague?> ... async` with
+  // no `await` inside it anywhere, wrapped below in a FutureBuilder.
+  // Because it was called inline during build() as
+  // `_resolveVerificationWorkspace(items)`, a BRAND-NEW Future
+  // instance was created on every single rebuild. FutureBuilder resets
+  // to ConnectionState.waiting whenever it sees a new Future instance
+  // — even one that resolves synchronously — so every time this
+  // screen's `createdMasterLeaguesAsync` stream re-emitted (which
+  // happens continuously, since it watches a live Firestore
+  // snapshots() stream with includeMetadataChanges: true upstream),
+  // the spinner was reset before it could ever settle. There was never
+  // any real asynchronous work in this function, so making it a plain
+  // synchronous method removes the FutureBuilder entirely and fixes
+  // the infinite-spin bug at the source.
+  MasterLeague? _resolveVerificationWorkspace(
     List<MasterLeague> items,
-  ) async {
+  ) {
     if (items.isEmpty) return null;
 
     for (final item in items) {
@@ -846,26 +860,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       );
                     }
 
-                    return FutureBuilder<MasterLeague?>(
-                      future: _resolveVerificationWorkspace(items),
-                      builder: (context, snap) {
-                        final workspace = snap.data;
+                    final workspace =
+                        _resolveVerificationWorkspace(items);
 
-                        if (workspace == null) {
-                          return Glass(
-                            borderRadius: 20,
-                            padding: const EdgeInsets.all(16),
-                            child: Text(
-                              'No organizer workspace is currently available for verification.',
-                              style: TextStyle(
-                                color: onSurface.withOpacity(0.68),
-                                fontWeight: FontWeight.w700,
-                                height: 1.35,
-                              ),
-                            ),
-                          );
-                        }
+                    if (workspace == null) {
+                      return Glass(
+                        borderRadius: 20,
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          'No organizer workspace is currently available for verification.',
+                          style: TextStyle(
+                            color: onSurface.withOpacity(0.68),
+                            fontWeight: FontWeight.w700,
+                            height: 1.35,
+                          ),
+                        ),
+                      );
+                    }
 
+                    {
                         Color statusColor;
                         IconData statusIcon;
                         String statusTitle;
@@ -1008,8 +1021,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             ],
                           ),
                         );
-                      },
-                    );
+                    }
                   },
                 ),
 

@@ -20,6 +20,7 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
+import '../../chat/presentation/widgets/private_message_button.dart';
 import '../../leagues/data/league_announcements_firebase.dart';
 import '../../leagues/models/league.dart';
 import '../../leagues/models/league_announcement.dart';
@@ -28,6 +29,7 @@ import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
 import '../domain/organizer_feed_event.dart';
 import '../logic/master_leagues_providers.dart';
+import 'organizer_verification_application_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Breakpoints — self-contained
@@ -873,6 +875,46 @@ class _OrganizerProfileScreenState
     }
   }
 
+  // ── verification application navigation ────────────────────────────────────
+  //
+  // FIXED: "Get Verified" / "Renew Verification" used to trigger an
+  // inline dialog on this screen that collected only an optional note
+  // and called the legacy repo.submitVerificationRequest() path — it
+  // never opened the real, full OrganizerVerificationApplicationScreen
+  // (org name/type/country, applicant identity, branding, description,
+  // etc.) that Settings already correctly opens via
+  // _openVerificationApplication(). Both entry points now open the
+  // exact same real application screen, so there is only one
+  // verification submission path across the app.
+  //
+  // No manual refresh is needed after returning: build() above uses a
+  // live StreamBuilder over _watchMasterLeague(), so the new
+  // pending/approved verification status appears automatically once
+  // Firestore reflects it.
+  Future<void> _openVerificationApplicationScreen(
+      MasterLeague ml) async {
+    if (_uid.isEmpty) {
+      _snack('Please sign in to continue.', error: true);
+      return;
+    }
+    if (ml.ownerId.trim() != _uid) {
+      _snack(
+        'Only the owner can manage organizer verification.',
+        error: true,
+      );
+      return;
+    }
+
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => OrganizerVerificationApplicationScreen(
+          masterLeagueId: ml.id,
+          masterLeagueName: ml.name,
+        ),
+      ),
+    );
+  }
+
   // ── feed event ─────────────────────────────────────────────────────────────
 
   Future<void> _postProfileUpdateFeedEvent(
@@ -1358,10 +1400,8 @@ class _OrganizerProfileScreenState
                       backgroundColor: AppTheme.limeAccent,
                       foregroundColor: AppTheme.darkText,
                     ),
-                    onPressed: ownerCanStartInitial
-                        ? () =>
-                            _startInitialVerification(ml)
-                        : () => _renewVerification(ml),
+                    onPressed: () =>
+                        _openVerificationApplicationScreen(ml),
                     icon: Icon(
                       ownerCanStartInitial
                           ? Icons.verified_rounded
@@ -1725,6 +1765,25 @@ class _OrganizerProfileScreenState
                       style: const TextStyle(
                           fontWeight: FontWeight.w900),
                     ),
+                  ),
+                ),
+                // NEW: private-message entry point into the organizer's
+                // own account, visible to any visitor but only usable
+                // by Pro/Elite users — PrivateMessageButton already
+                // owns that gating (and the "upgrade" nudge for
+                // non-Pro visitors) end-to-end, the exact same widget
+                // already used on the public team-profile screen, so
+                // there is only one message-eligibility implementation
+                // across the app.
+                const SizedBox(width: 10),
+                Expanded(
+                  child: PrivateMessageButton(
+                    key: ValueKey(
+                        'organizer_msg_btn_${ml.ownerId}'),
+                    targetUserId: ml.ownerId,
+                    targetDisplayName: ownerName,
+                    onUpgradeTap: () =>
+                        GoRouter.of(context).push('/settings'),
                   ),
                 ),
               ],
