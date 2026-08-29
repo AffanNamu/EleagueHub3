@@ -1,4 +1,4 @@
-//chat/data/private chat repository
+//chat/data/private_chat_repository.dart
 import 'dart:async';
 import 'dart:io';
 
@@ -179,11 +179,19 @@ class PrivateChatRepository {
       final threadId = _threadIdFor(authUid, other);
       final ref = _threads.doc(threadId);
 
-      final existing = await ref
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 12));
+      bool threadExists = false;
+      DocumentSnapshot<Map<String, dynamic>>? existing;
+      try {
+        existing = await ref
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 12));
+        threadExists = existing.exists;
+      } on FirebaseException catch (e) {
+        if (e.code != 'permission-denied') rethrow;
+        threadExists = false;
+      }
 
-      if (existing.exists) {
+      if (threadExists && existing != null) {
         return PrivateThread.fromDoc(existing);
       }
 
