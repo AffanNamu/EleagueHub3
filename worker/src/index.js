@@ -1,4 +1,4 @@
-//index.js
+//worker/src/index.js
 import { AccessToken } from "livekit-server-sdk";
 
 const CORS_HEADERS = {

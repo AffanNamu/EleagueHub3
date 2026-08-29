@@ -1,3 +1,4 @@
+///core/config/BackendConfig
 class BackendConfig {
   static const String functionsBaseUrl =
       String.fromEnvironment('FUNCTIONS_BASE_URL', defaultValue: '');

@@ -1,13 +1,11 @@
 // lib/core/services/payments/google_play_billing_service.dart
 //
-// UPDATED: added a public fetchPlanPrice() method + PlayPlanPriceInfo
-// class so UpgradePlanScreen can show the REAL price Google Play will
-// charge — pulled live from Play Console via queryProductDetails() —
-// instead of a separate pricing service's guess. Google Play localizes
-// this automatically based on the country tied to the user's Google
-// Play Store account (whatever currency/amount you configured in Play
-// Console, including per-country manual pricing or auto-conversion).
-// Nothing else in this file changed.
+// UPDATED: added fetchOrganizerVerificationPrice(), alongside the
+// existing fetchPlanPrice(), so the organizer verification screen can
+// show the REAL price Google Play will charge on Android — pulled live
+// from Play Console via queryProductDetails() — instead of the
+// Flutterwave/web pricing config, which is the wrong source of truth
+// once Android routes payments through Google Play Billing.
 
 import 'dart:async';
 
@@ -87,11 +85,11 @@ class GooglePlayPurchaseResult {
 
 // ── Price info ───────────────────────────────────────────────────────────────
 //
-// NEW: a thin wrapper around what queryProductDetails() gives us for a
-// given plan/duration subscription product. `formattedPrice` is the
-// exact string Play Store will show at checkout (already localized —
-// e.g. "$4.99", "₦4,500.00", "€4.49" — using whatever you configured
-// in Play Console for that user's Play Store country).
+// A thin wrapper around what queryProductDetails() gives us for a given
+// product. `formattedPrice` is the exact string Play Store will show at
+// checkout (already localized — e.g. "$4.99", "₦4,500.00", "€4.49" —
+// using whatever you configured in Play Console for that user's Play
+// Store country).
 
 class PlayPlanPriceInfo {
   final String formattedPrice;
@@ -161,11 +159,11 @@ class GooglePlayBillingService {
 
   // ── Live pricing (display-only, no charge) ───────────────────────────────
   //
-  // NEW: fetches the real, current price Play Store has configured for
-  // this plan+duration's subscription product, for THIS user's Play
-  // Store account/country. This is exactly the price _purchase() will
-  // end up charging — there is no separate "display price" source of
-  // truth anymore for Google Play users.
+  // Fetches the real, current price Play Store has configured for this
+  // plan+duration's subscription product, for THIS user's Play Store
+  // account/country. This is exactly the price _purchase() will end up
+  // charging — there is no separate "display price" source of truth
+  // anymore for Google Play users.
   //
   // Returns null if the Play Store is unavailable, the product doesn't
   // exist / isn't published for this plan+duration, or the query fails
@@ -192,6 +190,37 @@ class GooglePlayBillingService {
     }
 
     final product = await _fetchProduct(productId, isSubscription: true);
+    if (product == null) return null;
+
+    return PlayPlanPriceInfo(
+      formattedPrice: product.price,
+      currencyCode: product.currencyCode,
+      rawPrice: product.rawPrice,
+    );
+  }
+
+  // ── NEW (bug #5 fix): Live pricing for organizer verification ───────────
+  //
+  // Same mechanism as fetchPlanPrice() above, applied to the
+  // organizer_verification / organizer_verification_renewal one-time
+  // products. Previously OrganizerVerificationApplicationScreen only
+  // ever consulted RemotePricingService (the Flutterwave/web pricing
+  // doc in Firestore), which is not the source of truth on Android once
+  // PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling is
+  // true and the actual charge goes through
+  // MasterLeaguePaymentService._purchaseVerificationViaGooglePlay() —
+  // that mismatch is what produced the "0.00 NGN" display. Returns null
+  // under the same conditions as fetchPlanPrice(); callers should fall
+  // back to RemotePricingService in that case (e.g. non-Android, or the
+  // Play Store product genuinely isn't available).
+  Future<PlayPlanPriceInfo?> fetchOrganizerVerificationPrice({
+    bool isRenewal = false,
+  }) async {
+    final productId = isRenewal
+        ? GooglePlayBillingCatalog.organizerVerificationRenewalId
+        : GooglePlayBillingCatalog.organizerVerificationId;
+
+    final product = await _fetchProduct(productId, isSubscription: false);
     if (product == null) return null;
 
     return PlayPlanPriceInfo(

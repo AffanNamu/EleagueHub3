@@ -8,7 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
@@ -79,6 +81,12 @@ class _OrganizerVerificationApplicationScreenState
 
   double? _feeAmount;
   String _feeCurrency = '';
+  // NEW (bug #5 fix): when the price is sourced from Google Play
+  // Billing (Android), we display the exact, already-localized string
+  // Play Store itself returns (e.g. "$4.99", "₦4,500.00") instead of
+  // formatting _feeAmount/_feeCurrency ourselves. Left null when the
+  // price came from RemotePricingService instead.
+  String? _feeFormatted;
 
   OrganizerVerificationRequest? _existingRequest;
 
@@ -111,8 +119,37 @@ class _OrganizerVerificationApplicationScreenState
     }
   }
 
+  // FIXED (bug #5 -- root cause): this previously ALWAYS pulled from
+  // RemotePricingService, which reflects the Flutterwave/web pricing
+  // config document in Firestore. On Android, though, the actual charge
+  // for organizer verification goes through Google Play Billing (see
+  // MasterLeaguePaymentService._purchaseVerificationViaGooglePlay()),
+  // whose price is whatever is configured for the
+  // `organizer_verification` product in Play Console -- a completely
+  // different number/currency than the Firestore doc, and shown as
+  // "0.00 NGN" whenever that doc's organizerVerificationFee happened to
+  // be unset for the resolved currency. The working Pro/Elite purchase
+  // screen avoids this by calling GooglePlayBillingService.fetchPlanPrice()
+  // to get the live Play Store price on Android; this screen now does
+  // the equivalent via fetchOrganizerVerificationPrice(), falling back
+  // to RemotePricingService only when Google Play pricing isn't the
+  // active route (e.g. web) or the Play Store query itself fails.
   Future<void> _loadPricing() async {
     try {
+      if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+        final info = await GooglePlayBillingService.instance
+            .fetchOrganizerVerificationPrice();
+        if (info != null) {
+          if (!mounted) return;
+          setState(() {
+            _feeAmount = info.rawPrice;
+            _feeCurrency = info.currencyCode;
+            _feeFormatted = info.formattedPrice;
+          });
+          return;
+        }
+      }
+
       final plan = await RemotePricingService.instance.getPlanForLocale(
         Localizations.maybeLocaleOf(context),
       );
@@ -120,6 +157,7 @@ class _OrganizerVerificationApplicationScreenState
       setState(() {
         _feeAmount = plan.organizerVerificationFee;
         _feeCurrency = plan.currency;
+        _feeFormatted = null;
       });
     } catch (_) {}
   }
@@ -680,9 +718,15 @@ class _OrganizerVerificationApplicationScreenState
   }
 
   Widget _buildReviewStep(Brightness brightness) {
-    final feeLabel = _feeAmount == null
-        ? 'Loading fee\u2026'
-        : '${_feeAmount!.toStringAsFixed(2)} $_feeCurrency';
+    // FIXED (bug #5): prefer the live, already-localized Google Play
+    // Store price string when we have one; only fall back to manually
+    // formatting _feeAmount/_feeCurrency (RemotePricingService's value)
+    // when Google Play pricing wasn't used/available.
+    final feeLabel = _feeFormatted != null
+        ? _feeFormatted!
+        : (_feeAmount == null
+            ? 'Loading fee\u2026'
+            : '${_feeAmount!.toStringAsFixed(2)} $_feeCurrency');
 
     return _card(brightness, children: [
       Text(
