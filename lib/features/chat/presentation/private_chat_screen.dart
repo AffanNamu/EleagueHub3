@@ -14,6 +14,7 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/private_chat_repository.dart';
 import '../models/private_message.dart';
 
@@ -22,10 +23,12 @@ class PrivateChatScreen extends StatefulWidget {
     super.key,
     required this.threadId,
     required this.otherUserName,
+    this.otherUserId,
   });
 
   final String threadId;
   final String otherUserName;
+  final String? otherUserId;
 
   @override
   State<PrivateChatScreen> createState() => _PrivateChatScreenState();
@@ -471,7 +474,24 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: Text(widget.otherUserName),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                widget.otherUserName,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (widget.otherUserId != null && widget.otherUserId!.trim().isNotEmpty) ...[
+              const SizedBox(width: 4),
+              VerificationBadgeWidget(
+                userId: widget.otherUserId!.trim(),
+                size: 20,
+              ),
+            ],
+          ],
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
