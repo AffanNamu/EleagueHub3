@@ -111,8 +111,28 @@ class PlayerPhotoService {
           .where((c) => c.name.isNotEmpty)
           .toList(growable: false);
 
-      _searchCache[cacheKey] = results;
-      return results;
+      // FIXED (player search bug): TheSportsDB's free search returns
+      // every player matching the name regardless of career status, so
+      // long-retired/obscure players with a common name were showing up
+      // mixed in with (and sometimes ahead of) currently active ones,
+      // and the user had no reliable way to tell which was which at a
+      // glance. There's no explicit "still playing" flag on the free
+      // tier, but a player still affiliated with a team is a reasonable
+      // proxy for "currently playing" versus one with no team on file
+      // (commonly retired/free agent). Stable-sorting team-affiliated
+      // candidates first means the dropdown now surfaces the more likely
+      // matches up top, while still keeping every result reachable by
+      // scrolling rather than silently dropping anyone.
+      final sortedResults = List<PlayerSearchCandidate>.from(results)
+        ..sort((a, b) {
+          final aHasTeam = a.team.trim().isNotEmpty;
+          final bHasTeam = b.team.trim().isNotEmpty;
+          if (aHasTeam == bHasTeam) return 0;
+          return aHasTeam ? -1 : 1;
+        });
+
+      _searchCache[cacheKey] = sortedResults;
+      return sortedResults;
     } on TimeoutException {
       throw const PlayerPhotoServiceException(
         'Player search timed out. Please try again.',

@@ -11,6 +11,18 @@ import '../../config/backend_config.dart';
 import '../app_analytics_service.dart';
 import 'payment_models.dart';
 
+/// Thrown by [PaymentsService.createAttempt] when a payment attempt
+/// record could not be created. Callers MUST treat this as "do not
+/// charge the user" -- see the FIXED note on createAttempt() below for
+/// why this used to be swallowed instead of thrown.
+class PaymentsServiceException implements Exception {
+  final String message;
+  const PaymentsServiceException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class PaymentsService {
   PaymentsService._();
   static final PaymentsService instance = PaymentsService._();
@@ -34,21 +46,53 @@ class PaymentsService {
   CollectionReference<Map<String, dynamic>> get _payments =>
       _firestore.collection('payments');
 
+  // FIXED (organizer verification payment bug #2 -- root cause):
+  // this previously caught any Firestore write failure here, logged an
+  // analytics event, and returned '' -- treating "couldn't create the
+  // attempt record" the same as "here is a valid attempt id" to every
+  // caller downstream.
+  //
+  // The Flutterwave payment path (MasterLeaguePaymentService.
+  // _runFlutterwavePayment) happens to guard against that blank return
+  // value before ever charging the user. The Google Play paths
+  // (_purchasePlanViaGooglePlay / _purchaseVerificationViaGooglePlay /
+  // _purchaseVerificationRenewalViaGooglePlay) never had the same
+  // guard -- they took the blank attemptId and charged the user's
+  // Google Play account anyway. Since master_league_verification_
+  // requests' create rule requires attemptId.size() > 0, the
+  // subsequent write of the actual verification request was then
+  // GUARANTEED to fail with permission-denied -- after the money had
+  // already been taken. That is the exact "Google Play charges
+  // successfully, then the app fails" bug.
+  //
+  // Throwing here (rather than returning '') makes the failure visible
+  // to every caller immediately, so they can decline to initiate any
+  // charge instead of discovering the problem only after taking the
+  // user's money. (The Google Play call sites have also been given an
+  // explicit belt-and-suspenders empty-string check, in case some
+  // future caller forgets to catch this exception.)
   Future<String> createAttempt(PaymentAttemptCreate attempt) async {
     final uid = _authUidOrEmpty();
-    if (uid.isEmpty) return '';
+    if (uid.isEmpty) {
+      throw const PaymentsServiceException(
+        'Please sign in and try again.',
+      );
+    }
+
+    if (attempt.userId.trim() != uid) {
+      throw const PaymentsServiceException(
+        'Please sign in and try again.',
+      );
+    }
+
+    final ref = _attempts.doc();
+    final now = _nowMs();
 
     try {
-      if (attempt.userId.trim() != uid) return '';
-
-      final ref = _attempts.doc();
-      final now = _nowMs();
-
       await ref.set(
         attempt.toFirestore(attemptId: ref.id, createdAtMs: now),
         SetOptions(merge: false),
       );
-
       return ref.id;
     } catch (e) {
       unawaited(
@@ -68,7 +112,10 @@ class PaymentsService {
           },
         ),
       );
-      return '';
+      throw PaymentsServiceException(
+        "We couldn't start this payment. Please check your connection "
+        'and try again. (${e.toString()})',
+      );
     }
   }
 

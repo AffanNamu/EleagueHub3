@@ -538,7 +538,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                     tooltip: 'Edit cover photo',
                     onPressed: _showBannerEditSheet,
                   ),
-          if (!_isOwner) ...[
+          if (!_isOwner)
             _chatBusy
                 ? const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16),
@@ -549,20 +549,14 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                     tooltip: 'Message',
                     onPressed: () => _handleAppBarChatTap('User'),
                   ),
-            _followBusy
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                  )
-                : IconButton(
-                    icon: Icon(
-                      _following ? Icons.check_circle_rounded : Icons.person_add_alt_1_rounded,
-                      color: _following ? AppTheme.limeAccent : null,
-                    ),
-                    tooltip: _following ? 'Unfollow' : 'Follow',
-                    onPressed: _toggleFollow,
-                  ),
-          ],
+          // FIXED: the Follow/Following icon used to live here, in the
+          // AppBar actions row overlaying the cover-photo banner. Once a
+          // user uploads a busy or bright banner image, this icon loses
+          // contrast against it and visitors reported not being able to
+          // find/see it at all. Moved to a full "Follow" button in the
+          // body instead, right beside the Message button -- same
+          // Twitter/Facebook-style layout used for that pattern
+          // elsewhere. See the Row built in the body below.
           IconButton(
             icon: const Icon(Icons.more_vert_rounded),
             tooltip: 'More',
@@ -617,11 +611,25 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                         if (!_isOwner)
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: PrivateMessageButton(
-                              key: ValueKey('msg_btn_$_blocked'),
-                              targetUserId: widget.userId,
-                              targetDisplayName: displayName,
-                              onUpgradeTap: () => context.push('/settings'),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: PrivateMessageButton(
+                                    key: ValueKey('msg_btn_$_blocked'),
+                                    targetUserId: widget.userId,
+                                    targetDisplayName: displayName,
+                                    onUpgradeTap: () => context.push('/settings'),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _FollowActionButton(
+                                    following: _following,
+                                    busy: _followBusy,
+                                    onTap: _toggleFollow,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         const SizedBox(height: 20),
@@ -977,6 +985,58 @@ class _StatCard extends StatelessWidget {
   }
 }
 
+// --- SECTION: Follow Action Button (Twitter-style Follow/Following) ---
+class _FollowActionButton extends StatelessWidget {
+  const _FollowActionButton({
+    required this.following,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final bool following;
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
+    if (following) {
+      return OutlinedButton.icon(
+        onPressed: busy ? null : onTap,
+        icon: busy
+            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.check_rounded, size: 18),
+        label: const Text('Following', style: TextStyle(fontWeight: FontWeight.w900)),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppTheme.primaryText(brightness),
+          side: BorderSide(color: AppTheme.cardBorder(brightness)),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        ),
+      );
+    }
+
+    return FilledButton.icon(
+      onPressed: busy ? null : onTap,
+      icon: busy
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkText),
+            )
+          : const Icon(Icons.person_add_alt_1_rounded, size: 18),
+      label: const Text('Follow', style: TextStyle(fontWeight: FontWeight.w900)),
+      style: FilledButton.styleFrom(
+        backgroundColor: AppTheme.limeAccent,
+        foregroundColor: AppTheme.darkText,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      ),
+    );
+  }
+}
+
 // --- SECTION: Squad Preview ---
 class _SquadPreview extends StatelessWidget {
   const _SquadPreview({required this.userId, required this.repo});
@@ -996,11 +1056,33 @@ class _SquadPreview extends StatelessWidget {
           builder: (context, squadSnap) {
             final squad = squadSnap.data ?? Squad.empty(firstGame);
 
-            return GestureDetector(
-              onTap: () => context.push('/profile/$userId/squad'),
-              child: AbsorbPointer(
-                child: SquadPitchView(squad: squad, isEditable: false),
-              ),
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // NEW: shows the owner's uploaded real squad/team photo
+                // (distinct from the virtual pitch below) if one exists.
+                // Previously this photo, uploaded from SquadScreen, was
+                // never surfaced anywhere a visitor could see it.
+                if (squad.squadPhotoUrl.trim().isNotEmpty) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: Image.network(
+                      squad.squadPhotoUrl,
+                      height: 180,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                GestureDetector(
+                  onTap: () => context.push('/profile/$userId/squad'),
+                  child: AbsorbPointer(
+                    child: SquadPitchView(squad: squad, isEditable: false),
+                  ),
+                ),
+              ],
             );
           },
         );

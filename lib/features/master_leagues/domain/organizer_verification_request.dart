@@ -1,3 +1,4 @@
+///lib/features/master_league/domain/organizer_verification_request.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum VerificationRequestStatus {

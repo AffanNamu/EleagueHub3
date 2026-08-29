@@ -1,6 +1,7 @@
 //lib/features/search/user_search_screen.dart
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,6 +9,7 @@ import '../../../core/services/country/country_resolver_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../profile/data/team_profile_repository.dart';
 import '../../profile/models/game_id.dart';
 import '../data/user_search_repository.dart';
 import '../models/user_search_entry.dart';
@@ -220,13 +222,74 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
   }
 }
 
-class _TeamTile extends StatelessWidget {
+// FIXED: this tile used to be tap-only (open the profile, no other
+// action). The user wanted to be able to follow a team directly from
+// "Teams Near You" / search results without opening the full profile
+// first, Twitter/Facebook list-style. Converted to a StatefulWidget so
+// each tile can independently load + optimistically toggle its own
+// follow state via the same TeamProfileRepository the public profile
+// screen already uses.
+class _TeamTile extends StatefulWidget {
   const _TeamTile({required this.entry});
   final UserSearchEntry entry;
 
   @override
+  State<_TeamTile> createState() => _TeamTileState();
+}
+
+class _TeamTileState extends State<_TeamTile> {
+  final TeamProfileRepository _repo = TeamProfileRepository();
+
+  /// null = not loaded yet (or not applicable for self). Kept nullable
+  /// so the follow button doesn't flash "Follow" before the real state
+  /// is known.
+  bool? _following;
+  bool _busy = false;
+
+  String get _selfUid => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  bool get _isSelf => _selfUid.isNotEmpty && _selfUid == widget.entry.userId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFollowing();
+  }
+
+  Future<void> _loadFollowing() async {
+    if (_isSelf) return;
+    final following = await _repo.isFollowing(widget.entry.userId);
+    if (!mounted) return;
+    setState(() => _following = following);
+  }
+
+  Future<void> _toggleFollow() async {
+    if (_busy || _following == null) return;
+    final previous = _following!;
+    setState(() {
+      _busy = true;
+      _following = !previous;
+    });
+    try {
+      if (previous) {
+        await _repo.unfollow(widget.entry.userId);
+      } else {
+        await _repo.follow(widget.entry.userId);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _following = previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(behavior: SnackBarBehavior.floating, content: Text(e.toString())),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final entry = widget.entry;
 
     return Glass(
       borderRadius: 16,
@@ -250,8 +313,69 @@ class _TeamTile extends StatelessWidget {
           entry.game.isEmpty ? entry.shareId : '${GameId.label(entry.game)} · ${entry.shareId}',
           style: TextStyle(color: AppTheme.secondaryText(brightness)),
         ),
+        trailing: (_isSelf || _following == null)
+            ? null
+            : _FollowSmallButton(
+                following: _following!,
+                busy: _busy,
+                onTap: _toggleFollow,
+              ),
         onTap: () => context.push('/profile/${entry.userId}'),
       ),
+    );
+  }
+}
+
+// --- SECTION: Compact Follow/Following pill for list tiles ---
+class _FollowSmallButton extends StatelessWidget {
+  const _FollowSmallButton({
+    required this.following,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final bool following;
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
+    if (following) {
+      return OutlinedButton(
+        onPressed: busy ? null : onTap,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppTheme.primaryText(brightness),
+          side: BorderSide(color: AppTheme.cardBorder(brightness)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        ),
+        child: busy
+            ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Text('Following', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+      );
+    }
+
+    return FilledButton(
+      onPressed: busy ? null : onTap,
+      style: FilledButton.styleFrom(
+        backgroundColor: AppTheme.limeAccent,
+        foregroundColor: AppTheme.darkText,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      ),
+      child: busy
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkText),
+            )
+          : const Text('Follow', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
     );
   }
 }

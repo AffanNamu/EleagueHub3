@@ -1,5 +1,4 @@
 //lib/features/master_leagues/data/master_leagues_repository_firebase.dart
-
 import 'dart:async';
 import 'dart:io';
 
@@ -149,6 +148,12 @@ class MasterLeaguesRepositoryFirebase {
             'Please sign in and try again.'
             '$debugSuffix',
           );
+        case 'failed-precondition':
+          throw UserFriendlyException(
+            'This query needs a Firestore index that has not been created '
+            'yet. Please deploy firestore.indexes.json and try again.'
+            '$debugSuffix',
+          );
         default:
           throw UserFriendlyException(
             "We couldn't complete this action. Please try again."
@@ -164,7 +169,12 @@ class MasterLeaguesRepositoryFirebase {
   }
 
   void _log(Object error, [StackTrace? st]) {
-    if (!kDebugMode) return;
+    // NOTE: kept unconditional (not gated on kDebugMode) so that stream
+    // errors — such as a missing composite index — are always visible in
+    // release logs too. This was previously silent, which is exactly why
+    // the "missing index" failure on watchLatestVerificationRequest()
+    // below was invisible and looked like an infinite spinner instead of
+    // a clear, loggable error.
     debugPrint('[MasterLeaguesRepo] $error');
     if (st != null) debugPrint('$st');
   }
@@ -229,11 +239,46 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  // ── FIX: shared error-safe wrapper for list/document streams ──────────
+  //
+  // ROOT CAUSE OF THE INFINITE SPINNER:
+  // Every watch*() stream below used to end with a bare
+  // `.handleError((error, st) { _log(error, st); })`. `handleError` only
+  // *intercepts* an error — it does not emit any replacement value. When
+  // the underlying `snapshots()` query fails (most commonly a
+  // `failed-precondition` error because a composite index the query
+  // needs, e.g. `where(...).orderBy(...)`, hasn't been created yet), the
+  // mapped stream would swallow the error and simply produce no further
+  // events. Any `StreamBuilder`/`AsyncValue` listening to it therefore
+  // stayed stuck on its initial "waiting" state forever — this is
+  // exactly the "loading, loading, loading" behaviour reported on the
+  // organizer verification screens (both the Settings entry point and
+  // the Organizer Profile entry point ultimately hit
+  // watchLatestVerificationRequest(), which needs a composite index on
+  // master_league_verification_requests: masterLeagueId + submittedAtMs).
+  //
+  // FIX: every stream below now guarantees it emits a safe fallback
+  // value (empty list / null / false) instead of just going silent on
+  // error, so the UI always settles instead of spinning forever — and
+  // the error is still logged via _log() so it's diagnosable. Once the
+  // required indexes (see firestore.indexes.json) are deployed, these
+  // streams will simply emit real data instead of the fallback.
+  Stream<T> _safeStream<T>(Stream<T> source, T fallback) {
+    return source.transform(
+      StreamTransformer<T, T>.fromHandlers(
+        handleError: (error, stackTrace, sink) {
+          _log(error, stackTrace);
+          sink.add(fallback);
+        },
+      ),
+    );
+  }
+
   Stream<List<MasterLeague>> watchMyMasterLeagues() {
     try {
       final uid = _requireAuthUid();
 
-      return _col.snapshots(includeMetadataChanges: true).map((snap) {
+      final mapped = _col.snapshots(includeMetadataChanges: true).map((snap) {
         final list = snap.docs
             .map((d) => MasterLeague.fromMap(d.id, d.data()))
             .where((ml) =>
@@ -255,9 +300,9 @@ class MasterLeaguesRepositoryFirebase {
         });
 
         return sorted;
-      }).handleError((error, st) {
-        _log(error, st);
       });
+
+      return _safeStream(mapped, const <MasterLeague>[]);
     } catch (_) {
       return Stream<List<MasterLeague>>.value(const <MasterLeague>[]);
     }
@@ -267,16 +312,16 @@ class MasterLeaguesRepositoryFirebase {
     try {
       final uid = _requireAuthUid();
 
-      return _col.snapshots(includeMetadataChanges: true).map((snap) {
+      final mapped = _col.snapshots(includeMetadataChanges: true).map((snap) {
         final list = snap.docs
             .map((d) => MasterLeague.fromMap(d.id, d.data()))
             .where((ml) => ml.ownerId.trim() == uid)
             .toList(growable: false);
         list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
         return list;
-      }).handleError((error, st) {
-        _log(error, st);
       });
+
+      return _safeStream(mapped, const <MasterLeague>[]);
     } catch (_) {
       return Stream<List<MasterLeague>>.value(const <MasterLeague>[]);
     }
@@ -286,7 +331,7 @@ class MasterLeaguesRepositoryFirebase {
     try {
       final uid = _requireAuthUid();
 
-      return _col.snapshots(includeMetadataChanges: true).map((snap) {
+      final mapped = _col.snapshots(includeMetadataChanges: true).map((snap) {
         final list = snap.docs
             .map((d) => MasterLeague.fromMap(d.id, d.data()))
             .where((ml) =>
@@ -295,9 +340,9 @@ class MasterLeaguesRepositoryFirebase {
             .toList(growable: false);
         list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
         return list;
-      }).handleError((error, st) {
-        _log(error, st);
       });
+
+      return _safeStream(mapped, const <MasterLeague>[]);
     } catch (_) {
       return Stream<List<MasterLeague>>.value(const <MasterLeague>[]);
     }
@@ -327,7 +372,9 @@ class MasterLeaguesRepositoryFirebase {
       final id = masterLeagueId.trim();
       if (id.isEmpty) return Stream<bool>.value(false);
 
-      return _followersCol(id).doc(uid).snapshots().map((snap) => snap.exists);
+      final mapped =
+          _followersCol(id).doc(uid).snapshots().map((snap) => snap.exists);
+      return _safeStream(mapped, false);
     } catch (_) {
       return Stream<bool>.value(false);
     }
@@ -339,13 +386,14 @@ class MasterLeaguesRepositoryFirebase {
       final id = masterLeagueId.trim();
       if (id.isEmpty) return Stream<int>.value(0);
 
-      return _col.doc(id).snapshots().map((snap) {
+      final mapped = _col.doc(id).snapshots().map((snap) {
         final data = snap.data() ?? <String, dynamic>{};
         final v = data['followersCount'];
         if (v is int) return v;
         if (v is num) return v.toInt();
         return 0;
       });
+      return _safeStream(mapped, 0);
     } catch (_) {
       return Stream<int>.value(0);
     }
@@ -362,7 +410,7 @@ class MasterLeaguesRepositoryFirebase {
         );
       }
 
-      return _templatesCol(id)
+      final mapped = _templatesCol(id)
           .orderBy('updatedAtMs', descending: true)
           .snapshots(includeMetadataChanges: true)
           .map((snap) {
@@ -370,6 +418,8 @@ class MasterLeaguesRepositoryFirebase {
             .map((d) => CompetitionTemplate.fromMap(d.data()))
             .toList(growable: false);
       });
+
+      return _safeStream(mapped, const <CompetitionTemplate>[]);
     } catch (_) {
       return Stream<List<CompetitionTemplate>>.value(
         const <CompetitionTemplate>[],
@@ -652,6 +702,10 @@ class MasterLeaguesRepositoryFirebase {
   /// UserSearchRepository.fetchNearby(). Best-effort: returns an empty
   /// list on failure (e.g. missing composite index) rather than
   /// throwing, since this backs an auto-loading section.
+  ///
+  /// NOTE: this where(country) + orderBy(updatedAtMs) query needs a
+  /// composite index — see firestore.indexes.json (master_leagues:
+  /// country ASC, updatedAtMs DESC).
   Future<List<MasterLeague>> discoverNearbyOrganizers({
     required String countryCode,
     int limit = 12,
@@ -1221,6 +1275,21 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  // ── FIX APPLIED HERE ────────────────────────────────────────────────
+  //
+  // This is the exact stream that both "Get Verified" entry points
+  // (Settings screen and Organizer Profile screen) subscribe to via
+  // OrganizerVerificationApplicationScreen's StreamBuilder. It combines
+  // where('masterLeagueId', ...) with orderBy('submittedAtMs', ...) on
+  // a top-level collection — Firestore REQUIRES a composite index for
+  // that combination (see firestore.indexes.json). Until that index is
+  // deployed, this query throws failed-precondition. Previously that
+  // error was silently swallowed by `.handleError` with no emitted
+  // value, so the screen's StreamBuilder never left ConnectionState
+  // .waiting — hence the infinite spinner. Now it always emits (null on
+  // error), so the screen renders the "Not Verified" / "Get Verified"
+  // state immediately instead of hanging, whether or not the index is
+  // present yet.
   Stream<OrganizerVerificationRequest?> watchLatestVerificationRequest(
     String masterLeagueId,
   ) {
@@ -1231,17 +1300,17 @@ class MasterLeaguesRepositoryFirebase {
         return Stream<OrganizerVerificationRequest?>.value(null);
       }
 
-      return _verificationRequests
+      final mapped = _verificationRequests
           .where('masterLeagueId', isEqualTo: id)
           .orderBy('submittedAtMs', descending: true)
           .limit(1)
           .snapshots(includeMetadataChanges: true)
-          .map((snap) {
+          .map<OrganizerVerificationRequest?>((snap) {
         if (snap.docs.isEmpty) return null;
         return OrganizerVerificationRequest.fromDoc(snap.docs.first);
-      }).handleError((error, st) {
-        _log(error, st);
       });
+
+      return _safeStream<OrganizerVerificationRequest?>(mapped, null);
     } catch (_) {
       return Stream<OrganizerVerificationRequest?>.value(null);
     }

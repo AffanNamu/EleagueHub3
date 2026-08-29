@@ -233,6 +233,27 @@ class TeamProfileRepository {
     }
   }
 
+  /// NEW: updates ONLY the real squad/team photo for [gameId], for the
+  /// currently signed-in user. Fetches the existing [Squad] first
+  /// (rather than writing a partial document) for the same reason
+  /// [updateBannerImage] does above -- avoids clobbering the rest of
+  /// the squad doc, and stays consistent even if this squad's Firestore
+  /// rule ever validates the full document shape. Pass an empty string
+  /// to remove the photo.
+  Future<void> updateSquadPhoto({
+    required String gameId,
+    required String squadPhotoUrl,
+  }) async {
+    try {
+      final authUid = _requireAuthUid();
+      final current = await fetchSquad(userId: authUid, gameId: gameId);
+      final updated = current.withSquadPhoto(squadPhotoUrl.trim());
+      await saveSquad(updated);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
   // ── Trophies ─────────────────────────────────────────────────────────────
 
   Stream<List<Trophy>> watchTrophies(String userId) {

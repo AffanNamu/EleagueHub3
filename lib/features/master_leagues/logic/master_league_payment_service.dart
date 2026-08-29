@@ -307,6 +307,39 @@ class FlutterwaveMasterLeaguePaymentService
     }
   }
 
+  // ── Attempt-id guard (organizer verification payment bug #2) ────────────
+  //
+  // FIXED: PaymentsService.createAttempt() used to swallow write
+  // failures and return ''. The Flutterwave path already checked for
+  // that blank string before charging; the three Google Play call
+  // sites below never did, so a failed attempt-record write didn't
+  // stop the Google Play charge from going through -- it just
+  // guaranteed the LATER write of the actual verification/plan record
+  // would be rejected by Firestore rules (attemptId.size() > 0),
+  // after the user's money had already been taken.
+  //
+  // createAttempt() now throws instead of returning '' on failure, so
+  // most callers get a clear error before any charge happens. This
+  // helper is the single choke point all three Google Play purchase
+  // paths route through, so that guarantee holds even if a future
+  // change to createAttempt() ever reintroduces a blank return value.
+  Future<String> _createAttemptOrThrow(
+    Future<String> Function() createAttempt,
+  ) async {
+    String attemptId;
+    try {
+      attemptId = await createAttempt();
+    } catch (e) {
+      throw _AttemptCreationFailed(_cleanErrorMessage(e));
+    }
+    if (attemptId.trim().isEmpty) {
+      throw const _AttemptCreationFailed(
+        "We couldn't start this payment. Please try again.",
+      );
+    }
+    return attemptId;
+  }
+
   // ── Google Play Billing paths ─────────────────────────────────────────────
 
   Future<MasterLeaguePaymentResult> _purchasePlanViaGooglePlay({
@@ -338,22 +371,35 @@ class FlutterwaveMasterLeaguePaymentService
       );
     }
 
-    final attemptId =
-        await GooglePlayBillingService.instance.createAttempt(
-      userId: uid,
-      productId: productId,
-      productType: 'plan_subscription',
-      productSubType: 'plan_${plan.id}_${duration.id}',
-      leagueName:
-          '${plan.displayName} Plan - ${duration.displayName}',
-      planId: plan.id,
-      planDurationId: duration.id,
-      metadata: <String, dynamic>{
-        'plan': plan.id,
-        'duration': duration.id,
-        'durationMonths': duration.months,
-      },
-    );
+    // FIXED: the attempt record is now created and confirmed BEFORE
+    // GooglePlayBillingService is ever asked to charge the user. If
+    // this fails, we return immediately -- no Play Store dialog is
+    // shown and no money moves.
+    final String attemptId;
+    try {
+      attemptId = await _createAttemptOrThrow(
+        () => GooglePlayBillingService.instance.createAttempt(
+          userId: uid,
+          productId: productId,
+          productType: 'plan_subscription',
+          productSubType: 'plan_${plan.id}_${duration.id}',
+          leagueName:
+              '${plan.displayName} Plan - ${duration.displayName}',
+          planId: plan.id,
+          planDurationId: duration.id,
+          metadata: <String, dynamic>{
+            'plan': plan.id,
+            'duration': duration.id,
+            'durationMonths': duration.months,
+          },
+        ),
+      );
+    } on _AttemptCreationFailed catch (e) {
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: e.message,
+      );
+    }
 
     final gpResult = await GooglePlayBillingService.instance
         .purchasePlanSubscription(
@@ -426,20 +472,38 @@ class FlutterwaveMasterLeaguePaymentService
       );
     }
 
-    final attemptId =
-        await GooglePlayBillingService.instance.createAttempt(
-      userId: uid,
-      productId:
-          GooglePlayBillingCatalog.organizerVerificationId,
-      productType: 'organizer_verification',
-      productSubType: 'master_league_organizer_verification',
-      leagueName: masterLeagueName,
-      metadata: <String, dynamic>{
-        'masterLeagueId': masterLeagueId,
-        'masterLeagueName': masterLeagueName,
-        'verificationMode': 'initial',
-      },
-    );
+    // FIXED (organizer verification payment bug #2 -- root cause):
+    // this attempt record is now created and confirmed BEFORE the
+    // Google Play purchase sheet is shown. Previously, if this write
+    // silently failed (returning ''), GooglePlayBillingService.
+    // purchaseOrganizerVerification() would still run, still charge
+    // the user, and then the eventual write of the
+    // master_league_verification_requests document (which requires
+    // attemptId.size() > 0) was GUARANTEED to fail with
+    // permission-denied -- after the money had already been taken.
+    final String attemptId;
+    try {
+      attemptId = await _createAttemptOrThrow(
+        () => GooglePlayBillingService.instance.createAttempt(
+          userId: uid,
+          productId:
+              GooglePlayBillingCatalog.organizerVerificationId,
+          productType: 'organizer_verification',
+          productSubType: 'master_league_organizer_verification',
+          leagueName: masterLeagueName,
+          metadata: <String, dynamic>{
+            'masterLeagueId': masterLeagueId,
+            'masterLeagueName': masterLeagueName,
+            'verificationMode': 'initial',
+          },
+        ),
+      );
+    } on _AttemptCreationFailed catch (e) {
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: e.message,
+      );
+    }
 
     final gpResult = await GooglePlayBillingService.instance
         .purchaseOrganizerVerification(
@@ -505,21 +569,32 @@ class FlutterwaveMasterLeaguePaymentService
       );
     }
 
-    final attemptId =
-        await GooglePlayBillingService.instance.createAttempt(
-      userId: uid,
-      productId:
-          GooglePlayBillingCatalog.organizerVerificationRenewalId,
-      productType: 'organizer_verification_renewal',
-      productSubType:
-          'master_league_organizer_verification_renewal',
-      leagueName: masterLeagueName,
-      metadata: <String, dynamic>{
-        'masterLeagueId': masterLeagueId,
-        'masterLeagueName': masterLeagueName,
-        'verificationMode': 'renewal',
-      },
-    );
+    // FIXED: same guard as the initial-verification path above --
+    // confirm the attempt record exists before charging anything.
+    final String attemptId;
+    try {
+      attemptId = await _createAttemptOrThrow(
+        () => GooglePlayBillingService.instance.createAttempt(
+          userId: uid,
+          productId: GooglePlayBillingCatalog
+              .organizerVerificationRenewalId,
+          productType: 'organizer_verification_renewal',
+          productSubType:
+              'master_league_organizer_verification_renewal',
+          leagueName: masterLeagueName,
+          metadata: <String, dynamic>{
+            'masterLeagueId': masterLeagueId,
+            'masterLeagueName': masterLeagueName,
+            'verificationMode': 'renewal',
+          },
+        ),
+      );
+    } on _AttemptCreationFailed catch (e) {
+      return MasterLeaguePaymentResult.failed(
+        provider: providerName,
+        errorMessage: e.message,
+      );
+    }
 
     final gpResult = await GooglePlayBillingService.instance
         .purchaseOrganizerVerificationRenewal(
@@ -623,6 +698,12 @@ class FlutterwaveMasterLeaguePaymentService
       final totalAmount = _toFlutterwaveAmount(rounded);
       final safeLeagueName = leagueName.trim();
 
+      // NOTE: createAttempt() now throws instead of returning '' on
+      // failure (see payments_service.dart), which this try/catch
+      // already correctly converts into a failed result below --
+      // before flutterwave.charge() is ever reached. This path was
+      // already safe; it's documented here for symmetry with the
+      // Google Play paths above, which needed an explicit fix.
       attemptId = await PaymentsService.instance.createAttempt(
         PaymentAttemptCreate(
           provider: providerName,
@@ -1239,4 +1320,15 @@ class FlutterwaveMasterLeaguePaymentService
       );
     }
   }
+}
+
+/// Internal signal used only within this file to short-circuit a
+/// Google Play purchase path before any charge is initiated. Never
+/// surfaced outside FlutterwaveMasterLeaguePaymentService.
+class _AttemptCreationFailed implements Exception {
+  const _AttemptCreationFailed(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
 }

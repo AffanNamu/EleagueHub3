@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/public_post.dart';
+import '../models/public_post_comment.dart';
 
 class PublicFeedRepositoryException implements Exception {
   final String message;
@@ -27,6 +28,9 @@ class PublicFeedRepository {
 
   CollectionReference<Map<String, dynamic>> get _postsCol =>
       _firestore.collection('public_posts');
+
+  CollectionReference<Map<String, dynamic>> _commentsCol(String postId) =>
+      _postsCol.doc(postId).collection('comments');
 
   String _requireAuthUid() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
@@ -185,6 +189,103 @@ class PublicFeedRepository {
           txn.update(postRef, {'likeCount': currentCount + 1});
         }
       }).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  // ── Comments (Feature 3, comment bug #4) ─────────────────────────────────
+  //
+  // NEW: this repository previously had no comment support whatsoever.
+  // Added here following the exact same shape as toggleLike() above —
+  // a subcollection doc per comment, plus a denormalized commentCount
+  // on the parent post kept in sync by the same transaction that
+  // writes the comment. Read is public (matches posts/likes); creating
+  // a comment requires being signed in (comments are NOT Pro/Elite
+  // gated — only creating the original post is).
+
+  /// Live comments for a post, oldest first, with soft-deleted comments
+  /// filtered out client-side (same pattern as watchForYouFeed's
+  /// `deleted` filtering, to avoid needing a composite index).
+  Stream<List<PublicPostComment>> watchComments(String postId, {int limit = 200}) {
+    return _commentsCol(postId)
+        .orderBy('createdAtMs', descending: false)
+        .limit(limit)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map(PublicPostComment.fromDoc)
+            .where((c) => !c.deleted)
+            .toList(growable: false))
+        .handleError((e) {
+      throw e;
+    });
+  }
+
+  Future<void> addComment({
+    required String postId,
+    required String authorDisplayName,
+    required String authorPhotoUrl,
+    required String text,
+  }) async {
+    try {
+      final authUid = _requireAuthUid();
+      final trimmed = text.trim();
+      if (trimmed.isEmpty) {
+        throw const PublicFeedRepositoryException('Please write a comment first.');
+      }
+
+      final postRef = _postsCol.doc(postId);
+      final commentRef = postRef.collection('comments').doc();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final safeText = trimmed.length > 500 ? trimmed.substring(0, 500) : trimmed;
+
+      await _firestore.runTransaction((txn) async {
+        final postSnap = await txn.get(postRef);
+        if (!postSnap.exists) {
+          throw const PublicFeedRepositoryException('This post no longer exists.');
+        }
+        final postData = postSnap.data() ?? <String, dynamic>{};
+        if (postData['deleted'] == true) {
+          throw const PublicFeedRepositoryException('This post no longer exists.');
+        }
+        final currentCount = (postData['commentCount'] as num?)?.toInt() ?? 0;
+
+        txn.set(commentRef, <String, dynamic>{
+          'commentId': commentRef.id,
+          'postId': postId,
+          'authorId': authUid,
+          'authorDisplayName': authorDisplayName.trim(),
+          'authorPhotoUrl': authorPhotoUrl.trim(),
+          'text': safeText,
+          'createdAtMs': now,
+          'deleted': false,
+        });
+        txn.update(postRef, {'commentCount': currentCount + 1});
+      }).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Soft-delete: the comment's own author only (matches the post
+  /// soft-delete pattern). commentCount is intentionally left as-is,
+  /// same choice already made for discussion_threads' replyCount.
+  Future<void> deleteComment({
+    required String postId,
+    required String commentId,
+  }) async {
+    try {
+      final authUid = _requireAuthUid();
+      final ref = _commentsCol(postId).doc(commentId);
+      final snap = await ref.get(const GetOptions(source: Source.server)).timeout(
+            const Duration(seconds: 10),
+          );
+      if (!snap.exists) return;
+      final authorId = (snap.data()?['authorId'] as String? ?? '').trim();
+      if (authorId != authUid) {
+        throw const PublicFeedRepositoryException('You can only delete your own comments.');
+      }
+      await ref.update(<String, dynamic>{'deleted': true}).timeout(const Duration(seconds: 15));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }

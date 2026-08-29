@@ -9,12 +9,36 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
-import '../../master_leagues/domain/master_league_plan.dart';
+import '../../master_leagues/logic/master_league_entitlement_service.dart';
+import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/public_feed_repository.dart';
 import '../models/public_post.dart';
+import 'widgets/comments_sheet.dart';
 import 'widgets/create_post_sheet.dart';
 
 enum _FeedTab { forYou, latest }
+
+/// Bundles what the feed screen needs about the signed-in user:
+/// their profile (for display name/photo when composing a post) and
+/// whether they're currently eligible to post.
+///
+/// FIXED (entitlement bug #1): `eligible` is now resolved via
+/// [MasterLeagueEntitlementService.getEntitlement], which checks the
+/// Firestore profile AND falls back to Auth custom claims
+/// (organizerPro/organizerProPlan) if the profile hasn't synced yet.
+/// Previously this screen read `UserProfile.activePlan` directly off
+/// the Firestore profile with no claims fallback -- the same gap that
+/// `MasterLeagueEntitlementService.activateAfterPayment()`'s own
+/// comments warn about ("best-effort local profile mirror ... if it
+/// fails, ... still works via the custom claim"). A Google Play user
+/// whose profile mirror write failed after a successful, verified
+/// purchase was claims-active everywhere else but got told here that
+/// they couldn't create a post.
+class _FeedBootstrap {
+  const _FeedBootstrap({required this.account, required this.eligible});
+  final UserProfile? account;
+  final bool eligible;
+}
 
 class PublicFeedScreen extends StatefulWidget {
   const PublicFeedScreen({super.key});
@@ -26,8 +50,18 @@ class PublicFeedScreen extends StatefulWidget {
 class _PublicFeedScreenState extends State<PublicFeedScreen> {
   final PublicFeedRepository _repo = PublicFeedRepository();
   final UserProfileRepository _userRepo = UserProfileRepository();
+  final MasterLeagueEntitlementService _entitlementService =
+      MasterLeagueEntitlementService();
 
   _FeedTab _tab = _FeedTab.forYou;
+
+  // FIXED (like UI bug #3): tracks whether the current user has liked
+  // each visible post. Previously the heart icon was hardcoded to
+  // `favorite_border` with no state backing it at all, so it could
+  // never reflect a like. Populated lazily per post via
+  // PublicFeedRepository.hasLiked(), and flipped optimistically (with
+  // rollback on failure) when the user taps the heart.
+  final Map<String, bool> _likedCache = {};
 
   String get _selfUid => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
@@ -37,6 +71,22 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(behavior: SnackBarBehavior.floating, content: Text(msg)),
     );
+  }
+
+  Future<_FeedBootstrap> _loadBootstrap() async {
+    final results = await Future.wait<Object?>([
+      _userRepo.fetchByUserId(_selfUid),
+      _entitlementService.getEntitlement(),
+    ]);
+
+    final account = results[0] as UserProfile?;
+    final entitlement = results[1] as OrganizerProEntitlement;
+
+    final eligible = entitlement.active &&
+        entitlement.plan != null &&
+        !entitlement.plan!.isFree;
+
+    return _FeedBootstrap(account: account, eligible: eligible);
   }
 
   // NOTE: You will need to update `showCreatePostSheet` inside `create_post_sheet.dart` 
@@ -53,12 +103,43 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
     }
   }
 
+  void _ensureLikeStatusLoaded(String postId) {
+    if (_likedCache.containsKey(postId)) return;
+    // Placeholder so we don't kick off a fetch for this post on every
+    // build while the real answer is in flight.
+    _likedCache[postId] = false;
+    _repo.hasLiked(postId).then((liked) {
+      if (!mounted) return;
+      if (liked && _likedCache[postId] != true) {
+        setState(() => _likedCache[postId] = true);
+      }
+    });
+  }
+
   Future<void> _handleLike(String postId) async {
+    final previous = _likedCache[postId] ?? false;
+    setState(() => _likedCache[postId] = !previous);
     try {
       await _repo.toggleLike(postId);
     } catch (e) {
+      if (!mounted) return;
+      setState(() => _likedCache[postId] = previous);
       _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
+  }
+
+  // FIXED (comment bug #4): previously nothing was wired to the comment
+  // icon at all -- no repository method, no rules, no screen. This opens
+  // the new comments bottom sheet, using the current user's profile info
+  // (already loaded for the compose sheet) as the comment's author.
+  void _handleComment(String postId, UserProfile? account) {
+    final displayName = _userRepo.displayNameForProfile(account, fallbackUserId: _selfUid);
+    showCommentsSheet(
+      context,
+      postId: postId,
+      currentAuthorDisplayName: displayName,
+      currentAuthorPhotoUrl: account?.effectivePhotoUrl ?? '',
+    );
   }
 
   Future<void> _confirmDelete(String postId) async {
@@ -95,13 +176,14 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         elevation: 0,
       ),
       body: SafeArea(
-        child: FutureBuilder<UserProfile?>(
-          future: _selfUid.isEmpty ? Future.value(null) : _userRepo.fetchByUserId(_selfUid),
-          builder: (context, accountSnap) {
-            final account = accountSnap.data;
-            final eligible = account != null &&
-                (account.activePlan == MasterLeaguePlan.pro ||
-                    account.activePlan == MasterLeaguePlan.elite);
+        child: FutureBuilder<_FeedBootstrap>(
+          future: _selfUid.isEmpty
+              ? Future.value(const _FeedBootstrap(account: null, eligible: false))
+              : _loadBootstrap(),
+          builder: (context, bootstrapSnap) {
+            final bootstrap = bootstrapSnap.data;
+            final account = bootstrap?.account;
+            final eligible = bootstrap?.eligible ?? false;
 
             return Stack(
               children: [
@@ -168,10 +250,14 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                             separatorBuilder: (_, __) => const SizedBox(height: 12),
                             itemBuilder: (context, i) {
                               final post = posts[i];
+                              _ensureLikeStatusLoaded(post.postId);
+                              final isLiked = _likedCache[post.postId] ?? false;
                               return _PostCard(
                                 post: post,
                                 isOwner: post.authorId == _selfUid,
+                                isLiked: isLiked,
                                 onLike: () => _handleLike(post.postId),
+                                onComment: () => _handleComment(post.postId, account),
                                 onDelete: () => _confirmDelete(post.postId),
                                 onOpenLeague: post.leagueId.trim().isEmpty
                                     ? null
@@ -287,14 +373,18 @@ class _PostCard extends StatelessWidget {
   const _PostCard({
     required this.post,
     required this.isOwner,
+    required this.isLiked,
     required this.onLike,
+    required this.onComment,
     required this.onDelete,
     required this.onOpenLeague,
   });
 
   final PublicPost post;
   final bool isOwner;
+  final bool isLiked;
   final VoidCallback onLike;
+  final VoidCallback onComment;
   final VoidCallback onDelete;
   final VoidCallback? onOpenLeague;
 
@@ -329,13 +419,29 @@ class _PostCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  post.authorDisplayName.isEmpty ? 'User' : post.authorDisplayName,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: AppTheme.primaryText(brightness),
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        post.authorDisplayName.isEmpty ? 'User' : post.authorDisplayName,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.primaryText(brightness),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    // NEW: shows the author's verified badge (Green for
+                    // Pro, Green + Organizer/gold for Elite) right after
+                    // their name, Twitter/Facebook-style. Reuses the
+                    // existing VerificationBadgeWidget + badgeStreamProvider
+                    // -- badges are already granted on plan purchase by
+                    // MasterLeaguePaymentService/GooglePlayBillingService,
+                    // so this is live, not computed from the post itself.
+                    VerificationBadgeWidget(userId: post.authorId, size: 15),
+                  ],
                 ),
               ),
               Text(
@@ -361,7 +467,7 @@ class _PostCard extends StatelessWidget {
               ),
             ),
           ],
-          
+
           // NEW: Social Media Sizing & Audio Overlay
           if (post.mediaUrl.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -438,22 +544,58 @@ class _PostCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
                   child: Row(
                     children: [
-                      Icon(Icons.favorite_border_rounded, size: 18, color: AppTheme.secondaryText(brightness)),
+                      // FIXED (like UI bug #3): the heart previously always
+                      // rendered `favorite_border` regardless of like state,
+                      // because no per-post "did I like this" state existed
+                      // anywhere above it. It now reflects `isLiked`, which
+                      // is hydrated from PublicFeedRepository.hasLiked() and
+                      // flipped optimistically on tap.
+                      Icon(
+                        isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                        size: 18,
+                        color: isLiked ? const Color(0xFFE0245E) : AppTheme.secondaryText(brightness),
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         '${post.likeCount}',
-                        style: TextStyle(color: AppTheme.secondaryText(brightness), fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: isLiked ? const Color(0xFFE0245E) : AppTheme.secondaryText(brightness),
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(width: 18),
-              Icon(Icons.chat_bubble_outline_rounded, size: 18, color: AppTheme.secondaryText(brightness)),
-              const SizedBox(width: 6),
-              Text(
-                '${post.commentCount}',
-                style: TextStyle(color: AppTheme.secondaryText(brightness), fontWeight: FontWeight.w700),
+              // FIXED (comment bug #4): this row previously had no
+              // InkWell/GestureDetector at all -- tapping it did nothing
+              // because nothing was listening for the tap. Now opens the
+              // comments sheet, using the same lime-accent color used
+              // elsewhere in the feed for interactive/active states.
+              InkWell(
+                onTap: onComment,
+                borderRadius: BorderRadius.circular(999),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        size: 18,
+                        color: AppTheme.limeAccentDark,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${post.commentCount}',
+                        style: TextStyle(
+                          color: AppTheme.secondaryText(brightness),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),

@@ -96,6 +96,7 @@ class Squad {
     required this.viceCaptainPlayerId,
     required this.teamStrength,
     required this.updatedAtMs,
+    this.squadPhotoUrl = '',
   });
 
   final String gameId;
@@ -106,6 +107,15 @@ class Squad {
   final String viceCaptainPlayerId;
   final int teamStrength; // 0-100 overall rating
   final int updatedAtMs;
+
+  /// NEW: a real photo of the user's actual squad/team (e.g. a group
+  /// photo of the players they play with), as distinct from the
+  /// per-player photoUrl on [SquadPlayerSlot] (a resolved real-footballer
+  /// photo used only as a pitch marker icon). Uploaded from SquadScreen
+  /// by the squad's owner; visible to any visitor -- including from the
+  /// public team profile -- the same way the cover photo already works.
+  /// Empty string = none uploaded.
+  final String squadPhotoUrl;
 
   List<SquadPlayerSlot> get startingXI =>
       players.where((p) => p.isStarting).toList(growable: false);
@@ -143,6 +153,7 @@ class Squad {
       viceCaptainPlayerId: (map['viceCaptainPlayerId'] as String? ?? '').trim(),
       teamStrength: _asInt(map['teamStrength']),
       updatedAtMs: _asInt(map['updatedAtMs']),
+      squadPhotoUrl: (map['squadPhotoUrl'] as String? ?? '').trim(),
     );
   }
 
@@ -200,6 +211,7 @@ class Squad {
         'viceCaptainPlayerId': viceCaptainPlayerId.trim(),
         'teamStrength': teamStrength.clamp(0, 100),
         'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        'squadPhotoUrl': squadPhotoUrl.trim(),
       };
 
   static int _asInt(dynamic v) {
@@ -239,6 +251,7 @@ class Squad {
       viceCaptainPlayerId: viceCaptainPlayerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
+      squadPhotoUrl: squadPhotoUrl,
     );
   }
 
@@ -255,6 +268,7 @@ class Squad {
       viceCaptainPlayerId: viceCaptainPlayerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
+      squadPhotoUrl: squadPhotoUrl,
     );
   }
 
@@ -268,6 +282,7 @@ class Squad {
       viceCaptainPlayerId: viceCaptainPlayerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
+      squadPhotoUrl: squadPhotoUrl,
     );
   }
 
@@ -281,6 +296,7 @@ class Squad {
       viceCaptainPlayerId: viceCaptainPlayerId == playerId ? '' : viceCaptainPlayerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
+      squadPhotoUrl: squadPhotoUrl,
     );
   }
 
@@ -294,6 +310,7 @@ class Squad {
       viceCaptainPlayerId: viceCaptainPlayerId == playerId ? '' : viceCaptainPlayerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
+      squadPhotoUrl: squadPhotoUrl,
     );
   }
 
@@ -307,6 +324,7 @@ class Squad {
       viceCaptainPlayerId: playerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
+      squadPhotoUrl: squadPhotoUrl,
     );
   }
 
@@ -344,6 +362,7 @@ class Squad {
       viceCaptainPlayerId: viceCaptainPlayerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
+      squadPhotoUrl: squadPhotoUrl,
     );
   }
 
@@ -405,6 +424,7 @@ class Squad {
       viceCaptainPlayerId: viceCaptainPlayerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
+      squadPhotoUrl: squadPhotoUrl,
     );
   }
 
@@ -450,6 +470,25 @@ class Squad {
       viceCaptainPlayerId: viceCaptainPlayerId,
       teamStrength: teamStrength,
       updatedAtMs: updatedAtMs,
+      squadPhotoUrl: squadPhotoUrl,
+    );
+  }
+
+  /// Sets (or clears, if [url] is empty) the real squad/team photo.
+  /// Kept as its own copy method -- like [withCaptain] etc. above --
+  /// rather than routed through a generic copyWith, to match this
+  /// class's existing style.
+  Squad withSquadPhoto(String url) {
+    return Squad(
+      gameId: gameId,
+      formation: formation,
+      players: players,
+      managerName: managerName,
+      captainPlayerId: captainPlayerId,
+      viceCaptainPlayerId: viceCaptainPlayerId,
+      teamStrength: teamStrength,
+      updatedAtMs: updatedAtMs,
+      squadPhotoUrl: url.trim(),
     );
   }
 }

@@ -1,7 +1,13 @@
 //lib/features/profile/presentation/squad_screen.dart
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
+import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -27,6 +33,8 @@ class SquadScreen extends ConsumerStatefulWidget {
 }
 
 class _SquadScreenState extends ConsumerState<SquadScreen> {
+  static const int _maxSquadPhotoBytes = 5 * 1024 * 1024;
+
   final TeamProfileRepository _repo = TeamProfileRepository();
 
   String _selectedGame = GameId.localFootball;
@@ -34,6 +42,9 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
   bool _loadingGames = true;
 
   bool _editMode = false;
+
+  // NEW: real squad/team photo upload (Feature — Squad photo).
+  bool _uploadingSquadPhoto = false;
 
   @override
   void initState() {
@@ -60,6 +71,161 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(behavior: SnackBarBehavior.floating, content: Text(msg)),
+    );
+  }
+
+  // ── NEW: Squad photo upload ────────────────────────────────────────────
+  //
+  // A real photo of the user's actual squad/team, distinct from the
+  // per-player photos on the virtual pitch. Uploaded here (owner only),
+  // shown to everyone here AND on the public team profile (see
+  // PublicTeamProfileScreen's _SquadPreview), mirroring the existing
+  // cover-photo upload pattern in public_team_profile_screen.dart.
+
+  Future<String> _uploadSquadPhotoToCloudinary(PlatformFile picked) async {
+    final cloudName = const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
+    final uploadPreset =
+        const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
+    if (cloudName.isEmpty || uploadPreset.isEmpty) {
+      throw StateError('Cloudinary is not configured.');
+    }
+
+    final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+    final ts = DateTime.now().millisecondsSinceEpoch;
+
+    http.MultipartFile filePart;
+    final bytes = picked.bytes;
+    final path = (picked.path ?? '').trim();
+
+    if (bytes != null && bytes.isNotEmpty) {
+      filePart = http.MultipartFile.fromBytes('file', bytes, filename: picked.name);
+    } else if (path.isNotEmpty) {
+      filePart = await http.MultipartFile.fromPath('file', path, filename: picked.name);
+    } else {
+      throw StateError('Selected image is not accessible.');
+    }
+
+    final req = http.MultipartRequest('POST', uploadUrl)
+      ..fields['upload_preset'] = uploadPreset
+      ..fields['resource_type'] = 'image'
+      ..fields['folder'] = 'eleaguehub/squad_photos'
+      ..fields['public_id'] = 'squad_photo_${_selectedGame}_$ts'
+      ..files.add(filePart);
+
+    final client = http.Client();
+    try {
+      final streamed = await client.send(req).timeout(const Duration(seconds: 45));
+      final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 45));
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        String message = 'Upload failed (HTTP ${resp.statusCode}).';
+        try {
+          final decoded = jsonDecode(resp.body);
+          final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
+          final msg = (err is Map<String, dynamic>) ? (err['message']?.toString() ?? '') : '';
+          if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
+        } catch (_) {}
+        throw StateError(message);
+      }
+
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) {
+        throw StateError('Upload failed: invalid response.');
+      }
+      final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
+      if (secureUrl.isEmpty) throw StateError('Upload failed: secure_url missing.');
+      return secureUrl;
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> _pickAndUploadSquadPhoto() async {
+    if (_uploadingSquadPhoto) return;
+    if (!widget.isOwner) return;
+
+    setState(() => _uploadingSquadPhoto = true);
+    try {
+      await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
+
+      final pickResult = await SafeImagePicker.pickImage();
+      if (pickResult.wasCancelled) return;
+      if (!pickResult.isSuccess) {
+        _snack(pickResult.errorMessage ?? 'Could not pick image.');
+        return;
+      }
+
+      final picked = pickResult.file!;
+      if (picked.size > _maxSquadPhotoBytes) {
+        _snack('Image too large. Please select an image under 5 MB.');
+        return;
+      }
+
+      final secureUrl = await _uploadSquadPhotoToCloudinary(picked);
+      await _repo.updateSquadPhoto(gameId: _selectedGame, squadPhotoUrl: secureUrl);
+
+      if (!mounted) return;
+      _snack('Squad photo updated.');
+    } catch (e) {
+      _snack(e.toString());
+    } finally {
+      if (mounted) setState(() => _uploadingSquadPhoto = false);
+    }
+  }
+
+  Future<void> _confirmRemoveSquadPhoto() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove squad photo?'),
+        content: const Text('Visitors will no longer see your squad photo.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    setState(() => _uploadingSquadPhoto = true);
+    try {
+      await _repo.updateSquadPhoto(gameId: _selectedGame, squadPhotoUrl: '');
+      if (!mounted) return;
+      _snack('Squad photo removed.');
+    } catch (e) {
+      _snack(e.toString());
+    } finally {
+      if (mounted) setState(() => _uploadingSquadPhoto = false);
+    }
+  }
+
+  void _showSquadPhotoSheet({required bool hasPhoto}) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_back_rounded),
+              title: Text(hasPhoto ? 'Change squad photo' : 'Upload squad photo'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _pickAndUploadSquadPhoto();
+              },
+            ),
+            if (hasPhoto)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded),
+                title: const Text('Remove squad photo'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _confirmRemoveSquadPhoto();
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -215,6 +381,15 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              _SquadPhotoCard(
+                                photoUrl: squad.squadPhotoUrl,
+                                isOwner: widget.isOwner,
+                                uploading: _uploadingSquadPhoto,
+                                onTap: () => _showSquadPhotoSheet(
+                                  hasPhoto: squad.squadPhotoUrl.trim().isNotEmpty,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
                               if (widget.isOwner && _editMode)
                                 _FormationSelector(
                                   current: squad.formation,
@@ -254,6 +429,93 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
     } catch (e) {
       _snack(e.toString());
     }
+  }
+}
+
+class _SquadPhotoCard extends StatelessWidget {
+  const _SquadPhotoCard({
+    required this.photoUrl,
+    required this.isOwner,
+    required this.uploading,
+    required this.onTap,
+  });
+
+  final String photoUrl;
+  final bool isOwner;
+  final bool uploading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final hasPhoto = photoUrl.trim().isNotEmpty;
+
+    // Visitors (non-owners) with no photo uploaded see nothing here —
+    // no empty placeholder card cluttering their view.
+    if (!hasPhoto && !isOwner) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: isOwner ? onTap : null,
+      child: Container(
+        height: hasPhoto ? 180 : 90,
+        width: double.infinity,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: AppTheme.cardColor(brightness),
+          border: Border.all(color: AppTheme.cardBorder(brightness)),
+          image: hasPhoto
+              ? DecorationImage(image: NetworkImage(photoUrl), fit: BoxFit.cover)
+              : null,
+        ),
+        child: Stack(
+          children: [
+            if (!hasPhoto)
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.groups_rounded, color: AppTheme.secondaryText(brightness)),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Add a photo of your squad',
+                      style: TextStyle(
+                        color: AppTheme.secondaryText(brightness),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (uploading)
+              Container(
+                color: Colors.black.withOpacity(0.35),
+                child: const Center(
+                  child: SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                  ),
+                ),
+              ),
+            if (isOwner && hasPhoto && !uploading)
+              Positioned(
+                right: 8,
+                top: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.edit_rounded, size: 16, color: Colors.white),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
