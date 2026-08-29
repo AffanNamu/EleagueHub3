@@ -1316,6 +1316,27 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  // ── DIAGNOSTIC FIX APPLIED HERE ───────────────────────────────────────
+  //
+  // This is the function behind the "Get Verified" Step 5 submit button
+  // shown failing with a bare, unhelpful "permission-denied" (no stage
+  // tag) in the screenshot that prompted this change. The submit does
+  // FOUR separate writes inside one transaction — create the
+  // verification request doc, update master_leagues, update payments,
+  // and overwrite payment_attempts — and any one of those four (or any
+  // of the three reads before the transaction) could be the actual
+  // culprit. A single catch-all _rethrowFriendly(e) with no stage
+  // (the old code) can't tell us which.
+  //
+  // Every external Firestore call below is now wrapped individually and
+  // tagged with a distinct `stage`, exactly mirroring the pattern
+  // already used in createAfterVerifiedPayment() elsewhere in this
+  // file. The NEXT time this fails, the red banner's [DEBUG] line will
+  // read e.g. "stage=submitVerificationApplication.transaction(...)" or
+  // "stage=submitVerificationApplication.getPayment(...)" instead of
+  // nothing — telling us exactly which document write Firestore is
+  // rejecting, so the actual security-rule fix can be targeted instead
+  // of guessed at.
   Future<void> submitVerificationApplication({
     required String masterLeagueId,
     required String attemptId,
@@ -1323,49 +1344,59 @@ class MasterLeaguesRepositoryFirebase {
     required String receiptId,
     required OrganizerVerificationApplicationData application,
   }) async {
+    final uid = _requireAuthUid();
+    final safeMasterLeagueId = masterLeagueId.trim();
+    final safeAttemptId = attemptId.trim();
+    final safePaymentId = paymentId.trim();
+    final safeReceiptId = receiptId.trim();
+
+    final validationError = application.validate();
+    if (validationError != null) {
+      throw UserFriendlyException(validationError);
+    }
+
+    if (safeMasterLeagueId.isEmpty ||
+        safeAttemptId.isEmpty ||
+        safePaymentId.isEmpty ||
+        safeReceiptId.isEmpty) {
+      throw const UserFriendlyException(
+        'Verification payment details are incomplete.',
+      );
+    }
+
+    late final MasterLeague? ml;
     try {
-      final uid = _requireAuthUid();
-      final safeMasterLeagueId = masterLeagueId.trim();
-      final safeAttemptId = attemptId.trim();
-      final safePaymentId = paymentId.trim();
-      final safeReceiptId = receiptId.trim();
+      ml = await getById(safeMasterLeagueId);
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        stage:
+            'submitVerificationApplication.getMasterLeague(id=$safeMasterLeagueId)',
+      );
+    }
+    if (ml == null) {
+      throw const UserFriendlyException(
+        "We couldn't find that Master League.",
+      );
+    }
+    if (ml.ownerId.trim() != uid) {
+      throw const UserFriendlyException(
+        'Only the owner can submit organizer verification.',
+      );
+    }
+    if (ml.isVerifiedOrganizer) {
+      throw const UserFriendlyException(
+        'This organizer is already verified.',
+      );
+    }
+    if (ml.isVerificationPending) {
+      throw const UserFriendlyException(
+        'A verification application is already pending review.',
+      );
+    }
 
-      final validationError = application.validate();
-      if (validationError != null) {
-        throw UserFriendlyException(validationError);
-      }
-
-      if (safeMasterLeagueId.isEmpty ||
-          safeAttemptId.isEmpty ||
-          safePaymentId.isEmpty ||
-          safeReceiptId.isEmpty) {
-        throw const UserFriendlyException(
-          'Verification payment details are incomplete.',
-        );
-      }
-
-      final ml = await getById(safeMasterLeagueId);
-      if (ml == null) {
-        throw const UserFriendlyException(
-          "We couldn't find that Master League.",
-        );
-      }
-      if (ml.ownerId.trim() != uid) {
-        throw const UserFriendlyException(
-          'Only the owner can submit organizer verification.',
-        );
-      }
-      if (ml.isVerifiedOrganizer) {
-        throw const UserFriendlyException(
-          'This organizer is already verified.',
-        );
-      }
-      if (ml.isVerificationPending) {
-        throw const UserFriendlyException(
-          'A verification application is already pending review.',
-        );
-      }
-
+    late final Map<String, dynamic> paymentData;
+    try {
       final paymentSnap = await _payments
           .doc(safePaymentId)
           .get(const GetOptions(source: Source.server))
@@ -1375,33 +1406,40 @@ class MasterLeaguesRepositoryFirebase {
           'Verified payment record was not found.',
         );
       }
-
-      final paymentData =
+      paymentData =
           (paymentSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final paymentUid = (paymentData['userId'] as String? ?? '').trim();
-      if (paymentUid != uid) {
-        throw const UserFriendlyException(
-          'This payment does not belong to your account.',
-        );
-      }
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        stage: 'submitVerificationApplication.getPayment(id=$safePaymentId)',
+      );
+    }
 
-      final paymentProvider = (paymentData['provider'] as String? ?? '');
-      final isGooglePlayPayment = _isGooglePlayProvider(paymentProvider);
-      final verification = (paymentData['verification'] is Map)
-          ? (paymentData['verification'] as Map).cast<String, dynamic>()
-          : <String, dynamic>{};
-      final verified =
-          isGooglePlayPayment ? true : (verification['verified'] == true);
-      if (!verified) {
-        throw const UserFriendlyException(
-          'Payment is not verified yet. Please try again.',
-        );
-      }
+    final paymentUid = (paymentData['userId'] as String? ?? '').trim();
+    if (paymentUid != uid) {
+      throw const UserFriendlyException(
+        'This payment does not belong to your account.',
+      );
+    }
 
-      final fulfilledVerificationRequestId =
-          (paymentData['fulfilledVerificationRequestId'] as String? ?? '')
-              .trim();
-      if (fulfilledVerificationRequestId.isNotEmpty) {
+    final paymentProvider = (paymentData['provider'] as String? ?? '');
+    final isGooglePlayPayment = _isGooglePlayProvider(paymentProvider);
+    final verification = (paymentData['verification'] is Map)
+        ? (paymentData['verification'] as Map).cast<String, dynamic>()
+        : <String, dynamic>{};
+    final verified =
+        isGooglePlayPayment ? true : (verification['verified'] == true);
+    if (!verified) {
+      throw const UserFriendlyException(
+        'Payment is not verified yet. Please try again.',
+      );
+    }
+
+    final fulfilledVerificationRequestId =
+        (paymentData['fulfilledVerificationRequestId'] as String? ?? '')
+            .trim();
+    if (fulfilledVerificationRequestId.isNotEmpty) {
+      try {
         final existingReq = await _verificationRequests
             .doc(fulfilledVerificationRequestId)
             .get(const GetOptions(source: Source.server))
@@ -1411,8 +1449,17 @@ class MasterLeaguesRepositoryFirebase {
             'An application has already been submitted for this payment.',
           );
         }
+      } catch (e) {
+        _rethrowFriendly(
+          e is Object ? e : Exception('unknown'),
+          stage: 'submitVerificationApplication.checkExistingRequest'
+              '(id=$fulfilledVerificationRequestId)',
+        );
       }
+    }
 
+    late final Map<String, dynamic> attemptData;
+    try {
       final attemptSnap = await _attempts
           .doc(safeAttemptId)
           .get(const GetOptions(source: Source.server))
@@ -1420,20 +1467,27 @@ class MasterLeaguesRepositoryFirebase {
       if (!attemptSnap.exists) {
         throw const UserFriendlyException('Payment attempt was not found.');
       }
-
-      final attemptData =
+      attemptData =
           (attemptSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
-      final attemptUid = (attemptData['userId'] as String? ?? '').trim();
-      if (attemptUid != uid) {
-        throw const UserFriendlyException(
-          'This payment attempt does not belong to your account.',
-        );
-      }
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        stage: 'submitVerificationApplication.getAttempt(id=$safeAttemptId)',
+      );
+    }
 
-      final requestRef = _verificationRequests.doc();
-      final now = _nowMs();
-      final appMap = application.toMap();
+    final attemptUid = (attemptData['userId'] as String? ?? '').trim();
+    if (attemptUid != uid) {
+      throw const UserFriendlyException(
+        'This payment attempt does not belong to your account.',
+      );
+    }
 
+    final requestRef = _verificationRequests.doc();
+    final now = _nowMs();
+    final appMap = application.toMap();
+
+    try {
       await _firestore.runTransaction((txn) async {
         final payRef = _payments.doc(safePaymentId);
         final attRef = _attempts.doc(safeAttemptId);
@@ -1557,7 +1611,11 @@ class MasterLeaguesRepositoryFirebase {
         txn.set(attRef, nextAttempt, SetOptions(merge: false));
       });
     } catch (e) {
-      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        stage: 'submitVerificationApplication.transaction'
+            '(masterLeagueId=$safeMasterLeagueId,requestId=${requestRef.id})',
+      );
     }
   }
 

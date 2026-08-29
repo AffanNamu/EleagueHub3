@@ -116,6 +116,23 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   void _toastErr(Object e) =>
       _toast(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')), error: true);
 
+  // ── EXTRACT USER ID FALLBACK ─────────────────────────────────────────────
+  // If GoRouter fails to pass the ID, we can safely extract it from the
+  // deterministic thread ID (dm_uid1_uid2) to ensure the badge always renders.
+  String? _extractOtherUserId() {
+    if (widget.otherUserId != null && widget.otherUserId!.trim().isNotEmpty) {
+      return widget.otherUserId!.trim();
+    }
+    
+    final parts = widget.threadId.split('_');
+    if (parts.length == 3 && parts[0] == 'dm') {
+      final selfUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (parts[1] == selfUid) return parts[2];
+      if (parts[2] == selfUid) return parts[1];
+    }
+    return null;
+  }
+
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
@@ -471,6 +488,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
     final selfUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final resolvedOtherUserId = _extractOtherUserId();
 
     return GlassScaffold(
       appBar: AppBar(
@@ -483,10 +501,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            if (widget.otherUserId != null && widget.otherUserId!.trim().isNotEmpty) ...[
-              const SizedBox(width: 4),
+            if (resolvedOtherUserId != null) ...[
+              const SizedBox(width: 6),
               VerificationBadgeWidget(
-                userId: widget.otherUserId!.trim(),
+                userId: resolvedOtherUserId,
                 size: 20,
               ),
             ],
