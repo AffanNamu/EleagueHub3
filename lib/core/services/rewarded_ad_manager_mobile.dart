@@ -50,10 +50,40 @@ String get _adUnitId =>
 
 // ── Public API (identical signatures to stub) ─────────────────────────────────
 
+/// True if a rewarded ad is already loaded and cached, ready to be shown
+/// with no additional network/load delay.
+bool get isReady => _adsSupported && _rewardedAd != null && !_isShowing;
+
 /// Preload a rewarded ad in the background so it is ready instantly.
 Future<void> preload({String placement = 'preload'}) async {
   if (!_adsSupported) return;
   await _getOrLoadRewardedAd(placement: placement);
+}
+
+/// Waits, bounded by [timeout], for a rewarded ad to finish loading —
+/// WITHOUT showing it. Use this to give an in-flight preload a short
+/// grace period at the moment of user intent (e.g. a double-tap) so the
+/// UI isn't blocked for the full load timeout.
+///
+/// If the ad isn't ready by the time [timeout] elapses, this returns
+/// `false`, but the underlying load keeps running in the background
+/// (deduplicated via [_loadCompleter]) and will populate [_rewardedAd]
+/// whenever it eventually finishes — no ad is ever shown as a side
+/// effect of calling this function.
+Future<bool> waitUntilReady({
+  Duration timeout = const Duration(seconds: 4),
+}) async {
+  if (!_adsSupported) return false;
+  if (_rewardedAd != null) return true;
+  if (_isShowing) return false;
+
+  try {
+    final ad = await _getOrLoadRewardedAd(placement: 'wait_until_ready')
+        .timeout(timeout, onTimeout: () => null);
+    return ad != null;
+  } catch (_) {
+    return false;
+  }
 }
 
 /// Gate: show the rewarded ad and return whether the reward was earned.

@@ -7,8 +7,18 @@
 // Free users on web are not blocked because ads don't exist on web.
 // ---------------------------------------------------------------------------
 
+// Ads aren't supported on this platform, so there's nothing to wait on —
+// treat the gate as always "ready" so callers never block.
+bool get isReady => true;
+
 Future<void> preload({String placement = 'preload'}) async {
   // No-op on web / unsupported platforms.
+}
+
+Future<bool> waitUntilReady({
+  Duration timeout = const Duration(seconds: 4),
+}) async {
+  return true;
 }
 
 Future<bool> showRewardedGate({required String placement}) async {

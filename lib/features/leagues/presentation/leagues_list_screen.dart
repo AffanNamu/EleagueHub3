@@ -447,6 +447,19 @@ class _LeaguesListScreenState
 
       final premium =
           await _detectPremiumUser(effectiveUserId);
+
+      // Kick off ad preloading the moment we know entitlement status,
+      // in parallel with the rest of the (potentially slow) league data
+      // load below, so the ad has the maximum possible time to finish
+      // loading before the user can double-tap a card. Never preload
+      // for premium/elite users, who are never shown ads.
+      if (!kIsWeb && !premium) {
+        unawaited(
+          RewardedAdManager.instance
+              .preload(placement: 'view_league'),
+        );
+      }
+
       final hasLeagueAccess =
           await _detectLeagueAccessFromPlan(effectiveUserId);
       final createdCount =
@@ -552,12 +565,9 @@ class _LeaguesListScreenState
         _isLoading = false;
       });
 
-      if (!premium) {
-        unawaited(
-          RewardedAdManager.instance
-              .preload(placement: 'view_league'),
-        );
-      }
+      // Ad preloading is already kicked off above, right after `premium`
+      // was determined, so it runs in parallel with this whole method
+      // instead of waiting until the very end of it.
 
       unawaited(_loadLatestAnnouncements(leagues));
     } catch (e) {
@@ -701,16 +711,70 @@ class _LeaguesListScreenState
       League league) async {
     if (_rewardGateInProgress) return;
 
+    // Entitled users never see an ad.
     if (_isPremiumUser) {
       context.push('/leagues/${league.id}');
       return;
     }
 
+    // No ads on web/desktop.
     if (kIsWeb) {
       context.push('/leagues/${league.id}');
       return;
     }
 
+    // ── Fast path ────────────────────────────────────────────────────────
+    // The screen-open preload already finished, so the ad can be shown
+    // immediately with no extra loading delay.
+    if (RewardedAdManager.instance.isReady) {
+      await _showAdGateThenOpenLeague(league);
+      return;
+    }
+
+    // ── Ad still loading ────────────────────────────────────────────────
+    // Rather than blocking the user for the full ad-load timeout, give
+    // the in-flight preload a short, bounded grace period. If it lands
+    // in time, show it immediately (no perceptible delay beyond the
+    // wait). If not, fall through to the existing fail-open behavior —
+    // the load keeps running in the background regardless, so a retry
+    // next time is likely to hit the fast path above.
+    setState(() => _rewardGateInProgress = true);
+
+    bool becameReady;
+    try {
+      becameReady = await RewardedAdManager.instance
+          .waitUntilReady(timeout: const Duration(seconds: 4));
+    } finally {
+      if (mounted) {
+        setState(() => _rewardGateInProgress = false);
+      }
+    }
+
+    if (!mounted) return;
+
+    if (!becameReady) {
+      // ── FAIL-OPEN (existing behavior, preserved) ─────────────────────
+      // Ad wasn't ready in time (slow network, no fill yet, etc). Don't
+      // block the user — open League Details normally. Nudge a fresh
+      // preload attempt for next time in case the prior one had already
+      // failed outright rather than just being slow.
+      unawaited(
+        RewardedAdManager.instance
+            .preload(placement: 'view_league:retry_after_wait'),
+      );
+      context.push('/leagues/${league.id}');
+      return;
+    }
+
+    await _showAdGateThenOpenLeague(league);
+  }
+
+  /// Shows the (already-loaded) rewarded ad and, if the reward was
+  /// earned, opens League Details. If the ad fails to show or the load
+  /// somehow evaporates between readiness check and show, the existing
+  /// fail-open logic inside [RewardedAdManager.showRewardedGate] still
+  /// grants access — this method does not change that behavior.
+  Future<void> _showAdGateThenOpenLeague(League league) async {
     setState(() => _rewardGateInProgress = true);
 
     bool rewardEarned = false;

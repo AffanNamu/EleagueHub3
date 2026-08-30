@@ -20,10 +20,26 @@ class RewardedAdManager {
   RewardedAdManager._();
   static final RewardedAdManager instance = RewardedAdManager._();
 
+  /// True if a rewarded ad is already loaded and ready to be shown
+  /// instantly, with no load delay. Always `true` on web/desktop, since
+  /// no ad is ever shown there.
+  bool get isReady => _impl.isReady;
+
   /// Preload a rewarded ad in the background.
   /// Safe to call on any platform — no-ops on web/desktop.
   Future<void> preload({String placement = 'preload'}) =>
       _impl.preload(placement: placement);
+
+  /// Waits, bounded by [timeout], for a background preload to finish —
+  /// without showing anything. Returns `true` once an ad is ready (or
+  /// immediately on web/desktop). Returns `false` if it doesn't become
+  /// ready within [timeout]; the load keeps running in the background
+  /// regardless, so callers can fall back to their existing "ad missing"
+  /// behavior without losing the in-flight preload.
+  Future<bool> waitUntilReady({
+    Duration timeout = const Duration(seconds: 4),
+  }) =>
+      _impl.waitUntilReady(timeout: timeout);
 
   /// Gate: show the rewarded ad and return whether reward was earned.
   ///
