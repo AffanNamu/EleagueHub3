@@ -1557,6 +1557,47 @@ class MasterLeaguesRepositoryFirebase {
           );
         }
 
+        // FIXED (root cause of the "permission-denied" on
+        // stage=submitVerificationApplication.transaction): the
+        // master_leagues owner-update security rule requires
+        // `request.auth.uid in request.resource.data.memberIds` and
+        // `request.resource.data.roles[request.auth.uid] == 'owner'`
+        // on the RAW stored document. MasterLeague.fromMap() already
+        // has _readMemberIds()/_readRoles() fallbacks that backfill a
+        // missing owner into memberIds/roles -- but those fallbacks
+        // only run in-memory when READING the doc into a Dart object;
+        // they never write anything back. Since this update never
+        // touched memberIds/roles, Firestore evaluated the rule
+        // against whatever is literally stored, and for any Master
+        // League whose memberIds/roles never actually included the
+        // owner (the exact gap those Dart fallbacks exist to paper
+        // over), every owner-initiated master_leagues update -- this
+        // one included -- was unconditionally denied, independent of
+        // payment, plan, or ownerId being correct. Self-heal both
+        // fields here, from data already read into mlData, so the
+        // written document satisfies the rule and the underlying data
+        // gap is corrected going forward.
+        final rawMemberIds = (mlData['memberIds'] is List)
+            ? (mlData['memberIds'] as List)
+                .map((e) => e.toString().trim())
+                .where((e) => e.isNotEmpty)
+                .toSet()
+            : <String>{};
+        final rawRoles = (mlData['roles'] is Map)
+            ? Map<String, dynamic>.from(mlData['roles'] as Map)
+            : <String, dynamic>{};
+
+        final needsMemberIdsFix = !rawMemberIds.contains(uid);
+        final needsRolesFix =
+            (rawRoles[uid] as String?)?.trim() != 'owner';
+
+        final fixedMemberIds = needsMemberIdsFix
+            ? (rawMemberIds..add(uid)).toList(growable: false)
+            : null;
+        final fixedRoles = needsRolesFix
+            ? (Map<String, dynamic>.from(rawRoles)..[uid] = 'owner')
+            : null;
+
         txn.set(requestRef, <String, dynamic>{
           'requestId': requestRef.id,
           'masterLeagueId': safeMasterLeagueId,
@@ -1591,6 +1632,8 @@ class MasterLeaguesRepositoryFirebase {
           'verificationNote': '',
           'verificationRequestType': 'initial',
           'updatedAtMs': now,
+          if (fixedMemberIds != null) 'memberIds': fixedMemberIds,
+          if (fixedRoles != null) 'roles': fixedRoles,
         });
 
         txn.update(payRef, <String, dynamic>{

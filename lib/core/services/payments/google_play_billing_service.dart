@@ -432,6 +432,32 @@ class GooglePlayBillingService {
             final now = _nowMs();
 
             // ── Persist receipt ───────────────────────────────────────
+            // FIXED (organizer verification payment bug #3 -- root
+            // cause of "payment succeeds, then verification submit
+            // fails"): this write used to be wrapped in a try/catch
+            // that only logged failures and otherwise fell straight
+            // through to completer.complete(...paid...) regardless of
+            // whether the `payments/{paymentId}` doc was actually
+            // written. That meant the UI could report "payment
+            // successful" while the payment record it depends on
+            // silently never existed -- guaranteeing the very next
+            // call, submitVerificationApplication()'s
+            // `payments.doc(paymentId).get()`, would find `exists ==
+            // false` and throw "Verified payment record was not
+            // found." right after the submit spinner. This is the
+            // exact same class of bug already fixed for
+            // attempt-creation via _createAttemptOrThrow() above -- it
+            // just wasn't applied to the receipt-persistence step.
+            // Now: retry once (covers transient network blips, which
+            // is the common case right after a purchase sheet closes),
+            // and if it still fails, report FAILURE instead of
+            // success. The Google Play purchase itself is already
+            // completed/acknowledged at this point and can't be
+            // "undone" here, so the failure message points the user
+            // back at "Get Verified" (Play won't double-charge for an
+            // owned/consumed purchase) and includes the order id for
+            // support escalation as a fallback.
+            bool receiptPersisted = false;
             try {
               await _recordGooglePlayPurchase(
                 uid: uid,
@@ -445,10 +471,72 @@ class GooglePlayBillingService {
                 leagueName: leagueName,
                 now: now,
               );
+              receiptPersisted = true;
             } catch (e) {
               if (kDebugMode) {
-                debugPrint('[GPB] Firestore record error: $e');
+                debugPrint(
+                  '[GPB] Firestore record error (attempt 1): $e',
+                );
               }
+              try {
+                await Future<void>.delayed(const Duration(seconds: 2));
+                await _recordGooglePlayPurchase(
+                  uid: uid,
+                  productId: productId,
+                  purchaseToken: token,
+                  orderId: orderId,
+                  paymentId: paymentId,
+                  attemptId: attemptId,
+                  productType: productType,
+                  productSubType: productSubType,
+                  leagueName: leagueName,
+                  now: now,
+                );
+                receiptPersisted = true;
+              } catch (e2) {
+                if (kDebugMode) {
+                  debugPrint(
+                    '[GPB] Firestore record error (attempt 2): $e2',
+                  );
+                }
+              }
+            }
+
+            if (!receiptPersisted) {
+              try {
+                await AppAnalyticsService.instance.logPaymentResult(
+                  kind: flowLabel,
+                  leagueId: '',
+                  leagueName: leagueName,
+                  success: false,
+                  provider: 'google_play_billing',
+                  currency: 'PLAY',
+                  amount: '',
+                  receiptId: orderId,
+                  errorMessage: 'receipt_persist_failed',
+                  userId: uid,
+                );
+              } catch (_) {}
+
+              await sub.cancel();
+              completer.complete(
+                GooglePlayPurchaseResult.failed(
+                  errorMessage:
+                      'Your purchase completed with Google Play, but '
+                      'we couldn\'t save the receipt to your account. '
+                      'Please check your connection and tap "Get '
+                      'Verified" again -- Google Play won\'t charge '
+                      'you twice for an already-owned purchase. If '
+                      'this keeps happening, contact support with '
+                      'order ${orderId.isNotEmpty ? orderId : token}.',
+                  productId: productId,
+                  purchaseToken: token,
+                  orderId: orderId,
+                  attemptId: attemptId,
+                  paymentId: paymentId,
+                ),
+              );
+              return;
             }
 
             // ── Grant badges ──────────────────────────────────────────
