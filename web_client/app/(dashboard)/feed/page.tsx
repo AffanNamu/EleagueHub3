@@ -6,6 +6,7 @@ import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestor
 import { auth, db } from '@/lib/firebase';
 import { PublicPost, toggleLikeWeb, deletePostWeb, createPostWeb } from '@/lib/feed/publicFeedRepository';
 import { PostCard } from '@/components/feed/PostCard';
+import { CommentsModal } from '@/components/feed/CommentsModal';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { Loader2, Plus, X, Image as ImageIcon, Music2 } from 'lucide-react';
 import { Glass } from '@/components/ui/Glass';
@@ -22,6 +23,10 @@ export default function PublicFeedScreen() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // NEW: which post's comments sheet is open, if any. Previously there
+  // was no comments UI on web at all.
+  const [activeCommentsPostId, setActiveCommentsPostId] = useState<string | null>(null);
 
   const imageRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLInputElement>(null);
@@ -107,6 +112,7 @@ export default function PublicFeedScreen() {
               onLike={() => authUid && toggleLikeWeb(post.postId, authUid)}
               onDelete={() => authUid && deletePostWeb(post.postId, authUid)}
               onOpenLeague={() => router.push(`/leagues/${post.leagueId}`)}
+              onComment={() => setActiveCommentsPostId(post.postId)}
             />
           ))}
         </div>
@@ -161,6 +167,14 @@ export default function PublicFeedScreen() {
             </button>
           </Glass>
         </div>
+      )}
+
+      {/* ── COMMENTS MODAL ── */}
+      {activeCommentsPostId && (
+        <CommentsModal
+          postId={activeCommentsPostId}
+          onClose={() => setActiveCommentsPostId(null)}
+        />
       )}
     </div>
   );

@@ -2,10 +2,29 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, doc, setDoc, getDoc, getDocs, query, where, limit } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { auth } from '@/lib/firebase';
 import { uploadImageToCloudinary } from '@/lib/cloudinary';
 import { LeagueFormat, FootballCategory, LeaguePrivacy, WorldCupFormat } from '@/types/league';
+// FIXED: previously this screen built and wrote the league document
+// inline, with its own copy of the create logic that diverged from
+// lib/leagues/leaguesRepository.ts's createNewLeagueWeb() in ways that
+// broke Firestore security rules entirely:
+//   - footballCategory was written as the raw UI id ('localFootball')
+//     instead of the exact title-case string the rules' 
+//     validFootballCategory() requires ('Local Football').
+//   - format was written as a string ('classic') instead of the int
+//     index (0-3) the rules' validLeagueFormatIndex() requires.
+//   - premium detection only checked the legacy isPremium boolean,
+//     ignoring activePlanId/planExpiresAtMs — the same class of bug
+//     Flutter's own codebase already found and fixed in three places
+//     (see leagues_repository_local.dart's extensive comments on this
+//     exact mistake).
+// createNewLeagueWeb() already does all three correctly (via
+// leagueFormatIndex(), categoryStorageValue(), and the shared
+// detectPremiumUser()/countCreatedLeagues() helpers), so this screen
+// now delegates to it instead of duplicating — and getting wrong —
+// that logic.
+import { detectPremiumUser, countCreatedLeagues, createNewLeagueWeb } from '@/lib/leagues/leaguesRepository';
 import { 
   Loader2, ArrowLeft, Image as ImageIcon, Trophy, 
   ShieldAlert, Globe, LayoutGrid, ListOrdered, Lock, 
@@ -61,6 +80,11 @@ export default function CreateLeagueScreen() {
   const [error, setError] = useState('');
 
   // ── Access & Limit Check ──
+  // FIXED: now uses the shared detectPremiumUser()/countCreatedLeagues()
+  // helpers from leaguesRepository.ts (the same ones the /leagues list
+  // page already relies on) instead of an inline check that only read
+  // the legacy isPremium boolean and missed activePlanId/planExpiresAtMs
+  // entirely — meaning a paid Pro/Elite user was treated as Basic here.
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (!user) {
@@ -71,16 +95,13 @@ export default function CreateLeagueScreen() {
       setCheckingAccess(true);
 
       try {
-        // Fetch User Profile for Premium Status
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        const isPaid = userDoc.exists() && userDoc.data()?.isPremium === true; // Or activePlan mapping
-        
-        // Fetch Created Leagues Count
-        const q = query(collection(db, 'leagues'), where('organizerUid', '==', user.uid));
-        const snap = await getDocs(q);
-        
-        setIsPremium(isPaid);
-        setCreatedCount(snap.size);
+        const [premium, created] = await Promise.all([
+          detectPremiumUser(user.uid),
+          countCreatedLeagues(user.uid),
+        ]);
+
+        setIsPremium(premium);
+        setCreatedCount(created);
       } catch (err) {
         console.error("Failed to check access:", err);
       } finally {
@@ -127,27 +148,15 @@ export default function CreateLeagueScreen() {
     }
   };
 
-  // ── Parity Utilities ──
-  const deriveShareIdFromUid = (uid: string) => {
-    const clean = uid.replace(/[^A-Za-z0-9]/g, '').trim();
-    if (!clean) return '';
-    const base = clean.length >= 8 ? clean.substring(0, 8) : clean.padEnd(8, 'X');
-    return `eS${base}`;
-  };
-
-  const generateUniqueJoinCode = async (): Promise<string> => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    for (let i = 0; i < 6; i++) {
-      let code = '';
-      for (let j = 0; j < 6; j++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-      const q = query(collection(db, 'leagues'), where('code', '==', code), limit(1));
-      const snap = await getDocs(q);
-      if (snap.empty) return code;
-    }
-    throw new Error("Couldn't create a join code. Please try again.");
-  };
-
   // ── Submit ──
+  // FIXED: previously built and wrote the league document inline here,
+  // which wrote footballCategory and format in shapes the Firestore
+  // rules reject outright (see the file-level note above). Now
+  // delegates entirely to createNewLeagueWeb(), which converts both
+  // fields correctly and also writes the organizer's membership doc
+  // unconditionally — matching Flutter's league_create_wizard.dart /
+  // league_creation_dashboard.dart, which always add the organizer as
+  // a member regardless of the "I will participate" toggle.
   const handleCreateLeague = async (e: React.FormEvent) => {
     e.preventDefault();
     if (limitReached) {
@@ -164,74 +173,28 @@ export default function CreateLeagueScreen() {
     setError('');
 
     try {
-      // 1. Upload Images
       let leagueImageUrl = '';
       let sponsorImageUrl = '';
-      
+
       if (leagueImageFile) leagueImageUrl = await uploadImageToCloudinary(leagueImageFile);
       if (sponsorImageFile) sponsorImageUrl = await uploadImageToCloudinary(sponsorImageFile);
 
-      // 2. Generate required codes & IDs
-      const leagueRef = doc(collection(db, 'leagues'));
-      const joinCode = await generateUniqueJoinCode();
-      const organizerUserId = deriveShareIdFromUid(authUid) || authUid;
-      const nowMs = Date.now();
       const effectiveHomeAway = supportsHomeAway ? homeAwayEnabled : false;
-      
-      // 3. Match Flutter Settings Structure
-      const settings = {
-        doubleRoundRobin: effectiveHomeAway,
-        groupSize: 4,
-        swissRounds: 5,
-        worldCupFormat: format === 'worldCup' ? worldCupFormat : 'fifa2022',
-        lastPulledAtMs: 0
-      };
 
-      // 4. Save League Document
-      const newLeague = {
-        id: leagueRef.id,
+      const leagueId = await createNewLeagueWeb({
         name: name.trim(),
-        masterLeagueId: '',
         description: description.trim(),
         leagueImageUrl,
         sponsorImageUrl,
-        viewerCapacity: 0,
-        couponsEnabled: false,
-        couponDiscountPercent: 0,
-        couponCount: 0,
-        homeAwayEnabled: effectiveHomeAway,
-        footballCategory: category,
         format,
-        privacy,
-        region: 'Global',
-        maxTeams: selectedMaxTeams,
-        season: '2026',
+        worldCupFormat: format === 'worldCup' ? worldCupFormat : 'fifa2022',
+        category,
+        isPrivate: privacy === 'private',
+        homeAway: effectiveHomeAway,
         organizerUid: authUid,
-        organizerUserId,
-        code: joinCode,
-        qrPayloadOverride: '',
-        settings,
-        updatedAtMs: nowMs,
-        version: 1,
-      };
+      });
 
-      await setDoc(leagueRef, newLeague);
-
-      // 5. Add Creator as Member if selected
-      if (creatorParticipates) {
-        const membershipRef = doc(db, 'leagues', leagueRef.id, 'memberships', authUid);
-        await setDoc(membershipRef, {
-          id: authUid,
-          leagueId: leagueRef.id,
-          userId: authUid,
-          teamId: null,
-          role: 0, // 0 = Organizer, 1 = Member
-          updatedAtMs: nowMs,
-          version: 1
-        });
-      }
-
-      router.push(`/leagues/${leagueRef.id}`);
+      router.push(`/leagues/${leagueId}`);
     } catch (err: any) {
       console.error(err);
       setError('Failed to create league: ' + err.message);
@@ -468,11 +431,16 @@ export default function CreateLeagueScreen() {
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Max Teams</label>
                 <input 
-                  type="number" value={selectedMaxTeams} onChange={(e) => setSelectedMaxTeams(parseInt(e.target.value) || 20)}
-                  disabled={format === 'worldCup' || limitReached}
-                  className="w-full bg-[#070B14] border border-[#1E293B] rounded-xl p-3 text-sm font-bold text-white focus:border-[#BEF264] outline-none disabled:opacity-50"
+                  type="number" value={selectedMaxTeams} disabled
+                  className="w-full bg-[#070B14] border border-[#1E293B] rounded-xl p-3 text-sm font-bold text-white outline-none disabled:opacity-50"
                 />
-                {format === 'worldCup' && <p className="text-[10px] text-amber-500 mt-1 font-bold">Locked by World Cup Format</p>}
+                {/* FIXED: this field is now always disabled/display-only.
+                    createNewLeagueWeb() derives maxTeams from the selected
+                    format (20 / 32 / 36 / 32-or-48) the same way Flutter's
+                    wizard does, so a manually typed value here previously
+                    had no effect on what actually got saved — it looked
+                    editable but silently did nothing. */}
+                <p className="text-[10px] text-gray-500 mt-1 font-bold">Determined automatically by competition type</p>
               </div>
 
               {/* Toggles */}

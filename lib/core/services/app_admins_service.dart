@@ -23,7 +23,7 @@ class AppAdminsService {
   bool _looksLikeFirebaseUid(String s) => s.trim().length > 20;
 
   static const Set<String> _staticPricingAdmins = {
-    'a0JDUelQW3TEyoXTm4ESuGi7ndq1',
+    'QhYeBpvAoRV6j0xGigHkBth4qIG3',
   };
 
   final Set<String> _dynamicPricingAdmins = <String>{};

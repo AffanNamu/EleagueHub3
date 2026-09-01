@@ -67,6 +67,46 @@ export function getSlotsForFormation(formation: string): FormationSlot[] {
   return FORMATION_PRESETS[formation.trim()] || FORMATION_PRESETS['4-3-3'];
 }
 
+// ── Game IDs ─────────────────────────────────────────────────────────────
+// MUST match lib/features/profile/models/game_id.dart exactly (Firestore
+// doc IDs under users/{uid}/squads/{gameId}). A mismatch here means web
+// and mobile silently read/write two different squad documents.
+export const GAME_IDS = {
+  localFootball: 'local_football',
+  eFootball: 'efootball',
+  eaFc: 'ea_fc',
+  eaFcMobile: 'ea_fc_mobile',
+  dreamLeagueSoccer: 'dream_league_soccer',
+  totalFootball: 'total_football',
+} as const;
+
+export const ALL_GAME_IDS: string[] = [
+  GAME_IDS.localFootball,
+  GAME_IDS.eFootball,
+  GAME_IDS.eaFc,
+  GAME_IDS.eaFcMobile,
+  GAME_IDS.dreamLeagueSoccer,
+  GAME_IDS.totalFootball,
+];
+
+export function gameLabel(id: string): string {
+  switch (id) {
+    case GAME_IDS.eFootball:
+      return 'eFootball';
+    case GAME_IDS.eaFc:
+      return 'EA SPORTS FC';
+    case GAME_IDS.eaFcMobile:
+      return 'EA SPORTS FC Mobile';
+    case GAME_IDS.dreamLeagueSoccer:
+      return 'Dream League Soccer';
+    case GAME_IDS.totalFootball:
+      return 'Total Football';
+    case GAME_IDS.localFootball:
+    default:
+      return 'Local Football';
+  }
+}
+
 export class FormationDetector {
   private static readonly MIN_LINE_GAP = 0.10;
 

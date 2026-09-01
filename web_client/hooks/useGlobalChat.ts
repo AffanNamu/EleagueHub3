@@ -1,80 +1,62 @@
-'use client';
-
 import { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, orderBy, limit as fsLimit, doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
-import { ChatMessage } from '@/types/chat';
+import { collection, doc, query, orderBy, limit, where, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { ChatMessage } from '@/lib/chat/chatRepository';
 
 export function useGlobalChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pinnedMessage, setPinnedMessage] = useState<ChatMessage | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  
-  // Adjusted for standard behavior since the original got overwritten
-  const [accessStatus, setAccessStatus] = useState<'approved' | 'pending' | 'rejected' | null>('approved');
-  const [accessLoading, setAccessLoading] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, 'global_chatroom'), orderBy('timestamp', 'asc'), fsLimit(100));
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        ...doc.data()
-      })) as ChatMessage[];
-      
-      setMessages(msgs);
-      setLoading(false);
-      setError(null);
-    }, (err) => {
-      console.error("Error fetching global chat:", err);
-      setError(err.message);
+    // 1. Watch Messages
+    const qMsgs = query(collection(db, 'globalChatroom'), orderBy('createdAtMs', 'desc'), limit(120));
+    const unsubMsgs = onSnapshot(qMsgs, (snap) => {
+      setMessages(snap.docs.map(d => ({ ...d.data(), messageId: d.id } as ChatMessage)));
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    // 2. Watch Pinned Message
+    const qPinned = query(collection(db, 'globalChatroom'), where('pinned', '==', true), orderBy('pinnedAt', 'desc'), limit(1));
+    const unsubPinned = onSnapshot(qPinned, (snap) => {
+      setPinnedMessage(snap.docs.length > 0 ? { ...snap.docs[0].data(), messageId: snap.docs[0].id } as ChatMessage : null);
+    });
+
+    return () => { unsubMsgs(); unsubPinned(); };
   }, []);
 
-  const sendMessage = async (text: string) => {
-    if (!auth.currentUser || !text.trim()) return;
+  return { messages, pinnedMessage, loading };
+}
 
-    const messageId = doc(collection(db, 'global_chatroom')).id;
-    const nowMs = Date.now();
+export function useGlobalChatAccess(userId: string | null) {
+  const [status, setStatus] = useState<'pending' | 'approved' | 'rejected' | 'none'>('none');
+  const [moderation, setModeration] = useState({ muted: false, banned: false });
+  const [isAdmin, setIsAdmin] = useState(false);
 
-    const newMessage: Partial<ChatMessage> = {
-      messageId,
-      senderId: auth.currentUser.uid,
-      senderName: auth.currentUser.displayName || 'Player',
-      senderPhoto: auth.currentUser.photoURL || '',
-      text: text.trim(),
-      imageUrl: '',
-      voiceUrl: '',
-      type: 'text',
-      leagueId: 'global', // fallback identifier
-      timestamp: nowMs,
-      createdAtMs: nowMs,
-      createdAt: serverTimestamp(),
-      pinned: false,
-      pinnedBy: '',
-      deleted: false,
-      deletedBy: ''
-    };
+  useEffect(() => {
+    if (!userId) return;
 
-    try {
-      await setDoc(doc(collection(db, 'global_chatroom'), messageId), newMessage);
-    } catch (err: any) {
-      console.error("Failed to send message", err);
-      throw err;
-    }
-  };
+    // Watch Request Status
+    const unsubReq = onSnapshot(doc(db, 'globalChatRequests', userId), (d) => {
+      if (d.exists()) setStatus(d.data().status);
+      else setStatus('none');
+    });
 
-  const requestAccess = async () => {
-    setAccessLoading(true);
-    // Add logic here to request access to the global chat via Firestore
-    setTimeout(() => {
-      setAccessStatus('pending');
-      setAccessLoading(false);
-    }, 500);
-  };
+    // Watch Moderation Status
+    const unsubMod = onSnapshot(doc(db, 'app', 'chatModeration', 'users', userId), (d) => {
+      if (d.exists()) setModeration({ muted: d.data().allChatMuted, banned: d.data().allChatBanned });
+    });
 
-  return { messages, loading, error, sendMessage, accessStatus, accessLoading, requestAccess };
+    // Watch Admin Roles
+    const unsubAdmin = onSnapshot(doc(db, 'app', 'admins'), (d) => {
+      if (d.exists()) {
+        const globalAdmins = d.data().globalChatAdmins || [];
+        setIsAdmin(globalAdmins.includes(userId) || userId === 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'); // Super Admin check
+      }
+    });
+
+    return () => { unsubReq(); unsubMod(); unsubAdmin(); };
+  }, [userId]);
+
+  return { status, moderation, isAdmin };
 }

@@ -23,7 +23,7 @@ import Link from 'next/link';
 export default function ProfileScreen() {
   const router = useRouter();
   
-  const [user, setUser] = useState<FirebaseUser null |>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
   const { leagues } = useLeagues();
@@ -228,10 +228,10 @@ export default function ProfileScreen() {
 
       {/* ── STATS ROW ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard 0} label="Followers" value="{stats?.followersCount" ||/>
-        <StatCard 0} label="Matches" value="{stats?.matchesPlayed" ||/>
-        <StatCard 0).toFixed(0)}%`} highlight label="Win Rate" value="{`${(stats?.winPercentage" ||/>
-        <StatCard 0} label="Trophies" value="{stats?.trophies" ||/>
+        <StatCard label="Followers" value={stats?.followersCount || 0}/>
+        <StatCard label="Matches" value={stats?.matchesPlayed || 0}/>
+        <StatCard highlight label="Win Rate" value={`${(stats?.winPercentage || 0).toFixed(0)}%`} />
+        <StatCard label="Trophies" value={stats?.trophies || 0}/>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -246,9 +246,14 @@ export default function ProfileScreen() {
               <button onClick={() => router.push(`/profile/squad`)} className="text-xs font-bold text-[#38BDF8] hover:underline">Edit</button>
             </div>
             
-            {/* Embedded Pitch Preview */}
+            {/* Embedded Pitch Preview.
+                NOTE: gameId must be "local_football" (with underscore) —
+                this is GameId.localFootball's Firestore doc id on
+                mobile. Previously this was "localFootball", which read
+                the squad from an entirely different document than the
+                mobile app writes to. */}
             <div className="relative w-full aspect-[2/3] bg-[#070B14] rounded-2xl border border-white/10 overflow-hidden cursor-pointer group" onClick={() => router.push(`/profile/squad`)}>
-               <SquadPitchView gameId="localFootball" isPreview userId="{user.uid}"/>
+               <SquadPitchView gameId="local_football" isPreview userId={user.uid}/>
                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-[2px]">
                  <span className="text-white font-black bg-[#38BDF8] px-4 py-2 rounded-xl shadow-lg shadow-[#38BDF8]/20">Manage Squad</span>
                </div>
@@ -271,7 +276,7 @@ export default function ProfileScreen() {
               <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
                 {trophies.map(t => (
                   <div key={t.id} className="min-w-[140px] bg-[#070B14] border border-[#1E293B] p-4 rounded-2xl flex flex-col items-center justify-center shrink-0 shadow-lg">
-                    <Trophy ${t.position="==" 'text-amber-400 'text-gray-400'}`} 1 : ? className="{`w-10" drop-shadow-[0_0_10px_rgba(251,191,36,0.4)]' h-10 mb-3/>
+                    <Trophy className={`w-10 h-10 mb-3 ${t.position === 1 ? 'text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.4)]' : 'text-gray-400'}`}/>
                     <span className="text-xs font-black text-white text-center line-clamp-1">{t.leagueName}</span>
                     <span className="text-[10px] font-bold text-gray-500 mt-1">{t.position === 1 ? 'Champion' : `Rank #${t.position}`}</span>
                   </div>
@@ -314,7 +319,7 @@ export default function ProfileScreen() {
       </div>
 
       {usernameEditOpen && (
-        <UsernameEditModal authUid="{user.uid}" current="{usernameLower}" onClose="{()"> setUsernameEditOpen(false)}
+        <UsernameEditModal authUid={user.uid} current={usernameLower} onClose={() => setUsernameEditOpen(false)}
           onSaved={(next) => { setUsernameLower(next); setUsernameEditOpen(false); }}
         />
       )}

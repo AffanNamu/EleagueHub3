@@ -7,13 +7,17 @@ import {
   ArrowLeft, RefreshCw, Trophy, ShieldCheck, Globe, 
   MessageCircle, LayoutGrid, Calendar, Medal, Lock, 
   Mic, Settings, Network, ChevronRight, LogIn, Users,
-  ListAlt, GitMerge, Edit, MicOff, SquareSquare
+  ClipboardList as ListAlt, GitMerge, Edit, MicOff, SquareSquare, Loader2
 } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { doc, setDoc, arrayUnion } from 'firebase/firestore';
 import { fetchFullLeagueDetails, FullLeagueDetails } from '@/lib/leagues/leagueDetailsRepository';
 import { leagueFormatDisplayName } from '@/lib/models/leagueFormat';
 import { categoryLabel } from '@/lib/models/footballCategory';
+import { fetchKnockoutMatches, saveKnockoutMatches } from '@/lib/leagues/knockoutRepository';
+import { generateGroupKnockouts, generateSwissKnockouts, generateWorldCupKnockouts } from '@/lib/leagues/knockoutGeneration';
+
+type KnockoutKind = 'swiss' | 'group' | 'worldcup';
 
 export default function LeagueDetailScreenClient() {
   const router = useRouter();
@@ -28,6 +32,10 @@ export default function LeagueDetailScreenClient() {
   // UI State
   const [joining, setJoining] = useState(false);
   const [joinModalOpen, setJoinModalOpen] = useState(false);
+  const [spaceBusy, setSpaceBusy] = useState(false);
+  // NEW: which knockout generation is currently running, if any. Previously
+  // these three buttons had no logic at all — just alert('... triggered.').
+  const [generatingKnockouts, setGeneratingKnockouts] = useState<KnockoutKind | null>(null);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
@@ -94,6 +102,99 @@ export default function LeagueDetailScreenClient() {
       alert('Failed to join league. Please try again.');
     } finally {
       setJoining(false);
+    }
+  };
+
+  // ── League Space (audio room) ──
+  const handleStartSpace = async () => {
+    if (!authUid || !leagueId || spaceBusy) return;
+    setSpaceBusy(true);
+    try {
+      const now = Date.now();
+      await setDoc(
+        doc(db, 'leagues', leagueId, 'space', 'current'),
+        {
+          leagueId,
+          hostUserId: authUid,
+          title: `${data?.league?.name ?? 'League'} Space`,
+          isLive: true,
+          startedAtMs: now,
+          updatedAtMs: now,
+        },
+        { merge: true },
+      );
+      await loadData();
+    } catch (err) {
+      console.error('Failed to start space:', err);
+      alert('Failed to start the space. Please try again.');
+    } finally {
+      setSpaceBusy(false);
+    }
+  };
+
+  const handleEndSpace = async () => {
+    if (!leagueId || spaceBusy) return;
+    setSpaceBusy(true);
+    try {
+      const now = Date.now();
+      await setDoc(
+        doc(db, 'leagues', leagueId, 'space', 'current'),
+        { isLive: false, endedAtMs: now, updatedAtMs: now },
+        { merge: true },
+      );
+      await loadData();
+    } catch (err) {
+      console.error('Failed to end space:', err);
+      alert('Failed to end the space. Please try again.');
+    } finally {
+      setSpaceBusy(false);
+    }
+  };
+
+  const handleOpenSpace = () => {
+    if (!leagueId) return;
+    router.push(`/leagues/${leagueId}/space`);
+  };
+
+  // ── Knockout generation ──
+  // NEW: real generation logic, replacing the three alert('... triggered.')
+  // stubs. Mirrors league_detail_screen.dart's _generateSwissKnockouts /
+  // _generateGroupKnockouts / _generateWorldCupKnockouts: checks for an
+  // already-generated bracket first, then validates and seeds via
+  // knockoutGeneration.ts (which itself uses the ported tournamentController
+  // algorithms), then saves and reloads.
+  const handleGenerateKnockouts = async (kind: KnockoutKind) => {
+    if (!leagueId || !data?.league || generatingKnockouts) return;
+
+    setGeneratingKnockouts(kind);
+    try {
+      const existing = await fetchKnockoutMatches(leagueId);
+      if (existing.length > 0) {
+        alert('Knockouts have already been generated for this league.');
+        return;
+      }
+
+      const teamsArr = Object.values(data.teams || {});
+      const matchesArr = data.fixtures || [];
+
+      let seeded;
+      if (kind === 'swiss') {
+        const swissRounds = data.league.settings?.swissRounds ?? 8;
+        seeded = await generateSwissKnockouts(leagueId, teamsArr, matchesArr, swissRounds);
+      } else if (kind === 'group') {
+        seeded = await generateGroupKnockouts(leagueId, teamsArr, matchesArr);
+      } else {
+        const worldCupFormat = data.league.worldCupFormat === 48 ? 48 : 32;
+        seeded = await generateWorldCupKnockouts(leagueId, teamsArr, matchesArr, worldCupFormat);
+      }
+
+      await saveKnockoutMatches(leagueId, seeded);
+      await loadData();
+    } catch (err: any) {
+      console.error(`Failed to generate ${kind} knockouts:`, err);
+      alert(err?.message || 'Failed to generate knockouts. Please try again.');
+    } finally {
+      setGeneratingKnockouts(null);
     }
   };
 
@@ -207,7 +308,7 @@ export default function LeagueDetailScreenClient() {
                 {isGroup && <Pill label={`Group Size: ${league.settings?.groupSize || 4}`} color="teal" />}
                 {isSwiss && <Pill label={`Swiss Rounds: ${league.settings?.swissRounds || 5}`} color="teal" />}
                 {isWorldCup && (
-                  <Pill label={league.worldCupFormat === 'fifa2026' || league.worldCupFormat === 1 ? 'FIFA 2026 • 48 Teams' : 'FIFA 2022 • 32 Teams'} color="amber" />
+                  <Pill label={league.worldCupFormat === 48 ? 'FIFA 2026 • 48 Teams' : 'FIFA 2022 • 32 Teams'} color="amber" />
                 )}
               </div>
 
@@ -315,14 +416,42 @@ export default function LeagueDetailScreenClient() {
             
             {/* Space Row */}
             <div className="flex gap-2 mb-4">
-              <button className="flex-1 py-3.5 bg-[#0B1221] border border-[#1E293B] text-[#BEF264] hover:bg-[#1E293B] font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors">
-                {spaceLive ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-                {spaceLive ? 'Join Live Space' : 'Audio Space'}
-              </button>
-              {isOwner && (
-                <button className="flex-1 py-3.5 bg-[#BEF264] text-[#0F172A] hover:brightness-110 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-all">
-                  <Mic className="w-4 h-4" /> Start Space
-                </button>
+              {!spaceLive ? (
+                <>
+                  <button
+                    onClick={handleOpenSpace}
+                    className="flex-1 py-3.5 bg-[#0B1221] border border-[#1E293B] text-[#BEF264] hover:bg-[#1E293B] font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <MicOff className="w-4 h-4" /> Space
+                  </button>
+                  {isOwner && (
+                    <button
+                      onClick={handleStartSpace}
+                      disabled={spaceBusy}
+                      className="flex-1 py-3.5 bg-[#BEF264] text-[#0F172A] hover:brightness-110 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                    >
+                      <Mic className="w-4 h-4" /> {spaceBusy ? 'Starting...' : 'Start Space'}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleOpenSpace}
+                    className="flex-1 py-3.5 bg-[#BEF264]/10 border border-[#BEF264]/40 text-[#BEF264] hover:bg-[#BEF264]/20 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Mic className="w-4 h-4" /> Space Live — Join
+                  </button>
+                  {isOwner && (
+                    <button
+                      onClick={handleEndSpace}
+                      disabled={spaceBusy}
+                      className="px-4 py-3.5 bg-[#0B1221] border border-red-500/40 text-red-400 hover:bg-red-500/10 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    >
+                      <SquareSquare className="w-4 h-4" /> {spaceBusy ? 'Ending...' : 'End'}
+                    </button>
+                  )}
+                </>
               )}
             </div>
 
@@ -359,20 +488,42 @@ export default function LeagueDetailScreenClient() {
                   <Settings className="w-4 h-4" /> League Settings
                 </button>
 
-                {/* Swiss / Group / World Cup Knockout Generators */}
+                {/* FIXED: these three previously just called
+                    alert('... triggered.') with no logic behind them.
+                    Now they run the real seeding algorithm ported from
+                    tournament_controller.dart via knockoutGeneration.ts,
+                    validate the same preconditions Flutter checks
+                    (team counts, all group/round matches finished,
+                    correct group structure), and write the resulting
+                    bracket to leagues/{leagueId}/knockout. */}
                 {isSwiss && (
-                  <button onClick={() => alert('Swiss knockout generation triggered.')} className="w-full mt-2 py-3.5 border border-[#BEF264]/50 text-[#BEF264] bg-[#BEF264]/5 hover:bg-[#BEF264]/10 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors">
-                    <Trophy className="w-4 h-4" /> Generate Swiss Knockouts
+                  <button
+                    onClick={() => handleGenerateKnockouts('swiss')}
+                    disabled={generatingKnockouts !== null}
+                    className="w-full mt-2 py-3.5 border border-[#BEF264]/50 text-[#BEF264] bg-[#BEF264]/5 hover:bg-[#BEF264]/10 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    {generatingKnockouts === 'swiss' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
+                    {generatingKnockouts === 'swiss' ? 'Generating...' : 'Generate Swiss Knockouts'}
                   </button>
                 )}
                 {isGroup && (
-                  <button onClick={() => alert('Group knockout generation triggered.')} className="w-full mt-2 py-3.5 border border-[#BEF264]/50 text-[#BEF264] bg-[#BEF264]/5 hover:bg-[#BEF264]/10 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors">
-                    <LayoutGrid className="w-4 h-4" /> Generate Group Knockouts
+                  <button
+                    onClick={() => handleGenerateKnockouts('group')}
+                    disabled={generatingKnockouts !== null}
+                    className="w-full mt-2 py-3.5 border border-[#BEF264]/50 text-[#BEF264] bg-[#BEF264]/5 hover:bg-[#BEF264]/10 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    {generatingKnockouts === 'group' ? <Loader2 className="w-4 h-4 animate-spin" /> : <LayoutGrid className="w-4 h-4" />}
+                    {generatingKnockouts === 'group' ? 'Generating...' : 'Generate Group Knockouts'}
                   </button>
                 )}
                 {isWorldCup && (
-                  <button onClick={() => alert('World Cup knockout generation triggered.')} className="w-full mt-2 py-3.5 border border-[#BEF264]/50 text-[#BEF264] bg-[#BEF264]/5 hover:bg-[#BEF264]/10 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors">
-                    <Globe className="w-4 h-4" /> Generate World Cup Knockouts
+                  <button
+                    onClick={() => handleGenerateKnockouts('worldcup')}
+                    disabled={generatingKnockouts !== null}
+                    className="w-full mt-2 py-3.5 border border-[#BEF264]/50 text-[#BEF264] bg-[#BEF264]/5 hover:bg-[#BEF264]/10 font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    {generatingKnockouts === 'worldcup' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                    {generatingKnockouts === 'worldcup' ? 'Generating...' : 'Generate World Cup Knockouts'}
                   </button>
                 )}
 

@@ -100,7 +100,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            xz-utils unzip curl git libglu1-mesa imagemagick file python3
+            xz-utils unzip curl git libglu1-mesa imagemagick file python3 binutils
           sudo apt-get clean
 
       # ─────────────────────────────────────────
@@ -504,6 +504,82 @@ jobs:
           [ -f "$AAB" ] || { echo "❌ ERROR: AAB not found"; exit 1; }
           echo "✅ AAB size: $(du -h $AAB | cut -f1)"
           ls -lh build/app/outputs/bundle/release/
+
+      # ─────────────────────────────────────────
+      # 12b. CHECK 16 KB PAGE-SIZE ALIGNMENT
+      # ─────────────────────────────────────────
+      - name: Check 16 KB page-size alignment
+        run: |
+          set -euo pipefail
+          AAB="build/app/outputs/bundle/release/app-release.aab"
+          EXTRACT_DIR="/tmp/aab_extract"
+
+          rm -rf "${EXTRACT_DIR}"
+          mkdir -p "${EXTRACT_DIR}"
+          unzip -oq "${AAB}" -d "${EXTRACT_DIR}"
+
+          echo "============================================"
+          echo "16 KB PAGE-SIZE ALIGNMENT REPORT"
+          echo "Compliant .so files must have a LOAD segment"
+          echo "'Align' value of 0x4000 (16384) or higher."
+          echo "============================================"
+          echo ""
+
+          declare -a NON_COMPLIANT
+
+          SO_FILES=$(find "${EXTRACT_DIR}" -name "*.so" | sort)
+
+          if [ -z "${SO_FILES}" ]; then
+            echo "No .so files found in the AAB — nothing to check."
+          else
+            printf "%-70s %-12s %-10s\n" "LIBRARY" "ABI" "ALIGN"
+            printf "%-70s %-12s %-10s\n" "-------" "---" "-----"
+
+            while IFS= read -r so; do
+              REL_PATH="${so#${EXTRACT_DIR}/}"
+              ABI=$(echo "${REL_PATH}" | grep -oE "arm64-v8a|armeabi-v7a|x86_64|x86" || echo "unknown")
+              LIB_NAME=$(basename "${so}")
+
+              # Extract max Align value across all LOAD segments
+              MAX_ALIGN_DEC=0
+              MAX_ALIGN_HEX="0x0"
+              while IFS= read -r align_hex; do
+                align_hex_clean=$(echo "${align_hex}" | tr -d '[:space:]')
+                if [ -n "${align_hex_clean}" ]; then
+                  align_dec=$((16#${align_hex_clean#0x}))
+                  if [ "${align_dec}" -gt "${MAX_ALIGN_DEC}" ]; then
+                    MAX_ALIGN_DEC=${align_dec}
+                    MAX_ALIGN_HEX=${align_hex_clean}
+                  fi
+                fi
+              done < <(readelf -lW "${so}" 2>/dev/null | awk '/LOAD/{print $NF}')
+
+              printf "%-70s %-12s %-10s\n" "${LIB_NAME}" "${ABI}" "${MAX_ALIGN_HEX}"
+
+              if [ "${MAX_ALIGN_DEC}" -lt 16384 ]; then
+                NON_COMPLIANT+=("${REL_PATH} (align=${MAX_ALIGN_HEX})")
+              fi
+            done <<< "${SO_FILES}"
+          fi
+
+          echo ""
+          echo "============================================"
+          if [ "${#NON_COMPLIANT[@]:-0}" -eq 0 ]; then
+            echo "✅ All native libraries are 16 KB page-size aligned."
+          else
+            echo "⚠️  NON-COMPLIANT LIBRARIES FOUND (${#NON_COMPLIANT[@]}):"
+            for entry in "${NON_COMPLIANT[@]}"; do
+              echo "   - ${entry}"
+            done
+            echo ""
+            echo "These come from a Flutter/Android plugin's prebuilt native"
+            echo "library. Trace each path back to the plugin (e.g. a path"
+            echo "containing 'flutter_webrtc', 'livekit', 'record', etc.) and"
+            echo "check for a newer version of that plugin that ships a"
+            echo "16 KB-aligned build."
+            echo "::warning::Non-16KB-aligned native libraries detected — see job log for details."
+          fi
+          echo "============================================"
 
       # ─────────────────────────────────────────
       # 13. UPLOAD ARTIFACTS

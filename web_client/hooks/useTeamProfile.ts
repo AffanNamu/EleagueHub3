@@ -55,6 +55,18 @@ export function useTeamProfile(userId: string | null) {
   return { profile, stats, trophies, recentMatches, loading };
 }
 
+const EMPTY_SQUAD = (gameId: string): SquadData => ({
+  gameId,
+  formation: '4-3-3',
+  players: [],
+  managerName: '',
+  captainPlayerId: '',
+  viceCaptainPlayerId: '',
+  teamStrength: 0,
+  updatedAtMs: 0,
+  squadPhotoUrl: '',
+});
+
 export function useSquad(userId: string | null, gameId: string) {
   const [squad, setSquad] = useState<SquadData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,8 +77,13 @@ export function useSquad(userId: string | null, gameId: string) {
       return;
     }
     const unsub = onSnapshot(doc(db, 'users', userId, 'squads', gameId), (docSnap) => {
-      if (docSnap.exists()) setSquad(docSnap.data() as SquadData);
-      else setSquad({ gameId, formation: '4-3-3', players: [], managerName: '', captainPlayerId: '', viceCaptainPlayerId: '', teamStrength: 0, updatedAtMs: 0 });
+      if (docSnap.exists()) {
+        // squadPhotoUrl may be absent on docs written before this field
+        // existed — default it so callers never see `undefined`.
+        setSquad({ squadPhotoUrl: '', ...(docSnap.data() as SquadData) });
+      } else {
+        setSquad(EMPTY_SQUAD(gameId));
+      }
       setLoading(false);
     });
     return () => unsub();

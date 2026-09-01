@@ -11,6 +11,9 @@ interface PostCardProps {
   onLike: () => void;
   onDelete: () => void;
   onOpenLeague: () => void;
+  // NEW: previously this button had no handler at all, so tapping it did
+  // nothing — mirrors onLike/onDelete/onOpenLeague's shape.
+  onComment: () => void;
 }
 
 function timeAgo(ms: number) {
@@ -21,7 +24,7 @@ function timeAgo(ms: number) {
   return `${Math.floor(diff / 1440)}d`;
 }
 
-export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague }: PostCardProps) {
+export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague, onComment }: PostCardProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -139,7 +142,7 @@ export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague }: Post
           <Heart className="w-5 h-5 group-active:scale-90 transition-transform" />
           <span className="text-xs font-bold">{post.likeCount}</span>
         </button>
-        <button className="flex items-center gap-2 text-gray-400 hover:text-sky-400 transition-colors group">
+        <button onClick={onComment} className="flex items-center gap-2 text-gray-400 hover:text-sky-400 transition-colors group">
           <MessageCircle className="w-5 h-5 group-active:scale-90 transition-transform" />
           <span className="text-xs font-bold">{post.commentCount}</span>
         </button>

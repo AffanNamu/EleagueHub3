@@ -70,6 +70,13 @@ export interface SquadData {
   viceCaptainPlayerId: string;
   teamStrength: number;
   updatedAtMs: number;
+  /**
+   * A real photo of the user's actual squad/team (distinct from the
+   * per-player photoUrl on SquadPlayerSlot). Mirrors
+   * lib/features/profile/models/squad.dart's `squadPhotoUrl`. Empty
+   * string = none uploaded.
+   */
+  squadPhotoUrl: string;
 }
 
 // ── TEAM PROFILE ─────────────────────────────────────────────────────────────
@@ -109,6 +116,33 @@ export async function saveSquadWeb(userId: string, squad: SquadData) {
     ...squad,
     updatedAtMs: Date.now()
   }, { merge: true });
+}
+
+/**
+ * Updates ONLY the real squad/team photo for [gameId]. Fetches the
+ * existing squad first (rather than a bare updateDoc that could target a
+ * doc that doesn't exist yet) mirroring
+ * TeamProfileRepository.updateSquadPhoto on mobile.
+ */
+export async function updateSquadPhotoWeb(userId: string, gameId: string, squadPhotoUrl: string) {
+  const ref = doc(db, 'users', userId, 'squads', gameId);
+  const snap = await getDoc(ref);
+  const now = Date.now();
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      gameId,
+      formation: '4-3-3',
+      players: [],
+      managerName: '',
+      captainPlayerId: '',
+      viceCaptainPlayerId: '',
+      teamStrength: 0,
+      updatedAtMs: now,
+      squadPhotoUrl,
+    });
+  } else {
+    await updateDoc(ref, { squadPhotoUrl, updatedAtMs: now });
+  }
 }
 
 // ── FOLLOW / BLOCK TRANSACTIONS ──────────────────────────────────────────────

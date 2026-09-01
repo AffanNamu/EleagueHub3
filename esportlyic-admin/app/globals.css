@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    border-color: theme('colors.base.border');
+  }
+
+  html,
+  body {
+    background-color: theme('colors.base.DEFAULT');
+    color: theme('colors.ink.primary');
+  }
+
+  body {
+    font-family: var(--font-sans), sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display), sans-serif;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background-color: theme('colors.brand.faint');
+    color: theme('colors.ink.primary');
+  }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.brand.DEFAULT');
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: theme('colors.base.raised');
+    border-radius: 999px;
+    border: 2px solid theme('colors.base.DEFAULT');
+  }
+}
+
+@layer components {
+  .panel {
+    background-color: theme('colors.base.panel');
+    border: 1px solid theme('colors.base.border');
+    border-radius: theme('borderRadius.md');
+  }
+
+  .panel-raised {
+    background-color: theme('colors.base.raised');
+    border: 1px solid theme('colors.base.border');
+    border-radius: theme('borderRadius.md');
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

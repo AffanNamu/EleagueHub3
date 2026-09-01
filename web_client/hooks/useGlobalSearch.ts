@@ -1,9 +1,18 @@
 import { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { League } from '@/types/league';
 import { MasterLeague } from '@/types/masterLeague';
-import { searchUsers, UserSearchEntry } from '@/lib/services/userSearchRepository';
+// FIXED (mobile/web parity): previously imported searchUsers from
+// lib/services/userSearchRepository.ts — a second, drifted copy of the
+// search logic whose UserSearchEntry type was missing `country` and
+// `usernameLower`, and which never excluded the signed-in user's own
+// record from results. That repository is now unused; this hook uses
+// the canonical lib/search/userSearchRepository.ts implementation
+// (the same one app/(dashboard)/search/page.tsx uses), so global
+// search and the dedicated search screen never disagree on shape or
+// on self-exclusion behavior.
+import { searchUsersWeb, UserSearchEntry } from '@/lib/search/userSearchRepository';
 
 export function useGlobalSearch(searchTerm: string) {
   const [leagues, setLeagues] = useState<League[]>([]);
@@ -50,7 +59,7 @@ export function useGlobalSearch(searchTerm: string) {
           getDocs(leaguesQ),
           getDocs(masterQ),
           // NEW: user search, so people can find and message each other.
-          searchUsers(term),
+          searchUsersWeb(term, auth.currentUser?.uid || ''),
         ]);
 
         setLeagues(leaguesSnap.docs.map(d => ({ id: d.id, ...d.data() } as League)));
