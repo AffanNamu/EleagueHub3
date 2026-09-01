@@ -564,7 +564,7 @@ jobs:
 
           echo ""
           echo "============================================"
-          if [ "${#NON_COMPLIANT[@]:-0}" -eq 0 ]; then
+          if [ "${#NON_COMPLIANT[@]}" -eq 0 ]; then
             echo "✅ All native libraries are 16 KB page-size aligned."
           else
             echo "⚠️  NON-COMPLIANT LIBRARIES FOUND (${#NON_COMPLIANT[@]}):"
