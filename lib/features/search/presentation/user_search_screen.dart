@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/services/country/country_resolver_service.dart';
@@ -11,6 +12,7 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../profile/data/team_profile_repository.dart';
 import '../../profile/models/game_id.dart';
+import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/user_search_repository.dart';
 import '../models/user_search_entry.dart';
 
@@ -39,6 +41,22 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
   void initState() {
     super.initState();
     _loadNearby();
+    _backfillOwnNameIfMissing();
+  }
+
+  // FIXED: root cause of blank names in this screen — syncSelfIndex()
+  // (in UserSearchRepository) used to write whatever team-name string it
+  // was given verbatim, including '' for anyone who never set one, even
+  // though Firebase Auth already has their Google/Apple/etc. registered
+  // name. That write-time fallback is fixed now, but it only applies to
+  // FUTURE syncs. This call heals already-blank docs: every time a user
+  // opens this screen, we check their own user_search doc and, if its
+  // name is still empty, fill it in from their Auth profile — no
+  // dependency on Profile screen or any other screen.
+  Future<void> _backfillOwnNameIfMissing() async {
+    final authName = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
+    if (authName.isEmpty) return;
+    unawaited(_repo.backfillDisplayNameIfMissing(authName));
   }
 
   Future<void> _loadNearby() async {
@@ -108,7 +126,7 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
                 controller: _controller,
                 onChanged: _onChanged,
                 decoration: InputDecoration(
-                  hintText: 'Search by team name or ID…',
+                  hintText: 'Search by team name…',
                   prefixIcon: const Icon(Icons.search_rounded),
                   suffixIcon: _controller.text.isEmpty
                       ? null
@@ -198,7 +216,7 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Center(
                 child: Text(
-                  'No nearby teams found yet. Try searching by name or Team ID instead.',
+                  'No nearby teams found yet. Try using the search box above.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: AppTheme.secondaryText(brightness),
@@ -291,6 +309,17 @@ class _TeamTileState extends State<_TeamTile> {
     final brightness = Theme.of(context).brightness;
     final entry = widget.entry;
 
+    // FIXED: previously this was just `entry.displayName`, which showed
+    // up blank for any user who never set a team name in Profile — even
+    // though that same user's registered (Google/Apple/etc.) name is
+    // now written into the index (see UserSearchRepository fixes). This
+    // fallback chain is just a last-resort safety net for any entry that
+    // still slips through with an empty name; it never falls back to the
+    // Team ID, per the requirement that the ID must not appear here.
+    final resolvedName = entry.displayName.isNotEmpty
+        ? entry.displayName
+        : (entry.usernameLower.isNotEmpty ? '@${entry.usernameLower}' : 'Team');
+
     return Glass(
       borderRadius: 16,
       padding: EdgeInsets.zero,
@@ -302,15 +331,30 @@ class _TeamTileState extends State<_TeamTile> {
           backgroundImage: entry.avatarUrl.isNotEmpty ? NetworkImage(entry.avatarUrl) : null,
           child: entry.avatarUrl.isEmpty ? const Icon(Icons.person_rounded) : null,
         ),
-        title: Text(
-          entry.displayName,
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            color: AppTheme.primaryText(brightness),
-          ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                resolvedName,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.primaryText(brightness),
+                ),
+              ),
+            ),
+            // NEW: verification badge, shown only if this user actually
+            // has one — the widget itself renders nothing otherwise.
+            VerificationBadgeWidget(userId: entry.userId, size: 15),
+          ],
         ),
-        subtitle: Text(
-          entry.game.isEmpty ? entry.shareId : '${GameId.label(entry.game)} · ${entry.shareId}',
+        // FIXED: this used to append `entry.shareId` (the Team ID) after
+        // the game label — the user explicitly does not want the ID
+        // shown anywhere on this screen. Now shows the game label only,
+        // and no subtitle row at all when there's no game set.
+        subtitle: entry.game.isEmpty ? null : Text(
+          GameId.label(entry.game),
           style: TextStyle(color: AppTheme.secondaryText(brightness)),
         ),
         trailing: (_isSelf || _following == null)

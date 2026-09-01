@@ -32,10 +32,20 @@ class UserSearchRepository {
     if (uid.isEmpty) return;
 
     try {
+      // FIXED: previously this wrote whatever `displayName` was passed
+      // in verbatim — including '' for any user who never set a team
+      // name in their profile. That left blank names in the search
+      // index even for Google/Apple sign-ins that DO have a name on
+      // the Firebase Auth user object. Fall back to that provider name
+      // before ever writing an empty string.
+      final resolvedDisplayName = displayName.trim().isNotEmpty
+          ? displayName.trim()
+          : (_auth.currentUser?.displayName ?? '').trim();
+
       final payload = <String, dynamic>{
         'userId': uid,
-        'displayName': displayName.trim(),
-        'displayNameLower': displayName.trim().toLowerCase(),
+        'displayName': resolvedDisplayName,
+        'displayNameLower': resolvedDisplayName.toLowerCase(),
         'shareId': shareId.trim(),
         'shareIdLower': shareId.trim().toLowerCase(),
         'game': game.trim(),
@@ -102,6 +112,48 @@ class UserSearchRepository {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[UserSearchRepository] syncUsername failed (non-fatal): $e');
+      }
+    }
+  }
+
+  /// NEW: Same self-heal pattern as [backfillCountryIfMissing] below, but
+  /// for `displayName`. Existing users who signed up before this fix (or
+  /// whose `user_search` doc was written with an empty name) get a real
+  /// name — their registered/Google/Apple name — just by opening their
+  /// own Profile tab, without waiting for a full profile save.
+  ///
+  /// Only ever touches `displayName`/`displayNameLower` — never writes
+  /// `game`/`badge`/`avatarUrl`, so it can never clobber other fields.
+  Future<void> backfillDisplayNameIfMissing(String fallbackDisplayName) async {
+    final uid = _auth.currentUser?.uid.trim() ?? '';
+    final name = fallbackDisplayName.trim();
+    if (uid.isEmpty || name.isEmpty) return;
+
+    try {
+      final doc = await _col
+          .doc(uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      final existing = (doc.data()?['displayName'] as String? ?? '').trim();
+      if (existing.isNotEmpty) return;
+
+      await _col.doc(uid).set(
+        <String, dynamic>{
+          'userId': uid,
+          'displayName': name,
+          'displayNameLower': name.toLowerCase(),
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 12));
+
+      if (kDebugMode) {
+        debugPrint('[UserSearchRepository] backfillDisplayNameIfMissing: set displayName="$name" for $uid');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[UserSearchRepository] backfillDisplayNameIfMissing failed (non-fatal): $e');
       }
     }
   }

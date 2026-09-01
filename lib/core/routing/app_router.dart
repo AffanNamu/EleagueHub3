@@ -27,6 +27,8 @@ import '../../features/chat/presentation/organizer_chat_screen.dart';
 import '../../features/chat/presentation/private_chat_list_screen.dart';
 import '../../features/chat/presentation/private_chat_screen.dart';
 import '../../features/discovery/presentation/community_screen.dart';
+import '../../features/discovery/discussions/presentation/discussion_detail_screen.dart';
+import '../../features/discovery/discussions/presentation/discussions_list_screen.dart';
 import '../../features/discovery/presentation/competitions_discovery_screen.dart';
 import '../../features/discovery/presentation/discovery_hub_screen.dart';
 import '../../features/feed/presentation/public_feed_screen.dart';
@@ -1280,6 +1282,22 @@ final appRouter = GoRouter(
         GoRoute(
           path: 'discovery/community',
           builder: (context, state) => const CommunityScreen(),
+          routes: [
+            // FIXED: GoException: no routes for location:
+            // /discovery/community/discussions — these two children
+            // were missing entirely, so any push into the discussions
+            // list/detail hit the catch-all "Page Not Found" screen.
+            GoRoute(
+              path: 'discussions',
+              builder: (context, state) => const DiscussionsListScreen(),
+            ),
+            GoRoute(
+              path: 'discussions/:threadId',
+              builder: (context, state) => DiscussionDetailScreen(
+                threadId: state.pathParameters['threadId'] ?? '',
+              ),
+            ),
+          ],
         ),
         GoRoute(
           path: 'search',
