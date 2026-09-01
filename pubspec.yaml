@@ -31,7 +31,12 @@ dependencies:
   shared_preferences: ^2.2.3
   connectivity_plus: ^7.3.1
   qr_flutter: ^4.1.0
-  mobile_scanner: ^5.1.0
+  # ── Bumped from ^5.1.0: 5.x bundles a pre-16KB-aligned CameraX/ML Kit
+  # native build (libbarhopper_v3.so, libimage_processing_util_jni.so),
+  # which is what Google Play's "16 KB memory page sizes" rejection is
+  # flagging. Fixed upstream in mobile_scanner 6.0.11+; pinned to the
+  # current latest (7.4.0) which includes it.
+  mobile_scanner: ^7.4.0
   uuid: ^4.2.2
   intl: ^0.20.3
   share_plus: ^10.1.0
