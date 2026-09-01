@@ -1,4 +1,4 @@
-name: Backfill Search Names
+name: Backfill Search Name
 
 on:
   workflow_dispatch:
