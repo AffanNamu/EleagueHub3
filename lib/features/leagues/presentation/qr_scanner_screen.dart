@@ -1740,7 +1740,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
             child: MobileScanner(
               controller: _scannerController,
               onDetect: _onDetect,
-              errorBuilder: (context, error, child) {
+              errorBuilder: (context, error) {
                 final theme = Theme.of(context);
                 final brightness = theme.brightness;
 
