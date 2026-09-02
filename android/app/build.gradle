@@ -61,6 +61,16 @@ android {
     namespace "com.eleaguehub.app"
     compileSdk 36
 
+    // FIXED: this was never set, so Gradle fell back to whatever NDK
+    // happened to be cached on the build machine — which is what
+    // actually strips/repacks every .so bundled in the AAB (Flutter
+    // engine + every plugin's native code), not just custom C++.
+    // r27+ is required for 16 KB page alignment to be the default;
+    // pinning it explicitly here guarantees every environment (local,
+    // CI, whoever builds this next) uses the same safe version instead
+    // of silently picking up an older cached one.
+    ndkVersion "27.0.12077973"
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
