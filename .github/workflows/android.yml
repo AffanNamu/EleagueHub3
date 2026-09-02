@@ -532,7 +532,10 @@ jobs:
           echo "============================================"
           echo ""
 
-          declare -a NON_COMPLIANT
+          # FIX: must be assigned (=()) not just declared, or `set -u` treats
+          # the array as unset and ${#NON_COMPLIANT[@]} throws
+          # "unbound variable" once the loop below never touches it.
+          declare -a NON_COMPLIANT=()
 
           SO_FILES=$(find "${EXTRACT_DIR}" -name "*.so" | sort)
 
@@ -635,3 +638,4 @@ jobs:
           echo "  Actions → This workflow run → Artifacts section"
           echo "  Download 'app-release-aab' → upload .aab to Play Console"
           echo "============================================"
+|
