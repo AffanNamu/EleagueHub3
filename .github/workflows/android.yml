@@ -522,6 +522,13 @@ jobs:
           echo "16 KB PAGE-SIZE ALIGNMENT REPORT"
           echo "Compliant .so files must have a LOAD segment"
           echo "'Align' value of 0x4000 (16384) or higher."
+          echo ""
+          echo "NOTE: 16 KB page sizes only exist on 64-bit"
+          echo "(arm64-v8a / x86_64) Android devices. Google Play's"
+          echo "own compliance check does not evaluate 32-bit"
+          echo "libraries (armeabi-v7a / x86) at all, so this report"
+          echo "prints them for visibility only and never counts"
+          echo "them as failures."
           echo "============================================"
           echo ""
 
@@ -532,8 +539,8 @@ jobs:
           if [ -z "${SO_FILES}" ]; then
             echo "No .so files found in the AAB — nothing to check."
           else
-            printf "%-70s %-12s %-10s\n" "LIBRARY" "ABI" "ALIGN"
-            printf "%-70s %-12s %-10s\n" "-------" "---" "-----"
+            printf "%-70s %-12s %-10s %-12s\n" "LIBRARY" "ABI" "ALIGN" "STATUS"
+            printf "%-70s %-12s %-10s %-12s\n" "-------" "---" "-----" "------"
 
             while IFS= read -r so; do
               REL_PATH="${so#${EXTRACT_DIR}/}"
@@ -554,20 +561,29 @@ jobs:
                 fi
               done < <(readelf -lW "${so}" 2>/dev/null | awk '/LOAD/{print $NF}')
 
-              printf "%-70s %-12s %-10s\n" "${LIB_NAME}" "${ABI}" "${MAX_ALIGN_HEX}"
-
-              if [ "${MAX_ALIGN_DEC}" -lt 16384 ]; then
-                NON_COMPLIANT+=("${REL_PATH} (align=${MAX_ALIGN_HEX})")
+              # Only arm64-v8a and x86_64 are subject to the 16 KB requirement.
+              # 32-bit ABIs (armeabi-v7a, x86) are reported but never fail the check.
+              if [ "${ABI}" = "arm64-v8a" ] || [ "${ABI}" = "x86_64" ]; then
+                if [ "${MAX_ALIGN_DEC}" -ge 16384 ]; then
+                  STATUS="OK"
+                else
+                  STATUS="FAIL"
+                  NON_COMPLIANT+=("${REL_PATH} (align=${MAX_ALIGN_HEX})")
+                fi
+              else
+                STATUS="n/a (32-bit)"
               fi
+
+              printf "%-70s %-12s %-10s %-12s\n" "${LIB_NAME}" "${ABI}" "${MAX_ALIGN_HEX}" "${STATUS}"
             done <<< "${SO_FILES}"
           fi
 
           echo ""
           echo "============================================"
           if [ "${#NON_COMPLIANT[@]}" -eq 0 ]; then
-            echo "✅ All native libraries are 16 KB page-size aligned."
+            echo "✅ All 64-bit (arm64-v8a / x86_64) native libraries are 16 KB page-size aligned."
           else
-            echo "⚠️  NON-COMPLIANT LIBRARIES FOUND (${#NON_COMPLIANT[@]}):"
+            echo "⚠️  NON-COMPLIANT 64-BIT LIBRARIES FOUND (${#NON_COMPLIANT[@]}):"
             for entry in "${NON_COMPLIANT[@]}"; do
               echo "   - ${entry}"
             done
@@ -577,7 +593,7 @@ jobs:
             echo "containing 'flutter_webrtc', 'livekit', 'record', etc.) and"
             echo "check for a newer version of that plugin that ships a"
             echo "16 KB-aligned build."
-            echo "::warning::Non-16KB-aligned native libraries detected — see job log for details."
+            echo "::warning::Non-16KB-aligned 64-bit native libraries detected — see job log for details."
           fi
           echo "============================================"
 
