@@ -110,6 +110,11 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          # Pinned explicitly: unpinned "channel: stable" was resolving to a
+          # stale cached Flutter (Dart 3.5.4), which is too old for the
+          # current `intl` package range (^0.20.3 now requires Dart ^3.9.0).
+          # Bump this string periodically to track new Flutter stable releases.
+          flutter-version: '3.47.1'
           cache: true
 
       - name: Flutter doctor
@@ -638,4 +643,3 @@ jobs:
           echo "  Actions → This workflow run → Artifacts section"
           echo "  Download 'app-release-aab' → upload .aab to Play Console"
           echo "============================================"
-|
