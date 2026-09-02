@@ -72,7 +72,14 @@ if (patchPropsFile.exists()) {
 def patchCompileSdk = patchProps.getProperty("flutter.compileSdkVersion") ?: "36"
 def patchMinSdk = patchProps.getProperty("flutter.minSdkVersion") ?: "24"
 def patchTargetSdk = patchProps.getProperty("flutter.targetSdkVersion") ?: "36"
-def patchNdkVersion = patchProps.getProperty("flutter.ndkVersion") ?: "27.0.12077973"
+// Kept in sync with the ndkVersion pinned in app/build.gradle. Was
+// "27.0.12077973" (NDK r27, which only opts into 16 KB alignment rather than
+// defaulting to it) — bumped to match the r28 pin below so every pub-cache
+// plugin patched by this script builds against the same NDK as the app
+// module. Mismatched NDK versions across modules is its own source of
+// "multiple NDK versions in this project" Gradle warnings, independent of
+// the 16 KB issue.
+def patchNdkVersion = patchProps.getProperty("flutter.ndkVersion") ?: "28.0.13004108"
 
 def packageConfigFile = file("../.dart_tool/package_config.json")
 if (packageConfigFile.exists()) {

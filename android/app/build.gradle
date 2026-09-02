@@ -61,15 +61,22 @@ android {
     namespace "com.eleaguehub.app"
     compileSdk 36
 
-    // FIXED: this was never set, so Gradle fell back to whatever NDK
-    // happened to be cached on the build machine — which is what
-    // actually strips/repacks every .so bundled in the AAB (Flutter
-    // engine + every plugin's native code), not just custom C++.
-    // r27+ is required for 16 KB page alignment to be the default;
-    // pinning it explicitly here guarantees every environment (local,
-    // CI, whoever builds this next) uses the same safe version instead
-    // of silently picking up an older cached one.
-    ndkVersion "27.0.12077973"
+    // 16 KB PAGE SIZE FIX (corrected):
+    // The previous pin here was ndkVersion "27.0.12077973" (NDK r27), with a
+    // comment claiming r27 makes 16 KB alignment "the default." That claim is
+    // wrong. Per Google's own docs (developer.android.com/guide/practices/page-sizes):
+    // "NDK version r28 and higher compile 16 KB-aligned by default. To support
+    // compiling 16 KB-aligned shared libraries with NDK r27 or lower, use the
+    // linker flags -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384."
+    // r27 only added the *capability* (opt-in); r28 is what turns it on by
+    // default. This project has no externalNativeBuild/CMake block, so it
+    // doesn't compile any native code itself — this setting alone will not
+    // realign prebuilt .so files that ship inside the Flutter engine or
+    // third-party plugin AARs (those are baked in by whichever NDK version
+    // *their* authors used). It is still the correct, Google-recommended
+    // toolchain baseline, and it matters immediately if any Gradle-level
+    // native compilation is ever added later.
+    ndkVersion "28.0.13004108"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -131,8 +138,19 @@ android {
 
         release {
             signingConfig signingConfigs.release
-            minifyEnabled false
-            shrinkResources false
+
+            // R8 / OBFUSCATION FIX:
+            // Both flags were previously false, so R8 never ran in shrink/obfuscate
+            // mode on release builds — only the desugaring pass ran. That is exactly
+            // why Play Console reports ~1% obfuscation (below its 25% threshold):
+            // there was nothing for R8 to rename or remove. Turning both on lets R8
+            // actually shrink and obfuscate the release build. proguard-rules.pro
+            // (see separate file) carries only the small set of targeted keep rules
+            // Flutter release builds are documented to need; it is not a broad
+            // "keep everything" rule set.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }
