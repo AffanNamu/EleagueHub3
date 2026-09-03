@@ -378,6 +378,7 @@ class PrivateChatRepository {
   Future<void> sendVoiceMessage({
     required String threadId,
     required String voiceUrl,
+    int voiceDurationMs = 0,
   }) async {
     final url = voiceUrl.trim();
     if (url.isEmpty) return;
@@ -396,6 +397,7 @@ class PrivateChatRepository {
         'text': '',
         'imageUrl': '',
         'voiceUrl': url,
+        'voiceDurationMs': voiceDurationMs < 0 ? 0 : voiceDurationMs,
         'createdAtMs': now,
       });
 

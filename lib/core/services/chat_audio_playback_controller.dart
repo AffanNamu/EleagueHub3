@@ -90,7 +90,7 @@ class ChatAudioPlaybackController extends ChangeNotifier {
       return;
     }
 
-    await _persistPosition();
+    _persistPosition();
     _positionPersistTimer?.cancel();
     await _player.stop();
 
@@ -137,7 +137,7 @@ class ChatAudioPlaybackController extends ChangeNotifier {
   Future<void> pause() async {
     await _player.pause();
     _positionPersistTimer?.cancel();
-    await _persistPosition();
+    _persistPosition();
   }
 
   Future<void> seekTo(Duration d) async {
