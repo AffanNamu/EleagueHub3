@@ -19,6 +19,13 @@ class ChatMessage {
   final String voiceUrl;
   final String type;
 
+  /// Duration of the voice note in milliseconds, captured from the
+  /// recorder at send time. 0/absent for messages sent before this field
+  /// existed — the voice player simply shows an unknown duration until
+  /// the note is downloaded and played once, at which point it's learned
+  /// and cached locally.
+  final int voiceDurationMs;
+
   final Timestamp? createdAt;
 
   /// Stable ordering field (ms since epoch). Used for ordering queries.
@@ -61,6 +68,7 @@ class ChatMessage {
     required this.imageUrl,
     required this.voiceUrl,
     required this.type,
+    this.voiceDurationMs = 0,
     required this.createdAt,
     required this.createdAtMs,
     required this.leagueId,
@@ -130,6 +138,7 @@ class ChatMessage {
       imageUrl: _str(data['imageUrl']),
       voiceUrl: _str(data['voiceUrl']),
       type: _str(data['type']).isNotEmpty ? _str(data['type']) : ChatMessageType.text,
+      voiceDurationMs: _int(data['voiceDurationMs']),
       createdAt: _ts(data['createdAt']),
       createdAtMs: _int(data['createdAtMs']),
       leagueId: _str(data['leagueId']),

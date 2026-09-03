@@ -27,6 +27,7 @@ class PrivateMessage {
     required this.text,
     required this.imageUrl,
     required this.voiceUrl,
+    this.voiceDurationMs = 0,
     required this.createdAtMs,
   });
 
@@ -36,6 +37,11 @@ class PrivateMessage {
   final String text;
   final String imageUrl;
   final String voiceUrl;
+
+  /// Duration of the voice note in milliseconds, captured at send time.
+  /// 0 for messages sent before this field existed.
+  final int voiceDurationMs;
+
   final int createdAtMs;
 
   factory PrivateMessage.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -47,6 +53,7 @@ class PrivateMessage {
       text: (map['text'] as String? ?? '').trim(),
       imageUrl: (map['imageUrl'] as String? ?? '').trim(),
       voiceUrl: (map['voiceUrl'] as String? ?? '').trim(),
+      voiceDurationMs: _asInt(map['voiceDurationMs']),
       createdAtMs: _asInt(map['createdAtMs']),
     );
   }

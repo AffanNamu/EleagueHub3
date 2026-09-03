@@ -8,7 +8,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 
@@ -71,16 +70,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   DateTime? _recordingStartedAt;
   Timer? _recordingTicker;
 
-  final AudioPlayer _player = AudioPlayer();
-  StreamSubscription<Duration>? _posSub;
-  StreamSubscription<Duration?>? _durSub;
-  StreamSubscription<PlayerState>? _stateSub;
-
-  String? _playingMessageId;
-  Duration _pos = Duration.zero;
-  Duration _dur = Duration.zero;
-  bool _playing = false;
-
   final Map<String, _CachedIdentity> _identityCache = <String, _CachedIdentity>{};
   final Set<String> _identityLoading = <String>{};
 
@@ -135,7 +124,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     _resolveIdentity();
     _resolveLeaguePermissions();
     _resolveLeagueName();
-    _wirePlayer();
     _watchModerationState();
 
     PushMessagingService.instance.subscribeToLeagueTopic(widget.leagueId);
@@ -238,28 +226,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         _leaguePermsResolved = true;
       });
     }
-  }
-
-  void _wirePlayer() {
-    _posSub = _player.positionStream.listen((v) {
-      if (!mounted) return;
-      setState(() => _pos = v);
-    });
-    _durSub = _player.durationStream.listen((v) {
-      if (!mounted) return;
-      setState(() => _dur = v ?? Duration.zero);
-    });
-    _stateSub = _player.playerStateStream.listen((s) {
-      if (!mounted) return;
-      final isPlaying = s.playing && s.processingState != ProcessingState.completed;
-      setState(() {
-        _playing = isPlaying;
-        if (s.processingState == ProcessingState.completed) {
-          _pos = Duration.zero;
-          _playing = false;
-        }
-      });
-    });
   }
 
   Future<void> _resolveIdentity() async {
@@ -973,6 +939,10 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       final file = File(finalPath);
       if (!await file.exists()) throw StateError('Recording not found. Try again.');
 
+      final recordedMs = _recordingStartedAt == null
+          ? 0
+          : DateTime.now().difference(_recordingStartedAt!).inMilliseconds;
+
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
       final voiceUrl = await _repo.uploadLeagueChatVoice(
@@ -995,6 +965,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         type: ChatMessageType.voice,
         text: caption,
         voiceUrl: voiceUrl,
+        voiceDurationMs: recordedMs,
         replyToMessageId: reply?.messageId ?? '',
         replyToSenderName: reply?.displaySenderName ?? '',
         replyToText: reply?.replyPreview() ?? '',
@@ -1037,60 +1008,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$mm:$ss';
-  }
-
-  String _fmt(Duration d) {
-    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$mm:$ss';
-  }
-
-  double _progressFor(String messageId) {
-    if (_playingMessageId != messageId) return 0.0;
-    if (_dur.inMilliseconds <= 0) return 0.0;
-    return (_pos.inMilliseconds / _dur.inMilliseconds).clamp(0.0, 1.0);
-  }
-
-  String _posLabelFor(String messageId) {
-    if (_playingMessageId != messageId) return '00:00';
-    return _fmt(_pos);
-  }
-
-  String _durLabelFor(String messageId) {
-    if (_playingMessageId != messageId) return '00:00';
-    return _fmt(_dur);
-  }
-
-  bool _isPlayingFor(String messageId) {
-    return _playingMessageId == messageId && _playing;
-  }
-
-  Future<void> _toggleVoice(ChatMessage msg) async {
-    final url = msg.voiceUrl.trim();
-    if (url.isEmpty) return;
-
-    try {
-      if (_playingMessageId == msg.messageId) {
-        if (_player.playing) {
-          await _player.pause();
-        } else {
-          await _player.play();
-        }
-        return;
-      }
-
-      await _player.stop();
-      setState(() {
-        _playingMessageId = msg.messageId;
-        _pos = Duration.zero;
-        _dur = Duration.zero;
-      });
-
-      await _player.setUrl(url);
-      await _player.play();
-    } catch (e) {
-      _toastErr(e);
-    }
   }
 
   Future<void> _softDeleteSelected(ChatMessage msg) async {
@@ -1338,10 +1255,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   void dispose() {
     PushMessagingService.instance.setActiveLeagueChat(null);
     _recordingTicker?.cancel();
-    _posSub?.cancel();
-    _durSub?.cancel();
-    _stateSub?.cancel();
-    _player.dispose();
     _recorder.dispose();
     _scrollCtrl.dispose();
     _selectedMessageId.dispose();
@@ -1477,11 +1390,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                                       _selectedMessageId.value = (selectedId == m.messageId) ? null : m.messageId;
                                     },
                                     onSwipeReply: selecting ? null : () => _replyTo.value = m,
-                                    onPlayVoice: (m.type == ChatMessageType.voice && !selecting) ? () => _toggleVoice(m) : null,
-                                    isVoicePlaying: _isPlayingFor(m.messageId),
-                                    voiceProgress: _progressFor(m.messageId),
-                                    voicePositionLabel: _posLabelFor(m.messageId),
-                                    voiceDurationLabel: _durLabelFor(m.messageId),
                                   ),
                                 );
                               },

@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../models/chat_message.dart';
+import 'chat_image_media.dart';
+import 'voice_message_player.dart';
 
 class ChatBubble extends StatelessWidget {
   const ChatBubble({
@@ -14,11 +16,6 @@ class ChatBubble extends StatelessWidget {
     this.onTap,
     this.onLongPress,
     this.onSwipeReply,
-    this.onPlayVoice,
-    this.isVoicePlaying = false,
-    this.voiceProgress = 0.0,
-    this.voicePositionLabel = '',
-    this.voiceDurationLabel = '',
   });
 
   final ChatMessage message;
@@ -29,12 +26,6 @@ class ChatBubble extends StatelessWidget {
   final VoidCallback? onLongPress;
 
   final VoidCallback? onSwipeReply;
-
-  final VoidCallback? onPlayVoice;
-  final bool isVoicePlaying;
-  final double voiceProgress;
-  final String voicePositionLabel;
-  final String voiceDurationLabel;
 
   bool get _hasText => message.text.trim().isNotEmpty;
 
@@ -84,8 +75,8 @@ class ChatBubble extends StatelessWidget {
     } else {
       switch (message.type) {
         case ChatMessageType.image:
-          content = _ImageBubble(
-            url: message.imageUrl,
+          content = ChatImageMedia(
+            imageUrl: message.imageUrl,
             caption: _hasText ? message.text : null,
             maxWidth: maxWidth,
           );
@@ -94,14 +85,11 @@ class ChatBubble extends StatelessWidget {
           content = _CodeBubble(code: message.text, maxWidth: maxWidth);
           break;
         case ChatMessageType.voice:
-          content = _VoiceBubble(
-            maxWidth: maxWidth,
+          content = VoiceMessagePlayer(
+            voiceUrl: message.voiceUrl,
+            durationMsHint: message.voiceDurationMs,
+            width: maxWidth < 260 ? maxWidth : 260.0,
             caption: _hasText ? message.text : null,
-            onPlayPause: onPlayVoice,
-            isPlaying: isVoicePlaying,
-            progress: voiceProgress,
-            positionLabel: voicePositionLabel,
-            durationLabel: voiceDurationLabel,
           );
           break;
         case ChatMessageType.text:
@@ -319,102 +307,6 @@ class _TextBubble extends StatelessWidget {
   }
 }
 
-class _VoiceBubble extends StatelessWidget {
-  const _VoiceBubble({
-    required this.maxWidth,
-    required this.onPlayPause,
-    required this.isPlaying,
-    required this.progress,
-    required this.positionLabel,
-    required this.durationLabel,
-    this.caption,
-  });
-
-  final double maxWidth;
-  final VoidCallback? onPlayPause;
-  final bool isPlaying;
-  final double progress;
-  final String positionLabel;
-  final String durationLabel;
-  final String? caption;
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
-    final safeProgress = progress.clamp(0.0, 1.0);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            IconButton(
-              onPressed: onPlayPause,
-              icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle),
-              iconSize: 34,
-              color: AppTheme.limeAccentDark,
-            ),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      value: safeProgress,
-                      minHeight: 5,
-                      backgroundColor:
-                          AppTheme.searchOutline(brightness),
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        AppTheme.limeAccentDark,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        positionLabel,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.secondaryText(brightness),
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      Text(
-                        durationLabel,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.secondaryText(brightness),
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        if (caption != null && caption!.trim().isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Text(
-            caption!.trim(),
-            style: TextStyle(
-              color: AppTheme.primaryText(brightness),
-              fontWeight: FontWeight.w700,
-              height: 1.35,
-              fontSize: 13,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
 class _CodeBubble extends StatelessWidget {
   const _CodeBubble({required this.code, required this.maxWidth});
   final String code;
@@ -477,92 +369,6 @@ class _CodeBubble extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _ImageBubble extends StatelessWidget {
-  const _ImageBubble({
-    required this.url,
-    required this.maxWidth,
-    this.caption,
-  });
-
-  final String url;
-  final String? caption;
-  final double maxWidth;
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        InkWell(
-          onTap: () {
-            showDialog<void>(
-              context: context,
-              builder: (_) => Dialog(
-                backgroundColor: Colors.transparent,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: InteractiveViewer(
-                    minScale: 0.6,
-                    maxScale: 4,
-                    child: Image.network(url, fit: BoxFit.contain),
-                  ),
-                ),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(12),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              color: AppTheme.searchBackground(brightness),
-              child: AspectRatio(
-                aspectRatio: 4 / 3,
-                child: Image.network(
-                  url,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Center(
-                    child: Icon(
-                      Icons.broken_image_outlined,
-                      color: AppTheme.secondaryText(brightness),
-                    ),
-                  ),
-                  loadingBuilder: (context, child, ev) {
-                    if (ev == null) return child;
-                    return const Center(
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppTheme.limeAccentDark,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (caption != null && caption!.trim().isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(
-            caption!.trim(),
-            style: TextStyle(
-              color: AppTheme.primaryText(brightness),
-              fontWeight: FontWeight.w700,
-              height: 1.35,
-              fontSize: 13,
-            ),
-          ),
-        ],
-      ],
     );
   }
 }

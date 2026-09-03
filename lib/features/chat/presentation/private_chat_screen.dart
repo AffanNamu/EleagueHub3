@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 
@@ -17,6 +16,8 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/private_chat_repository.dart';
 import '../models/private_message.dart';
+import 'widgets/chat_image_media.dart';
+import 'widgets/voice_message_player.dart';
 
 class PrivateChatScreen extends StatefulWidget {
   const PrivateChatScreen({
@@ -48,53 +49,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   DateTime? _recordingStartedAt;
   Timer? _recordingTicker;
 
-  // ── Voice playback state ─────────────────────────────────────────────────
-  final AudioPlayer _player = AudioPlayer();
-  StreamSubscription<Duration>? _posSub;
-  StreamSubscription<Duration?>? _durSub;
-  StreamSubscription<PlayerState>? _stateSub;
-  String? _playingMessageId;
-  Duration _pos = Duration.zero;
-  Duration _dur = Duration.zero;
-  bool _playing = false;
-
   bool _busyWithAttachment = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _wirePlayer();
-  }
-
-  void _wirePlayer() {
-    _posSub = _player.positionStream.listen((v) {
-      if (!mounted) return;
-      setState(() => _pos = v);
-    });
-    _durSub = _player.durationStream.listen((v) {
-      if (!mounted) return;
-      setState(() => _dur = v ?? Duration.zero);
-    });
-    _stateSub = _player.playerStateStream.listen((s) {
-      if (!mounted) return;
-      final isPlaying = s.playing && s.processingState != ProcessingState.completed;
-      setState(() {
-        _playing = isPlaying;
-        if (s.processingState == ProcessingState.completed) {
-          _pos = Duration.zero;
-          _playing = false;
-        }
-      });
-    });
-  }
 
   @override
   void dispose() {
     _recordingTicker?.cancel();
-    _posSub?.cancel();
-    _durSub?.cancel();
-    _stateSub?.cancel();
-    _player.dispose();
     _recorder.dispose();
     _input.dispose();
     super.dispose();
@@ -270,6 +229,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       final file = File(finalPath);
       if (!await file.exists()) throw StateError('Recording not found. Try again.');
 
+      final recordedMs = _recordingStartedAt == null
+          ? 0
+          : DateTime.now().difference(_recordingStartedAt!).inMilliseconds;
+
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
       final voiceUrl = await _repo.uploadVoice(
@@ -281,7 +244,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         ),
       );
 
-      await _repo.sendVoiceMessage(threadId: widget.threadId, voiceUrl: voiceUrl);
+      await _repo.sendVoiceMessage(
+        threadId: widget.threadId,
+        voiceUrl: voiceUrl,
+        voiceDurationMs: recordedMs,
+      );
 
       try {
         if (await file.exists()) await file.delete();
@@ -308,48 +275,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$mm:$ss';
-  }
-
-  String _fmt(Duration d) {
-    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$mm:$ss';
-  }
-
-  double _progressFor(String messageId) {
-    if (_playingMessageId != messageId) return 0.0;
-    if (_dur.inMilliseconds <= 0) return 0.0;
-    return (_pos.inMilliseconds / _dur.inMilliseconds).clamp(0.0, 1.0);
-  }
-
-  bool _isPlayingFor(String messageId) => _playingMessageId == messageId && _playing;
-
-  Future<void> _toggleVoice(PrivateMessage msg) async {
-    final url = msg.voiceUrl.trim();
-    if (url.isEmpty) return;
-
-    try {
-      if (_playingMessageId == msg.id) {
-        if (_player.playing) {
-          await _player.pause();
-        } else {
-          await _player.play();
-        }
-        return;
-      }
-
-      await _player.stop();
-      setState(() {
-        _playingMessageId = msg.id;
-        _pos = Duration.zero;
-        _dur = Duration.zero;
-      });
-
-      await _player.setUrl(url);
-      await _player.play();
-    } catch (e) {
-      _toastErr(e);
-    }
   }
 
   Widget _buildRecordingBar(BuildContext context) {
@@ -401,86 +326,23 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   Widget _buildImageBubble(BuildContext context, PrivateMessage m, bool isMe) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.65,
-          maxHeight: 260,
-        ),
-        child: Image.network(
-          m.imageUrl,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(
-            width: 160,
-            height: 160,
-            color: Colors.black12,
-            child: const Icon(Icons.broken_image_outlined),
-          ),
-          loadingBuilder: (context, child, event) {
-            if (event == null) return child;
-            return const SizedBox(
-              width: 160,
-              height: 160,
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            );
-          },
-        ),
-      ),
+    return ChatImageMedia(
+      imageUrl: m.imageUrl,
+      maxWidth: MediaQuery.of(context).size.width * 0.65,
     );
   }
 
   Widget _buildVoiceBubble(BuildContext context, PrivateMessage m, bool isMe, Brightness brightness) {
-    final isPlaying = _isPlayingFor(m.id);
-    final progress = _progressFor(m.id);
-    final posLabel = _playingMessageId == m.id ? _fmt(_pos) : '00:00';
-    final durLabel = _playingMessageId == m.id ? _fmt(_dur) : '';
-
     final fg = isMe ? AppTheme.darkText : AppTheme.primaryText(brightness);
 
-    return SizedBox(
+    return VoiceMessagePlayer(
+      voiceUrl: m.voiceUrl,
+      durationMsHint: m.voiceDurationMs,
       width: 220,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          InkWell(
-            onTap: () => _toggleVoice(m),
-            borderRadius: BorderRadius.circular(999),
-            child: Icon(
-              isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
-              color: fg,
-              size: 32,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 4,
-                    backgroundColor: fg.withOpacity(0.18),
-                    valueColor: AlwaysStoppedAnimation<Color>(fg),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  durLabel.isEmpty ? 'Voice message' : '$posLabel / $durLabel',
-                  style: TextStyle(
-                    color: fg.withOpacity(0.75),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      iconColor: fg,
+      accentColor: fg,
+      trackColor: fg.withOpacity(0.18),
+      labelColor: fg.withOpacity(0.75),
     );
   }
 

@@ -10,7 +10,8 @@ import '../../../core/widgets/glass_scaffold.dart';
 /// destinations instead of forcing the user straight into Organizer
 /// Discovery. Reuses existing screens/routes wherever they already
 /// exist (Organizers → PublicOrganizerDiscoveryScreen via
-/// /organizer-discovery, Teams → UserSearchScreen via /search).
+/// /organizer-discovery, Teams → UserSearchScreen via /search,
+/// My Chats → PrivateChatListScreen via /messages).
 class DiscoveryHubScreen extends StatelessWidget {
   const DiscoveryHubScreen({super.key});
 
@@ -59,6 +60,14 @@ class DiscoveryHubScreen extends StatelessWidget {
               subtitle: "See what's happening in the community",
               badge: 'HOT',
               onTap: () => context.push('/discovery/feed'),
+            ),
+            const SizedBox(height: 10),
+            _DiscoveryRow(
+              icon: Icons.chat_bubble_rounded,
+              iconColor: const Color(0xFFBEF264),
+              title: 'My Chats',
+              subtitle: 'See the users you are chatting with',
+              onTap: () => context.push('/messages'),
             ),
             const SizedBox(height: 10),
             _DiscoveryRow(

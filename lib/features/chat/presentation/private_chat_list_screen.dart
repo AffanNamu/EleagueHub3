@@ -8,6 +8,7 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
+import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/private_chat_repository.dart';
 import '../models/private_thread.dart';
 
@@ -69,10 +70,12 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
                 return FutureBuilder<UserProfile?>(
                   future: _profiles.fetchByUserId(otherUid),
                   builder: (context, profSnap) {
+                    final profile = profSnap.data;
                     final name = _profiles.displayNameForProfile(
-                      profSnap.data,
+                      profile,
                       fallbackUserId: otherUid,
                     );
+                    final avatarUrl = profile?.effectivePhotoUrl ?? '';
 
                     return Glass(
                       borderRadius: 18,
@@ -85,14 +88,33 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
                         leading: CircleAvatar(
                           backgroundColor:
                               AppTheme.iconCircleBackground(brightness),
-                          child: const Icon(Icons.person_rounded),
+                          backgroundImage: avatarUrl.isNotEmpty
+                              ? NetworkImage(avatarUrl)
+                              : null,
+                          child: avatarUrl.isEmpty
+                              ? const Icon(Icons.person_rounded)
+                              : null,
                         ),
-                        title: Text(
-                          name,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: AppTheme.primaryText(brightness),
-                          ),
+                        title: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                name,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  color: AppTheme.primaryText(brightness),
+                                ),
+                              ),
+                            ),
+                            // Verification badge — renders nothing if the
+                            // user does not hold an active badge.
+                            VerificationBadgeWidget(
+                              userId: otherUid,
+                              size: 15,
+                            ),
+                          ],
                         ),
                         subtitle: Text(
                           thread.lastMessage.isEmpty
