@@ -1411,6 +1411,19 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     }
   }
 
+  /// Opens the just-joined league, routing Participant joins through the
+  /// Competition Rules gate first (Viewer joins skip straight to the
+  /// league, per product decision).
+  void _openJoinedLeague() {
+    final league = _joinedLeague;
+    if (league == null) return;
+    if (_joinedMode == LeagueJoinMode.participant) {
+      context.push('/leagues/${league.id}/rules-gate');
+    } else {
+      context.push('/leagues/${league.id}');
+    }
+  }
+
   Future<void> _scanAgain() async {
     setState(() {
       _error = null;
@@ -1586,8 +1599,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                           '\u2022 ${league.season}',
                       subtitle: '0 / ${league.maxTeams} '
                           '${l10n.tr('qr_scanner_teams_suffix')}',
-                      onDoubleTap: () =>
-                          context.push('/leagues/${league.id}'),
+                      onDoubleTap: _openJoinedLeague,
                       qrWidget: QrImageView(
                         data: league.qrPayload,
                         version: QrVersions.auto,
@@ -1697,8 +1709,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                               const SizedBox(width: 12),
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: () => context
-                                      .push('/leagues/${league.id}'),
+                                  onPressed: _openJoinedLeague,
                                   child: Text(
                                     l10n.tr('common_open').toUpperCase(),
                                   ),

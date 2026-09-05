@@ -2943,6 +2943,14 @@ class _LeaguesListScreenState
 
         _snack(message);
         if (mounted) setState(() {});
+
+        // Participant joins continue through the Competition Rules gate
+        // before landing on League Detail; Viewer joins keep the existing
+        // behavior (stay on the leagues list).
+        if (effectiveMode == LeagueJoinMode.participant) {
+          if (!context.mounted) return;
+          context.push('/leagues/${league.id}/rules-gate');
+        }
       } catch (e) {
         setModalState(() {
           joining = false;

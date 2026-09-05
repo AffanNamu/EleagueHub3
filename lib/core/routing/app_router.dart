@@ -40,6 +40,8 @@ import '../../features/leagues/presentation/admin_score_mgmt_screen.dart';
 import '../../features/leagues/presentation/fixtures_screen.dart';
 import '../../features/leagues/presentation/knockout_bracket_screen.dart';
 import '../../features/leagues/presentation/league_admin_screen.dart';
+import '../../features/leagues/presentation/competition_rules_editor_screen.dart';
+import '../../features/leagues/presentation/competition_rules_gate_screen.dart';
 import '../../features/leagues/presentation/league_create_wizard.dart';
 import '../../features/leagues/presentation/league_creation_dashboard.dart';
 import '../../features/leagues/presentation/league_creation_payment_screen.dart';
@@ -1614,6 +1616,29 @@ final appRouter = GoRouter(
                   leagueId:
                       state.pathParameters['leagueId']!,
                 ),
+              ),
+            ),
+            GoRoute(
+              path: ':leagueId/rules-editor',
+              builder: (context, state) => LeagueRoleGuard(
+                leagueId:
+                    state.pathParameters['leagueId']!,
+                title: 'Organizer Access Only',
+                message:
+                    'Only the organizer or allowed admins '
+                    'can edit competition rules.',
+                child: CompetitionRulesEditorScreen(
+                  leagueId:
+                      state.pathParameters['leagueId']!,
+                ),
+              ),
+            ),
+            GoRoute(
+              path: ':leagueId/rules-gate',
+              builder: (context, state) =>
+                  CompetitionRulesGateScreen(
+                leagueId:
+                    state.pathParameters['leagueId']!,
               ),
             ),
             GoRoute(

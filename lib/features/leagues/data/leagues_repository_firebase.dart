@@ -9,9 +9,11 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../master_leagues/domain/master_league_plan.dart';
+import '../models/competition_rules.dart';
 import '../models/league.dart';
 import '../models/membership.dart';
 import '../models/point_adjustment.dart';
+import 'competition_rules_firestore_paths.dart';
 
 class UserFriendlyException implements Exception {
   final String message;
@@ -37,6 +39,14 @@ class LeaguesRepositoryFirebase {
 
   CollectionReference<Map<String, dynamic>> get _masterLeaguesCol =>
       _firestore.collection('master_leagues');
+
+  CollectionReference<Map<String, dynamic>> _competitionRulesCol(
+    String leagueId,
+  ) =>
+      _leaguesCol
+          .doc(leagueId)
+          .collection(
+              CompetitionRulesFirestorePaths.competitionRulesSubcollection);
 
   String _requireAuthUid() {
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
@@ -696,6 +706,164 @@ class LeaguesRepositoryFirebase {
           'league=$leagueId team=$teamId type=${type.name} points=$points',
         );
       }
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  // ── Competition Rules ────────────────────────────────────────────────
+  //
+  // Separate from the Organizer Discipline system (`disciplineActions`).
+  // Stored at leagues/{leagueId}/competitionRules/current, with archived
+  // versions at leagues/{leagueId}/competitionRules/v{n} once a locked
+  // version is later edited. Authorization is enforced by Firestore
+  // security rules (`canManageLeague` for writes, any signed-in member for
+  // reads) — this class does not duplicate that check.
+
+  /// Returns the current published rules for a league, or null if the
+  /// organizer hasn't configured any yet. A null result is a normal,
+  /// backward-compatible state — callers (e.g. the join-time rules gate)
+  /// should treat it as "nothing to show", not an error.
+  Future<CompetitionRules?> getCompetitionRules(String leagueId) async {
+    try {
+      _requireAuthUid();
+
+      final doc = await _competitionRulesCol(leagueId)
+          .doc(CompetitionRulesFirestorePaths.currentDocId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      if (!doc.exists) return null;
+      final data = doc.data();
+      if (data == null) return null;
+
+      return CompetitionRules.fromMap(data, fallbackLeagueId: leagueId);
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Live stream of the current published rules for a league. Emits null
+  /// when no rules have been configured yet.
+  Stream<CompetitionRules?> watchCompetitionRules(String leagueId) {
+    try {
+      _requireAuthUid();
+
+      final base = _competitionRulesCol(leagueId)
+          .doc(CompetitionRulesFirestorePaths.currentDocId)
+          .snapshots(includeMetadataChanges: true);
+
+      final serverOnly = base.where((snap) => !snap.metadata.isFromCache).map(
+        (snap) {
+          if (!snap.exists) return null;
+          final data = snap.data();
+          if (data == null) return null;
+          return CompetitionRules.fromMap(data, fallbackLeagueId: leagueId);
+        },
+      );
+
+      return serverOnly.handleError((error, stack) {
+        if (kDebugMode) {
+          debugPrint(
+            'LeaguesRepositoryFirebase.watchCompetitionRules error: $error',
+          );
+        }
+      });
+    } catch (_) {
+      return const Stream<CompetitionRules?>.empty();
+    }
+  }
+
+  /// Creates or updates the competition rules for [rules.leagueId].
+  ///
+  /// Versioning behavior:
+  /// - No existing doc → written as version 1.
+  /// - Existing doc, NOT locked → overwritten in place, version bumped by 1.
+  ///   No history entry — organizers can iterate freely before the
+  ///   competition starts.
+  /// - Existing doc IS locked → the current doc is archived first to
+  ///   `competitionRules/v{oldVersion}`, then the new content is written as
+  ///   `competitionRules/current` with version = oldVersion + 1. Historical
+  ///   matches stay associated with whichever version was current when they
+  ///   were played by reading the archived doc for that version number.
+  ///
+  /// [rules.locked] in the input controls the *new* doc's locked state —
+  /// pass true to publish-and-lock, false to save as an editable draft.
+  Future<CompetitionRules> saveCompetitionRules(CompetitionRules rules) async {
+    try {
+      final authUid = _requireAuthUid();
+      final leagueId = rules.leagueId.trim();
+
+      if (leagueId.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't save the rules. Please refresh and try again.",
+        );
+      }
+
+      final col = _competitionRulesCol(leagueId);
+      final currentRef = col.doc(CompetitionRulesFirestorePaths.currentDocId);
+
+      final existing = await currentRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      int nextVersion = 1;
+
+      if (existing.exists) {
+        final existingData = existing.data() ?? <String, dynamic>{};
+        final existingVersion =
+            (existingData['version'] as num?)?.toInt() ?? 1;
+        final existingLocked = existingData['locked'] == true;
+        nextVersion = existingVersion + 1;
+
+        if (existingLocked) {
+          final historyRef = col.doc(
+            CompetitionRulesFirestorePaths.historyDocId(existingVersion),
+          );
+
+          final toWrite = rules.copyWith(
+            leagueId: leagueId,
+            version: nextVersion,
+            updatedAtMs: now,
+            updatedBy: authUid,
+          );
+
+          final batch = _firestore.batch();
+          batch.set(historyRef, existingData);
+          batch.set(currentRef, toWrite.toMap());
+          await batch.commit().timeout(const Duration(seconds: 20));
+
+          if (kDebugMode) {
+            debugPrint(
+              '[LeaguesRepoFirebase] competitionRules for $leagueId was '
+              'locked at v$existingVersion — archived it and wrote v$nextVersion',
+            );
+          }
+
+          return toWrite;
+        }
+      }
+
+      final toWrite = rules.copyWith(
+        leagueId: leagueId,
+        version: nextVersion,
+        updatedAtMs: now,
+        updatedBy: authUid,
+      );
+
+      await currentRef
+          .set(toWrite.toMap())
+          .timeout(const Duration(seconds: 20));
+
+      if (kDebugMode) {
+        debugPrint(
+          '[LeaguesRepoFirebase] competitionRules saved for $leagueId '
+          '(v$nextVersion, locked=${toWrite.locked})',
+        );
+      }
+
+      return toWrite;
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }

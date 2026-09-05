@@ -1704,6 +1704,31 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                     .push('/leagues/${widget.leagueId}/admin'),
               ),
             ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(
+                      color: AppTheme.cardBorder(brightness)),
+                  foregroundColor: AppTheme.limeAccentDark,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.rule_rounded),
+                label: const Text(
+                  'Competition Rules',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12),
+                ),
+                onPressed: () => context.push(
+                    '/leagues/${widget.leagueId}/rules-editor'),
+              ),
+            ),
             if (isSwiss) ...[
               const SizedBox(height: 8),
               SizedBox(

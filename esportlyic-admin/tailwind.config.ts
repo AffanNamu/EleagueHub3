@@ -39,8 +39,19 @@ const config: Config = {
         },
       },
       fontFamily: {
-        display: ['var(--font-display)', 'sans-serif'],
-        sans: ['var(--font-sans)', 'sans-serif'],
+        // Deliberately system-font stacks, NOT next/font/google — this
+        // project builds from a mobile/CI environment where fetching
+        // fonts.googleapis.com at build time is unreliable and has
+        // caused build failures (ETIMEDOUT). These stacks render close
+        // enough to Space Grotesk/Inter without any network dependency.
+        display: [
+          '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto',
+          '"Helvetica Neue"', 'Arial', 'sans-serif',
+        ],
+        sans: [
+          '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto',
+          '"Helvetica Neue"', 'Arial', 'sans-serif',
+        ],
       },
       borderRadius: {
         sm: '6px',

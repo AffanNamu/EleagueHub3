@@ -8,13 +8,8 @@
 // bypassed by editing client code.
 
 import { NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebase-admin';
-import {
-  getAdminIdentityFromSessionCookie,
-  SUPER_ADMIN_UID,
-  SESSION_COOKIE_NAME,
-} from '@/lib/auth/adminAuthService';
-import { adminDb } from '@/lib/firebase-admin';
+import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { SUPER_ADMIN_UID, SESSION_COOKIE_NAME } from '@/lib/auth/adminAuthService';
 
 const SESSION_EXPIRES_IN_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
 
@@ -83,7 +78,3 @@ export async function DELETE() {
   response.cookies.set(SESSION_COOKIE_NAME, '', { maxAge: 0, path: '/' });
   return response;
 }
-
-// Re-exported so other server code can resolve "who is currently signed in"
-// without duplicating the cookie-verification logic.
-export { getAdminIdentityFromSessionCookie };

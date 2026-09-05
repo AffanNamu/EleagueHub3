@@ -1,25 +1,26 @@
 // lib/auth/adminAuthService.ts
 //
-// Server-only admin authorization. This is the web equivalent of the
-// mobile app's AppAdminsService, but SERVER-ENFORCED rather than a
-// client-side listener — every check here runs against the Admin SDK,
-// which is not subject to firestore.rules and cannot be spoofed by a
-// tampered client.
+// Server-only admin authorization AND permission resolution.
 //
-// Source of truth (confirmed, matches firestore.rules exactly):
-//   - isSuperAdmin(): exactly one hardcoded UID.
-//   - isPricingAdmin(): the super admin UID, OR any UID listed in
-//     app/admins.pricingAdmins[] that looks like a real Firebase UID.
+// Three tiers, resolved in order:
+//   1. Super admin (QhYeBpvAoRV6j0xGigHkBth4qIG3) — every permission,
+//      always. Cannot be delegated or removed.
+//   2. Legacy full access — anyone in app/admins.pricingAdmins[] who does
+//      NOT have a narrower admin_users role assignment. Preserves exact
+//      current behavior for every admin who existed before this system:
+//      they keep full access, nothing breaks.
+//   3. Granular role-based — anyone with an admin_users/{uid} doc gets
+//      the union of permissions from their assigned admin_roles docs.
+//      This is the new, real delegation system.
 //
-// The super admin UID below is the ONLY one in use. A second UID
-// (a0JDUelQW3TEyoXTm4ESuGi7ndq1) previously appeared in some mobile
-// screens and one Firestore rule — it has been confirmed dead and must
-// never be referenced anywhere in this codebase.
+// A uid can be in BOTH (2) and (3) — legacy full access always wins in
+// that case, since it's a superset of any role's permissions.
 
 import 'server-only';
 
 import { cookies } from 'next/headers';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { getRole } from '@/lib/repositories/adminRolesRepository';
 
 export const SUPER_ADMIN_UID = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
 
@@ -29,36 +30,88 @@ export interface AdminIdentity {
   uid: string;
   email: string | null;
   isSuperAdmin: boolean;
-  /**
-   * True for the super admin OR anyone listed in app/admins.pricingAdmins[].
-   * This is the same boolean the mobile app calls "isPricingAdmin" —
-   * kept under that name in Firestore/rules for backward compatibility,
-   * but referred to as "platform admin" in this codebase since it now
-   * gates far more than pricing.
-   */
+  /** Kept for backward compatibility with earlier modules — true if the account has ANY admin access at all. */
   isPlatformAdmin: boolean;
+  /** True if access comes from the legacy app/admins.pricingAdmins[] array rather than a granular role. */
+  isLegacyFullAccess: boolean;
+  /** Resolved permission IDs from all assigned roles. Empty for super admin / legacy (they bypass this check entirely). */
+  permissions: string[];
+  roleNames: string[];
 }
 
-/** Mirrors AppAdminsService._looksLikeFirebaseUid — never trust a short/share id as an admin. */
 function looksLikeFirebaseUid(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 20;
 }
 
-async function fetchPricingAdminUids(): Promise<Set<string>> {
+async function fetchLegacyPricingAdminUids(): Promise<Set<string>> {
   const snap = await adminDb.collection('app').doc('admins').get();
-  if (!snap.exists) return new Set<string>();
-
-  const data = snap.data() ?? {};
-  const list = data.pricingAdmins;
-  if (!Array.isArray(list)) return new Set<string>();
-
-  return new Set(list.filter(looksLikeFirebaseUid).map((uid) => uid.trim()));
+  if (!snap.exists) return new Set();
+  const list = snap.data()?.pricingAdmins;
+  if (!Array.isArray(list)) return new Set();
+  return new Set(list.filter(looksLikeFirebaseUid).map((v: string) => v.trim()));
 }
 
-/**
- * Verifies a Firebase session cookie and resolves full admin identity.
- * Returns null if the cookie is missing, invalid, expired, or revoked.
- */
+async function resolveIdentity(uid: string, email: string | null): Promise<AdminIdentity> {
+  if (uid === SUPER_ADMIN_UID) {
+    return {
+      uid,
+      email,
+      isSuperAdmin: true,
+      isPlatformAdmin: true,
+      isLegacyFullAccess: true,
+      permissions: [],
+      roleNames: ['Super Admin'],
+    };
+  }
+
+  const legacyUids = await fetchLegacyPricingAdminUids();
+  const isLegacyFullAccess = legacyUids.has(uid);
+
+  if (isLegacyFullAccess) {
+    return {
+      uid,
+      email,
+      isSuperAdmin: false,
+      isPlatformAdmin: true,
+      isLegacyFullAccess: true,
+      permissions: [],
+      roleNames: ['Legacy Full Access'],
+    };
+  }
+
+  const userDoc = await adminDb.collection('admin_users').doc(uid).get();
+  if (!userDoc.exists) {
+    return {
+      uid,
+      email,
+      isSuperAdmin: false,
+      isPlatformAdmin: false,
+      isLegacyFullAccess: false,
+      permissions: [],
+      roleNames: [],
+    };
+  }
+
+  const roleIds: string[] = Array.isArray(userDoc.data()?.roleIds) ? userDoc.data()!.roleIds : [];
+  const roles = await Promise.all(roleIds.map((id) => getRole(id)));
+  const validRoles = roles.filter((r): r is NonNullable<typeof r> => r !== null);
+
+  const permissionSet = new Set<string>();
+  for (const role of validRoles) {
+    for (const permission of role.permissions) permissionSet.add(permission);
+  }
+
+  return {
+    uid,
+    email,
+    isSuperAdmin: false,
+    isPlatformAdmin: permissionSet.size > 0,
+    isLegacyFullAccess: false,
+    permissions: Array.from(permissionSet),
+    roleNames: validRoles.map((r) => r.name),
+  };
+}
+
 export async function getAdminIdentityFromSessionCookie(
   sessionCookie: string | undefined,
 ): Promise<AdminIdentity | null> {
@@ -66,33 +119,12 @@ export async function getAdminIdentityFromSessionCookie(
 
   try {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    const uid = decoded.uid;
-    const isSuperAdmin = uid === SUPER_ADMIN_UID;
-
-    if (isSuperAdmin) {
-      return {
-        uid,
-        email: decoded.email ?? null,
-        isSuperAdmin: true,
-        isPlatformAdmin: true,
-      };
-    }
-
-    const pricingAdmins = await fetchPricingAdminUids();
-    const isPlatformAdmin = pricingAdmins.has(uid);
-
-    return {
-      uid,
-      email: decoded.email ?? null,
-      isSuperAdmin: false,
-      isPlatformAdmin,
-    };
+    return await resolveIdentity(decoded.uid, decoded.email ?? null);
   } catch {
     return null;
   }
 }
 
-/** Convenience helper for Server Components / Route Handlers: reads the cookie jar directly. */
 export async function getCurrentAdminIdentity(): Promise<AdminIdentity | null> {
   const cookieStore = cookies();
   const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;

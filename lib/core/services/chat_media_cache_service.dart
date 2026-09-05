@@ -186,6 +186,10 @@ class ChatMediaCacheService {
     } finally {
       _loaded = true;
       _loading = null;
+      // Run eviction once at startup too, not just after new downloads —
+      // covers the case where the cache grew over budget in a previous
+      // session and the user hasn't downloaded anything new since.
+      unawaited(_enforceCacheBudget());
     }
   }
 
@@ -198,6 +202,19 @@ class ChatMediaCacheService {
       // Best-effort — a failed manifest write just means the entry is
       // re-downloaded next app launch, which is acceptable.
     }
+  }
+
+  Timer? _persistDebounce;
+
+  /// Coalesces frequent, low-importance manifest updates (mainly
+  /// `lastAccessMs` bumps triggered by fast scrolling through a chat with
+  /// many already-cached images) into a single write ~1.5s after the last
+  /// change, instead of rewriting the whole manifest on every single read.
+  void _schedulePersist() {
+    _persistDebounce?.cancel();
+    _persistDebounce = Timer(const Duration(milliseconds: 1500), () {
+      unawaited(_persist());
+    });
   }
 
   ValueNotifier<ChatMediaDownloadState> _notifierFor(String url) {
@@ -248,12 +265,12 @@ class ChatMediaCacheService {
     final file = File(record.localPath);
     if (await file.exists()) {
       record.lastAccessMs = DateTime.now().millisecondsSinceEpoch;
-      unawaited(_persist());
+      _schedulePersist();
       return record.localPath;
     }
 
     _records.remove(trimmed);
-    unawaited(_persist());
+    _schedulePersist();
     return null;
   }
 
@@ -278,7 +295,7 @@ class ChatMediaCacheService {
       final file = File(existing.localPath);
       if (await file.exists()) {
         existing.lastAccessMs = DateTime.now().millisecondsSinceEpoch;
-        unawaited(_persist());
+        _schedulePersist();
         _notifierFor(trimmedUrl).value =
             ChatMediaDownloadState.downloaded(existing.localPath);
         return existing.localPath;
@@ -476,12 +493,15 @@ class ChatMediaCacheService {
     return _records[url.trim()]?.positionMs ?? 0;
   }
 
+  /// Called roughly every 2 seconds during playback by
+  /// `ChatAudioPlaybackController` — debounced so continuous playback
+  /// doesn't rewrite the whole manifest on every tick.
   Future<void> setPlaybackPositionMs(String url, int ms) async {
     await _ensureLoaded();
     final record = _records[url.trim()];
     if (record == null) return;
     record.positionMs = ms < 0 ? 0 : ms;
-    await _persist();
+    _schedulePersist();
   }
 
   /// LRU eviction so the local cache never grows unbounded. Runs
