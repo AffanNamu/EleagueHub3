@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../auth/data/user_profile_repository.dart';
 import '../../marketplace/data/cloudinary_upload_service.dart';
@@ -236,7 +237,25 @@ class PrivateChatRepository {
           .orderBy('lastMessageAtMs', descending: true)
           .snapshots()
           .map((snap) => snap.docs.map(PrivateThread.fromDoc).toList(growable: false))
-          .handleError((_) {});
+          .transform(
+            StreamTransformer<List<PrivateThread>, List<PrivateThread>>.fromHandlers(
+              handleError: (error, stackTrace, sink) {
+                if (kDebugMode) {
+                  debugPrint(
+                    '[PrivateChatRepository] watchInbox error: $error\n'
+                    'If this says "requires an index" / "failed-precondition", '
+                    'this query (participantIds arrayContains + orderBy '
+                    'lastMessageAtMs) needs a Firestore composite index — '
+                    'Firestore usually prints a direct console link right '
+                    'after this message; open it to create the index.',
+                  );
+                }
+                // Fail open to an empty inbox instead of leaving the
+                // StreamBuilder stuck on "hasData == false" forever.
+                sink.add(const <PrivateThread>[]);
+              },
+            ),
+          );
     } catch (_) {
       return const Stream<List<PrivateThread>>.empty();
     }
@@ -252,7 +271,16 @@ class PrivateChatRepository {
           .limit(limit)
           .snapshots()
           .map((snap) => snap.docs.map(PrivateMessage.fromDoc).toList(growable: false))
-          .handleError((_) {});
+          .transform(
+            StreamTransformer<List<PrivateMessage>, List<PrivateMessage>>.fromHandlers(
+              handleError: (error, stackTrace, sink) {
+                if (kDebugMode) {
+                  debugPrint('[PrivateChatRepository] watchMessages error: $error');
+                }
+                sink.add(const <PrivateMessage>[]);
+              },
+            ),
+          );
     } catch (_) {
       return const Stream<List<PrivateMessage>>.empty();
     }

@@ -38,22 +38,76 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
         child: StreamBuilder<List<PrivateThread>>(
           stream: _repo.watchInbox(),
           builder: (context, snap) {
-            if (!snap.hasData) {
+            if (snap.connectionState == ConnectionState.waiting &&
+                !snap.hasData &&
+                !snap.hasError) {
               return const Center(child: CircularProgressIndicator());
             }
-            final threads = snap.data!;
+
+            if (snap.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "We couldn't load your messages.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppTheme.primaryText(brightness),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      OutlinedButton.icon(
+                        onPressed: () => setState(() {}),
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Try Again'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            final threads = snap.data ?? const <PrivateThread>[];
 
             if (threads.isEmpty) {
               return Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
-                  child: Text(
-                    'No conversations yet.\nPremium users can start a chat from any profile.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AppTheme.secondaryText(brightness),
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.forum_outlined,
+                        size: 48,
+                        color: AppTheme.secondaryText(brightness),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'No conversations yet.\nPremium users can start a chat from any profile.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppTheme.secondaryText(brightness),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                        ),
+                        onPressed: () => context.push('/search'),
+                        icon: const Icon(Icons.person_search_rounded),
+                        label: const Text(
+                          'Find People to Chat',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               );
