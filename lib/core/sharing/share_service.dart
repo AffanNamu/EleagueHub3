@@ -5,8 +5,12 @@
 // the [ShareButton] widget) rather than building share URLs or launching
 // platform intents themselves.
 //
-// Requires the following pubspec.yaml dependencies (add if missing):
-//   share_plus: ^10.0.0      # native OS share sheet fallback ("More")
+// Requires the following pubspec.yaml dependency (add if missing):
+//   share_plus: any recent 6.x/7.x/8.x/9.x release — this file
+//   deliberately uses the long-stable `Share.share()` static API rather
+//   than the newer `SharePlus.instance.share(ShareParams(...))` API
+//   (share_plus 10+), so it compiles against whatever version is already
+//   pinned in this project without forcing a major-version bump.
 //   url_launcher: ^6.2.0     # WhatsApp / Telegram / Facebook / X / SMS
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -150,9 +154,7 @@ class ShareService {
   /// platform-installed share target not explicitly listed above
   /// (Messenger, Instagram DM, Mail, AirDrop, Nearby Share, etc).
   Future<void> shareViaSystemSheet(SharePayload payload) async {
-    await SharePlus.instance.share(
-      ShareParams(text: payload.shareText, subject: payload.title),
-    );
+    await Share.share(payload.shareText, subject: payload.title);
     LinkAnalyticsService.instance.recordShare(
       entity: payload.entity,
       channel: ShareChannel.systemShare,
