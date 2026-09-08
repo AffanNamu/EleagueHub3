@@ -16,10 +16,22 @@
 //     Facebook/Twitter/Telegram's own preview services).
 //
 // Safe to call on non-web platforms — every method is a no-op there.
+//
+// FIXED: this file used to import 'dart:html' directly and unconditionally.
+// dart:html does not exist outside web builds, so ANY screen reachable from
+// this file (via app_router.dart) broke the Android/iOS release build
+// entirely, even though every call here was already guarded by kIsWeb at
+// runtime — the guard doesn't help at COMPILE time. Moved the actual
+// dart:html-touching code to web_meta_updater_web.dart, with
+// web_meta_updater_stub.dart as the no-op compiled in everywhere else,
+// selected via conditional import below — same pattern this project
+// already uses for country_resolver_factory.dart and
+// admob_initializer.dart. The public API (WebMetaUpdater.setTitle, etc.)
+// is unchanged, so no caller needs to change.
 import 'package:flutter/foundation.dart';
 
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html show document, MetaElement;
+import 'web_meta_updater_stub.dart'
+    if (dart.library.html) 'web_meta_updater_web.dart';
 
 class WebMetaUpdater {
   WebMetaUpdater._();
@@ -28,7 +40,7 @@ class WebMetaUpdater {
   static void setTitle(String title) {
     if (!kIsWeb) return;
     try {
-      html.document.title = title;
+      platformSetTitle(title);
     } catch (_) {
       // Never let a meta-tag update crash navigation.
     }
@@ -41,20 +53,7 @@ class WebMetaUpdater {
   static void setMeta(String key, String content, {bool isProperty = false}) {
     if (!kIsWeb) return;
     try {
-      final selector = isProperty ? 'meta[property="$key"]' : 'meta[name="$key"]';
-      final existing = html.document.querySelector(selector);
-      if (existing is html.MetaElement) {
-        existing.content = content;
-        return;
-      }
-      final meta = html.MetaElement();
-      if (isProperty) {
-        meta.setAttribute('property', key);
-      } else {
-        meta.name = key;
-      }
-      meta.content = content;
-      html.document.head?.append(meta);
+      platformSetMeta(key, content, isProperty: isProperty);
     } catch (_) {
       // Never let a meta-tag update crash navigation.
     }
