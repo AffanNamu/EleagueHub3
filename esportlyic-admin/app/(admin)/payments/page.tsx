@@ -1,7 +1,8 @@
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { PaymentsTable } from '@/components/payments/PaymentsTable';
 import { RevenueSummaryCard } from '@/components/payments/RevenueSummaryCard';
-import { listPayments, getRevenueSummary } from '@/lib/repositories/paymentsAdminRepository';
+import { ProviderBreakdownCard } from '@/components/payments/ProviderBreakdownCard';
+import { listPayments, getRevenueSummary, getUserCountsByProvider } from '@/lib/repositories/paymentsAdminRepository';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
 
@@ -17,7 +18,11 @@ export default async function PaymentsPage() {
     );
   }
 
-  const [payments, revenueSummary] = await Promise.all([listPayments(), getRevenueSummary()]);
+  const [payments, revenueSummary, providerCounts] = await Promise.all([
+    listPayments(),
+    getRevenueSummary(),
+    getUserCountsByProvider(),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -28,6 +33,7 @@ export default async function PaymentsPage() {
           Read-only payment history. Every row here is a successful, immutable-status transaction.
         </p>
       </div>
+      <ProviderBreakdownCard counts={providerCounts} />
       <RevenueSummaryCard summary={revenueSummary} />
       <PaymentsTable payments={payments} />
     </div>

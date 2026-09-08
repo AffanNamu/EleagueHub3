@@ -1,19 +1,10 @@
 // types/match.ts
 //
 // Mirrors FixtureMatch and KnockoutMatch exactly, cross-checked against
-// fixture_match.dart and knockout_match.dart directly.
-//
-// MatchStatus: enums.dart was not provided, so the full enum is unknown.
-// Three values are DIRECTLY confirmed by name in the Dart source
-// (MatchStatus.scheduled, .completed, .played — both .completed and
-// .played are checked for "finished", suggesting some historical
-// inconsistency between the two). The correction UI only ever WRITES one
-// of these three confirmed values — never a guessed one — since an
-// unrecognized status name falls back silently to 'scheduled' in
-// FixtureMatch.fromJson, which would be a real, hard-to-notice bug if a
-// wrong enum name were written from here.
+// fixture_match.dart and knockout_match.dart, and MatchStatus cross-
+// checked directly against enums.dart's real enum values.
 
-export type MatchStatus = 'scheduled' | 'completed' | 'played' | string;
+export type MatchStatus = 'scheduled' | 'pendingProof' | 'underReview' | 'played' | 'completed' | string;
 
 export interface FixtureMatch {
   id: string;

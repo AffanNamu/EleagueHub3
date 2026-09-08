@@ -1,4 +1,6 @@
 //presentation/master_league_details_screen
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -7,15 +9,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/routing/route_resolver.dart';
+import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
+import '../../../core/widgets/share_button.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../../leagues/data/league_announcements_firebase.dart';
+import '../data/organizer_feed_firebase.dart';
 import '../../leagues/data/leagues_repository_local.dart';
 import '../../leagues/models/enums.dart';
 import '../../leagues/models/football_category.dart';
@@ -662,6 +668,25 @@ class _MasterLeagueDetailsScreenState
         message: message,
         authorId: _currentUid,
         authorName: authorName,
+      );
+      unawaited(
+        SupabaseEdgeNotificationsService.instance.notifyFollowedOrganizerUpdate(
+          masterLeagueId: ml.id,
+          organizerName: authorName,
+          title: title,
+          message: message,
+          route: '/master-leagues/${ml.id}',
+          eventType: 'announcement',
+          actorId: _currentUid,
+        ),
+      );
+      unawaited(
+        OrganizerFeedFirebase().addAnnouncementPostedEvent(
+          masterLeagueId: ml.id,
+          actorId: _currentUid,
+          actorName: authorName,
+          title: title,
+        ),
       );
       _snack('Announcement posted.');
     } catch (e) {
@@ -1548,7 +1573,61 @@ class _MasterLeagueDetailsScreenState
     );
   }
 
+  // ── Universal Sharing — invite / share a competition ───────────────────
+  //
+  // Same sharing system used for the workspace-level ShareButton in the
+  // AppBar above, applied per-competition here. Wraps each LeagueFlipCard
+  // with a small floating share/invite icon in its bottom-right corner.
+  Future<void> _shareCompetition(League league) {
+    return showShareSheet(
+      context,
+      entity: ShareableEntity(
+        type: ShareableEntityType.competition,
+        id: league.id,
+      ),
+      title: league.name,
+      description:
+          '${league.format.displayName} • ${league.season} — join me on eSportlyic!',
+    );
+  }
+
+  Widget _wrapWithShareIcon(League league, Widget card) {
+    final brightness = Theme.of(context).brightness;
+    return Stack(
+      children: [
+        card,
+        PositionedDirectional(
+          bottom: 10,
+          end: 10,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: () => _shareCompetition(league),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTheme.searchBackground(brightness),
+                  border: Border.all(
+                    color: AppTheme.searchOutline(brightness),
+                  ),
+                ),
+                child: Icon(
+                  Icons.ios_share_rounded,
+                  size: 16,
+                  color: AppTheme.limeAccentDark,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // ── owner menu ─────────────────────────────────────────────────────────────
+
 
   Future<void> _showOwnerMenu(MasterLeague master) async {
     final brightness = Theme.of(context).brightness;
@@ -1717,22 +1796,25 @@ class _MasterLeagueDetailsScreenState
                                           const SizedBox(height: 8),
                                           SizedBox(
                                             height: 230,
-                                            child: LeagueFlipCard(
-                                              league: l,
-                                              leagueId: l.id,
-                                              leagueName: l.name,
-                                              leagueCode: l.code,
-                                              distribution:
-                                                  '${l.format.displayName} • ${l.season}',
-                                              subtitle: l.region,
-                                              imageUrl: l.leagueImageUrl,
-                                              isOwner: _currentUid
-                                                      .isNotEmpty &&
-                                                  l.organizerUid.trim() ==
-                                                      _currentUid,
-                                              onDoubleTap: () =>
-                                                  _safePush(
-                                                      '/leagues/${l.id}'),
+                                            child: _wrapWithShareIcon(
+                                              l,
+                                              LeagueFlipCard(
+                                                league: l,
+                                                leagueId: l.id,
+                                                leagueName: l.name,
+                                                leagueCode: l.code,
+                                                distribution:
+                                                    '${l.format.displayName} • ${l.season}',
+                                                subtitle: l.region,
+                                                imageUrl: l.leagueImageUrl,
+                                                isOwner: _currentUid
+                                                        .isNotEmpty &&
+                                                    l.organizerUid.trim() ==
+                                                        _currentUid,
+                                                onDoubleTap: () =>
+                                                    _safePush(
+                                                        '/leagues/${l.id}'),
+                                              ),
                                             ),
                                           ),
                                           const SizedBox(height: 10),
@@ -1924,6 +2006,20 @@ class _MasterLeagueDetailsScreenState
               onPressed: _safePop,
             ),
             actions: [
+              if (master != null)
+                ShareButton(
+                  entity: ShareableEntity(
+                    type: ShareableEntityType.organizerWorkspace,
+                    id: master.id,
+                  ),
+                  title: master.name.trim().isEmpty
+                      ? 'Organizer Workspace'
+                      : master.name.trim(),
+                  description: master.organizerProfile.bio.trim().isEmpty
+                      ? 'Check out this organizer workspace on eSportlyic.'
+                      : master.organizerProfile.bio.trim(),
+                  tooltip: 'Share workspace',
+                ),
               if (master != null && _currentUid.isNotEmpty)
                 IconButton(
                   tooltip: 'Organizer Profile',
@@ -3515,7 +3611,8 @@ class _MasterLeagueDetailsScreenState
           ),
           const SizedBox(height: 10),
           Text(
-            'Users can join using the invite code or QR on the competition card.',
+            'Users can join using the invite code or QR on the competition '
+            'card, or tap the share icon to send an invite link.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
@@ -3572,19 +3669,22 @@ class _MasterLeagueDetailsScreenState
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 236,
-                      child: LeagueFlipCard(
-                        league: preview,
-                        leagueId: preview.id,
-                        leagueName: preview.name,
-                        leagueCode: preview.code,
-                        distribution:
-                            '${preview.format.displayName} • ${preview.season}',
-                        subtitle: preview.region,
-                        imageUrl: preview.leagueImageUrl,
-                        isOwner: _currentUid.isNotEmpty &&
-                            preview.organizerUid.trim() == _currentUid,
-                        onDoubleTap: () =>
-                            _safePush('/leagues/${preview.id}'),
+                      child: _wrapWithShareIcon(
+                        preview,
+                        LeagueFlipCard(
+                          league: preview,
+                          leagueId: preview.id,
+                          leagueName: preview.name,
+                          leagueCode: preview.code,
+                          distribution:
+                              '${preview.format.displayName} • ${preview.season}',
+                          subtitle: preview.region,
+                          imageUrl: preview.leagueImageUrl,
+                          isOwner: _currentUid.isNotEmpty &&
+                              preview.organizerUid.trim() == _currentUid,
+                          onDoubleTap: () =>
+                              _safePush('/leagues/${preview.id}'),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),

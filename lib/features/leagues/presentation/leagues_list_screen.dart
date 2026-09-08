@@ -27,6 +27,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/config/payment_platform_config.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/routing/route_resolver.dart';
 import '../../../core/services/payments/google_play_billing_catalog.dart';
 import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/payments/payments_service.dart';
@@ -34,6 +35,7 @@ import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/rewarded_ad_manager.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../../core/widgets/share_button.dart';
 import '../../../widgets/league_flip_card.dart';
 import '../data/leagues_repository_local.dart';
 import '../logic/league_creation_payment_service.dart';
@@ -200,6 +202,28 @@ class _LeaguesListScreenState
         content: Text(message),
         behavior: SnackBarBehavior.floating,
       ),
+    );
+  }
+
+  // ── Universal Sharing — invite / share a league or competition ───────────
+  //
+  // Uses the SAME sharing system already wired up for User Profiles, Teams,
+  // Posts, and Organizer Workspaces (see core/routing/route_resolver.dart,
+  // core/sharing/share_service.dart, core/widgets/share_button.dart). A
+  // shared link is `https://esportlyic.com/competition/{league.id}` — it
+  // opens the app directly on the exact competition if installed, or the
+  // web app otherwise, and works as an invitation link since anyone who
+  // opens it lands straight on League Details with join options available.
+  ShareableEntity _shareEntityForLeague(League league) =>
+      ShareableEntity(type: ShareableEntityType.competition, id: league.id);
+
+  Future<void> _shareLeague(BuildContext context, League league) {
+    return showShareSheet(
+      context,
+      entity: _shareEntityForLeague(league),
+      title: league.name,
+      description:
+          '${league.format.displayName} • ${league.season} — join me on eSportlyic!',
     );
   }
 
@@ -811,14 +835,10 @@ class _LeaguesListScreenState
     final isOwner = _isOwnerForViewer(league, authUid);
     final brightness = Theme.of(context).brightness;
 
-    if (isOwner) {
-      _snack(
-        'League owners should manage their league from '
-        'the owner/admin area.',
-      );
-      return;
-    }
-
+    // Owners used to be fully blocked from this menu (it only ever
+    // offered "leave league", which doesn't make sense for an owner).
+    // Now that Share/Invite lives here too, owners get a menu as well —
+    // just without the "Remove from My List" action.
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -865,14 +885,17 @@ class _LeaguesListScreenState
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        league.isInsideMasterLeague
-                            ? 'This competition belongs to a '
-                              'master league workspace. You can '
-                              'still remove it from your '
-                              'personal list.'
-                            : 'You can remove this league from '
-                              'your list if you no longer need '
-                              'it.',
+                        isOwner
+                            ? 'Invite friends to join, or open '
+                              'this league\'s workspace/details.'
+                            : (league.isInsideMasterLeague
+                                ? 'This competition belongs to a '
+                                  'master league workspace. You can '
+                                  'still remove it from your '
+                                  'personal list.'
+                                : 'You can remove this league from '
+                                  'your list if you no longer need '
+                                  'it.'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall
                             ?.copyWith(
@@ -885,20 +908,45 @@ class _LeaguesListScreenState
                       const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor:
+                                AppTheme.limeAccent,
+                            foregroundColor:
+                                AppTheme.darkText,
+                          ),
+                          onPressed: () {
                             Navigator.of(sheetCtx).pop();
-                            await _leaveLeague(league);
+                            _shareLeague(context, league);
                           },
                           icon: const Icon(
-                              Icons.exit_to_app_rounded),
+                              Icons.ios_share_rounded),
                           label: const Text(
-                            'Remove from My List',
+                            'Share / Invite League',
                             style: TextStyle(
                                 fontWeight: FontWeight.w900),
                           ),
                         ),
                       ),
+                      if (!isOwner) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              Navigator.of(sheetCtx).pop();
+                              await _leaveLeague(league);
+                            },
+                            icon: const Icon(
+                                Icons.exit_to_app_rounded),
+                            label: const Text(
+                              'Remove from My List',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                      ],
                       if (league.isInsideMasterLeague &&
                           league.masterLeagueId
                               .trim()
@@ -2296,6 +2344,49 @@ class _LeaguesListScreenState
                               brightness),
                         ),
                       ),
+                    // ── Universal Sharing — small share/invite icon ──────
+                    // Same ShareButton/ShareService/RouteResolver system
+                    // already used for Profiles, Teams, Posts, and
+                    // Organizer Workspaces — here targeting
+                    // ShareableEntityType.competition. Available to every
+                    // viewer (owner or not) since inviting people to a
+                    // league you own is exactly what this is for.
+                    PositionedDirectional(
+                      bottom: 14,
+                      end: 14,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius:
+                              BorderRadius.circular(999),
+                          onTap: removingThis
+                              ? null
+                              : () => _shareLeague(
+                                  context, league),
+                          child: Container(
+                            padding:
+                                const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: AppTheme
+                                  .searchBackground(
+                                      brightness),
+                              border: Border.all(
+                                color: AppTheme
+                                    .searchOutline(
+                                        brightness),
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.ios_share_rounded,
+                              size: 16,
+                              color:
+                                  AppTheme.limeAccentDark,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                     if (_rewardGateInProgress)
                       Positioned.fill(
                         child: Container(

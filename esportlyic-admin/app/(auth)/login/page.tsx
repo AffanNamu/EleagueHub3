@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { Suspense, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   signInWithEmailAndPassword,
@@ -24,7 +24,7 @@ function friendlyAuthError(code: string): string {
   }
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/dashboard';
@@ -86,87 +86,95 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-base px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-md bg-brand text-sm font-semibold text-white">
-            N
-          </div>
-          <h1 className="font-display text-xl font-semibold text-ink-primary">
-            Nomad Operations Center
-          </h1>
-          <p className="mt-1 text-sm text-ink-secondary">
-            Sign in with an authorized operator account.
-          </p>
+    <div className="w-full max-w-sm">
+      <div className="mb-8 text-center">
+        <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-md bg-brand text-sm font-semibold text-white">
+          N
         </div>
+        <h1 className="font-display text-xl font-semibold text-ink-primary">
+          Nomad Operations Center
+        </h1>
+        <p className="mt-1 text-sm text-ink-secondary">
+          Sign in with an authorized operator account.
+        </p>
+      </div>
 
-        <div className="panel p-6">
-          {error && (
-            <div className="mb-4 rounded-sm border border-signal-danger/40 bg-signal-dangerFaint px-3 py-2 text-sm text-signal-danger">
-              {error}
-            </div>
-          )}
+      <div className="panel p-6">
+        {error && (
+          <div className="mb-4 rounded-sm border border-signal-danger/40 bg-signal-dangerFaint px-3 py-2 text-sm text-signal-danger">
+            {error}
+          </div>
+        )}
 
-          <form onSubmit={handleEmailSignIn} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="mb-1.5 block text-sm text-ink-secondary">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="w-full rounded-sm border border-base-border bg-base-raised px-3 py-2 text-sm text-ink-primary outline-none focus:border-brand"
-              />
-            </div>
+        <form onSubmit={handleEmailSignIn} className="space-y-4">
+          <div>
+            <label htmlFor="email" className="mb-1.5 block text-sm text-ink-secondary">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="w-full rounded-sm border border-base-border bg-base-raised px-3 py-2 text-sm text-ink-primary outline-none focus:border-brand"
+            />
+          </div>
 
-            <div>
-              <label htmlFor="password" className="mb-1.5 block text-sm text-ink-secondary">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-sm border border-base-border bg-base-raised px-3 py-2 text-sm text-ink-primary outline-none focus:border-brand"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full rounded-sm bg-brand py-2 text-sm font-medium text-white transition-colors hover:bg-brand-soft disabled:opacity-60"
-            >
-              {submitting ? 'Signing in…' : 'Sign in'}
-            </button>
-          </form>
-
-          <div className="my-4 flex items-center gap-3">
-            <div className="h-px flex-1 bg-base-border" />
-            <span className="text-xs text-ink-muted">or</span>
-            <div className="h-px flex-1 bg-base-border" />
+          <div>
+            <label htmlFor="password" className="mb-1.5 block text-sm text-ink-secondary">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              required
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="w-full rounded-sm border border-base-border bg-base-raised px-3 py-2 text-sm text-ink-primary outline-none focus:border-brand"
+            />
           </div>
 
           <button
-            type="button"
-            onClick={handleGoogleSignIn}
+            type="submit"
             disabled={submitting}
-            className="w-full rounded-sm border border-base-border bg-base-raised py-2 text-sm font-medium text-ink-primary transition-colors hover:border-brand disabled:opacity-60"
+            className="w-full rounded-sm bg-brand py-2 text-sm font-medium text-white transition-colors hover:bg-brand-soft disabled:opacity-60"
           >
-            Continue with Google
+            {submitting ? 'Signing in…' : 'Sign in'}
           </button>
+        </form>
+
+        <div className="my-4 flex items-center gap-3">
+          <div className="h-px flex-1 bg-base-border" />
+          <span className="text-xs text-ink-muted">or</span>
+          <div className="h-px flex-1 bg-base-border" />
         </div>
 
-        <p className="mt-6 text-center text-xs text-ink-muted">
-          Access is restricted to authorized Nomad eSports operators.
-        </p>
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={submitting}
+          className="w-full rounded-sm border border-base-border bg-base-raised py-2 text-sm font-medium text-ink-primary transition-colors hover:border-brand disabled:opacity-60"
+        >
+          Continue with Google
+        </button>
       </div>
+
+      <p className="mt-6 text-center text-xs text-ink-muted">
+        Access is restricted to authorized Nomad eSports operators.
+      </p>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-base px-4">
+      <Suspense fallback={null}>
+        <LoginForm />
+      </Suspense>
     </main>
   );
 }

@@ -12,6 +12,12 @@ export interface UserSummary {
   displayName: string;
   photoUrl: string;
   isVerified: boolean;
+  createdAtMs: number;
+}
+
+export interface UserListPage {
+  users: UserSummary[];
+  nextCursor: string | null;
 }
 
 export async function getUserSummary(userId: string): Promise<UserSummary | null> {
@@ -33,7 +39,13 @@ export async function getUserSummary(userId: string): Promise<UserSummary | null
     (typeof data.photoUrl === 'string' && data.photoUrl) ||
     '';
 
-  return { userId, displayName, photoUrl, isVerified: data.isVerified === true };
+  return {
+    userId,
+    displayName,
+    photoUrl,
+    isVerified: data.isVerified === true,
+    createdAtMs: typeof data.createdAt === 'number' ? data.createdAt : 0,
+  };
 }
 
 function looksLikeFirebaseUid(value: unknown): value is string {
@@ -48,20 +60,33 @@ async function getGlobalChatAdminUids(): Promise<Set<string>> {
   return new Set(list.filter(looksLikeFirebaseUid).map((v: string) => v.trim()));
 }
 
-export async function listUsers(params: { search?: string; limit?: number } = {}): Promise<UserSummary[]> {
-  const { search, limit = 50 } = params;
+/**
+ * Firestore profile list — newest first, cursor-paginated so growth
+ * beyond one page is a "Load More" click rather than a silent cutoff.
+ * This will always be <= the Firebase Auth account count, since a
+ * profile document is only created once onboarding completes — see
+ * getAuthAccountCount() below for the comparison figure.
+ */
+export async function listUsers(
+  params: { search?: string; pageSize?: number; cursor?: string } = {},
+): Promise<UserListPage> {
+  const { search, pageSize = 30, cursor } = params;
 
   let query: FirebaseFirestore.Query = adminDb.collection('users');
 
   const term = search?.trim();
   if (term) {
-    query = query.orderBy('teamName').startAt(term).endAt(`${term}\uf8ff`).limit(limit);
+    query = query.orderBy('teamName').startAt(term).endAt(`${term}\uf8ff`).limit(pageSize);
   } else {
-    query = query.orderBy('createdAt', 'desc').limit(limit);
+    query = query.orderBy('createdAt', 'desc').limit(pageSize);
+    if (cursor) {
+      const cursorSnap = await adminDb.collection('users').doc(cursor).get();
+      if (cursorSnap.exists) query = query.startAfter(cursorSnap);
+    }
   }
 
   const snap = await query.get();
-  return snap.docs.map((doc) => {
+  const users = snap.docs.map((doc) => {
     const data = doc.data();
     const displayName =
       (typeof data.teamName === 'string' && data.teamName.trim()) ||
@@ -72,8 +97,40 @@ export async function listUsers(params: { search?: string; limit?: number } = {}
       displayName,
       photoUrl: (data.profileImageUrl as string) || (data.photoUrl as string) || '',
       isVerified: data.isVerified === true,
+      createdAtMs: typeof data.createdAt === 'number' ? data.createdAt : 0,
     };
   });
+
+  const lastDoc = snap.docs[snap.docs.length - 1];
+  const nextCursor = !term && users.length === pageSize && lastDoc ? lastDoc.id : null;
+
+  return { users, nextCursor };
+}
+
+/**
+ * Total Firebase Auth accounts — this is the "real" sign-up count.
+ * Paginates through all Auth users (1000 per page, Admin SDK limit).
+ * Capped at 50 pages (50,000 accounts) as a defensive ceiling; raise
+ * if the platform ever genuinely exceeds that.
+ */
+export async function getAuthAccountCount(): Promise<number> {
+  let total = 0;
+  let pageToken: string | undefined;
+  let pages = 0;
+
+  do {
+    const result = await adminAuth.listUsers(1000, pageToken);
+    total += result.users.length;
+    pageToken = result.pageToken;
+    pages += 1;
+  } while (pageToken && pages < 50);
+
+  return total;
+}
+
+export async function getFirestoreProfileCount(): Promise<number> {
+  const snap = await adminDb.collection('users').count().get();
+  return snap.data().count;
 }
 
 export async function getUserDetail(userId: string): Promise<AdminUserProfile | null> {

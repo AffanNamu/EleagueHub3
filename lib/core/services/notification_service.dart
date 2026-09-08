@@ -20,6 +20,7 @@ class NotificationService {
   Stream<String> get onNotificationTap => _tapStream.stream;
 
   static const String _chatChannelId = 'league_chat_channel';
+  static const String _privateChatChannelId = 'private_chat_channel';
   static const String _annChannelId = 'league_announcements_channel';
   static const String _testChannelId = 'test_channel_id';
   static const String _organizerFeedChannelId = 'organizer_feed_channel';
@@ -79,6 +80,17 @@ class NotificationService {
             _chatChannelId,
             'League Chat',
             description: 'Messages from league chatrooms',
+            importance: Importance.high,
+          ),
+        );
+      } catch (_) {}
+
+      try {
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _privateChatChannelId,
+            'Private Messages',
+            description: 'Direct messages from other users',
             importance: Importance.high,
           ),
         );
@@ -272,6 +284,50 @@ class NotificationService {
       messageId?.trim().isNotEmpty == true
           ? messageId!.trim()
           : '${leagueId}_${DateTime.now().millisecondsSinceEpoch}',
+    );
+
+    await _plugin.show(
+      id,
+      title,
+      body,
+      details,
+      payload:
+          (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
+    );
+  }
+
+  Future<void> showPrivateMessageNotification({
+    required String threadId,
+    required String senderName,
+    required String messagePreview,
+    String? messageId,
+    String? payloadRoute,
+  }) async {
+    if (!_initialized) {
+      await init();
+    }
+
+    final title = senderName.trim().isEmpty ? 'New Message' : senderName.trim();
+    final body = messagePreview.trim().isEmpty ? 'New message' : messagePreview.trim();
+
+    final androidDetails = AndroidNotificationDetails(
+      _privateChatChannelId,
+      'Private Messages',
+      channelDescription: 'Direct messages from other users',
+      importance: Importance.max,
+      priority: Priority.high,
+      category: AndroidNotificationCategory.message,
+      ticker: 'New message',
+      styleInformation: BigTextStyleInformation(body),
+      groupKey: 'private_chat_${threadId.trim()}',
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+
+    final id = _stableIdFromString(
+      messageId?.trim().isNotEmpty == true
+          ? messageId!.trim()
+          : '${threadId}_${DateTime.now().millisecondsSinceEpoch}',
     );
 
     await _plugin.show(

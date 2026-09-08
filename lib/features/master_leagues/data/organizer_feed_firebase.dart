@@ -8,6 +8,18 @@ import 'package:uuid/uuid.dart';
 
 import '../domain/organizer_feed_event.dart';
 
+/// Simple value holder for a user's read/clear cursors — a plain class
+/// rather than a Dart 3 record, to avoid any SDK-version assumption.
+class OrganizerFeedCursors {
+  const OrganizerFeedCursors({
+    required this.lastReadAtMs,
+    required this.clearedAtMs,
+  });
+
+  final int lastReadAtMs;
+  final int clearedAtMs;
+}
+
 class OrganizerFeedFirebase {
   OrganizerFeedFirebase({FirebaseFirestore? firestore})
       : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -272,5 +284,86 @@ class OrganizerFeedFirebase {
       throw StateError('Please sign in and try again.');
     }
     return uid;
+  }
+
+  // ── Per-user read/clear state ───────────────────────────────────────
+  //
+  // Feed events (organizer_feed/{id}) are SHARED documents — one event
+  // read by every follower — so "read"/"cleared" can never be a field on
+  // the event itself; it must be a per-user cursor. This reuses the same
+  // users/{uid}/private/app_state document that
+  // FollowedOrganizerNotificationsService already writes
+  // lastSeenOrganizerFeedAtMs to (for suppressing duplicate local
+  // notifications), so "mark all as read" here and "already notified
+  // about this" there share one cursor rather than drifting apart.
+  //
+  // clearedOrganizerFeedAtMs is a separate, new field: "read" only
+  // affects an unread indicator, "cleared" hides items entirely from the
+  // visible list (client-side filter — the underlying shared event still
+  // exists for other followers).
+
+  DocumentReference<Map<String, dynamic>> _appStateDoc(String uid) => _firestore
+      .collection('users')
+      .doc(uid)
+      .collection('private')
+      .doc('app_state');
+
+  /// Returns both cursors in one doc read. Both default to 0 (never
+  /// read/cleared) if the doc or fields don't exist yet.
+  Future<OrganizerFeedCursors> getFeedCursors(String uid) async {
+    final id = uid.trim();
+    if (id.isEmpty) return const OrganizerFeedCursors(lastReadAtMs: 0, clearedAtMs: 0);
+
+    try {
+      final snap = await _appStateDoc(id)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+      final data = snap.data() ?? <String, dynamic>{};
+      final lastRead = (data['lastSeenOrganizerFeedAtMs'] as num?)?.toInt() ?? 0;
+      final cleared = (data['clearedOrganizerFeedAtMs'] as num?)?.toInt() ?? 0;
+      return OrganizerFeedCursors(lastReadAtMs: lastRead, clearedAtMs: cleared);
+    } catch (e, st) {
+      _log(e, st);
+      return const OrganizerFeedCursors(lastReadAtMs: 0, clearedAtMs: 0);
+    }
+  }
+
+  /// Marks every currently-visible item as read by moving the shared
+  /// "seen" cursor forward to now. Also used by
+  /// FollowedOrganizerNotificationsService to avoid re-notifying for
+  /// anything at or before this timestamp.
+  Future<int> markAllRead(String uid) async {
+    final id = uid.trim();
+    if (id.isEmpty) return 0;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await _appStateDoc(id).set(
+        <String, dynamic>{'lastSeenOrganizerFeedAtMs': now},
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 10));
+    } catch (e, st) {
+      _log(e, st);
+    }
+    return now;
+  }
+
+  /// Hides every currently-visible item from this user's feed view by
+  /// moving the "cleared" cursor forward to now. Does not delete the
+  /// underlying shared event — other followers still see it.
+  Future<int> clearAll(String uid) async {
+    final id = uid.trim();
+    if (id.isEmpty) return 0;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await _appStateDoc(id).set(
+        <String, dynamic>{'clearedOrganizerFeedAtMs': now},
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 10));
+    } catch (e, st) {
+      _log(e, st);
+    }
+    return now;
   }
 }

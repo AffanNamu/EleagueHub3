@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/widgets.dart';
 
+import '../deep_links/deep_link_service.dart';
 import 'app_router.dart';
 import 'auth_action_link.dart';
 
@@ -14,6 +15,15 @@ import 'auth_action_link.dart';
 ///   - esportlyic://auth?mode=resetPassword&oobCode=...
 ///   - esportlyic://auth?mode=verifyEmail&oobCode=...
 ///   - https://esportlyic.web.app/auth?mode=resetPassword&oobCode=...
+///
+/// SHARING / UNIVERSAL DEEP LINKS (see core/routing/route_resolver.dart):
+///   - https://esportlyic.com/u/{username}            (user profile)
+///   - https://esportlyic.com/competition/{id}         (competition)
+///   - https://esportlyic.com/team/{id}                (team)
+///   - https://esportlyic.com/post/{id}                (public post)
+///   - https://esportlyic.com/org/{id}                 (organizer workspace)
+///   - esportlyic://u/{username}, esportlyic://competition/{id}, ... (app-scheme
+///     equivalents, used by e.g. native share-sheet deep links)
 ///
 /// JOIN links (league QR / share links):
 ///   - eleaguehub://join?code=XXXXXX&id=...
@@ -94,7 +104,19 @@ class _DeepLinkGateState extends State<DeepLinkGate> {
       return;
     }
 
-    // ── 2. Try JOIN links ────────────────────────────────────────────────────
+    // ── 2. Try Universal Sharing entity links ───────────────────────────────
+    //
+    // Handles /u/{username}, /competition/{id}, /team/{id}, /post/{id},
+    // /org/{id} (and any future entity type registered in RouteResolver).
+    // See core/deep_links/deep_link_service.dart and
+    // core/routing/route_resolver.dart.
+    final handledByShareSystem = DeepLinkService.tryHandle(
+      uri,
+      navigate: (path) => appRouter.go(path),
+    );
+    if (handledByShareSystem) return;
+
+    // ── 3. Try JOIN links ────────────────────────────────────────────────────
     //
     // Routes to /join?code=XXXXXX which is registered in app_router.dart.
     // On web  → shows WebJoinScreen (inline code-entry + join flow).
@@ -109,7 +131,7 @@ class _DeepLinkGateState extends State<DeepLinkGate> {
       return;
     }
 
-    // ── 3. Unrecognised link — ignore silently ───────────────────────────────
+    // ── 4. Unrecognised link — ignore silently ───────────────────────────────
   }
 
   /// Extracts a join code from any supported join URI shape.

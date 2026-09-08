@@ -250,9 +250,11 @@ class PrivateChatRepository {
                     'after this message; open it to create the index.',
                   );
                 }
-                // Fail open to an empty inbox instead of leaving the
-                // StreamBuilder stuck on "hasData == false" forever.
-                sink.add(const <PrivateThread>[]);
+                // Forward the error — do NOT fake an empty list here. A
+                // real thread that fails to load must show as an error in
+                // the UI, never as "no conversations", or existing chats
+                // appear to silently vanish.
+                sink.addError(error, stackTrace);
               },
             ),
           );
@@ -277,7 +279,7 @@ class PrivateChatRepository {
                 if (kDebugMode) {
                   debugPrint('[PrivateChatRepository] watchMessages error: $error');
                 }
-                sink.add(const <PrivateMessage>[]);
+                sink.addError(error, stackTrace);
               },
             ),
           );
@@ -315,12 +317,14 @@ class PrivateChatRepository {
   /// Sends a message. No plan check here — once a thread exists, both
   /// participants (premium or free) can reply. Rules enforce that the
   /// sender must be a participant.
-  Future<void> sendTextMessage({
+  /// Returns the sent message's id (used by the caller to also trigger a
+  /// push notification via SupabaseEdgeNotificationsService).
+  Future<String> sendTextMessage({
     required String threadId,
     required String text,
   }) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty) return '';
     if (trimmed.length > 4000) {
       throw const PrivateChatException('Message is too long.');
     }
@@ -353,17 +357,19 @@ class PrivateChatRepository {
       );
 
       await batch.commit().timeout(const Duration(seconds: 15));
+      return msgRef.id;
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
 
-  Future<void> sendImageMessage({
+  /// Returns the sent message's id.
+  Future<String> sendImageMessage({
     required String threadId,
     required String imageUrl,
   }) async {
     final url = imageUrl.trim();
-    if (url.isEmpty) return;
+    if (url.isEmpty) return '';
 
     try {
       final authUid = _requireAuthUid();
@@ -393,6 +399,7 @@ class PrivateChatRepository {
       );
 
       await batch.commit().timeout(const Duration(seconds: 15));
+      return msgRef.id;
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -403,13 +410,15 @@ class PrivateChatRepository {
   /// 'voice'` and `voiceUrl` populated instead of `imageUrl`. The
   /// Firestore rule for `private_threads/{id}/messages` already accepts
   /// `type in ['text','image','voice']`, so no rules change is required.
-  Future<void> sendVoiceMessage({
+  ///
+  /// Returns the sent message's id.
+  Future<String> sendVoiceMessage({
     required String threadId,
     required String voiceUrl,
     int voiceDurationMs = 0,
   }) async {
     final url = voiceUrl.trim();
-    if (url.isEmpty) return;
+    if (url.isEmpty) return '';
 
     try {
       final authUid = _requireAuthUid();
@@ -440,6 +449,7 @@ class PrivateChatRepository {
       );
 
       await batch.commit().timeout(const Duration(seconds: 15));
+      return msgRef.id;
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }

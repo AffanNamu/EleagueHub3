@@ -1,23 +1,21 @@
 // lib/repositories/verificationAdminRepository.ts
 //
-// Server-only repository for master_league_verification_requests.
-//
-// reviewVerificationRequest() is a byte-for-byte port of the transaction
-// in organizer_verification_requests_screen.dart's _reviewRequest — same
-// guards, same 90-day hardcoded duration, same renewal-extends-from-
-// max(expiry,now) logic, same early-return shape for info_requested, same
-// full field set on reject. Runs through the Admin SDK. Now also records
-// every decision to audit_logs after the transaction commits.
+// reviewVerificationRequest() ports organizer_verification_requests_screen.dart's
+// _reviewRequest transaction exactly, including the organizer_feed event
+// fired after a successful approve — now closed against the real schema
+// confirmed in organizer_feed_event.dart / organizer_feed_firebase.dart
+// (addVerificationApprovedEvent): type 'verification_approved' or
+// 'verification_renewed', title/message copied verbatim.
 
 import 'server-only';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { recordAuditLog } from '@/lib/audit/auditLog';
 import type { ReviewAction, VerificationRequest, VerificationStatus } from '@/types/verification';
 
 const REQUESTS_COLLECTION = 'master_league_verification_requests';
 const MASTER_LEAGUES_COLLECTION = 'master_leagues';
 const USERS_COLLECTION = 'users';
+const ORGANIZER_FEED_COLLECTION = 'organizer_feed';
 
 const VERIFICATION_DURATION_MS = 90 * 24 * 60 * 60 * 1000;
 
@@ -80,7 +78,7 @@ export async function reviewVerificationRequest(params: {
   reviewerUid: string;
   reviewerEmail?: string | null;
 }): Promise<{ approvedRenewal: boolean }> {
-  const { requestId, action, note, reviewerUid, reviewerEmail } = params;
+  const { requestId, action, note, reviewerUid } = params;
 
   if (action !== 'approve' && !note.trim()) {
     throw new VerificationReviewError('A note is required for reject and request-info actions.');
@@ -88,8 +86,6 @@ export async function reviewVerificationRequest(params: {
 
   const nowMs = Date.now();
   let approvedRenewal = false;
-  let orgNameForLog = '';
-  let masterLeagueIdForLog = '';
 
   await adminDb.runTransaction(async (transaction) => {
     const requestRef = adminDb.collection(REQUESTS_COLLECTION).doc(requestId);
@@ -109,8 +105,6 @@ export async function reviewVerificationRequest(params: {
     const requestType = ((requestData.requestType as string) ?? 'initial').trim().toLowerCase();
     const logoUrl = ((requestData.logoUrl as string) ?? '').trim();
     const masterLeagueId = requestData.masterLeagueId as string;
-    orgNameForLog = ((requestData.orgName as string) ?? '').trim();
-    masterLeagueIdForLog = masterLeagueId;
 
     if (!masterLeagueId) {
       throw new VerificationReviewError('Request is missing a masterLeagueId.');
@@ -126,6 +120,7 @@ export async function reviewVerificationRequest(params: {
     const masterLeagueData = masterLeagueSnap.data() ?? {};
     const currentExpiry = typeof masterLeagueData.verificationExpiresAtMs === 'number' ? masterLeagueData.verificationExpiresAtMs : 0;
     const currentLogoUrl = ((masterLeagueData.logoUrl as string) ?? '').trim();
+    const masterLeagueName = ((masterLeagueData.name as string) ?? '').trim();
 
     const newRequestStatus: VerificationStatus =
       action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'info_requested';
@@ -189,24 +184,26 @@ export async function reviewVerificationRequest(params: {
           { merge: true },
         );
       }
+
+      // Exact port of addVerificationApprovedEvent from organizer_feed_firebase.dart —
+      // same type/title/message values, so the organizer's followers see the
+      // identical feed entry whether verification happened via mobile or here.
+      const feedRef = adminDb.collection(ORGANIZER_FEED_COLLECTION).doc();
+      transaction.set(feedRef, {
+        id: feedRef.id,
+        masterLeagueId,
+        type: approvedRenewal ? 'verification_renewed' : 'verification_approved',
+        title: approvedRenewal ? 'Organizer verification renewed' : 'Organizer verified',
+        message: approvedRenewal
+          ? 'Verification has been renewed after admin review.'
+          : 'Organizer verification has been approved.',
+        createdAtMs: nowMs,
+        actorId: reviewerUid,
+        actorName: masterLeagueName || 'Admin',
+        leagueId: '',
+      });
     }
   });
-
-  await recordAuditLog({
-    actorUid: reviewerUid,
-    actorEmail: reviewerEmail,
-    action: `verification.${action}`,
-    targetType: 'verification_request',
-    targetId: requestId,
-    summary: orgNameForLog
-      ? `${action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Requested info for'} verification for "${orgNameForLog}" (${masterLeagueIdForLog})`
-      : `${action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Requested info for'} verification for workspace ${masterLeagueIdForLog}`,
-  });
-
-  // KNOWN GAP: the mobile screen also fires
-  // OrganizerFeedFirebase.addVerificationApprovedEvent() after a
-  // successful approve — still not replicated (organizer_feed_firebase.dart
-  // not yet provided).
 
   return { approvedRenewal };
 }

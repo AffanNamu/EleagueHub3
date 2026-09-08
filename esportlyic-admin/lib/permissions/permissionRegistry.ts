@@ -33,6 +33,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
   { id: 'global_chat_requests.view', label: 'View Global Chat Requests', description: 'View requests for Global Chat access.', category: 'Moderation' },
   { id: 'global_chat_requests.review', label: 'Review Global Chat Requests', description: 'Approve or reject requests for Global Chat access.', category: 'Moderation' },
 
+  // Communications
+  { id: 'notifications.send', label: 'Send Notifications', description: 'Push a notification to all users or a specific segment.', category: 'Communications' },
+
   // Monetization
   { id: 'payments.view', label: 'View Payments', description: 'View payment history and revenue summaries.', category: 'Monetization' },
   { id: 'payments.override_entitlement', label: 'Override Entitlements', description: 'Manually grant or revoke a Pro/Elite plan — bypasses payment verification entirely. Reserved for the Super Admin.', category: 'Monetization', superAdminOnly: true },

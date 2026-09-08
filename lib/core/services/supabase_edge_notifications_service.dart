@@ -82,6 +82,58 @@ class SupabaseEdgeNotificationsService {
     }
   }
 
+  Future<void> notifyPrivateMessage({
+    required String threadId,
+    required String recipientId,
+    required String messageId,
+    required String senderId,
+    required String senderName,
+    required String preview,
+  }) async {
+    final uri = _edgeUri('private-chat-notify');
+    if (uri == null) return;
+
+    final anon = _supabaseAnonKey.trim();
+    if (anon.isEmpty) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final token = (await user.getIdToken()).toString().trim();
+    if (token.isEmpty) return;
+
+    try {
+      final resp = await http.post(
+        uri,
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+          'apikey': anon,
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(<String, dynamic>{
+          'threadId': threadId.trim(),
+          'recipientId': recipientId.trim(),
+          'messageId': messageId.trim(),
+          'senderId': senderId.trim(),
+          'senderName': senderName.trim(),
+          'preview': preview.trim(),
+        }),
+      );
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        if (kDebugMode) {
+          debugPrint(
+            'Private chat notify failed: ${resp.statusCode} ${resp.body}',
+          );
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Private chat notify exception: $e');
+      }
+    }
+  }
+
   Future<void> notifyFollowedOrganizerUpdate({
     required String masterLeagueId,
     required String organizerName,

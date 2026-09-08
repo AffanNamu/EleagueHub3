@@ -10,7 +10,9 @@ import 'package:record/record.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
+import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
@@ -52,7 +54,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   bool _busyWithAttachment = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Suppresses the foreground push banner while the user is already
+    // looking at this thread (mirrors LeagueChatScreen's
+    // setActiveLeagueChat pattern).
+    PushMessagingService.instance.setActiveThread(widget.threadId);
+  }
+
+  @override
   void dispose() {
+    PushMessagingService.instance.setActiveThread(null);
     _recordingTicker?.cancel();
     _recorder.dispose();
     _input.dispose();
@@ -92,14 +104,46 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     return null;
   }
 
+  // ── ASSUMPTION: no shared display-name resolver was available in this
+  // file (unlike LeagueChatScreen's _senderName()), so this falls back to
+  // FirebaseAuth's displayName. Swap this out if the app resolves names
+  // via UserProfileRepository elsewhere. ──────────────────────────────────
+  String _senderName() {
+    final name = FirebaseAuth.instance.currentUser?.displayName?.trim() ?? '';
+    return name.isEmpty ? 'Someone' : name;
+  }
+
+  Future<void> _notifyPush({
+    required String messageId,
+    required String preview,
+  }) async {
+    final recipientId = _extractOtherUserId();
+    if (recipientId == null || recipientId.trim().isEmpty) return;
+    if (messageId.trim().isEmpty) return;
+
+    final senderId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (senderId.isEmpty) return;
+
+    await SupabaseEdgeNotificationsService.instance.notifyPrivateMessage(
+      threadId: widget.threadId,
+      recipientId: recipientId,
+      messageId: messageId,
+      senderId: senderId,
+      senderName: _senderName(),
+      preview: preview.trim(),
+    );
+  }
+
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
 
     setState(() => _sending = true);
     try {
-      await _repo.sendTextMessage(threadId: widget.threadId, text: text);
+      final messageId =
+          await _repo.sendTextMessage(threadId: widget.threadId, text: text);
       _input.clear();
+      unawaited(_notifyPush(messageId: messageId, preview: text));
     } catch (e) {
       _toastErr(e);
     } finally {
@@ -127,7 +171,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       final file = pick.file!;
       final url = await _repo.uploadImage(threadId: widget.threadId, file: file);
-      await _repo.sendImageMessage(threadId: widget.threadId, imageUrl: url);
+      final messageId =
+          await _repo.sendImageMessage(threadId: widget.threadId, imageUrl: url);
+      unawaited(_notifyPush(messageId: messageId, preview: '📷 Photo'));
 
       if (mounted) setState(() => _busyWithAttachment = false);
     } catch (e) {
@@ -244,11 +290,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         ),
       );
 
-      await _repo.sendVoiceMessage(
+      final messageId = await _repo.sendVoiceMessage(
         threadId: widget.threadId,
         voiceUrl: voiceUrl,
         voiceDurationMs: recordedMs,
       );
+      unawaited(_notifyPush(messageId: messageId, preview: '🎤 Voice message'));
 
       try {
         if (await file.exists()) await file.delete();

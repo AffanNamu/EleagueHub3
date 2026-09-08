@@ -15,6 +15,7 @@ import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../../master_leagues/domain/organizer_feed_event.dart';
 import '../../profile/presentation/profile_screen.dart';
+import '../../social/ui/widgets/platform_announcement_banner.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
   final v = l10n.tr(key);
@@ -353,6 +354,7 @@ class _HomeTab extends StatelessWidget {
       ),
       padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
       children: [
+        const PlatformAnnouncementBanner(),
         Glass(
           borderRadius: 28,
           padding: const EdgeInsets.all(22),
@@ -701,7 +703,11 @@ class _FollowedOrganizerFeedPreviewState
   late final OrganizerFeedFirebase _feed;
 
   bool _loading = true;
+  bool _busyAction = false;
+  List<OrganizerFeedEvent> _allItems = const <OrganizerFeedEvent>[];
   List<OrganizerFeedEvent> _items = const <OrganizerFeedEvent>[];
+  int _lastReadAtMs = 0;
+  int _clearedAtMs = 0;
   bool _hasError = false;
 
   @override
@@ -718,12 +724,21 @@ class _FollowedOrganizerFeedPreviewState
     if (oldWidget.uid != widget.uid) _load();
   }
 
+  void _applyCursors() {
+    final visible = _allItems
+        .where((item) => item.createdAtMs > _clearedAtMs)
+        .take(4)
+        .toList(growable: false);
+    _items = visible;
+  }
+
   Future<void> _load() async {
     final uid = widget.uid.trim();
     if (uid.isEmpty) {
       if (!mounted) return;
       setState(() {
         _loading = false;
+        _allItems = const <OrganizerFeedEvent>[];
         _items = const <OrganizerFeedEvent>[];
         _hasError = false;
       });
@@ -733,22 +748,57 @@ class _FollowedOrganizerFeedPreviewState
     if (mounted) setState(() => _loading = true);
 
     try {
-      final items =
-          await _feed.fetchFollowedOrganizerFeedOnce(uid);
+      final results = await Future.wait([
+        _feed.fetchFollowedOrganizerFeedOnce(uid),
+        _feed.getFeedCursors(uid),
+      ]);
       if (!mounted) return;
+      final items = results[0] as List<OrganizerFeedEvent>;
+      final cursors = results[1] as OrganizerFeedCursors;
       setState(() {
         _loading = false;
-        _items = items.take(4).toList(growable: false);
+        _allItems = items;
+        _lastReadAtMs = cursors.lastReadAtMs;
+        _clearedAtMs = cursors.clearedAtMs;
+        _applyCursors();
         _hasError = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _loading = false;
+        _allItems = const <OrganizerFeedEvent>[];
         _items = const <OrganizerFeedEvent>[];
         _hasError = true;
       });
     }
+  }
+
+  Future<void> _markAllRead() async {
+    final uid = widget.uid.trim();
+    if (uid.isEmpty || _busyAction) return;
+
+    setState(() => _busyAction = true);
+    final now = await _feed.markAllRead(uid);
+    if (!mounted) return;
+    setState(() {
+      _lastReadAtMs = now;
+      _busyAction = false;
+    });
+  }
+
+  Future<void> _clearAll() async {
+    final uid = widget.uid.trim();
+    if (uid.isEmpty || _busyAction) return;
+
+    setState(() => _busyAction = true);
+    final now = await _feed.clearAll(uid);
+    if (!mounted) return;
+    setState(() {
+      _clearedAtMs = now;
+      _applyCursors();
+      _busyAction = false;
+    });
   }
 
   IconData _feedIcon(String type) {
@@ -835,6 +885,28 @@ class _FollowedOrganizerFeedPreviewState
                   ),
                 ),
               ),
+              if (_items.isNotEmpty)
+                PopupMenuButton<String>(
+                  enabled: !_busyAction,
+                  icon: Icon(
+                    Icons.more_horiz_rounded,
+                    color: AppTheme.secondaryText(brightness),
+                  ),
+                  onSelected: (value) {
+                    if (value == 'mark_read') _markAllRead();
+                    if (value == 'clear_all') _clearAll();
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'mark_read',
+                      child: Text('Mark all as read'),
+                    ),
+                    PopupMenuItem(
+                      value: 'clear_all',
+                      child: Text('Clear all'),
+                    ),
+                  ],
+                ),
               TextButton.icon(
                 onPressed: () {
                   try {
@@ -865,8 +937,10 @@ class _FollowedOrganizerFeedPreviewState
             )
           else if (_items.isEmpty)
             Text(
-              'No followed organizer updates yet. Follow organizer '
-              'workspaces to see their latest activity here.',
+              _allItems.isNotEmpty
+                  ? 'All caught up — cleared.'
+                  : 'No followed organizer updates yet. Follow organizer '
+                      'workspaces to see their latest activity here.',
               style: t.bodySmall?.copyWith(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
@@ -914,13 +988,30 @@ class _FollowedOrganizerFeedPreviewState
                               crossAxisAlignment:
                                   CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  item.title,
-                                  style: t.bodyMedium?.copyWith(
-                                    color: AppTheme.primaryText(
-                                        brightness),
-                                    fontWeight: FontWeight.w900,
-                                  ),
+                                Row(
+                                  children: [
+                                    if (item.createdAtMs > _lastReadAtMs) ...[
+                                      Container(
+                                        width: 7,
+                                        height: 7,
+                                        margin: const EdgeInsets.only(right: 6),
+                                        decoration: const BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: Color(0xFFEF4444),
+                                        ),
+                                      ),
+                                    ],
+                                    Expanded(
+                                      child: Text(
+                                        item.title,
+                                        style: t.bodyMedium?.copyWith(
+                                          color: AppTheme.primaryText(
+                                              brightness),
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 2),
                                 Text(

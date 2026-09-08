@@ -47,7 +47,6 @@ export async function getPayment(paymentId: string): Promise<Payment | null> {
   return toPayment(snap.id, snap.data() ?? {});
 }
 
-/** A specific user's payment history — used on the user detail page to give context before an entitlement decision (grant/revoke/verification review). */
 export async function getPaymentsForUser(userId: string, limit = 20): Promise<Payment[]> {
   const snap = await adminDb
     .collection('payments')
@@ -95,4 +94,43 @@ export async function getRevenueSummary(): Promise<RevenueByCurrency[]> {
     total,
     count,
   }));
+}
+
+export interface ProviderUserCounts {
+  flutterwave: number;
+  googlePlay: number;
+  manual: number;
+  noProvider: number;
+}
+
+/**
+ * Counts USERS by their current plan's provider (users.planProvider),
+ * not payment transaction counts — this answers "how many registered
+ * users currently hold a plan through each provider", which is what's
+ * useful for a company dashboard. Google Play appears under two
+ * historical field values ('google_play_billing' and 'google_play') per
+ * the rules-confirmed provider list, so both are summed as one figure.
+ */
+export async function getUserCountsByProvider(): Promise<ProviderUserCounts> {
+  const usersRef = adminDb.collection('users');
+
+  const [flutterwave, googlePlayBilling, googlePlayLegacy, manual, totalWithPlan] = await Promise.all([
+    usersRef.where('planProvider', '==', 'flutterwave').count().get(),
+    usersRef.where('planProvider', '==', 'google_play_billing').count().get(),
+    usersRef.where('planProvider', '==', 'google_play').count().get(),
+    usersRef.where('planProvider', '==', 'manual').count().get(),
+    usersRef.where('activePlanId', 'in', ['pro', 'elite']).count().get(),
+  ]);
+
+  const flutterwaveCount = flutterwave.data().count;
+  const googlePlayCount = googlePlayBilling.data().count + googlePlayLegacy.data().count;
+  const manualCount = manual.data().count;
+  const noProvider = Math.max(0, totalWithPlan.data().count - flutterwaveCount - googlePlayCount - manualCount);
+
+  return {
+    flutterwave: flutterwaveCount,
+    googlePlay: googlePlayCount,
+    manual: manualCount,
+    noProvider,
+  };
 }

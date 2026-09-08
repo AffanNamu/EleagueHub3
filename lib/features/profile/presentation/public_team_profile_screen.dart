@@ -9,15 +9,18 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/routing/route_resolver.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
+import '../../../core/sharing/link_generator.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../../core/widgets/share_button.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
-import '../../chat/data/private_chat_repository.dart';
 import '../../chat/presentation/widgets/private_message_button.dart';
+import '../../leagues/presentation/upgrade_plan_screen.dart';
 import '../../master_leagues/domain/master_league_plan.dart';
 import '../../moderation/data/report_repository.dart';
 import '../../moderation/models/user_report.dart';
@@ -48,12 +51,10 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
 
   final TeamProfileRepository _teamRepo = TeamProfileRepository();
   final UserProfileRepository _userRepo = UserProfileRepository();
-  final PrivateChatRepository _chatRepo = PrivateChatRepository();
 
   bool _following = false;
   bool _followBusy = false;
   bool _blocked = false;
-  bool _chatBusy = false;
 
   // Feature 1 — Profile Background / Cover Image.
   bool _uploadingBanner = false;
@@ -106,27 +107,48 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
     }
   }
 
-  Future<void> _handleAppBarChatTap(String displayName) async {
-    if (_chatBusy) return;
-    setState(() => _chatBusy = true);
+  /// Resolves the best public share entity for this profile: a pretty
+  /// `/u/{username}` link when the user has claimed a username, falling
+  /// back to the `/team/{userId}` link otherwise (team === user profile
+  /// in this app's data model — see TeamProfileGateScreen for details).
+  Future<ShareableEntity> _resolveShareEntity() async {
     try {
-      final thread = await _chatRepo.startOrGetThread(widget.userId);
-      if (!mounted) return;
-      context.push(
-        '/chat/${thread.id}',
-        extra: {'otherUserId': widget.userId, 'otherName': displayName},
-      );
-    } catch (e) {
-      if (!mounted) return;
-      _snack(e.toString());
-    } finally {
-      if (mounted) setState(() => _chatBusy = false);
-    }
+      final profile = await _userRepo.fetchByUserId(widget.userId);
+      if (profile != null && profile.hasUsername) {
+        return ShareableEntity(
+          type: ShareableEntityType.userProfile,
+          username: profile.usernameLower,
+        );
+      }
+    } catch (_) {}
+    return ShareableEntity(
+      type: ShareableEntityType.team,
+      id: widget.userId.trim(),
+    );
+  }
+
+  Future<void> _openShareSheet() async {
+    final entity = await _resolveShareEntity();
+    if (!mounted) return;
+    final profile = await _userRepo.fetchByUserId(widget.userId).catchError((_) => null);
+    final displayName = _userRepo.displayNameForProfile(
+      profile,
+      fallbackUserId: widget.userId,
+    );
+    if (!mounted) return;
+    await showShareSheet(
+      context,
+      entity: entity,
+      title: displayName,
+      description: 'Check out $displayName\'s profile on eSportlyic.',
+    );
   }
 
   Future<void> _copyProfileLink() async {
-    final link = 'https://esportlyic.com/profile/${widget.userId.trim()}';
-    await Clipboard.setData(ClipboardData(text: link));
+    final entity = await _resolveShareEntity();
+    final link = LinkGenerator.forEntity(entity);
+    await Clipboard.setData(ClipboardData(text: link.toString()));
+    if (!mounted) return;
     _snack('Profile link copied.');
   }
 
@@ -271,8 +293,16 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.share_rounded),
+              leading: const Icon(Icons.ios_share_rounded),
               title: const Text('Share profile'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _openShareSheet();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.link_rounded),
+              title: const Text('Copy profile link'),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _copyProfileLink();
@@ -525,7 +555,11 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
         // Material layer — which still captures touches across its full
         // width even in its visually "transparent" areas. The button was
         // never actually reachable. Moving it into actions puts it in the
-        // same hit-test layer as the working chat/follow/more buttons.
+        // same hit-test layer as the working more button.
+        //
+        // REMOVED: a second "Message" icon used to sit here too, duplicating
+        // the PrivateMessageButton already shown in the body next to the
+        // avatar/Follow button. Only the body button remains now.
         actions: [
           if (_isOwner)
             _uploadingBanner
@@ -538,17 +572,6 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                     tooltip: 'Edit cover photo',
                     onPressed: _showBannerEditSheet,
                   ),
-          if (!_isOwner)
-            _chatBusy
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.chat_bubble_outline_rounded),
-                    tooltip: 'Message',
-                    onPressed: () => _handleAppBarChatTap('User'),
-                  ),
           // FIXED: the Follow/Following icon used to live here, in the
           // AppBar actions row overlaying the cover-photo banner. Once a
           // user uploads a busy or bright banner image, this icon loses
@@ -557,6 +580,11 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
           // body instead, right beside the Message button -- same
           // Twitter/Facebook-style layout used for that pattern
           // elsewhere. See the Row built in the body below.
+          IconButton(
+            icon: const Icon(Icons.ios_share_rounded),
+            tooltip: 'Share profile',
+            onPressed: _openShareSheet,
+          ),
           IconButton(
             icon: const Icon(Icons.more_vert_rounded),
             tooltip: 'More',
@@ -618,7 +646,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                                     key: ValueKey('msg_btn_$_blocked'),
                                     targetUserId: widget.userId,
                                     targetDisplayName: displayName,
-                                    onUpgradeTap: () => context.push('/settings'),
+                                    onUpgradeTap: () => UpgradePlanScreen.open(context),
                                   ),
                                 ),
                                 const SizedBox(width: 10),

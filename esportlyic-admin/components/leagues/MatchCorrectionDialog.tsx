@@ -3,11 +3,19 @@
 import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { useMatchCorrectionAction } from '@/hooks/useMatchCorrectionAction';
-import type { FixtureMatch, LeagueTeamSummary } from '@/types/match';
+import type { FixtureMatch, LeagueTeamSummary, MatchStatus } from '@/types/match';
 
 function teamLabel(teamId: string, teams: LeagueTeamSummary[]): string {
   return teams.find((t) => t.teamId === teamId)?.name ?? teamId;
 }
+
+const STATUS_OPTIONS: { value: MatchStatus; label: string }[] = [
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'pendingProof', label: 'Pending Proof' },
+  { value: 'underReview', label: 'Under Review' },
+  { value: 'played', label: 'Played' },
+  { value: 'completed', label: 'Completed' },
+];
 
 export function MatchCorrectionDialog({
   match,
@@ -23,9 +31,7 @@ export function MatchCorrectionDialog({
   const { correctFixture, submitting, error } = useMatchCorrectionAction(leagueId);
   const [homeScore, setHomeScore] = useState(match.homeScore ?? 0);
   const [awayScore, setAwayScore] = useState(match.awayScore ?? 0);
-  const [status, setStatus] = useState<'scheduled' | 'completed' | 'played'>(
-    match.status === 'completed' || match.status === 'played' ? (match.status as 'completed' | 'played') : 'scheduled',
-  );
+  const [status, setStatus] = useState<MatchStatus>(match.status || 'scheduled');
 
   async function handleSubmit() {
     const ok = await correctFixture(match.id, { homeScore, awayScore, status });
@@ -66,12 +72,12 @@ export function MatchCorrectionDialog({
           <label className="mb-1.5 block text-sm text-ink-secondary">Status</label>
           <select
             value={status}
-            onChange={(event) => setStatus(event.target.value as typeof status)}
+            onChange={(event) => setStatus(event.target.value as MatchStatus)}
             className="w-full rounded-sm border border-base-border bg-base-raised px-3 py-2 text-sm text-ink-primary outline-none focus:border-brand"
           >
-            <option value="scheduled">Scheduled</option>
-            <option value="completed">Completed</option>
-            <option value="played">Played</option>
+            {STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
           </select>
         </div>
 

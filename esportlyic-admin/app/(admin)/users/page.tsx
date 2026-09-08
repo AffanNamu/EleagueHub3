@@ -1,7 +1,8 @@
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { SearchBar } from '@/components/ui/SearchBar';
 import { UsersTable } from '@/components/users/UsersTable';
-import { listUsers } from '@/lib/repositories/usersAdminRepository';
+import { UserGapNotice } from '@/components/users/UserGapNotice';
+import { listUsers, getAuthAccountCount, getFirestoreProfileCount } from '@/lib/repositories/usersAdminRepository';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
 
@@ -17,7 +18,11 @@ export default async function UsersPage({ searchParams }: { searchParams: { q?: 
     );
   }
 
-  const users = await listUsers({ search: searchParams.q });
+  const [page, authCount, profileCount] = await Promise.all([
+    listUsers({ search: searchParams.q }),
+    getAuthAccountCount(),
+    getFirestoreProfileCount(),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -25,11 +30,12 @@ export default async function UsersPage({ searchParams }: { searchParams: { q?: 
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-xl font-semibold text-ink-primary">Users</h1>
-          <p className="mt-1 text-sm text-ink-secondary">All player and team accounts on the platform.</p>
+          <p className="mt-1 text-sm text-ink-secondary">Newest signups first.</p>
         </div>
         <SearchBar placeholder="Search by team name…" />
       </div>
-      <UsersTable users={users} />
+      <UserGapNotice authCount={authCount} profileCount={profileCount} />
+      <UsersTable initialUsers={page.users} initialCursor={page.nextCursor} isSearch={Boolean(searchParams.q)} />
     </div>
   );
 }

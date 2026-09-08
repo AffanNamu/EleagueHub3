@@ -26,9 +26,18 @@ class PushMessagingService {
   /// Used to suppress foreground banners when user is already inside that league chat.
   final ValueNotifier<String?> activeLeagueChatId = ValueNotifier<String?>(null);
 
+  /// Used to suppress foreground banners when user is already inside that
+  /// private chat thread.
+  final ValueNotifier<String?> activeThreadId = ValueNotifier<String?>(null);
+
   void setActiveLeagueChat(String? leagueId) {
     final v = (leagueId ?? '').trim();
     activeLeagueChatId.value = v.isEmpty ? null : v;
+  }
+
+  void setActiveThread(String? threadId) {
+    final v = (threadId ?? '').trim();
+    activeThreadId.value = v.isEmpty ? null : v;
   }
 
   String _leagueTopic(String leagueId) => 'league_${leagueId.trim()}';
@@ -138,6 +147,31 @@ class PushMessagingService {
           await NotificationService().showLeagueChatMessageNotification(
             leagueId: leagueId.isNotEmpty ? leagueId : 'league',
             leagueName: leagueName.isNotEmpty ? leagueName : 'League',
+            senderName: senderName.isNotEmpty ? senderName : 'Someone',
+            messagePreview: preview.isNotEmpty ? preview : 'New message',
+            messageId: messageId.isNotEmpty ? messageId : null,
+            payloadRoute: route.isNotEmpty ? route : null,
+          );
+        } catch (_) {}
+      } else if (type == 'private_message') {
+        final threadId = (data['threadId'] ?? '').toString().trim();
+
+        // Suppress the banner if the user is already inside this thread.
+        if (threadId.isNotEmpty && activeThreadId.value?.trim() == threadId) {
+          return;
+        }
+
+        final senderName = (data['senderName'] ?? '').toString().trim();
+        final preview =
+            (data['preview'] ?? m.notification?.body ?? 'New message')
+                .toString()
+                .trim();
+        final messageId = (data['messageId'] ?? '').toString().trim();
+        final route = (data['route'] ?? '').toString().trim();
+
+        try {
+          await NotificationService().showPrivateMessageNotification(
+            threadId: threadId.isNotEmpty ? threadId : 'thread',
             senderName: senderName.isNotEmpty ? senderName : 'Someone',
             messagePreview: preview.isNotEmpty ? preview : 'New message',
             messageId: messageId.isNotEmpty ? messageId : null,

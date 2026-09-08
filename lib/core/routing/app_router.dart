@@ -52,6 +52,7 @@ import '../../features/leagues/presentation/league_standings_screen.dart';
 import '../../features/leagues/presentation/leagues_list_screen.dart';
 import '../../features/leagues/presentation/match_detail_screen.dart';
 import '../../features/leagues/presentation/qr_scanner_screen.dart';
+import '../../features/leagues/presentation/competition_gate_screen.dart';
 import '../../features/legal/affiliate_disclosure_screen.dart';
 import '../../features/legal/contact_screen.dart';
 import '../../features/legal/privacy_policy_screen.dart';
@@ -66,12 +67,16 @@ import '../../features/master_leagues/presentation/master_league_details_screen.
 import '../../features/master_leagues/presentation/master_leagues_list_screen.dart';
 import '../../features/master_leagues/presentation/organizer_discipline_screen.dart';
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
+import '../../features/organizer/presentation/organizer_workspace_gate_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/public_team_profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
 import '../../features/profile/presentation/squad_screen.dart';
+import '../../features/profile/presentation/username_profile_gate_screen.dart';
 import '../../features/search/presentation/user_search_screen.dart';
+import '../../features/social/presentation/post_detail_screen.dart';
 import '../../features/status/presentation/status_viewer_screen.dart';
+import '../../features/team/presentation/team_profile_gate_screen.dart';
 import '../../web_app/presentation/web_desktop_session_store.dart';
 import '../../web_app/presentation/web_desktop_shell_screen.dart';
 import '../../web_app/presentation/web_pairing_screen.dart';
@@ -1020,6 +1025,39 @@ const _publicRoutes = <String>{
 };
 
 // ---------------------------------------------------------------------------
+// Universal Sharing & Deep Linking — public, unauthenticated routes
+// ---------------------------------------------------------------------------
+//
+// These path PREFIXES back the public share/deep-link URLs documented in
+// core/routing/route_resolver.dart:
+//   /u/{username}          — public user profile
+//   /competition/{id}      — public competition (redirects internally to
+//                            the existing /leagues/{id} screen)
+//   /team/{id}             — public team profile
+//   /post/{id}             — public post
+//   /org/{id}              — public organizer workspace
+//
+// Signed-out web visitors who follow a shared link must land directly on
+// the content — never on a forced sign-in wall — mirroring how Facebook,
+// Telegram, and X handle public profile/post links. Prefix matching (not
+// exact-string matching like `_publicRoutes` above) is required here
+// because these routes carry a dynamic path parameter.
+const _publicShareRoutePrefixes = <String>[
+  '/u/',
+  '/competition/',
+  '/team/',
+  '/post/',
+  '/org/',
+];
+
+bool _isPublicShareRoute(String loc) {
+  for (final prefix in _publicShareRoutePrefixes) {
+    if (loc.startsWith(prefix) && loc.length > prefix.length) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // App router
 // ---------------------------------------------------------------------------
 
@@ -1035,6 +1073,7 @@ final appRouter = GoRouter(
         FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
     if (_publicRoutes.contains(loc)) return null;
+    if (_isPublicShareRoute(loc)) return null;
 
     final inDesktop = loc == '/desktop';
     final inLogin = loc == '/login';
@@ -1172,6 +1211,42 @@ final appRouter = GoRouter(
         if (kIsWeb) return WebJoinScreen(joinCode: code);
         return QRScannerScreen(initialJoinCode: code);
       },
+    ),
+    // ── Universal Sharing & Deep Linking — public routes ─────────────────
+    //
+    // Top-level (not nested under '/') so they render standalone, work for
+    // signed-out web visitors (see _isPublicShareRoute above), and always
+    // keep the clean public URL in the browser address bar. See
+    // core/routing/route_resolver.dart for the canonical URL scheme.
+    GoRoute(
+      path: '/u/:username',
+      builder: (context, state) => UsernameProfileGateScreen(
+        username: state.pathParameters['username'] ?? '',
+      ),
+    ),
+    GoRoute(
+      path: '/competition/:id',
+      builder: (context, state) => CompetitionGateScreen(
+        competitionId: state.pathParameters['id'] ?? '',
+      ),
+    ),
+    GoRoute(
+      path: '/team/:teamId',
+      builder: (context, state) => TeamProfileGateScreen(
+        teamId: state.pathParameters['teamId'] ?? '',
+      ),
+    ),
+    GoRoute(
+      path: '/post/:id',
+      builder: (context, state) => PostDetailScreen(
+        postId: state.pathParameters['id'] ?? '',
+      ),
+    ),
+    GoRoute(
+      path: '/org/:id',
+      builder: (context, state) => OrganizerWorkspaceGateScreen(
+        workspaceId: state.pathParameters['id'] ?? '',
+      ),
     ),
     GoRoute(
       path: '/bootstrap',
