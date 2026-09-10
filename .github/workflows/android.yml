@@ -1,4 +1,3 @@
-//android.yml
 name: Android CI (Release APK + AAB - Production)
 
 on:
