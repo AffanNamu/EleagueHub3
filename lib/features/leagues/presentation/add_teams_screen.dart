@@ -29,11 +29,13 @@ import '../domain/algorithms/swiss_pairing.dart';
 import '../logic/fixture_generator.dart';
 import '../logic/team_media_service.dart';
 import '../models/enums.dart';
+import '../models/fixture_match.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
+import 'spin_wheel_draw_screen.dart';
 import 'widgets/roster_csv_importer.dart';
 
 class AddTeamsScreen extends ConsumerStatefulWidget {
@@ -68,6 +70,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
   bool _saving = false;
   bool _generating = false;
+
+  /// Fixture assignment method for Classic League only.
+  /// When false (default), the existing Automatic algorithm is used —
+  /// identical behavior to before this feature existed.
+  bool _useSpinWheel = false;
 
   bool get _busy => _saving || _generating;
 
@@ -1764,6 +1771,219 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
   }
 
+  // ── Spin Wheel Draw (Classic League only) ──────────────────────────────
+  //
+  // This does NOT introduce a second fixture system. It only decides the
+  // ORDER of teams that gets handed to the exact same
+  // FixtureGenerator.generateClassicLeagueFixtures(...) call, and the
+  // result is persisted through the exact same
+  // _localRepo.replaceMatches(...) call used by the Automatic button above.
+  // No new collection, no new document shape, no new Security Rules.
+  Future<void> _openSpinWheelDraw() async {
+    final l10n = context.l10n;
+
+    if (_busy) return;
+
+    setState(() => _generating = true);
+    try {
+      await _requireOnline();
+
+      await _saveTeamsOnly(silent: true);
+
+      final total = _existingTeams.length;
+
+      if (!_requiredCountReached) {
+        _snackErr(
+          '${l10n.tr('add_teams_cannot_generate_classic_prefix')} $total.',
+        );
+        return;
+      }
+
+      if (total < 2) {
+        _snackErr('You need at least 2 teams to use Spin Wheel draw.');
+        return;
+      }
+
+      final existingFixtures =
+          await _localRepo.getMatches(widget.leagueId);
+
+      if (existingFixtures.isNotEmpty) {
+        final ok = await showDialog<bool>(
+              context: context,
+              barrierDismissible: true,
+              barrierColor: Colors.black.withOpacity(0.55),
+              builder: (ctx) {
+                final theme = Theme.of(ctx);
+                final brightness = theme.brightness;
+
+                return Dialog(
+                  backgroundColor: Colors.transparent,
+                  insetPadding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 24),
+                  child: Glass(
+                    borderRadius: 26,
+                    padding: const EdgeInsets.all(18),
+                    fill: AppTheme.cardColor(brightness),
+                    borderColor: AppTheme.cardBorder(brightness),
+                    child: ConstrainedBox(
+                      constraints:
+                          const BoxConstraints(maxWidth: 520),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  borderRadius:
+                                      BorderRadius.circular(14),
+                                  color: const Color(0xFFF59E0B)
+                                      .withOpacity(0.16),
+                                  border: Border.all(
+                                    color:
+                                        const Color(0xFFF59E0B)
+                                            .withOpacity(0.35),
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.warning_amber_rounded,
+                                  color: Color(0xFFF59E0B),
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Text(
+                                  l10n.tr(
+                                      'add_teams_regenerate_fixtures_title'),
+                                  style: theme
+                                      .textTheme.titleMedium
+                                      ?.copyWith(
+                                    color: AppTheme.primaryText(
+                                        brightness),
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () =>
+                                    Navigator.of(ctx).pop(false),
+                                icon: Icon(
+                                  Icons.close,
+                                  color: AppTheme.secondaryText(
+                                      brightness),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            l10n.tr(
+                                'add_teams_regenerate_fixtures_message'),
+                            style: TextStyle(
+                              color: AppTheme.secondaryText(
+                                  brightness),
+                              height: 1.35,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () =>
+                                      Navigator.pop(ctx, false),
+                                  child: Text(
+                                      l10n.tr('common_cancel')),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor:
+                                        AppTheme.limeAccent,
+                                    foregroundColor:
+                                        AppTheme.darkText,
+                                  ),
+                                  onPressed: () =>
+                                      Navigator.pop(ctx, true),
+                                  child: Text(l10n.tr(
+                                      'add_teams_regenerate')),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ) ??
+            false;
+
+        if (!ok) return;
+      }
+
+      if (!mounted) return;
+
+      // Hand off to the dedicated draw screen. It does not persist
+      // anything — it only returns the randomized team order (or null
+      // if the organizer cancels / leaves without confirming).
+      final orderedTeams = await Navigator.of(context).push<List<Team>>(
+        MaterialPageRoute(
+          builder: (_) => SpinWheelDrawScreen(
+            teams: List<Team>.from(_existingTeams),
+          ),
+        ),
+      );
+
+      if (!mounted || orderedTeams == null || orderedTeams.isEmpty) {
+        // Organizer cancelled or left the draw. No fixtures were created.
+        return;
+      }
+
+      final doubleRR = _league?.homeAwayEnabled ??
+          (_league?.settings.doubleRoundRobin ?? true);
+
+      // Same generator, same persistence path as the Automatic button —
+      // only the team ORDER differs (randomized instead of add-order).
+      final List<FixtureMatch> generated =
+          FixtureGenerator.generateClassicLeagueFixtures(
+        leagueId: widget.leagueId,
+        teams: orderedTeams,
+        doubleRoundRobin: doubleRR,
+      );
+
+      if (generated.isEmpty) {
+        _snackErr(l10n.tr('add_teams_failed_generate_fixtures'));
+        return;
+      }
+
+      await _localRepo.replaceMatches(widget.leagueId, generated);
+
+      _snackOk(
+        '${l10n.tr('add_teams_fixtures_generated_prefix')}'
+        '${generated.length}'
+        '${l10n.tr('add_teams_fixtures_generated_suffix')}',
+      );
+
+      if (mounted) {
+        context.go('/leagues/${widget.leagueId}');
+      }
+    } catch (e) {
+      _snackErr(
+        UserFriendlyError.toMessage(
+            e is Object ? e : Exception('unknown')),
+      );
+    } finally {
+      if (mounted) setState(() => _generating = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -2424,60 +2644,121 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           Padding(
             padding:
                 const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.limeAccent,
-                      foregroundColor: AppTheme.darkText,
-                      minimumSize:
-                          const Size.fromHeight(48),
-                    ),
-                    onPressed:
-                        _busy ? null : _saveTeamsOnly,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child:
-                                CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppTheme.darkText,
-                            ),
-                          )
-                        : const Icon(Icons.save),
-                    label: Text(
-                        l10n.tr('add_teams_save_teams')),
+                // Fixture assignment method — Classic League only.
+                // Other formats are completely unaffected and keep the
+                // single existing button below exactly as before.
+                if (widget.format == LeagueFormat.classic) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Text(
+                            '⚙️ Automatic',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700),
+                          ),
+                          selected: !_useSpinWheel,
+                          selectedColor: AppTheme.limeAccent
+                              .withOpacity(0.28),
+                          onSelected: _busy
+                              ? null
+                              : (_) => setState(
+                                  () => _useSpinWheel = false),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Text(
+                            '🎡 Spin Wheel',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700),
+                          ),
+                          selected: _useSpinWheel,
+                          selectedColor: AppTheme.limeAccent
+                              .withOpacity(0.28),
+                          onSelected: _busy
+                              ? null
+                              : (_) => setState(
+                                  () => _useSpinWheel = true),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: (_busy ||
-                            !_requiredCountReached)
-                        ? null
-                        : _generateFixturesOnly,
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(
-                          color: AppTheme.limeAccentDark),
-                      foregroundColor:
-                          AppTheme.limeAccentDark,
-                      minimumSize:
-                          const Size.fromHeight(48),
+                  const SizedBox(height: 8),
+                ],
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.limeAccent,
+                          foregroundColor: AppTheme.darkText,
+                          minimumSize:
+                              const Size.fromHeight(48),
+                        ),
+                        onPressed:
+                            _busy ? null : _saveTeamsOnly,
+                        icon: _saving
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppTheme.darkText,
+                                ),
+                              )
+                            : const Icon(Icons.save),
+                        label: Text(
+                            l10n.tr('add_teams_save_teams')),
+                      ),
                     ),
-                    icon: _generating
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child:
-                                CircularProgressIndicator(
-                                    strokeWidth: 2),
-                          )
-                        : const Icon(Icons.auto_awesome),
-                    label: Text(l10n.tr(
-                        'add_teams_generate_fixtures')),
-                  ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: (_busy ||
+                                !_requiredCountReached)
+                            ? null
+                            : (_useSpinWheel &&
+                                    widget.format ==
+                                        LeagueFormat.classic
+                                ? _openSpinWheelDraw
+                                : _generateFixturesOnly),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(
+                              color:
+                                  AppTheme.limeAccentDark),
+                          foregroundColor:
+                              AppTheme.limeAccentDark,
+                          minimumSize:
+                              const Size.fromHeight(48),
+                        ),
+                        icon: _generating
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(
+                                        strokeWidth: 2),
+                              )
+                            : Icon(_useSpinWheel &&
+                                    widget.format ==
+                                        LeagueFormat.classic
+                                ? Icons.casino
+                                : Icons.auto_awesome),
+                        label: Text(_useSpinWheel &&
+                                widget.format ==
+                                    LeagueFormat.classic
+                            ? '🎡 Spin Wheel Draw'
+                            : l10n.tr(
+                                'add_teams_generate_fixtures')),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

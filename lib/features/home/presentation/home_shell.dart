@@ -9,11 +9,11 @@ import '../../../core/routing/home_shell_tab_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../discovery/presentation/discovery_hub_screen.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../../master_leagues/domain/organizer_feed_event.dart';
-import '../../master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../social/ui/widgets/notification_bell_button.dart';
 import '../../social/ui/widgets/platform_announcement_banner.dart';
@@ -51,7 +51,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     _tabs = const [
       _HomeTab(),
       LeaguesListScreen(showAppBar: false),
-      PublicOrganizerDiscoveryScreen(),
+      DiscoveryHubScreen(),
       MarketplaceListScreen(),
       ProfileScreen(),
     ];
