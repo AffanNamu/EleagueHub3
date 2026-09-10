@@ -6,8 +6,27 @@
 // from Play Console via queryProductDetails() — instead of the
 // Flutterwave/web pricing config, which is the wrong source of truth
 // once Android routes payments through Google Play Billing.
-
+//
+// UPDATED AGAIN (iOS support): this class was already built entirely on
+// the platform-agnostic `in_app_purchase` package APIs (InAppPurchase
+// .instance, buyConsumable/buyNonConsumable, purchaseStream,
+// completePurchase) — none of the purchase-flow logic was actually
+// Android-Billing-Library-specific. So instead of writing a parallel
+// iOS class, this file now serves BOTH platforms:
+//   - the class name and every existing public method signature are
+//     UNCHANGED, so no call site elsewhere in the app needs to change
+//   - `_providerName` now resolves to 'app_store' on iOS instead of
+//     always 'google_play_billing', so receipts/analytics correctly
+//     record which store was actually charged
+//   - added reconcileExternalPurchase() + restorePurchases(): required
+//     for iOS App Store Review (guideline 3.1.1 — Restore Purchases
+//     must exist for any non-consumable/subscription IAP; StoreKit also
+//     redelivers unfinished transactions on every app launch, which
+//     must be finished or the purchase sheet nags the user forever).
+//     See purchase_stream_listener_service.dart for the app-level
+//     listener that calls reconcileExternalPurchase().
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -51,13 +70,14 @@ class GooglePlayPurchaseResult {
     required String orderId,
     String attemptId = '',
     String paymentId = '',
+    String provider = 'google_play_billing',
   }) =>
       GooglePlayPurchaseResult._(
         success: true,
         productId: productId,
         purchaseToken: purchaseToken,
         orderId: orderId,
-        provider: 'google_play_billing',
+        provider: provider,
         errorMessage: null,
         attemptId: attemptId,
         paymentId: paymentId,
@@ -70,13 +90,14 @@ class GooglePlayPurchaseResult {
     String orderId = '',
     String attemptId = '',
     String paymentId = '',
+    String provider = 'google_play_billing',
   }) =>
       GooglePlayPurchaseResult._(
         success: false,
         productId: productId,
         purchaseToken: purchaseToken,
         orderId: orderId,
-        provider: 'google_play_billing',
+        provider: provider,
         errorMessage: errorMessage,
         attemptId: attemptId,
         paymentId: paymentId,
@@ -86,10 +107,10 @@ class GooglePlayPurchaseResult {
 // ── Price info ───────────────────────────────────────────────────────────────
 //
 // A thin wrapper around what queryProductDetails() gives us for a given
-// product. `formattedPrice` is the exact string Play Store will show at
+// product. `formattedPrice` is the exact string the store will show at
 // checkout (already localized — e.g. "$4.99", "₦4,500.00", "€4.49" —
-// using whatever you configured in Play Console for that user's Play
-// Store country).
+// using whatever you configured in Play Console / App Store Connect for
+// that user's store country).
 
 class PlayPlanPriceInfo {
   final String formattedPrice;
@@ -117,6 +138,20 @@ class GooglePlayBillingService {
   bool get enabledForAndroid =>
       PaymentPlatformConfig
           .routeAndroidPaymentsToGooglePlayBilling;
+
+  /// NEW: true when this platform should use native in-app purchase at
+  /// all — Google Play Billing on Android OR StoreKit on iOS. Prefer
+  /// this in new code; enabledForAndroid is kept for existing call
+  /// sites that only ever checked Android.
+  bool get enabledForInAppPurchase =>
+      PaymentPlatformConfig.useNativeInAppPurchase;
+
+  /// NEW: which store is actually processing the purchase on this
+  /// platform. Used to tag results/receipts/analytics correctly instead
+  /// of always writing 'google_play_billing' even when the charge went
+  /// through the App Store.
+  String get _providerName =>
+      Platform.isIOS ? 'app_store' : 'google_play_billing';
 
   // ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -159,13 +194,13 @@ class GooglePlayBillingService {
 
   // ── Live pricing (display-only, no charge) ───────────────────────────────
   //
-  // Fetches the real, current price Play Store has configured for this
-  // plan+duration's subscription product, for THIS user's Play Store
+  // Fetches the real, current price the store has configured for this
+  // plan+duration's subscription product, for THIS user's store
   // account/country. This is exactly the price _purchase() will end up
   // charging — there is no separate "display price" source of truth
-  // anymore for Google Play users.
+  // anymore for native-IAP users.
   //
-  // Returns null if the Play Store is unavailable, the product doesn't
+  // Returns null if the store is unavailable, the product doesn't
   // exist / isn't published for this plan+duration, or the query fails
   // — callers should treat null as "price unavailable right now" and
   // fall back gracefully (e.g. show a loading/placeholder state and
@@ -199,20 +234,14 @@ class GooglePlayBillingService {
     );
   }
 
-  // ── NEW (bug #5 fix): Live pricing for organizer verification ───────────
+  // ── Live pricing for organizer verification ───────────────────────────
   //
   // Same mechanism as fetchPlanPrice() above, applied to the
   // organizer_verification / organizer_verification_renewal one-time
-  // products. Previously OrganizerVerificationApplicationScreen only
-  // ever consulted RemotePricingService (the Flutterwave/web pricing
-  // doc in Firestore), which is not the source of truth on Android once
-  // PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling is
-  // true and the actual charge goes through
-  // MasterLeaguePaymentService._purchaseVerificationViaGooglePlay() —
-  // that mismatch is what produced the "0.00 NGN" display. Returns null
-  // under the same conditions as fetchPlanPrice(); callers should fall
-  // back to RemotePricingService in that case (e.g. non-Android, or the
-  // Play Store product genuinely isn't available).
+  // products. Falls back to null under the same conditions as
+  // fetchPlanPrice(); callers should fall back to RemotePricingService
+  // in that case (e.g. non-native-IAP platform, or the store product
+  // genuinely isn't available).
   Future<PlayPlanPriceInfo?> fetchOrganizerVerificationPrice({
     bool isRenewal = false,
   }) async {
@@ -233,7 +262,7 @@ class GooglePlayBillingService {
   // ── Badge grant on purchase success ──────────────────────────────────────
 
   /// Grants the appropriate badges immediately after a confirmed
-  /// Google Play purchase.
+  /// native-IAP purchase (Play Billing or StoreKit).
   ///
   /// This client-side grant runs before the server-side webhook so
   /// that the UI reflects the new badge state without waiting for
@@ -360,16 +389,19 @@ class GooglePlayBillingService {
         errorMessage: 'Please sign in to continue.',
         productId: productId,
         attemptId: attemptId,
+        provider: _providerName,
       );
     }
 
     final available = await _iap.isAvailable();
     if (!available) {
       return GooglePlayPurchaseResult.failed(
-        errorMessage:
-            'Google Play Store is not available on this device.',
+        errorMessage: Platform.isIOS
+            ? 'The App Store is not available on this device.'
+            : 'Google Play Store is not available on this device.',
         productId: productId,
         attemptId: attemptId,
+        provider: _providerName,
       );
     }
 
@@ -379,11 +411,14 @@ class GooglePlayBillingService {
     );
     if (product == null) {
       return GooglePlayPurchaseResult.failed(
-        errorMessage:
-            'This product is not available in the Play Store '
-            'right now. Please try again later.',
+        errorMessage: Platform.isIOS
+            ? 'This product is not available in the App Store '
+                'right now. Please try again later.'
+            : 'This product is not available in the Play Store '
+                'right now. Please try again later.',
         productId: productId,
         attemptId: attemptId,
+        provider: _providerName,
       );
     }
 
@@ -401,6 +436,7 @@ class GooglePlayBillingService {
         errorMessage: _cleanError(e),
         productId: productId,
         attemptId: attemptId,
+        provider: _providerName,
       );
     }
 
@@ -432,31 +468,15 @@ class GooglePlayBillingService {
             final now = _nowMs();
 
             // ── Persist receipt ───────────────────────────────────────
-            // FIXED (organizer verification payment bug #3 -- root
-            // cause of "payment succeeds, then verification submit
-            // fails"): this write used to be wrapped in a try/catch
-            // that only logged failures and otherwise fell straight
-            // through to completer.complete(...paid...) regardless of
-            // whether the `payments/{paymentId}` doc was actually
-            // written. That meant the UI could report "payment
-            // successful" while the payment record it depends on
-            // silently never existed -- guaranteeing the very next
-            // call, submitVerificationApplication()'s
-            // `payments.doc(paymentId).get()`, would find `exists ==
-            // false` and throw "Verified payment record was not
-            // found." right after the submit spinner. This is the
-            // exact same class of bug already fixed for
-            // attempt-creation via _createAttemptOrThrow() above -- it
-            // just wasn't applied to the receipt-persistence step.
-            // Now: retry once (covers transient network blips, which
-            // is the common case right after a purchase sheet closes),
-            // and if it still fails, report FAILURE instead of
-            // success. The Google Play purchase itself is already
-            // completed/acknowledged at this point and can't be
-            // "undone" here, so the failure message points the user
-            // back at "Get Verified" (Play won't double-charge for an
-            // owned/consumed purchase) and includes the order id for
-            // support escalation as a fallback.
+            // Retry once (covers transient network blips, which is the
+            // common case right after a purchase sheet closes), and if
+            // it still fails, report FAILURE instead of success. The
+            // purchase itself is already completed/finished at this
+            // point and can't be "undone" here, so the failure message
+            // points the user back at the original flow (the store
+            // won't double-charge for an owned/consumed purchase) and
+            // includes the order id for support escalation as a
+            // fallback.
             bool receiptPersisted = false;
             try {
               await _recordGooglePlayPurchase(
@@ -469,6 +489,7 @@ class GooglePlayBillingService {
                 productType: productType,
                 productSubType: productSubType,
                 leagueName: leagueName,
+                provider: _providerName,
                 now: now,
               );
               receiptPersisted = true;
@@ -490,6 +511,7 @@ class GooglePlayBillingService {
                   productType: productType,
                   productSubType: productSubType,
                   leagueName: leagueName,
+                  provider: _providerName,
                   now: now,
                 );
                 receiptPersisted = true;
@@ -509,7 +531,7 @@ class GooglePlayBillingService {
                   leagueId: '',
                   leagueName: leagueName,
                   success: false,
-                  provider: 'google_play_billing',
+                  provider: _providerName,
                   currency: 'PLAY',
                   amount: '',
                   receiptId: orderId,
@@ -522,18 +544,19 @@ class GooglePlayBillingService {
               completer.complete(
                 GooglePlayPurchaseResult.failed(
                   errorMessage:
-                      'Your purchase completed with Google Play, but '
+                      'Your purchase completed with the store, but '
                       'we couldn\'t save the receipt to your account. '
-                      'Please check your connection and tap "Get '
-                      'Verified" again -- Google Play won\'t charge '
-                      'you twice for an already-owned purchase. If '
-                      'this keeps happening, contact support with '
-                      'order ${orderId.isNotEmpty ? orderId : token}.',
+                      'Please check your connection and try again -- '
+                      'you won\'t be charged twice for an already-owned '
+                      'purchase. If this keeps happening, contact '
+                      'support with order '
+                      '${orderId.isNotEmpty ? orderId : token}.',
                   productId: productId,
                   purchaseToken: token,
                   orderId: orderId,
                   attemptId: attemptId,
                   paymentId: paymentId,
+                  provider: _providerName,
                 ),
               );
               return;
@@ -552,7 +575,7 @@ class GooglePlayBillingService {
                 leagueId: '',
                 leagueName: leagueName,
                 success: true,
-                provider: 'google_play_billing',
+                provider: _providerName,
                 currency: 'PLAY',
                 amount: '',
                 receiptId: orderId,
@@ -569,6 +592,7 @@ class GooglePlayBillingService {
                 orderId: orderId,
                 attemptId: attemptId,
                 paymentId: paymentId,
+                provider: _providerName,
               ),
             );
             return;
@@ -583,6 +607,7 @@ class GooglePlayBillingService {
                 errorMessage: msg,
                 productId: productId,
                 attemptId: attemptId,
+                provider: _providerName,
               ),
             );
             return;
@@ -595,6 +620,7 @@ class GooglePlayBillingService {
                 errorMessage: 'Purchase cancelled.',
                 productId: productId,
                 attemptId: attemptId,
+                provider: _providerName,
               ),
             );
             return;
@@ -609,6 +635,7 @@ class GooglePlayBillingService {
             errorMessage: _cleanError(e),
             productId: productId,
             attemptId: attemptId,
+            provider: _providerName,
           ),
         );
       },
@@ -622,6 +649,7 @@ class GooglePlayBillingService {
           errorMessage: 'Purchase timed out. Please try again.',
           productId: productId,
           attemptId: attemptId,
+          provider: _providerName,
         );
       },
     );
@@ -640,6 +668,7 @@ class GooglePlayBillingService {
     required String productSubType,
     required String leagueName,
     required int now,
+    String provider = 'google_play_billing',
   }) async {
     final batch = _firestore.batch();
 
@@ -651,7 +680,7 @@ class GooglePlayBillingService {
         'paymentId': paymentId,
         'attemptId': attemptId,
         'status': 'success',
-        'provider': 'google_play_billing',
+        'provider': provider,
         'providerTransactionId': orderId,
         'purchaseToken': purchaseToken,
         'productId': productId,
@@ -668,7 +697,7 @@ class GooglePlayBillingService {
         'createdAtMs': now,
         'updatedAtMs': now,
         'verification': <String, dynamic>{
-          'mode': 'google_play',
+          'mode': provider,
           'verified': false,
           'needsServerVerification': true,
         },
@@ -705,7 +734,9 @@ class GooglePlayBillingService {
   String _cleanError(Object e) {
     final raw = e.toString().trim();
     if (raw.contains('BillingResponse.userCanceled') ||
-        raw.contains('userCanceled')) {
+        raw.contains('userCanceled') ||
+        raw.contains('storeKitError.userCancelled') ||
+        raw.contains('paymentCancelled')) {
       return 'Purchase cancelled.';
     }
     if (raw.contains('BillingResponse.itemAlreadyOwned') ||
@@ -713,7 +744,8 @@ class GooglePlayBillingService {
       return 'You already own this product.';
     }
     if (raw.contains('BillingResponse.itemUnavailable') ||
-        raw.contains('itemUnavailable')) {
+        raw.contains('itemUnavailable') ||
+        raw.contains('storeProductNotAvailable')) {
       return 'This product is not available right now.';
     }
     if (raw.contains('SocketException') ||
@@ -721,6 +753,89 @@ class GooglePlayBillingService {
       return 'Network error. Please check your connection.';
     }
     return raw;
+  }
+
+  // ── NEW: Restore / reconcile (required for iOS App Review) ──────────────
+
+  /// Triggers the platform purchase-restore flow. Required by Apple
+  /// guideline 3.1.1 for any app selling non-consumables/subscriptions
+  /// — there must be a visible "Restore Purchases" control somewhere in
+  /// the app (e.g. upgrade_plan_screen.dart) that calls this. Also
+  /// works on Android, where it's not mandatory but harmless.
+  ///
+  /// Restored purchases arrive asynchronously via the same
+  /// purchaseStream and are finished/recorded by
+  /// reconcileExternalPurchase() below — this method itself does not
+  /// wait for or return that outcome, it only kicks off the
+  /// platform-native restore flow. Pair it with the app-level listener
+  /// in purchase_stream_listener_service.dart.
+  Future<void> restorePurchases() => _iap.restorePurchases();
+
+  /// Finishes and records a restored/leftover transaction that isn't
+  /// already being handled by an in-flight purchaseLeagueCreation() /
+  /// purchasePlanSubscription() / etc. call.
+  ///
+  /// Call this from a global/app-level purchase stream listener set up
+  /// once at app startup (see purchase_stream_listener_service.dart).
+  /// This covers two real StoreKit/Play Billing situations the
+  /// per-call listener inside _purchase() above cannot: (1) StoreKit
+  /// redelivers unfinished transactions on every app launch — if
+  /// nothing outside an active _purchase() call is listening, those
+  /// transactions never get finished and the store's payment sheet
+  /// nags the user indefinitely; (2) the user taps "Restore Purchases"
+  /// via restorePurchases() above, which is not tied to any specific
+  /// in-flight _purchase() call.
+  ///
+  /// Safe to call multiple times for the same purchase —
+  /// completePurchase() is a no-op if already finished, and the
+  /// Firestore write uses a deterministic paymentId so re-writing it is
+  /// harmless.
+  Future<void> reconcileExternalPurchase(PurchaseDetails purchase) async {
+    final uid = _uid();
+    if (uid.isEmpty) return;
+
+    try {
+      if (purchase.pendingCompletePurchase) {
+        await _iap.completePurchase(purchase);
+      }
+
+      if (purchase.status != PurchaseStatus.purchased &&
+          purchase.status != PurchaseStatus.restored) {
+        return;
+      }
+
+      final productId = purchase.productID;
+      final token = purchase.verificationData.serverVerificationData;
+      final orderId = purchase.purchaseID ?? '';
+      final paymentId = 'gpb_${orderId.isNotEmpty ? orderId : token}';
+      final now = _nowMs();
+
+      await _recordGooglePlayPurchase(
+        uid: uid,
+        productId: productId,
+        purchaseToken: token,
+        orderId: orderId,
+        paymentId: paymentId,
+        attemptId: '',
+        productType: 'restored_purchase',
+        productSubType: 'app_launch_reconciliation',
+        leagueName: '',
+        provider: _providerName,
+        now: now,
+      );
+
+      await _grantBadgesForProduct(productId: productId);
+
+      if (kDebugMode) {
+        debugPrint(
+          '[GPB] Reconciled external/restored purchase: $productId',
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[GPB] reconcileExternalPurchase error: $e');
+      }
+    }
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -791,9 +906,10 @@ class GooglePlayBillingService {
       return Future.value(
         GooglePlayPurchaseResult.failed(
           errorMessage:
-              'No Play Store product is configured for '
+              'No store product is configured for '
               '${plan.displayName} ${duration.displayName}.',
           attemptId: attemptId,
+          provider: _providerName,
         ),
       );
     }
@@ -861,7 +977,7 @@ class GooglePlayBillingService {
   }) async {
     return PaymentsService.instance.createAttempt(
       PaymentAttemptCreate(
-        provider: 'google_play_billing',
+        provider: _providerName,
         currency: 'PLAY',
         amount: 0,
         amountStr: '',

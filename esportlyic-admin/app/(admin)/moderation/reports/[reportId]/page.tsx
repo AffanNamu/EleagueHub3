@@ -7,6 +7,7 @@ import { getUserSummary } from '@/lib/repositories/usersAdminRepository';
 import { reportReasonLabel } from '@/types/report';
 import { formatRelativeTime } from '@/lib/utils';
 import { ReportReviewActions } from '@/components/moderation/ReportReviewActions';
+import { OpenCaseButton } from '@/components/moderation/OpenCaseButton';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
 
@@ -31,6 +32,7 @@ export default async function ReportDetailPage({ params }: { params: { reportId:
   ]);
 
   const canReview = hasPermission(identity, 'reports.review');
+  const canOpenCase = hasPermission(identity, 'moderation_cases.manage');
 
   return (
     <div className="space-y-4">
@@ -87,6 +89,18 @@ export default async function ReportDetailPage({ params }: { params: { reportId:
             <div className="panel space-y-2 p-5">
               <h2 className="mb-1 font-display text-sm font-semibold text-ink-primary">Decision</h2>
               <ReportReviewActions reportId={report.reportId} />
+            </div>
+          )}
+
+          {canOpenCase && (
+            <div className="panel p-5">
+              <h2 className="mb-3 font-display text-sm font-semibold text-ink-primary">Escalate</h2>
+              <OpenCaseButton
+                targetUserId={report.targetUserId}
+                targetUserName={target?.displayName ?? report.targetUserId}
+                reportId={report.reportId}
+                reason={reportReasonLabel(report.reason)}
+              />
             </div>
           )}
         </div>

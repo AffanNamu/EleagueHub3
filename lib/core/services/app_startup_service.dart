@@ -6,11 +6,34 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../../features/auth/data/user_profile_repository.dart';
+import 'payments/purchase_stream_listener_service.dart';
 
 class AppStartupService {
   AppStartupService._();
   static final AppStartupService instance = AppStartupService._();
   bool _badgesSyncedThisSession = false;
+  bool _purchaseListenerStarted = false;
+
+  /// Call once, early, regardless of auth state — this does not need a
+  /// signed-in user. Starts the app-lifetime purchase stream listener
+  /// (see purchase_stream_listener_service.dart) so StoreKit's
+  /// redelivered/unfinished transactions and restored purchases get
+  /// reconciled even before sign-in completes. Safe to call multiple
+  /// times — runs only once per app run.
+  void onAppStart() {
+    if (_purchaseListenerStarted) return;
+    _purchaseListenerStarted = true;
+
+    try {
+      PurchaseStreamListenerService.instance.start();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[AppStartupService] onAppStart purchase listener error: $e',
+        );
+      }
+    }
+  }
 
   /// Call once after every sign-in (including resumed sessions on cold start).
   ///

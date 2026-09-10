@@ -1,0 +1,557 @@
+name: iOS CI (Release IPA - Production)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    env:
+      CLOUDINARY_CLOUD_NAME: dbw9zpkxi
+      CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
+      PUB_CACHE: ${{ github.workspace }}/.pub-cache
+      BUNDLE_ID: com.eleaguehub.app
+
+    steps:
+      # ─────────────────────────────────────────
+      # 1. CHECKOUT
+      # ─────────────────────────────────────────
+      - name: Checkout (with retries)
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            echo "Checkout attempt ${i}/6..."
+            find . -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} + || true
+            rm -rf .git || true
+            git init -q
+            git config gc.auto 0
+            git remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
+            if git -c protocol.version=2 fetch \
+                --no-tags --prune --no-recurse-submodules \
+                --depth=1 origin "${SHA}"; then
+              git checkout --detach -q FETCH_HEAD
+              echo "✅ Checked out: $(git rev-parse HEAD)"
+              ok=1
+              break
+            fi
+            sleep $((i * 15))
+          done
+          [ "${ok}" -eq 1 ] || { echo "ERROR: Checkout failed"; exit 1; }
+
+      # ─────────────────────────────────────────
+      # 2. PREPARE DIRECTORIES
+      # ─────────────────────────────────────────
+      - name: Prepare directories
+        run: mkdir -p "${PUB_CACHE}"
+
+      # ─────────────────────────────────────────
+      # 3. CACHES
+      # ─────────────────────────────────────────
+      - name: Cache Pub
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PUB_CACHE }}
+          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      # ─────────────────────────────────────────
+      # 4. FLUTTER (same version pin as android.yml — keep in sync)
+      # ─────────────────────────────────────────
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: '3.47.1'
+          cache: true
+
+      - name: Flutter doctor
+        run: |
+          flutter --version
+          flutter config --no-analytics
+          flutter doctor -v
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      # ─────────────────────────────────────────
+      # 4b. GENERATE iOS PLATFORM PROJECT IF MISSING
+      # You're building entirely from GitHub Actions (no local Mac), so
+      # this has to happen here, every run, not on a developer machine.
+      # `flutter create` is idempotent/safe to re-run — it only fills in
+      # missing platform files, it will not overwrite your lib/ Dart code.
+      # ─────────────────────────────────────────
+      - name: Ensure iOS platform project exists
+        run: |
+          set -euo pipefail
+          if [ ! -f "ios/Runner.xcodeproj/project.pbxproj" ]; then
+            echo "No ios/ Xcode project found — generating it now."
+            flutter create --platforms=ios .
+          else
+            echo "ios/ Xcode project already present in repo — skipping generation."
+          fi
+
+      # ─────────────────────────────────────────
+      # 4c. OVERLAY ANDROID-DERIVED iOS CONFIG
+      # Writes Info.plist, Podfile, entitlements, AppDelegate.swift —
+      # same content as ios_scaffold.sh, run here instead of locally.
+      # ─────────────────────────────────────────
+      - name: Write iOS Info.plist, Podfile, entitlements, AppDelegate
+        run: |
+          set -euo pipefail
+          mkdir -p ios/Runner
+
+          cat > ios/Runner/Info.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          	<key>CFBundleDevelopmentRegion</key>
+          	<string>$(DEVELOPMENT_LANGUAGE)</string>
+          	<key>CFBundleExecutable</key>
+          	<string>$(EXECUTABLE_NAME)</string>
+          	<key>CFBundleIdentifier</key>
+          	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+          	<key>CFBundleInfoDictionaryVersion</key>
+          	<string>6.0</string>
+          	<key>CFBundleName</key>
+          	<string>eleaguehub3</string>
+          	<key>CFBundleDisplayName</key>
+          	<string>eSportlyic</string>
+          	<key>CFBundlePackageType</key>
+          	<string>APPL</string>
+          	<key>CFBundleShortVersionString</key>
+          	<string>$(FLUTTER_BUILD_NAME)</string>
+          	<key>CFBundleVersion</key>
+          	<string>$(FLUTTER_BUILD_NUMBER)</string>
+          	<key>CFBundleSignature</key>
+          	<string>????</string>
+          	<key>CFBundleURLTypes</key>
+          	<array>
+          		<dict>
+          			<key>CFBundleURLName</key>
+          			<string>com.eleaguehub.app.deeplink</string>
+          			<key>CFBundleURLSchemes</key>
+          			<array>
+          				<string>esportlyic</string>
+          			</array>
+          		</dict>
+          		<dict>
+          			<key>CFBundleURLName</key>
+          			<string>com.eleaguehub.app.googlesignin</string>
+          			<key>CFBundleURLSchemes</key>
+          			<array>
+          				<string>${GOOGLE_REVERSED_CLIENT_ID}</string>
+          			</array>
+          		</dict>
+          	</array>
+          	<key>NSCameraUsageDescription</key>
+          	<string>eSportlyic uses your camera to scan QR codes, capture profile/media content, and enable video during live league sessions.</string>
+          	<key>NSMicrophoneUsageDescription</key>
+          	<string>eSportlyic uses your microphone for voice chat and audio during live league sessions and recordings.</string>
+          	<key>NSPhotoLibraryUsageDescription</key>
+          	<string>eSportlyic needs access to your photo library to let you select images and media to upload.</string>
+          	<key>NSPhotoLibraryAddUsageDescription</key>
+          	<string>eSportlyic saves media you create or download to your photo library when you choose to.</string>
+          	<key>NSLocalNetworkUsageDescription</key>
+          	<string>eSportlyic uses your local network to establish low-latency audio/video connections during live league sessions.</string>
+          	<key>NSUserTrackingUsageDescription</key>
+          	<string>This identifier will be used to deliver personalized ads to you.</string>
+          	<key>GADApplicationIdentifier</key>
+          	<string>${IOS_ADMOB_APP_ID}</string>
+          	<key>SKAdNetworkItems</key>
+          	<array>
+          		<dict>
+          			<key>SKAdNetworkIdentifier</key>
+          			<string>cstr6suwn9.skadnetwork</string>
+          		</dict>
+          	</array>
+          	<key>UIBackgroundModes</key>
+          	<array>
+          		<string>audio</string>
+          		<string>remote-notification</string>
+          	</array>
+          	<key>ITSAppUsesNonExemptEncryption</key>
+          	<false/>
+          	<key>UILaunchStoryboardName</key>
+          	<string>LaunchScreen</string>
+          	<key>UIMainStoryboardFile</key>
+          	<string>Main</string>
+          	<key>UIApplicationSupportsIndirectInputEvents</key>
+          	<true/>
+          	<key>CADisableMinimumFrameDurationOnPhone</key>
+          	<true/>
+          	<key>UISupportedInterfaceOrientations</key>
+          	<array>
+          		<string>UIInterfaceOrientationPortrait</string>
+          		<string>UIInterfaceOrientationLandscapeLeft</string>
+          		<string>UIInterfaceOrientationLandscapeRight</string>
+          	</array>
+          	<key>UISupportedInterfaceOrientations~ipad</key>
+          	<array>
+          		<string>UIInterfaceOrientationPortrait</string>
+          		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+          		<string>UIInterfaceOrientationLandscapeLeft</string>
+          		<string>UIInterfaceOrientationLandscapeRight</string>
+          	</array>
+          </dict>
+          </plist>
+          PLIST
+
+          cat > ios/Runner/Runner.entitlements <<'ENTITLEMENTS'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          	<key>aps-environment</key>
+          	<string>production</string>
+          	<key>com.apple.developer.applesignin</key>
+          	<array>
+          		<string>Default</string>
+          	</array>
+          	<key>com.apple.security.application-groups</key>
+          	<array>
+          		<string>group.com.eleaguehub.app</string>
+          	</array>
+          </dict>
+          </plist>
+          ENTITLEMENTS
+
+          cat > ios/Podfile <<'PODFILE'
+          platform :ios, '13.0'
+          ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+          project 'Runner', {
+            'Debug' => :debug,
+            'Profile' => :release,
+            'Release' => :release,
+          }
+
+          def flutter_root
+            generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+            unless File.exist?(generated_xcode_build_settings_path)
+              raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+            end
+            File.foreach(generated_xcode_build_settings_path) do |line|
+              matches = line.match(/FLUTTER_ROOT\=(.*)/)
+              return matches[1].strip if matches
+            end
+            raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+          end
+
+          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+          flutter_ios_podfile_setup
+
+          target 'Runner' do
+            use_frameworks!
+            flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+            target 'RunnerTests' do
+              inherit! :search_paths
+            end
+          end
+
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              flutter_additional_ios_build_settings(target)
+              target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+              end
+            end
+          end
+          PODFILE
+
+          cat > ios/Runner/AppDelegate.swift <<'SWIFT'
+          import Flutter
+          import UIKit
+          import Firebase
+          import GoogleMobileAds
+
+          @main
+          @objc class AppDelegate: FlutterAppDelegate {
+            override func application(
+              _ application: UIApplication,
+              didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+            ) -> Bool {
+              FirebaseApp.configure()
+              GADMobileAds.sharedInstance().start(completionHandler: nil)
+              application.registerForRemoteNotifications()
+              GeneratedPluginRegistrant.register(with: self)
+              return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+            }
+          }
+          SWIFT
+
+          echo "✅ Info.plist, entitlements, Podfile, AppDelegate.swift written"
+
+      # ─────────────────────────────────────────
+      # 4d. WRITE iOS GoogleService-Info.plist FROM SECRET
+      # Required secret: GOOGLESERVICE_INFO_PLIST_B64
+      #   (base64 of the file downloaded from Firebase Console →
+      #    Add iOS app → bundle ID com.eleaguehub.app)
+      # Also substitutes the two placeholders left in Info.plist above:
+      #   GOOGLE_REVERSED_CLIENT_ID (parsed straight out of that plist)
+      #   IOS_ADMOB_APP_ID (from its own secret — see below)
+      # ─────────────────────────────────────────
+      - name: Write GoogleService-Info.plist and fill Info.plist placeholders
+        env:
+          GOOGLESERVICE_INFO_PLIST_B64: ${{ secrets.GOOGLESERVICE_INFO_PLIST_B64 }}
+          IOS_ADMOB_APP_ID: ${{ secrets.IOS_ADMOB_APP_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GOOGLESERVICE_INFO_PLIST_B64:-}" ]; then
+            echo "::error::GOOGLESERVICE_INFO_PLIST_B64 secret is missing. Create an iOS app in Firebase Console (bundle ID com.eleaguehub.app), download GoogleService-Info.plist, base64 it, and store it as this secret."
+            exit 1
+          fi
+          if [ -z "${IOS_ADMOB_APP_ID:-}" ]; then
+            echo "::error::IOS_ADMOB_APP_ID secret is missing. Create a separate iOS app entry in the AdMob console (your Android AdMob ID cannot be reused) and store its ca-app-pub-...~... ID as this secret."
+            exit 1
+          fi
+
+          echo -n "$GOOGLESERVICE_INFO_PLIST_B64" | base64 --decode -o ios/Runner/GoogleService-Info.plist
+
+          REVERSED_CLIENT_ID=$(/usr/libexec/PlistBuddy -c "Print :REVERSED_CLIENT_ID" ios/Runner/GoogleService-Info.plist)
+
+          /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${REVERSED_CLIENT_ID}" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :GADApplicationIdentifier ${IOS_ADMOB_APP_ID}" ios/Runner/Info.plist
+
+          echo "✅ GoogleService-Info.plist installed, Info.plist placeholders resolved"
+
+      # ─────────────────────────────────────────
+      # 5. LAUNCHER ICON (mirrors android.yml step; reuses assets/icon.png)
+      # ─────────────────────────────────────────
+      - name: Download launcher icon from Google Drive
+        shell: bash
+        env:
+          ICON_FILE_ID: "1ynEFtKZCC-mQPegEQKw7QqjRU_KCYqA4"
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          curl -fsSL --retry 3 --retry-delay 3 --max-time 60 \
+            -A "Mozilla/5.0 (Macintosh)" \
+            "https://drive.usercontent.google.com/download?id=${ICON_FILE_ID}&export=download&authuser=0&confirm=t" \
+            -o assets/icon.png || true
+          if [ ! -s assets/icon.png ]; then
+            echo "::warning::Icon download failed — flutter_launcher_icons will use whatever assets/icon.png already exists in the repo, if any."
+          fi
+
+      - name: Generate launcher icons
+        run: flutter pub run flutter_launcher_icons || echo "::warning::flutter_launcher_icons step skipped/failed — verify iOS AppIcon.appiconset manually"
+
+      # ─────────────────────────────────────────
+      # 6. APPLE CODE SIGNING
+      # Uses fastlane match-style manual cert/profile install.
+      # Required GitHub Secrets:
+      #   IOS_DIST_CERT_P12_B64      - base64 of Apple Distribution .p12
+      #   IOS_DIST_CERT_PASSWORD     - password for the .p12
+      #   IOS_PROVISION_PROFILE_B64  - base64 of the .mobileprovision
+      #   KEYCHAIN_PASSWORD          - any throwaway password for the temp CI keychain
+      # ─────────────────────────────────────────
+      - name: Install signing certificate & provisioning profile
+        env:
+          IOS_DIST_CERT_P12_B64: ${{ secrets.IOS_DIST_CERT_P12_B64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_PROVISION_PROFILE_B64: ${{ secrets.IOS_PROVISION_PROFILE_B64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          for v in IOS_DIST_CERT_P12_B64 IOS_DIST_CERT_PASSWORD IOS_PROVISION_PROFILE_B64 KEYCHAIN_PASSWORD; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::${v} secret is missing — cannot sign the build."
+              exit 1
+            fi
+          done
+
+          CERT_PATH="$RUNNER_TEMP/dist_cert.p12"
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/ci-signing.keychain-db"
+
+          echo -n "$IOS_DIST_CERT_P12_B64" | base64 --decode -o "$CERT_PATH"
+          echo -n "$IOS_PROVISION_PROFILE_B64" | base64 --decode -o "$PROFILE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$IOS_DIST_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychain -d user | sed 's/"//g')
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
+          echo "✅ Certificate and profile installed"
+
+      # ─────────────────────────────────────────
+      # 7. COCOAPODS
+      # ─────────────────────────────────────────
+      - name: Install CocoaPods dependencies
+        run: |
+          set -euo pipefail
+          cd ios
+          pod install --repo-update
+          echo "✅ Pods installed"
+
+      # ─────────────────────────────────────────
+      # 8. BUILD IPA
+      # Same dart-define set as android.yml (Cloudinary, EH worker, Flutterwave,
+      # Supabase) so Dart-side config parity holds across platforms.
+      # ─────────────────────────────────────────
+      - name: Build Release IPA
+        env:
+          EH_WORKER_BASE_URL: ${{ secrets.EH_WORKER_BASE_URL }}
+          FLW_PUBLIC_KEY_TEST: ${{ secrets.FLW_PUBLIC_KEY_TEST }}
+          FLW_PUBLIC_KEY_LIVE: ${{ secrets.FLW_PUBLIC_KEY_LIVE }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          IOS_EXPORT_TEAM_ID: ${{ secrets.IOS_EXPORT_TEAM_ID }}
+          IOS_PROVISION_PROFILE_NAME: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
+        run: |
+          set -euo pipefail
+
+          [ -n "${EH_WORKER_BASE_URL:-}" ] || \
+            { echo "::error::EH_WORKER_BASE_URL secret is not set"; exit 1; }
+          [ -n "${IOS_EXPORT_TEAM_ID:-}" ] || \
+            { echo "::error::IOS_EXPORT_TEAM_ID secret is not set (Apple Developer Team ID)"; exit 1; }
+          [ -n "${IOS_PROVISION_PROFILE_NAME:-}" ] || \
+            { echo "::error::IOS_PROVISION_PROFILE_NAME secret is not set (exact name of the profile, not the file)"; exit 1; }
+
+          DART_DEFINES=""
+          DART_DEFINES+=" --dart-define=CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}"
+          DART_DEFINES+=" --dart-define=CLOUDINARY_UNSIGNED_UPLOAD_PRESET=${CLOUDINARY_UNSIGNED_UPLOAD_PRESET}"
+          DART_DEFINES+=" --dart-define=EH_WORKER_BASE_URL=${EH_WORKER_BASE_URL}"
+
+          if [ -n "${SUPABASE_URL:-}" ]; then
+            DART_DEFINES+=" --dart-define=SUPABASE_URL=${SUPABASE_URL}"
+          fi
+          if [ -n "${SUPABASE_ANON_KEY:-}" ]; then
+            DART_DEFINES+=" --dart-define=SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}"
+          fi
+
+          if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
+            DART_DEFINES+=" --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
+            DART_DEFINES+=" --dart-define=FLW_TEST_MODE=false"
+          elif [ -n "${FLW_PUBLIC_KEY_TEST:-}" ]; then
+            DART_DEFINES+=" --dart-define=FLW_PUBLIC_KEY_TEST=${FLW_PUBLIC_KEY_TEST}"
+            DART_DEFINES+=" --dart-define=FLW_TEST_MODE=true"
+          fi
+
+          cat > ios/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>${IOS_EXPORT_TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${IOS_PROVISION_PROFILE_NAME}</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          flutter build ipa \
+            --release \
+            --no-tree-shake-icons \
+            --export-options-plist=ios/ExportOptions.plist \
+            ${DART_DEFINES}
+
+          echo "✅ IPA built successfully"
+
+      - name: Verify IPA
+        run: |
+          set -euo pipefail
+          IPA_DIR="build/ios/ipa"
+          IPA_FILE=$(find "$IPA_DIR" -name "*.ipa" | head -n 1)
+          [ -n "$IPA_FILE" ] || { echo "::error::No IPA produced"; exit 1; }
+          echo "✅ IPA: $IPA_FILE ($(du -h "$IPA_FILE" | cut -f1))"
+
+      # ─────────────────────────────────────────
+      # 9. UPLOAD ARTIFACT
+      # ─────────────────────────────────────────
+      - name: Upload Release IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      # ─────────────────────────────────────────
+      # 10. OPTIONAL: UPLOAD TO APP STORE CONNECT (TestFlight)
+      # Only runs if all three App Store Connect API secrets are present.
+      # Required GitHub Secrets:
+      #   ASC_API_KEY_ID       - Key ID from App Store Connect > Users and Access > Keys
+      #   ASC_API_ISSUER_ID    - Issuer ID, same page
+      #   ASC_API_KEY_P8_B64   - base64 of the downloaded .p8 private key
+      # ─────────────────────────────────────────
+      - name: Upload to App Store Connect
+        if: ${{ secrets.ASC_API_KEY_ID != '' && secrets.ASC_API_ISSUER_ID != '' && secrets.ASC_API_KEY_P8_B64 != '' }}
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_B64: ${{ secrets.ASC_API_KEY_P8_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/private_keys
+          echo -n "$ASC_API_KEY_P8_B64" | base64 --decode -o ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
+
+          IPA_FILE=$(find build/ios/ipa -name "*.ipa" | head -n 1)
+
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA_FILE" \
+            --apiKey "$ASC_API_KEY_ID" \
+            --apiIssuer "$ASC_API_ISSUER_ID"
+
+          echo "✅ Uploaded to App Store Connect / TestFlight"
+
+      - name: Skipped App Store Connect upload
+        if: ${{ !(secrets.ASC_API_KEY_ID != '' && secrets.ASC_API_ISSUER_ID != '' && secrets.ASC_API_KEY_P8_B64 != '') }}
+        run: |
+          echo "::notice::ASC_API_KEY_ID / ASC_API_ISSUER_ID / ASC_API_KEY_P8_B64 not fully set — IPA was built and uploaded as a workflow artifact only, not sent to App Store Connect."
+
+      # ─────────────────────────────────────────
+      # 11. SUMMARY
+      # ─────────────────────────────────────────
+      - name: Build Summary
+        run: |
+          echo "============================================"
+          echo "✅ iOS BUILD COMPLETE"
+          echo "============================================"
+          find build/ios/ipa -name "*.ipa" -exec ls -lh {} \;
+          echo ""
+          echo "Download from: Actions → this workflow run → Artifacts → app-release-ipa"
+          echo "============================================"

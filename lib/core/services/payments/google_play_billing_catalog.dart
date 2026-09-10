@@ -7,6 +7,15 @@ class GooglePlayBillingCatalog {
 
   // ── Subscriptions for organizer plans ─────────────────────────────────────
 
+  // NEW: monthly billing period. Matches the existing per-duration product
+  // ID pattern exactly (own env-var override, own hardcoded default) — no
+  // existing product ID constant was touched or renamed.
+  static const String pro1MonthSubscriptionId =
+      String.fromEnvironment(
+    'GPB_SUB_PRO_1MO_ID',
+    defaultValue: 'pro_1mo',
+  );
+
   static const String pro3MonthsSubscriptionId =
       String.fromEnvironment(
     'GPB_SUB_PRO_3MO_ID',
@@ -23,6 +32,13 @@ class GooglePlayBillingCatalog {
       String.fromEnvironment(
     'GPB_SUB_PRO_YEARLY_ID',
     defaultValue: 'pro_yearly',
+  );
+
+  // NEW: monthly billing period, mirrors pro1MonthSubscriptionId above.
+  static const String elite1MonthSubscriptionId =
+      String.fromEnvironment(
+    'GPB_SUB_ELITE_1MO_ID',
+    defaultValue: 'elite_1mo',
   );
 
   static const String elite3MonthsSubscriptionId =
@@ -91,6 +107,8 @@ class GooglePlayBillingCatalog {
     switch (plan) {
       case MasterLeaguePlan.pro:
         switch (duration) {
+          case PlanDuration.oneMonth:
+            return pro1MonthSubscriptionId;
           case PlanDuration.threeMonths:
             return pro3MonthsSubscriptionId;
           case PlanDuration.sixMonths:
@@ -100,6 +118,8 @@ class GooglePlayBillingCatalog {
         }
       case MasterLeaguePlan.elite:
         switch (duration) {
+          case PlanDuration.oneMonth:
+            return elite1MonthSubscriptionId;
           case PlanDuration.threeMonths:
             return elite3MonthsSubscriptionId;
           case PlanDuration.sixMonths:
@@ -114,9 +134,11 @@ class GooglePlayBillingCatalog {
 
   static Map<String, String> allProductIds() {
     return <String, String>{
+      'pro_1mo': pro1MonthSubscriptionId,
       'pro_3mo': pro3MonthsSubscriptionId,
       'pro_6mo': pro6MonthsSubscriptionId,
       'pro_yearly': proYearlySubscriptionId,
+      'elite_1mo': elite1MonthSubscriptionId,
       'elite_3mo': elite3MonthsSubscriptionId,
       'elite_6mo': elite6MonthsSubscriptionId,
       'elite_yearly': eliteYearlySubscriptionId,
@@ -142,6 +164,13 @@ class GooglePlayBillingCatalog {
   /// in multiple places.
   static _SubscriptionTierInfo? tierInfoForProductId(
       String productId) {
+    // Pro — 1 month
+    if (productId == pro1MonthSubscriptionId) {
+      return const _SubscriptionTierInfo(
+        tier: PlanSubscriptionTier.pro,
+        durationDays: 30,
+      );
+    }
     // Pro — 3 months
     if (productId == pro3MonthsSubscriptionId) {
       return const _SubscriptionTierInfo(
@@ -161,6 +190,13 @@ class GooglePlayBillingCatalog {
       return const _SubscriptionTierInfo(
         tier: PlanSubscriptionTier.pro,
         durationDays: 365,
+      );
+    }
+    // Elite — 1 month
+    if (productId == elite1MonthSubscriptionId) {
+      return const _SubscriptionTierInfo(
+        tier: PlanSubscriptionTier.elite,
+        durationDays: 30,
       );
     }
     // Elite — 3 months
@@ -190,14 +226,16 @@ class GooglePlayBillingCatalog {
 
   /// Returns true if [productId] resolves to a Pro-tier subscription.
   static bool isProSubscription(String productId) {
-    return productId == pro3MonthsSubscriptionId ||
+    return productId == pro1MonthSubscriptionId ||
+        productId == pro3MonthsSubscriptionId ||
         productId == pro6MonthsSubscriptionId ||
         productId == proYearlySubscriptionId;
   }
 
   /// Returns true if [productId] resolves to an Elite-tier subscription.
   static bool isEliteSubscription(String productId) {
-    return productId == elite3MonthsSubscriptionId ||
+    return productId == elite1MonthSubscriptionId ||
+        productId == elite3MonthsSubscriptionId ||
         productId == elite6MonthsSubscriptionId ||
         productId == eliteYearlySubscriptionId;
   }

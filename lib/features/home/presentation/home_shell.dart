@@ -9,12 +9,13 @@ import '../../../core/routing/home_shell_tab_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
-import '../../discovery/presentation/discovery_hub_screen.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../../master_leagues/domain/organizer_feed_event.dart';
+import '../../master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
+import '../../social/ui/widgets/notification_bell_button.dart';
 import '../../social/ui/widgets/platform_announcement_banner.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
@@ -50,7 +51,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     _tabs = const [
       _HomeTab(),
       LeaguesListScreen(showAppBar: false),
-      DiscoveryHubScreen(),
+      PublicOrganizerDiscoveryScreen(),
       MarketplaceListScreen(),
       ProfileScreen(),
     ];
@@ -213,6 +214,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
+          actions: const [NotificationBellButton()],
         ),
         body: SafeArea(
           bottom: false,
@@ -327,7 +329,15 @@ class _HomeShellState extends ConsumerState<HomeShell>
 class _HomeTab extends StatelessWidget {
   const _HomeTab();
 
+  /// Navigation helper.
+  ///
+  /// Uses [GoRouter.of] explicitly instead of the [BuildContext] extension
+  /// so that it always resolves the correct router — even when the widget
+  /// is mounted inside an [Offstage] subtree or a nested [Navigator].
   void _navigate(BuildContext context, String location) {
+    // We use GoRouter.of(context).push() with the FULL path.
+    // All paths here start with '/' so they are absolute — GoRouter
+    // will not try to resolve them relative to the current shell route.
     try {
       GoRouter.of(context).push(location);
     } catch (e) {
@@ -354,7 +364,10 @@ class _HomeTab extends StatelessWidget {
       ),
       padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
       children: [
+        // ── Platform announcement banner ────────────────────────────────
         const PlatformAnnouncementBanner(),
+
+        // ── Welcome hero ────────────────────────────────────────────────
         Glass(
           borderRadius: 28,
           padding: const EdgeInsets.all(22),
@@ -440,6 +453,7 @@ class _HomeTab extends StatelessWidget {
 
         const SizedBox(height: 22),
 
+        // ── Quick actions heading ────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -452,6 +466,7 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
 
+        // ── Create League + Live Match ───────────────────────────────────
         Row(
           children: [
             Expanded(
@@ -471,6 +486,7 @@ class _HomeTab extends StatelessWidget {
                 onTap: () => _navigate(context, '/leagues/create'),
               ),
             ),
+            // Live Match — mobile only
             if (!isWeb) ...[
               const SizedBox(width: 12),
               Expanded(
@@ -496,6 +512,7 @@ class _HomeTab extends StatelessWidget {
 
         const SizedBox(height: 12),
 
+        // ── Organizer Workspace ──────────────────────────────────────────
         _QuickActionCard(
           icon: Icons.hub_rounded,
           title: _trOr(
@@ -519,6 +536,7 @@ class _HomeTab extends StatelessWidget {
 
         const SizedBox(height: 12),
 
+        // ── Voice Room — mobile only ─────────────────────────────────────
         if (!isWeb)
           _QuickActionCard(
             icon: Icons.headset_mic_rounded,
@@ -547,10 +565,12 @@ class _HomeTab extends StatelessWidget {
 
         const SizedBox(height: 22),
 
+        // ── Organizer feed preview ───────────────────────────────────────
         _FollowedOrganizerFeedPreview(uid: uid),
 
         const SizedBox(height: 22),
 
+        // ── Explore heading ──────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
@@ -563,12 +583,7 @@ class _HomeTab extends StatelessWidget {
           ),
         ),
 
-        // NOTE: The "Global Chat" row that used to live here has been
-        // REMOVED per request — Global Chat is now reachable from
-        // Discover -> Community, and is intentionally no longer
-        // duplicated as a second entry point on Home. The underlying
-        // GlobalChatScreen and its '/global-chat' route are completely
-        // untouched; only this shortcut card was removed.
+        // ── Explore list ─────────────────────────────────────────────────
         Glass(
           borderRadius: 24,
           padding: const EdgeInsets.all(4),
@@ -617,20 +632,15 @@ class _HomeTab extends StatelessWidget {
               Divider(
                   color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
-                icon: Icons.local_fire_department_rounded,
-                title: 'Public Feed',
-                subtitle: "See what's happening in the community",
-                onTap: () => _navigate(context, '/discovery/feed'),
-                secondaryColor: tertiary,
-                chevronColor: faint,
-              ),
-              Divider(
-                  color: AppTheme.cardBorder(brightness), height: 1),
-              _ExploreRow(
-                icon: Icons.groups_2_rounded,
-                title: 'Community',
-                subtitle: 'Global Chat, discussions & more',
-                onTap: () => _navigate(context, '/discovery/community'),
+                icon: Icons.forum_rounded,
+                title: _trOr(
+                    l10n, 'home_explore_global_chat', 'Global Chat'),
+                subtitle: _trOr(
+                  l10n,
+                  'home_explore_global_chat_sub',
+                  'Request access & chat in realtime',
+                ),
+                onTap: () => _navigate(context, '/global-chat'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
               ),
@@ -703,11 +713,7 @@ class _FollowedOrganizerFeedPreviewState
   late final OrganizerFeedFirebase _feed;
 
   bool _loading = true;
-  bool _busyAction = false;
-  List<OrganizerFeedEvent> _allItems = const <OrganizerFeedEvent>[];
   List<OrganizerFeedEvent> _items = const <OrganizerFeedEvent>[];
-  int _lastReadAtMs = 0;
-  int _clearedAtMs = 0;
   bool _hasError = false;
 
   @override
@@ -724,21 +730,12 @@ class _FollowedOrganizerFeedPreviewState
     if (oldWidget.uid != widget.uid) _load();
   }
 
-  void _applyCursors() {
-    final visible = _allItems
-        .where((item) => item.createdAtMs > _clearedAtMs)
-        .take(4)
-        .toList(growable: false);
-    _items = visible;
-  }
-
   Future<void> _load() async {
     final uid = widget.uid.trim();
     if (uid.isEmpty) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _allItems = const <OrganizerFeedEvent>[];
         _items = const <OrganizerFeedEvent>[];
         _hasError = false;
       });
@@ -748,57 +745,22 @@ class _FollowedOrganizerFeedPreviewState
     if (mounted) setState(() => _loading = true);
 
     try {
-      final results = await Future.wait([
-        _feed.fetchFollowedOrganizerFeedOnce(uid),
-        _feed.getFeedCursors(uid),
-      ]);
+      final items =
+          await _feed.fetchFollowedOrganizerFeedOnce(uid);
       if (!mounted) return;
-      final items = results[0] as List<OrganizerFeedEvent>;
-      final cursors = results[1] as OrganizerFeedCursors;
       setState(() {
         _loading = false;
-        _allItems = items;
-        _lastReadAtMs = cursors.lastReadAtMs;
-        _clearedAtMs = cursors.clearedAtMs;
-        _applyCursors();
+        _items = items.take(4).toList(growable: false);
         _hasError = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _allItems = const <OrganizerFeedEvent>[];
         _items = const <OrganizerFeedEvent>[];
         _hasError = true;
       });
     }
-  }
-
-  Future<void> _markAllRead() async {
-    final uid = widget.uid.trim();
-    if (uid.isEmpty || _busyAction) return;
-
-    setState(() => _busyAction = true);
-    final now = await _feed.markAllRead(uid);
-    if (!mounted) return;
-    setState(() {
-      _lastReadAtMs = now;
-      _busyAction = false;
-    });
-  }
-
-  Future<void> _clearAll() async {
-    final uid = widget.uid.trim();
-    if (uid.isEmpty || _busyAction) return;
-
-    setState(() => _busyAction = true);
-    final now = await _feed.clearAll(uid);
-    if (!mounted) return;
-    setState(() {
-      _clearedAtMs = now;
-      _applyCursors();
-      _busyAction = false;
-    });
   }
 
   IconData _feedIcon(String type) {
@@ -885,28 +847,6 @@ class _FollowedOrganizerFeedPreviewState
                   ),
                 ),
               ),
-              if (_items.isNotEmpty)
-                PopupMenuButton<String>(
-                  enabled: !_busyAction,
-                  icon: Icon(
-                    Icons.more_horiz_rounded,
-                    color: AppTheme.secondaryText(brightness),
-                  ),
-                  onSelected: (value) {
-                    if (value == 'mark_read') _markAllRead();
-                    if (value == 'clear_all') _clearAll();
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: 'mark_read',
-                      child: Text('Mark all as read'),
-                    ),
-                    PopupMenuItem(
-                      value: 'clear_all',
-                      child: Text('Clear all'),
-                    ),
-                  ],
-                ),
               TextButton.icon(
                 onPressed: () {
                   try {
@@ -937,10 +877,8 @@ class _FollowedOrganizerFeedPreviewState
             )
           else if (_items.isEmpty)
             Text(
-              _allItems.isNotEmpty
-                  ? 'All caught up — cleared.'
-                  : 'No followed organizer updates yet. Follow organizer '
-                      'workspaces to see their latest activity here.',
+              'No followed organizer updates yet. Follow organizer '
+              'workspaces to see their latest activity here.',
               style: t.bodySmall?.copyWith(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
@@ -988,30 +926,13 @@ class _FollowedOrganizerFeedPreviewState
                               crossAxisAlignment:
                                   CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  children: [
-                                    if (item.createdAtMs > _lastReadAtMs) ...[
-                                      Container(
-                                        width: 7,
-                                        height: 7,
-                                        margin: const EdgeInsets.only(right: 6),
-                                        decoration: const BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: Color(0xFFEF4444),
-                                        ),
-                                      ),
-                                    ],
-                                    Expanded(
-                                      child: Text(
-                                        item.title,
-                                        style: t.bodyMedium?.copyWith(
-                                          color: AppTheme.primaryText(
-                                              brightness),
-                                          fontWeight: FontWeight.w900,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                                Text(
+                                  item.title,
+                                  style: t.bodyMedium?.copyWith(
+                                    color: AppTheme.primaryText(
+                                        brightness),
+                                    fontWeight: FontWeight.w900,
+                                  ),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(

@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>eleaguehub3</string>
+	<key>CFBundleDisplayName</key>
+	<string>eSportlyic</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+
+	<!-- ══════════════════════════════════════════════════════════
+	     DEEP LINK — mirrors Android intent-filter:
+	     <data android:scheme="esportlyic" android:host="auth" />
+	     Driven by: app_links
+	     ══════════════════════════════════════════════════════════ -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.eleaguehub.app.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>esportlyic</string>
+			</array>
+		</dict>
+		<!-- ══════════════════════════════════════════════════════
+		     GOOGLE SIGN-IN URL SCHEME — PLACEHOLDER.
+		     Replace REPLACE_WITH_REVERSED_CLIENT_ID below with the
+		     REVERSED_CLIENT_ID value from your iOS GoogleService-Info.plist
+		     (Firebase Console → Project Settings → Add iOS app →
+		     bundle ID com.eleaguehub.app → download GoogleService-Info.plist).
+		     Google Sign-In will not work until this is a real value.
+		     Driven by: google_sign_in
+		     ══════════════════════════════════════════════════════ -->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.eleaguehub.app.googlesignin</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>REPLACE_WITH_REVERSED_CLIENT_ID</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- ══════════════════════════════════════════════════════════
+	     PERMISSIONS — every usage string below maps to a real
+	     Android permission + real plugin in pubspec.yaml. None of
+	     these are speculative additions.
+	     ══════════════════════════════════════════════════════════ -->
+
+	<!-- Android: CAMERA + camera hardware features
+	     Plugins: image_picker, mobile_scanner, flutter_webrtc -->
+	<key>NSCameraUsageDescription</key>
+	<string>eSportlyic uses your camera to scan QR codes, capture profile/media content, and enable video during live league sessions.</string>
+
+	<!-- Android: RECORD_AUDIO, MODIFY_AUDIO_SETTINGS
+	     Plugins: flutter_webrtc, livekit_client, record, just_audio -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>eSportlyic uses your microphone for voice chat and audio during live league sessions and recordings.</string>
+
+	<!-- Android: READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE
+	     Plugins: image_picker, file_picker -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>eSportlyic needs access to your photo library to let you select images and media to upload.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>eSportlyic saves media you create or download to your photo library when you choose to.</string>
+
+	<!-- Plugins: flutter_webrtc / livekit_client real-time connections
+	     often trigger the iOS 14+ Local Network prompt during ICE/mDNS
+	     negotiation. Included proactively — remove if you confirm it's
+	     never actually triggered in your build. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>eSportlyic uses your local network to establish low-latency audio/video connections during live league sessions.</string>
+
+	<!-- ══════════════════════════════════════════════════════════
+	     APP TRACKING TRANSPARENCY — only required if google_mobile_ads
+	     is actually configured for personalized/attributed ads (i.e.
+	     it reads the IDFA). If your AdMob setup only serves
+	     non-personalized/contextual ads, remove this key entirely —
+	     Apple flags apps that declare NSUserTrackingUsageDescription
+	     without an actual ATT prompt path in code.
+	     ══════════════════════════════════════════════════════════ -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>This identifier will be used to deliver personalized ads to you.</string>
+
+	<!-- ══════════════════════════════════════════════════════════
+	     ADMOB — GADApplicationIdentifier below is a PLACEHOLDER.
+	     Your Android AdMob App ID (ca-app-pub-9284565371998347~4995728889)
+	     CANNOT be reused — AdMob requires a separate iOS app entry.
+	     Create one at admob.google.com and paste its ID here.
+	     ══════════════════════════════════════════════════════════ -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-REPLACE-WITH-IOS-ADMOB-APP-ID~0000000000</string>
+
+	<!-- SKAdNetworkItems: minimum required Google network ID only.
+	     Google's own current full list (which changes over time, and
+	     is long) should be pulled from:
+	     https://developers.google.com/admob/ios/quick-start
+	     and merged in here — do not ship with only this one entry if
+	     you're using ad mediation with other networks. -->
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
+
+	<!-- ══════════════════════════════════════════════════════════
+	     BACKGROUND MODES — mapped from the Android foreground
+	     services, with the reality check that iOS does not allow a
+	     background-camera/screen-capture service the way Android's
+	     mediaProjection|camera|microphone foreground service does.
+	     "audio" keeps voice/audio sessions alive in background
+	     (covers OverlayVoiceForegroundService's actual iOS-legal
+	     equivalent). Screen capture is handled separately via a
+	     ReplayKit Broadcast Upload Extension target (not creatable
+	     via this script — added in Xcode directly).
+	     ══════════════════════════════════════════════════════════ -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>remote-notification</string>
+	</array>
+
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

@@ -13,6 +13,7 @@ import 'core/app/app.dart';
 import 'core/persistence/prefs_service.dart';
 import 'core/platform/overlay_bridge.dart';
 import 'core/routing/deep_link_gate.dart';
+import 'core/services/app_startup_service.dart';
 import 'core/services/connectivity_service.dart';
 import 'core/services/desktop/desktop_pairing_service.dart';
 import 'core/services/push_messaging_service.dart';
@@ -69,6 +70,21 @@ Future<void> main() async {
       await _admob.initializeMobileAds();
     } catch (e, st) {
       debugPrint('MobileAds.initialize failed: $e');
+      debugPrintStack(stackTrace: st);
+    }
+  }
+
+  // 4b. Start the app-lifetime in-app-purchase stream listener (Android
+  // Google Play Billing + iOS StoreKit). Does not need a signed-in
+  // user, so it's safe to start here, before auth is resolved. Required
+  // on iOS so StoreKit's redelivered/unfinished transactions and
+  // restore-purchase requests get reconciled even if they arrive before
+  // (or completely outside of) any specific purchase screen being open.
+  if (!kIsWeb) {
+    try {
+      AppStartupService.instance.onAppStart();
+    } catch (e, st) {
+      debugPrint('AppStartupService.onAppStart failed: $e');
       debugPrintStack(stackTrace: st);
     }
   }

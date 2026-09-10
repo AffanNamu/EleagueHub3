@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Trophy, Lock, Globe } from 'lucide-react';
+import { Trophy, Lock, Globe, ScrollText, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { leagueFormatLabel } from '@/types/league';
 import { formatRelativeTime } from '@/lib/utils';
@@ -39,6 +39,20 @@ export function LeagueDetailPanel({ league }: { league: League }) {
           </div>
         </div>
       </div>
+
+      <Link
+        href={`/leagues/${league.id}/rules`}
+        className="panel flex items-center gap-3 p-4 transition-colors hover:border-brand/40"
+      >
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-brand-faint text-brand">
+          <ScrollText size={17} />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-ink-primary">Competition Rules</p>
+          <p className="text-xs text-ink-secondary">Scheduling, match settings, disputes, and more</p>
+        </div>
+        <ChevronRight size={16} className="text-ink-muted" />
+      </Link>
 
       <div className="panel grid grid-cols-2 gap-4 p-5 sm:grid-cols-3">
         <Field label="Max Teams" value={league.maxTeams || '—'} />

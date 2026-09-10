@@ -353,11 +353,22 @@ class UserProfile {
       'verification': verificationBadges.toMap(),
       // Username is stored separately via UserProfileRepository's
       // transactional username methods and should NOT be written
-      // here to avoid bypassing the uniqueness reservation. Included
-      // read-only for completeness.
-      if (username.trim().isNotEmpty) 'username': username.trim(),
-      if (usernameLower.trim().isNotEmpty)
-        'usernameLower': usernameLower.trim(),
+      // here to avoid bypassing the uniqueness reservation.
+      //
+      // FIX: this used to be included (guarded by an isNotEmpty
+      // check), directly contradicting the comment above and the one
+      // on toJson() itself. That meant any saveOrUpdateSelf() call
+      // made with a profile object carrying a non-empty username
+      // could silently fold a username change into the SAME write as
+      // other changed fields (teamName, images, quickMessages, etc.).
+      // Firestore's security rules only allow username to change in
+      // an isolated write of exactly {username, usernameLower, userId,
+      // updatedAt} — mixed with anything else, the whole write is
+      // rejected outright. Genuinely excluding both fields here (not
+      // just documenting the intent) is what makes that guarantee
+      // real. Username changes must always go through
+      // UserProfileRepository.updateUsername() /
+      // ensureUsernameIfMissing() / completeOnboarding().
     };
   }
 

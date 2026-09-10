@@ -27,11 +27,13 @@ export const PERMISSIONS: PermissionDefinition[] = [
   { id: 'content.view', label: 'View Content', description: 'View public posts and comments.', category: 'Content & Engagement' },
   { id: 'content.moderate', label: 'Moderate Content', description: 'Remove posts and comments that violate platform rules.', category: 'Content & Engagement' },
 
-  // Moderation
-  { id: 'reports.view', label: 'View Reports', description: 'View user-submitted reports.', category: 'Moderation' },
-  { id: 'reports.review', label: 'Review Reports', description: 'Mark reports as reviewed or dismissed.', category: 'Moderation' },
-  { id: 'global_chat_requests.view', label: 'View Global Chat Requests', description: 'View requests for Global Chat access.', category: 'Moderation' },
-  { id: 'global_chat_requests.review', label: 'Review Global Chat Requests', description: 'Approve or reject requests for Global Chat access.', category: 'Moderation' },
+  // Trust & Safety
+  { id: 'reports.view', label: 'View Reports', description: 'View user-submitted reports.', category: 'Trust & Safety' },
+  { id: 'reports.review', label: 'Review Reports', description: 'Mark reports as reviewed or dismissed.', category: 'Trust & Safety' },
+  { id: 'moderation_cases.view', label: 'View Moderation Cases', description: 'View investigation cases grouping reports, users, and content.', category: 'Trust & Safety' },
+  { id: 'moderation_cases.manage', label: 'Manage Moderation Cases', description: 'Open cases, add investigation notes, and record final decisions.', category: 'Trust & Safety' },
+  { id: 'global_chat_requests.view', label: 'View Global Chat Requests', description: 'View requests for Global Chat access.', category: 'Trust & Safety' },
+  { id: 'global_chat_requests.review', label: 'Review Global Chat Requests', description: 'Approve or reject requests for Global Chat access.', category: 'Trust & Safety' },
 
   // Communications
   { id: 'notifications.send', label: 'Send Notifications', description: 'Push a notification to all users or a specific segment.', category: 'Communications' },

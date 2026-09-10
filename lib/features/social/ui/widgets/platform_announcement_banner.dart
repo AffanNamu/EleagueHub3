@@ -1,9 +1,9 @@
 // lib/features/social/ui/widgets/platform_announcement_banner.dart
 //
-// NEW FILE — self-contained, drop-in widget. Streams the latest active
-// platform_announcements doc and renders a dismissible-for-this-session
-// banner. Renders SizedBox.shrink() when there's no active announcement,
-// so it's always safe to place unconditionally in a list of children.
+// Streams the latest active platform_announcements doc and renders a
+// dismissible-for-this-session banner directly on the home tab. Owns its
+// own StreamBuilder — renders nothing when there's no active
+// announcement, so it's always safe to place unconditionally.
 
 import 'package:flutter/material.dart';
 
@@ -21,10 +21,6 @@ class _PlatformAnnouncementBannerState
     extends State<PlatformAnnouncementBanner> {
   final _repo = PlatformAnnouncementsRepository();
 
-  /// Dismissed only for the current app session — reopening the app
-  /// shows it again if it's still active. No per-user persisted
-  /// dismissal state exists yet (would need a new subcollection write
-  /// per user, intentionally not added for this v1).
   String? _dismissedId;
 
   Color _severityColor(String severity) {
@@ -53,10 +49,12 @@ class _PlatformAnnouncementBannerState
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<PlatformAnnouncement?>(
-      stream: _repo.watchLatestActive(),
+    return StreamBuilder<List<PlatformAnnouncement>>(
+      stream: _repo.watchRecent(),
       builder: (context, snapshot) {
-        final announcement = snapshot.data;
+        final items = snapshot.data ?? const <PlatformAnnouncement>[];
+        final announcement = items.isEmpty ? null : items.first;
+
         if (announcement == null || announcement.id == _dismissedId) {
           return const SizedBox.shrink();
         }
@@ -64,7 +62,7 @@ class _PlatformAnnouncementBannerState
         final color = _severityColor(announcement.severity);
 
         return Container(
-          margin: const EdgeInsets.fromLTRB(0, 0, 0, 12),
+          margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: color.withOpacity(0.10),

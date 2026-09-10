@@ -96,6 +96,23 @@ class MasterLeagueEntitlementService {
     return p == 'google_play_billing' || p == 'google_play';
   }
 
+  // NEW: iOS equivalent of the check above. GooglePlayBillingService
+  // now tags iOS purchases as 'app_store' (see _providerName there).
+  // Without this check, an 'app_store' provider fell through to the
+  // Flutterwave/web branch below, which sends only `receiptId` to the
+  // worker and DROPS `purchaseToken` entirely -- meaning the actually
+  // verifiable Apple transaction/receipt data (which IS present in
+  // purchaseToken, same field GooglePlayBillingService populates for
+  // both platforms) never reached the server. That's a real
+  // verification gap, not just a wrong label: either the worker
+  // rejects the unrecognized provider (all iOS purchases fail
+  // activation) or, if it doesn't strictly validate, an entitlement
+  // could be granted without ever being checked against Apple.
+  bool _isAppStoreProvider(String provider) {
+    final p = provider.trim().toLowerCase();
+    return p == 'app_store' || p == 'apple' || p == 'app_store_billing';
+  }
+
   /// Every signed-in user is implicitly entitled to the free Basic plan.
   OrganizerProEntitlement _implicitBasicEntitlement() {
     return const OrganizerProEntitlement(
@@ -613,10 +630,12 @@ class MasterLeagueEntitlementService {
     required PlanDuration duration,
     required String receiptId,
     required String provider,
-    // NEW: the Google Play purchase token, required for the worker to
-    // verify the purchase against the Play Developer API. Falls back to
-    // `receiptId` if not supplied separately, since some callers still
-    // only pass a single receipt-like value.
+    // The Google Play purchase token OR (NEW) the iOS StoreKit
+    // verification data (JWS transaction / App Store receipt) —
+    // required for the worker to verify the purchase against the
+    // relevant store's server API. Falls back to `receiptId` if not
+    // supplied separately, since some callers still only pass a single
+    // receipt-like value.
     String purchaseToken = '',
   }) async {
     _uidOrThrow();
@@ -654,22 +673,35 @@ class MasterLeagueEntitlementService {
       return;
     }
 
-    // ── FIXED: Google Play Billing now activates through the SAME
-    // Cloudflare Worker as Flutterwave, using the SAME
-    // organizerPro/organizerProPlan custom claims — instead of writing
-    // the Firestore profile directly and relying on firestore.rules'
-    // profileHasActivePlan() fallback to authorize master_leagues
-    // writes. That profile-based fallback was never confirmed to
-    // actually work in production (web has only ever exercised the
-    // claims branch), and it's the branch that's been failing.
+    // ── Native store IAP (Google Play Billing OR App Store/StoreKit):
+    // both activate through the SAME Cloudflare Worker as Flutterwave,
+    // using the SAME organizerPro/organizerProPlan custom claims —
+    // instead of writing the Firestore profile directly and relying on
+    // firestore.rules' profileHasActivePlan() fallback to authorize
+    // master_leagues writes. That profile-based fallback was never
+    // confirmed to actually work in production (web has only ever
+    // exercised the claims branch), and it's the branch that's been
+    // failing.
     //
     // The worker independently verifies the purchase against the
-    // Google Play Developer API (purchases.subscriptionsv2.get) before
-    // granting anything, so this is not a weaker guarantee than the
-    // old direct write — if anything it's stronger, since Google's own
-    // subscriptionState/expiryTime become the source of truth instead
-    // of a client-computed expiry estimate.
-    if (_isGooglePlayProvider(provider)) {
+    // relevant store's server API before granting anything — Google
+    // Play Developer API (purchases.subscriptionsv2.get) for Android,
+    // App Store Server API for iOS — so this is not a weaker guarantee
+    // than a direct write; the store's own subscription state/expiry
+    // becomes the source of truth instead of a client-computed expiry
+    // estimate.
+    //
+    // ⚠️ SERVER-SIDE DEPENDENCY: this branch sends `provider: 'app_store'`
+    // for iOS purchases so the worker can dispatch to Apple's App Store
+    // Server API instead of Google's. That server-side handling does
+    // NOT exist yet as far as this Flutter codebase can confirm — it
+    // has to be added to the Cloudflare Worker itself (separate
+    // codebase). Until it is, iOS purchases will either be rejected by
+    // the worker (safe, but blocks all iOS plan purchases) or, if the
+    // worker isn't strict about unrecognized providers, could be
+    // granted without real verification. Do not ship iOS purchases
+    // live until that worker-side change is confirmed.
+    if (_isGooglePlayProvider(provider) || _isAppStoreProvider(provider)) {
       final idToken = await user.getIdToken(true);
       final safeIdToken = (idToken ?? '').trim();
       if (safeIdToken.isEmpty) {
@@ -682,10 +714,15 @@ class MasterLeagueEntitlementService {
           ? purchaseToken.trim()
           : receiptId.trim();
       if (safePurchaseToken.isEmpty) {
-        throw const MasterLeagueEntitlementException(
-          'Missing Google Play purchase token. Please try again.',
+        throw MasterLeagueEntitlementException(
+          _isAppStoreProvider(provider)
+              ? 'Missing App Store transaction data. Please try again.'
+              : 'Missing Google Play purchase token. Please try again.',
         );
       }
+
+      final normalizedProvider =
+          _isAppStoreProvider(provider) ? 'app_store' : 'google_play_billing';
 
       final parsed = await _postJson(
         uri: _activateUri(),
@@ -693,7 +730,7 @@ class MasterLeagueEntitlementService {
         body: <String, dynamic>{
           'plan': plan.id,
           'duration': duration.id,
-          'provider': 'google_play_billing',
+          'provider': normalizedProvider,
           'purchaseToken': safePurchaseToken,
         },
       );
@@ -711,16 +748,16 @@ class MasterLeagueEntitlementService {
       // Best-effort local profile mirror so the UI ("Active plan: Pro")
       // reflects the change immediately without waiting on a token
       // refresh round-trip. The worker has already written the
-      // authoritative copy via its own service-account credentials
-      // (which bypass rules), so this is purely a UX nicety now — if
-      // it fails, master_leagues creation still works via the custom
-      // claim set above.
+      // authoritative copy via its own service-account/API-key
+      // credentials (which bypass rules), so this is purely a UX
+      // nicety now — if it fails, master_leagues creation still works
+      // via the custom claim set above.
       try {
         await _profileRepo.activatePlanSubscription(
           plan: plan,
           duration: duration,
           receiptId: safePurchaseToken,
-          provider: 'google_play_billing',
+          provider: normalizedProvider,
         );
         await _firestore
             .waitForPendingWrites()
@@ -730,8 +767,8 @@ class MasterLeagueEntitlementService {
           debugPrint(
             '[MasterLeagueEntitlementService] activateAfterPayment: '
             'best-effort local profile sync failed after successful '
-            'server-side Google Play activation (ignored, claims are '
-            'already set): $e',
+            'server-side $normalizedProvider activation (ignored, '
+            'claims are already set): $e',
           );
         }
       }

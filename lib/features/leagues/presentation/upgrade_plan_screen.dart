@@ -2,18 +2,26 @@
 //
 // UPDATED: _loadPriceForSelection() now branches on platform.
 //
-// For Google Play users (_useGooglePlay == true), the price shown is
-// fetched LIVE from Play Console via GooglePlayBillingService
-// .fetchPlanPrice() — i.e. queryProductDetails() under the hood. That
-// is the exact price Google will charge, already formatted in the
-// currency/amount tied to the user's Play Store account country
-// (whatever you configured in Play Console: auto currency conversion
-// or manual per-country pricing). No separate pricing service is
+// For native-IAP users (_useNativeIAP == true — Android via Google Play
+// Billing, iOS via StoreKit), the price shown is fetched LIVE from the
+// store via GooglePlayBillingService.fetchPlanPrice() — i.e.
+// queryProductDetails() under the hood. That is the exact price the
+// store will charge, already formatted in the currency/amount tied to
+// the user's store account country. No separate pricing service is
 // consulted for these users anymore, so what's on screen always
 // matches what gets charged at checkout.
 //
-// For non-Google-Play users (Flutterwave/web), pricing still comes
+// For non-native-IAP users (Flutterwave/web), pricing still comes
 // from MasterLeaguePricingService as before — that path is unchanged.
+//
+// UPDATED AGAIN (iOS App Review): the old _useGooglePlay getter only
+// ever checked routeAndroidPaymentsToGooglePlayBilling, which meant iOS
+// fell through to the Flutterwave branch below — not allowed by Apple
+// for a digital in-app feature purchase. Renamed to _useNativeIAP,
+// backed by PaymentPlatformConfig.useNativeInAppPurchase (Android GPB
+// OR iOS StoreKit). Also added a "Restore Purchases" entry point,
+// required by Apple guideline 3.1.1 for any app selling
+// non-consumables/subscriptions.
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -66,13 +74,19 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
 
   bool _processing = false;
   bool _loadingPrice = false;
+  bool _restoring = false;
   String? _error;
 
   // priceCacheKey -> display string, e.g. "pro|3mo" -> "₦5,000".
   final Map<String, String> _priceCache = {};
 
-  bool get _useGooglePlay =>
-      PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling;
+  /// True on Android when routed through Google Play Billing, OR on
+  /// iOS (always, per Apple guideline 3.1.1 — there is no Flutterwave
+  /// fallback for iOS digital purchases). False on web/Flutterwave.
+  bool get _useNativeIAP => PaymentPlatformConfig.useNativeInAppPurchase;
+
+  bool get _isIOS =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   @override
   void initState() {
@@ -86,8 +100,8 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
 
   // ── Price loading ─────────────────────────────────────────────────────────
   //
-  // Google Play users: real, live price from Play Console.
-  // Everyone else: MasterLeaguePricingService, unchanged.
+  // Native-IAP users (Play Billing / StoreKit): real, live price from
+  // the store. Everyone else: MasterLeaguePricingService, unchanged.
   Future<void> _loadPriceForSelection() async {
     if (_selectedPlan.isFree) return;
     final key = _cacheKey(_selectedPlan, _selectedDuration);
@@ -96,7 +110,7 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
     setState(() => _loadingPrice = true);
 
     try {
-      if (_useGooglePlay) {
+      if (_useNativeIAP) {
         final info = await GooglePlayBillingService.instance.fetchPlanPrice(
           plan: _selectedPlan,
           duration: _selectedDuration,
@@ -110,12 +124,12 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
             _loadingPrice = false;
           });
         } else {
-          // Play Store had no price for this product right now (not
+          // Store had no price for this product right now (not
           // published yet, store unavailable, etc). Leave the cache
           // empty so the UI shows the '—' placeholder instead of a
           // wrong/mismatched number, and don't fall back to the other
-          // pricing service — that would risk showing a price Google
-          // Play won't actually honor at checkout.
+          // pricing service — that would risk showing a price the
+          // store won't actually honor at checkout.
           setState(() => _loadingPrice = false);
         }
         return;
@@ -176,11 +190,12 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
   // ── Purchase flow ──────────────────────────────────────────────────────
   //
   // Same logic that used to live in league_premium_upgrade_helper.dart's
-  // _InlinePlanPurchaseSheet._pay(): routes to Google Play Billing or
-  // Flutterwave depending on platform config, then activates through
-  // MasterLeagueEntitlementService.activateAfterPayment() -- which for
-  // Google Play now verifies server-side via the Cloudflare Worker
-  // before granting anything.
+  // _InlinePlanPurchaseSheet._pay(): routes to native IAP (Play Billing
+  // / StoreKit) or Flutterwave depending on platform config, then
+  // activates through MasterLeagueEntitlementService
+  // .activateAfterPayment() -- which for native-IAP purchases now
+  // verifies server-side via the Cloudflare Worker before granting
+  // anything.
   Future<void> _pay() async {
     if (_processing || _selectedPlan.isFree) return;
 
@@ -205,7 +220,7 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
       bool success = false;
       String? errorMessage;
 
-      if (_useGooglePlay) {
+      if (_useNativeIAP) {
         final gpb = GooglePlayBillingService.instance;
         final attemptId = 'gpb_${DateTime.now().millisecondsSinceEpoch}';
 
@@ -269,6 +284,53 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
     }
   }
 
+  // ── Restore purchases ────────────────────────────────────────────────
+  //
+  // Required by Apple guideline 3.1.1 for any app selling
+  // non-consumables/subscriptions. Only shown for native-IAP users —
+  // Flutterwave/web has no "restore" concept.
+  //
+  // NOTE: this kicks off the platform restore flow. Restored purchases
+  // are picked up asynchronously by PurchaseStreamListenerService (app
+  // startup) -> GooglePlayBillingService.reconcileExternalPurchase(),
+  // which grants BadgeService badges. It does NOT currently call
+  // MasterLeagueEntitlementService.activateAfterPayment() the way a
+  // fresh _pay() does — confirm your server-side webhook (Cloudflare
+  // Worker handling App Store Server Notifications / Play RTDN) also
+  // activates plan entitlements independently of the client, the same
+  // way the comment above says it already does for the primary purchase
+  // flow. If it doesn't, a restored subscription could show the correct
+  // badge but not the correct plan quota until that's addressed.
+  Future<void> _restorePurchases() async {
+    if (_restoring) return;
+    setState(() => _restoring = true);
+
+    try {
+      await GooglePlayBillingService.instance.restorePurchases();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Restore requested. Any previous purchases will be '
+            'reapplied shortly.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Restore failed: '
+            '${e.toString().replaceFirst('Exception: ', '').trim()}',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _restoring = false);
+    }
+  }
+
   // ── Feature lists ─────────────────────────────────────────────────────
 
   List<String> _featuresFor(MasterLeaguePlan plan) {
@@ -325,6 +387,19 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
               ? null
               : () => Navigator.of(context).pop(false),
         ),
+        actions: [
+          if (_useNativeIAP)
+            TextButton(
+              onPressed: _restoring ? null : _restorePurchases,
+              child: _restoring
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Restore'),
+            ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -581,9 +656,11 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                                   ),
                                 )
                               : Text(
-                                  _useGooglePlay
-                                      ? 'Buy on Play'
-                                      : 'Subscribe & Pay',
+                                  !_useNativeIAP
+                                      ? 'Subscribe & Pay'
+                                      : (_isIOS
+                                          ? 'Subscribe'
+                                          : 'Buy on Play'),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w900,
                                   ),

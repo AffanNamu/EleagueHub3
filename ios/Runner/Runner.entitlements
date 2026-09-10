@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required for firebase_messaging. This literal value is used
+	     as-is when the app is signed with a distribution profile for
+	     App Store/TestFlight submission. -->
+	<key>aps-environment</key>
+	<string>production</string>
+
+	<!-- Required because google_sign_in is offered as a login option.
+	     Apple guideline 4.8 requires Sign in with Apple be offered
+	     alongside any other third-party login. This entitlement alone
+	     does NOT implement it — you still need to add the
+	     sign_in_with_apple package and build the actual auth flow. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+
+	<!-- App Group placeholder for sharing data between the main app
+	     and the ReplayKit Broadcast Upload Extension (for the
+	     in-app-overlay + screen-recording redesign). Create this
+	     exact group ID in Apple Developer portal → Identifiers →
+	     App Groups before this will build with a real profile. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.eleaguehub.app</string>
+	</array>
+</dict>
+</plist>

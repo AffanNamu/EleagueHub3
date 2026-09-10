@@ -747,11 +747,12 @@ function _isValidPlanId(planId) {
 }
 
 function _isValidDurationId(durationId) {
-  return ["3mo", "6mo", "yearly"].includes(String(durationId || "").trim().toLowerCase());
+  return ["1mo", "3mo", "6mo", "yearly"].includes(String(durationId || "").trim().toLowerCase());
 }
 
 function _durationDays(durationId) {
   const d = String(durationId || "").trim().toLowerCase();
+  if (d === "1mo") return 30;
   if (d === "3mo") return 90;
   if (d === "6mo") return 180;
   if (d === "yearly") return 365;
@@ -844,9 +845,11 @@ const GOOGLE_PLAY_ACTIVE_SUBSCRIPTION_STATES = new Set([
 // table needs to be updated to match, or genuine purchases will be
 // rejected as "Unrecognized Google Play product".
 const GOOGLE_PLAY_PRODUCT_TO_PLAN = {
+  pro_1mo: { plan: "pro", duration: "1mo" },
   pro_3mo: { plan: "pro", duration: "3mo" },
   pro_6mo: { plan: "pro", duration: "6mo" },
   pro_yearly: { plan: "pro", duration: "yearly" },
+  elite_1mo: { plan: "elite", duration: "1mo" },
   elite_3mo: { plan: "elite", duration: "3mo" },
   elite_6mo: { plan: "elite", duration: "6mo" },
   elite_yearly: { plan: "elite", duration: "yearly" },
@@ -999,9 +1002,16 @@ async function _readPricingConfig(env) {
       premiumFee: 5000,
       premiumDurationDays: 30,
       premiumEnabled: true,
+      // PLACEHOLDER — confirm/replace via the pricing admin panel before
+      // enabling Monthly in production. Not derived from any real pricing
+      // decision; set high enough per-month that it doesn't undercut the
+      // discounted quarterly rate (5000/3mo ≈ 1667/mo undiscounted).
+      proPlan1moFee: 2000,
       proPlan3moFee: 5000,
       proPlan6moFee: 9000,
       proPlanYearlyFee: 15000,
+      // PLACEHOLDER — see proPlan1moFee note above.
+      elitePlan1moFee: 4000,
       elitePlan3moFee: 10000,
       elitePlan6moFee: 18000,
       elitePlanYearlyFee: 30000,
@@ -1025,9 +1035,13 @@ async function _readPricingConfig(env) {
       premiumFee: 9.99,
       premiumDurationDays: 30,
       premiumEnabled: true,
+      // PLACEHOLDER — see the ngn.proPlan1moFee note above.
+      proPlan1moFee: 4.0,
       proPlan3moFee: 10.0,
       proPlan6moFee: 18.0,
       proPlanYearlyFee: 30.0,
+      // PLACEHOLDER — see the ngn.proPlan1moFee note above.
+      elitePlan1moFee: 8.0,
       elitePlan3moFee: 20.0,
       elitePlan6moFee: 36.0,
       elitePlanYearlyFee: 60.0,
@@ -1073,9 +1087,11 @@ async function _readPricingConfig(env) {
     return {
       ...dft,
       ...raw,
+      proPlan1moFee: raw.proPlan1moFee ?? dft.proPlan1moFee,
       proPlan3moFee: raw.proPlan3moFee ?? dft.proPlan3moFee,
       proPlan6moFee: raw.proPlan6moFee ?? dft.proPlan6moFee,
       proPlanYearlyFee: raw.proPlanYearlyFee ?? dft.proPlanYearlyFee,
+      elitePlan1moFee: raw.elitePlan1moFee ?? dft.elitePlan1moFee,
       elitePlan3moFee: raw.elitePlan3moFee ?? dft.elitePlan3moFee,
       elitePlan6moFee: raw.elitePlan6moFee ?? dft.elitePlan6moFee,
       elitePlanYearlyFee: raw.elitePlanYearlyFee ?? dft.elitePlanYearlyFee,
@@ -1138,12 +1154,14 @@ function _planSubscriptionExpectedFee(planCfg, planId, durationId) {
   const d = String(durationId || "").trim().toLowerCase();
 
   if (p === "pro") {
+    if (d === "1mo") return Number(planCfg.proPlan1moFee || 0);
     if (d === "3mo") return Number(planCfg.proPlan3moFee || 0);
     if (d === "6mo") return Number(planCfg.proPlan6moFee || 0);
     if (d === "yearly") return Number(planCfg.proPlanYearlyFee || 0);
   }
 
   if (p === "elite") {
+    if (d === "1mo") return Number(planCfg.elitePlan1moFee || 0);
     if (d === "3mo") return Number(planCfg.elitePlan3moFee || 0);
     if (d === "6mo") return Number(planCfg.elitePlan6moFee || 0);
     if (d === "yearly") return Number(planCfg.elitePlanYearlyFee || 0);

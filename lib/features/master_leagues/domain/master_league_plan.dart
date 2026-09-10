@@ -1,23 +1,36 @@
 ///domain/MasterLeaguePlan
 /// Duration tier for subscription plans.
 enum PlanDuration {
+  // NEW: monthly billing period. Inserted first so PlanDuration.values
+  // (used generically by the duration-selector UI, pricing lookups, and
+  // Google Play catalog mapping) lists it first: Monthly, Quarterly,
+  // Semi-Annual, Annual — matching the requested billing-restructure order.
+  // `id` is a NEW string ('1mo') — it does not collide with or alter any
+  // existing stored value, so no existing subscriber record is affected.
+  oneMonth(
+    id: '1mo',
+    displayName: 'Monthly',
+    months: 1,
+    discountLabel: '',
+    multiplier: 1.0,
+  ),
   threeMonths(
     id: '3mo',
-    displayName: '3 Months',
+    displayName: 'Quarterly',
     months: 3,
     discountLabel: '',
     multiplier: 1.0,
   ),
   sixMonths(
     id: '6mo',
-    displayName: '6 Months',
+    displayName: 'Semi-Annual',
     months: 6,
     discountLabel: 'Save 10%',
     multiplier: 1.8,
   ),
   yearly(
     id: 'yearly',
-    displayName: '1 Year',
+    displayName: 'Annual',
     months: 12,
     discountLabel: 'Save 25%',
     multiplier: 3.0,

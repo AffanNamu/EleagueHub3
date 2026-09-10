@@ -27,6 +27,32 @@ class UsernameUnavailableException extends UserProfileRepositoryException {
   const UsernameUnavailableException(super.message);
 }
 
+/// Result of a bootstrap-time profile lookup, distinguishing "confirmed
+/// there is no profile doc" from "we don't actually know" (offline,
+/// permission hiccup, etc). See lookupProfileForBootstrap() below —
+/// AuthRouterRefresh in app_router.dart depends on this exact type.
+enum ProfileLookupStatus { found, confirmedMissing, unknownError }
+
+class ProfileLookupResult {
+  const ProfileLookupResult._(this.status, this.profile);
+
+  final ProfileLookupStatus status;
+  final UserProfile? profile;
+
+  factory ProfileLookupResult.found(UserProfile profile) =>
+      ProfileLookupResult._(ProfileLookupStatus.found, profile);
+
+  factory ProfileLookupResult.confirmedMissing() => const ProfileLookupResult._(
+        ProfileLookupStatus.confirmedMissing,
+        null,
+      );
+
+  factory ProfileLookupResult.unknownError() => const ProfileLookupResult._(
+        ProfileLookupStatus.unknownError,
+        null,
+      );
+}
+
 class UserProfileRepository {
   UserProfileRepository({
     FirebaseFirestore? firestore,
@@ -181,9 +207,17 @@ class UserProfileRepository {
     }
   }
 
+  // FIX: this used to open with `_requireAuthUid()`, throwing for any
+  // signed-out caller. But `/users/{userId}` has `allow read: if true`
+  // in the deployed rules — it's meant to be fully public — and the
+  // new /u/:username, /team/:teamId etc. share routes in app_router.dart
+  // are explicitly designed to work for signed-out web visitors (see
+  // `_isPublicShareRoute` there). Requiring auth here silently broke
+  // that for anyone not logged in. Firestore's own rule is still what
+  // actually enforces read access; this was just an unnecessarily
+  // stricter client-side gate left over from before those routes
+  // existed.
   Future<UserProfile?> fetchByUserId(String userId) async {
-    _requireAuthUid();
-
     final uid = userId.trim();
     if (uid.isEmpty) return null;
 
@@ -225,8 +259,23 @@ class UserProfileRepository {
   }
 
   Future<UserProfile?> fetchByUserIdForBootstrap(String userId) async {
+    final result = await lookupProfileForBootstrap(userId);
+    return result.profile;
+  }
+
+  /// Tri-state bootstrap lookup used by AuthRouterRefresh to decide
+  /// whether to force a user into mandatory onboarding. NEVER infers
+  /// profile existence from FirebaseAuth's displayName/email/photoURL/
+  /// providerData — those are populated by Google Sign-In on the auth
+  /// User object immediately, regardless of whether a Firestore
+  /// `/users/{uid}` document has been created yet. The old
+  /// `profileExists()` fallback below used to trust those fields,
+  /// which is what let brand-new Google Sign-In users land in the main
+  /// app with no profile document and no username.
+  Future<ProfileLookupResult> lookupProfileForBootstrap(
+      String userId) async {
     final uid = userId.trim();
-    if (uid.isEmpty) return null;
+    if (uid.isEmpty) return ProfileLookupResult.confirmedMissing();
 
     try {
       final serverSnap = await _usersCol
@@ -235,12 +284,13 @@ class UserProfileRepository {
           .timeout(const Duration(seconds: 10));
 
       if (serverSnap.exists) {
-        return UserProfile.fromDoc(serverSnap);
+        return ProfileLookupResult.found(UserProfile.fromDoc(serverSnap));
       }
+      return ProfileLookupResult.confirmedMissing();
     } catch (e) {
       if (kDebugMode) {
         debugPrint(
-          'UserProfileRepository.fetchByUserIdForBootstrap server read failed: $e',
+          'UserProfileRepository.lookupProfileForBootstrap server read failed: $e',
         );
       }
     }
@@ -252,17 +302,17 @@ class UserProfileRepository {
           .timeout(const Duration(seconds: 4));
 
       if (cacheSnap.exists) {
-        return UserProfile.fromDoc(cacheSnap);
+        return ProfileLookupResult.found(UserProfile.fromDoc(cacheSnap));
       }
     } catch (e) {
       if (kDebugMode) {
         debugPrint(
-          'UserProfileRepository.fetchByUserIdForBootstrap cache read failed: $e',
+          'UserProfileRepository.lookupProfileForBootstrap cache read failed: $e',
         );
       }
     }
 
-    return null;
+    return ProfileLookupResult.unknownError();
   }
 
   Stream<UserProfile?> watchByUserId(String userId) {
@@ -285,10 +335,11 @@ class UserProfileRepository {
     }
   }
 
+  // FIX: same public-read fix as fetchByUserId / fetchByUsername above —
+  // supports /team/:teamId (via fetchByUserIdOrShareId below) for
+  // signed-out visitors.
   Future<UserProfile?> fetchByShareId(String shareId) async {
     try {
-      _requireAuthUid();
-
       final normalized = shareId.trim();
       if (normalized.isEmpty) return null;
 
@@ -319,10 +370,12 @@ class UserProfileRepository {
     }
   }
 
+  // FIX: same over-strict client-side gate as fetchByUserId above —
+  // `/usernames/{username}` also has `allow get: if true` in the
+  // deployed rules. This is the exact lookup UsernameProfileGateScreen
+  // needs for a signed-out visitor following a /u/:username link.
   Future<UserProfile?> fetchByUsername(String username) async {
     try {
-      _requireAuthUid();
-
       var normalized = username.trim().toLowerCase();
       if (normalized.startsWith('@')) {
         normalized = normalized.substring(1);
@@ -382,33 +435,13 @@ class UserProfileRepository {
     }
   }
 
+  /// Simple boolean view over [lookupProfileForBootstrap]. Deliberately
+  /// no longer falls back to "assume the profile exists because the
+  /// FirebaseAuth user has a displayName/email/photoURL" — see
+  /// [lookupProfileForBootstrap] for why that was wrong.
   Future<bool> profileExists(String userId) async {
-    final uid = userId.trim();
-    if (uid.isEmpty) return false;
-
-    final profile = await fetchByUserIdForBootstrap(uid);
-    if (profile != null) return true;
-
-    final currentUid = _auth.currentUser?.uid.trim() ?? '';
-    if (currentUid.isNotEmpty && currentUid == uid) {
-      final authUser = _auth.currentUser;
-      final hasAnyIdentitySignal =
-          (authUser?.displayName ?? '').trim().isNotEmpty ||
-              (authUser?.email ?? '').trim().isNotEmpty ||
-              (authUser?.photoURL ?? '').trim().isNotEmpty ||
-              (authUser?.providerData.isNotEmpty ?? false);
-
-      if (hasAnyIdentitySignal) {
-        if (kDebugMode) {
-          debugPrint(
-            'UserProfileRepository.profileExists fallback=true for existing auth user: $uid',
-          );
-        }
-        return true;
-      }
-    }
-
-    return false;
+    final result = await lookupProfileForBootstrap(userId);
+    return result.status == ProfileLookupStatus.found;
   }
 
   Stream<bool> watchIsPremium(String userId) {
@@ -1119,6 +1152,88 @@ class UserProfileRepository {
 
   Future<void> refreshShareIdFromUidIfEmpty() async {
     await ensureShareIdIfMissing();
+  }
+
+  /// Single entry point for mandatory onboarding completion. Composes
+  /// three of this repository's own existing, independently-correct
+  /// methods rather than reimplementing profile creation or username
+  /// reservation:
+  ///   1. createIfMissing() — creates the base profile doc (a no-op if
+  ///      it already exists, e.g. resuming after a partial failure).
+  ///      As part of its own existing behavior it also calls
+  ///      ensureUsernameIfMissing(), so the profile is never left
+  ///      without SOME username even if the rest of this fails.
+  ///   2. updateUsername() — overrides that fallback with the username
+  ///      the user actually chose and had live-checked during
+  ///      onboarding, via the same transactional reserve-and-write path
+  ///      (and old-reservation cleanup) any other username change uses.
+  ///   3. updateProfileImages() — attaches the picked photo, if any.
+  ///
+  /// Note: because step 1 always assigns a fallback username before
+  /// step 2 overrides it, onboarding does one extra reserve/release
+  /// cycle on the `usernames/` collection compared to a bespoke
+  /// implementation. That's a deliberate trade for reusing the exact
+  /// same, already-correct reservation logic rather than a second copy
+  /// of it — not a bug.
+  ///
+  /// Throws [UserProfileRepositoryException] (or the more specific
+  /// [UsernameUnavailableException]) on failure. Callers must not
+  /// consider onboarding complete, or navigate away / refresh router
+  /// state, until this returns without throwing.
+  Future<void> completeOnboarding({
+    required String teamName,
+    required String username,
+    required String authProvider,
+    String? imageUrl,
+    Object? onboardingAnswers,
+  }) async {
+    try {
+      final authUid = _requireAuthUid();
+
+      final trimmedTeamName = teamName.trim();
+      if (trimmedTeamName.isEmpty) {
+        throw const UserProfileRepositoryException(
+          'Please enter your club or gamer name.',
+        );
+      }
+
+      final candidateLower = username.trim().toLowerCase();
+      if (!UsernameUtils.isValidFormat(candidateLower)) {
+        throw UsernameUnavailableException(
+          'Usernames must be ${UsernameUtils.minLength}-'
+          '${UsernameUtils.maxLength} characters: letters, numbers, '
+          'and underscore only.',
+        );
+      }
+      if (UsernameUtils.isReserved(candidateLower)) {
+        throw const UsernameUnavailableException(
+          'That username is reserved. Please choose another.',
+        );
+      }
+
+      await createIfMissing(
+        authProvider: authProvider,
+        teamName: trimmedTeamName,
+        onboardingAnswers: onboardingAnswers,
+      );
+
+      final current = await fetchByUserId(authUid);
+      final existingLower = current?.usernameLower.trim() ?? '';
+      if (existingLower != candidateLower) {
+        await updateUsername(candidateLower);
+      }
+
+      final trimmedImage = (imageUrl ?? '').trim();
+      if (trimmedImage.isNotEmpty) {
+        await updateProfileImages(
+          photoUrl: trimmedImage,
+          profileImageUrl: trimmedImage,
+          teamImageUrl: trimmedImage,
+        );
+      }
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
   }
 
   Future<void> debugEnsureSelfProfile() async {

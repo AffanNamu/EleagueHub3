@@ -14,7 +14,9 @@ import {
   FileText,
   MessagesSquare,
   FileWarning,
+  FolderSearch,
   MessageCircle,
+  Bell,
   CreditCard,
   Tags,
   ScrollText,
@@ -70,10 +72,17 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Moderation',
+    title: 'Trust & Safety',
     items: [
       { label: 'Reports', href: '/moderation/reports', icon: FileWarning, permission: 'reports.view' },
+      { label: 'Cases', href: '/moderation/cases', icon: FolderSearch, permission: 'moderation_cases.view' },
       { label: 'Global Chat Requests', href: '/moderation/global-chat-requests', icon: MessageCircle, permission: 'global_chat_requests.view' },
+    ],
+  },
+  {
+    title: 'Communications',
+    items: [
+      { label: 'Send Notification', href: '/notifications', icon: Bell, permission: 'notifications.send' },
     ],
   },
   {

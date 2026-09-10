@@ -1,6 +1,5 @@
 //profile_screen.dart
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -10,11 +9,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/app_admins_service.dart';
+import '../../../core/services/cloudinary_upload_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
@@ -132,91 +131,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Future<String> _uploadToCloudinary({
     required PlatformFile picked,
-  }) async {
-    final cloudName =
-        const String.fromEnvironment('CLOUDINARY_CLOUD_NAME').trim();
-    final uploadPreset = const String.fromEnvironment(
-      'CLOUDINARY_UNSIGNED_UPLOAD_PRESET',
-    ).trim();
-    if (cloudName.isEmpty || uploadPreset.isEmpty) {
-      throw StateError('Cloudinary is not configured.');
-    }
-
-    final uploadUrl = Uri.parse(
-      'https://api.cloudinary.com/v1_1/$cloudName/image/upload',
+  }) {
+    // Delegates to the app's real CloudinaryUploadService instead of
+    // making its own HTTP call — same cloud/preset, same destination
+    // folder ('eleaguehub/users') as before, so existing avatar URLs
+    // and behavior are unaffected. (This screen previously had its own
+    // duplicate raw-HTTP upload implementation here; removed in favor
+    // of the one shared service everything else in the app — including
+    // OnboardingScreen — already uses.)
+    return CloudinaryUploadService().uploadImagePlatformFile(
+      file: picked,
+      folder: 'eleaguehub/users',
     );
-    final ts = DateTime.now().millisecondsSinceEpoch;
-
-    http.MultipartFile filePart;
-
-    final bytes = picked.bytes;
-    final path = (picked.path ?? '').trim();
-
-    if (bytes != null && bytes.isNotEmpty) {
-      filePart = http.MultipartFile.fromBytes(
-        'file',
-        bytes,
-        filename: picked.name,
-      );
-    } else if (path.isNotEmpty) {
-      filePart = await http.MultipartFile.fromPath(
-        'file',
-        path,
-        filename: picked.name,
-      );
-    } else {
-      throw StateError('Selected image is not accessible.');
-    }
-
-    final req = http.MultipartRequest('POST', uploadUrl)
-      ..fields['upload_preset'] = uploadPreset
-      ..fields['resource_type'] = 'image'
-      ..fields['folder'] = 'eleaguehub/users'
-      ..fields['public_id'] = 'user_avatar_$ts'
-      ..files.add(filePart);
-
-    final client = http.Client();
-    try {
-      final streamed = await client
-          .send(req)
-          .timeout(const Duration(seconds: 45));
-      final resp = await http.Response.fromStream(streamed)
-          .timeout(const Duration(seconds: 45));
-
-      if (resp.statusCode < 200 || resp.statusCode >= 300) {
-        String message = 'Upload failed (HTTP ${resp.statusCode}).';
-        try {
-          final decoded = jsonDecode(resp.body);
-          final err = (decoded is Map<String, dynamic>)
-              ? decoded['error']
-              : null;
-          final msg = (err is Map<String, dynamic>)
-              ? (err['message']?.toString() ?? '')
-              : '';
-          if (msg.trim().isNotEmpty) {
-            message = 'Upload failed: ${msg.trim()}';
-          }
-        } catch (_) {}
-        throw StateError(message);
-      }
-
-      final decoded = jsonDecode(resp.body);
-      if (decoded is! Map<String, dynamic>) {
-        throw StateError('Upload failed: invalid response.');
-      }
-
-      final secureUrl =
-          (decoded['secure_url']?.toString() ?? '').trim();
-      if (secureUrl.isEmpty) {
-        throw StateError('Upload failed: secure_url missing.');
-      }
-
-      return secureUrl;
-    } on TimeoutException {
-      throw StateError('Upload timed out. Please try again.');
-    } finally {
-      client.close();
-    }
   }
 
   Future<void> _pickAndUploadAvatar(BuildContext context) async {

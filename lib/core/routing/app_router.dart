@@ -943,19 +943,48 @@ class AuthRouterRefresh extends ChangeNotifier {
     return false;
   }
 
+  // MODIFIED: previously called `_profiles.profileExists(uid)`, which
+  // used to fall back to "assume the profile exists" whenever the
+  // FirebaseAuth user had a displayName/email/photoURL/providerData —
+  // fields Google Sign-In populates on the auth User object the moment
+  // sign-in succeeds, well before any `/users/{uid}` Firestore document
+  // is created. That meant a brand-new user who signed in with Google
+  // (rather than going through an explicit "sign up" step) skipped
+  // mandatory onboarding entirely. This now calls the tri-state
+  // `lookupProfileForBootstrap`, which distinguishes "confirmed no
+  // profile doc" (→ send to onboarding) from "couldn't tell, e.g.
+  // offline" (→ keep previous state and retry) and never guesses from
+  // auth-identity fields.
   Future<void> _checkProfileFor(String uid) async {
     final prev = _profileState;
     _cancelRetry();
     _setProfileState(_ProfileState.checking);
 
     try {
-      final exists = await _profiles
-          .profileExists(uid)
+      final result = await _profiles
+          .lookupProfileForBootstrap(uid)
           .timeout(const Duration(seconds: 12));
-      _retryAttempt = 0;
-      _setProfileState(
-          exists ? _ProfileState.exists : _ProfileState.missing);
-      return;
+
+      switch (result.status) {
+        case ProfileLookupStatus.found:
+          _retryAttempt = 0;
+          _setProfileState(_ProfileState.exists);
+          return;
+        case ProfileLookupStatus.confirmedMissing:
+          _retryAttempt = 0;
+          _setProfileState(_ProfileState.missing);
+          return;
+        case ProfileLookupStatus.unknownError:
+          // Could not confirm either way (offline, permission hiccup,
+          // etc). Never guess — keep whatever we knew before and retry
+          // with backoff, exactly like the catch-block path below.
+          final fallback = (prev == _ProfileState.exists)
+              ? _ProfileState.exists
+              : _ProfileState.unknown;
+          _setProfileState(fallback);
+          _scheduleRetry(uid);
+          return;
+      }
     } catch (e) {
       final fallback = (prev == _ProfileState.exists)
           ? _ProfileState.exists
@@ -969,19 +998,22 @@ class AuthRouterRefresh extends ChangeNotifier {
 
       if (_isNetworkError(e is Object ? e : Exception('unknown')))
         return;
-      if (_retryAttempt >= 5) return;
-
-      final delay = _retryDelayForAttempt(_retryAttempt);
-      _retryAttempt++;
-
-      _retryTimer = Timer(delay, () {
-        if (_user?.uid != uid) return;
-        if (!ConnectivityService.instance.isConnected.value)
-          return;
-        if (needsEmailVerification) return;
-        unawaited(_checkProfileFor(uid));
-      });
+      _scheduleRetry(uid);
     }
+  }
+
+  void _scheduleRetry(String uid) {
+    if (_retryAttempt >= 5) return;
+
+    final delay = _retryDelayForAttempt(_retryAttempt);
+    _retryAttempt++;
+
+    _retryTimer = Timer(delay, () {
+      if (_user?.uid != uid) return;
+      if (!ConnectivityService.instance.isConnected.value) return;
+      if (needsEmailVerification) return;
+      unawaited(_checkProfileFor(uid));
+    });
   }
 
   @override

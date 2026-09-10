@@ -152,11 +152,21 @@ class FlutterwaveLeagueCreationPaymentService
     implements LeagueCreationPaymentService {
   final Uuid _uuid = const Uuid();
 
+  // UPDATED (iOS App Review): was Android-only
+  // (routeAndroidPaymentsToGooglePlayBilling). Now covers both native
+  // stores via useNativeInAppPurchase, and distinguishes which one so
+  // callers/analytics/logs show the right label instead of always
+  // "google_play_billing" on iOS.
   @override
-  String get providerName =>
-      PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
-          ? 'google_play_billing'
-          : 'flutterwave';
+  String get providerName {
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      return 'google_play_billing';
+    }
+    if (PaymentPlatformConfig.routeIOSPaymentsToStoreKit) {
+      return 'app_store';
+    }
+    return 'flutterwave';
+  }
 
   String _toFlutterwaveAmount(double v) {
     final rounded = double.parse(v.toStringAsFixed(2));
@@ -204,7 +214,12 @@ class FlutterwaveLeagueCreationPaymentService
     return raw;
   }
 
-  // ── Google Play Billing path ──────────────────────────────────────────────
+  // ── Native IAP path (Google Play Billing / iOS StoreKit) ────────────────
+  //
+  // RENAMED conceptually only (method name kept as _collectViaGooglePlay
+  // for minimal diff, since it's private to this file and already fully
+  // platform-agnostic — every call inside is to GooglePlayBillingService,
+  // which now handles both stores).
 
   Future<LeagueCreationPaymentResult> _collectViaGooglePlay({
     required String userId,
@@ -306,8 +321,12 @@ class FlutterwaveLeagueCreationPaymentService
           errorMessage: msg,
         );
       }
+      // Use gpResult.provider (dynamic, 'app_store' or
+      // 'google_play_billing') rather than providerName here — it's the
+      // authoritative value GooglePlayBillingService actually reported
+      // for this specific purchase.
       return LeagueCreationPaymentResult.failed(
-        provider: providerName,
+        provider: gpResult.provider,
         errorMessage: msg,
         selectedPlanId: chosenPlan.id,
         attemptId: attemptId,
@@ -321,7 +340,7 @@ class FlutterwaveLeagueCreationPaymentService
           ? gpResult.orderId
           : gpResult.purchaseToken,
       paidAtMs: now,
-      provider: providerName,
+      provider: gpResult.provider,
       viewerCapacity: 0,
       buyCouponsForParticipants:
           premiumUpgrade ? false : buyCouponsForParticipants,
@@ -778,12 +797,15 @@ class FlutterwaveLeagueCreationPaymentService
         buyCouponsForParticipants ? _sanitizeCount(couponCount) : 0;
     final chosenPlan = selectedPlan ?? MasterLeaguePlan.pro;
 
-    // ── Android → Google Play Billing ─────────────────────────────────────
-    if (PaymentPlatformConfig
-        .routeAndroidPaymentsToGooglePlayBilling) {
+    // UPDATED (iOS App Review): was
+    // PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
+    // (Android-only), now useNativeInAppPurchase (Android GPB OR iOS
+    // StoreKit). This was the exact "league creation fee silently
+    // charged via Flutterwave on iOS" App Review risk flagged earlier.
+    if (PaymentPlatformConfig.useNativeInAppPurchase) {
       if (kDebugMode) {
         debugPrint(
-            '[LeagueCreationPayment] Using Google Play Billing');
+            '[LeagueCreationPayment] Using native IAP ($providerName)');
       }
       return _collectViaGooglePlay(
         userId: userId,
