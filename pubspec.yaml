@@ -1,7 +1,7 @@
 name: eleaguehub3
 description: "A high-end professional league management app."
 publish_to: 'none'
-version: 1.9.4+60
+version: 1.9.5+70
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -64,6 +64,12 @@ dependencies:
   # Billing Library 8.0.0+ regardless of what in_app_purchase's own
   # pubspec constraint would otherwise resolve to.
   in_app_purchase: ^3.2.3
+  # ── Sign in with Apple ──
+  # crypto: SHA-256 hashing for the OAuth nonce Apple requires.
+  # sign_in_with_apple: native iOS/macOS authorization + the
+  # web-redirect flow used on Android (Apple has no native Android SDK).
+  crypto: ^3.0.5
+  sign_in_with_apple: ^6.1.4
 
 dev_dependencies:
   flutter_test:

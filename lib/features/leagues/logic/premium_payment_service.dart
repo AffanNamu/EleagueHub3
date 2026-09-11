@@ -137,7 +137,7 @@ class PremiumPaymentService {
     return raw;
   }
 
-  // ── Google Play Billing path ─────────────────────────────────────────────
+  // ── Native IAP path (Google Play Billing / iOS StoreKit) ─────────────────
 
   Future<PremiumPurchaseResult> _purchaseViaGooglePlay({
     required String userId,
@@ -146,7 +146,7 @@ class PremiumPaymentService {
         (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
     if (uid.isEmpty) {
       return PremiumPurchaseResult.failed(
-        provider: 'google_play_billing',
+        provider: 'native_iap',
         errorMessage: 'Please sign in to continue.',
       );
     }
@@ -186,24 +186,61 @@ class PremiumPaymentService {
         );
       }
       return PremiumPurchaseResult.failed(
-        provider: 'google_play_billing',
+        provider: gpResult.provider,
         errorMessage: msg,
         attemptId: attemptId,
         paymentId: gpResult.paymentId,
       );
     }
 
+    // FIXED: this branch previously returned "paid" immediately after a
+    // successful store purchase, WITHOUT ever calling
+    // _activatePremiumViaWorker() or writing isPremium anywhere — that
+    // call only ever existed in the Flutterwave branch below. That
+    // meant a Google Play (and, before this fix, any future iOS)
+    // premium purchase would charge the user and record a receipt via
+    // GooglePlayBillingService's own Firestore write, but never
+    // actually set users/{uid}.isPremium. Now both branches go through
+    // the same worker activation call, generalized below to accept a
+    // provider + purchaseToken instead of being hardcoded to
+    // Flutterwave's receiptId/transactionId shape.
+    try {
+      await _activatePremiumViaWorker(
+        provider: gpResult.provider,
+        purchaseToken: gpResult.purchaseToken,
+        transactionId: gpResult.orderId,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          '[PremiumPayment] Native IAP worker activation failed: $e',
+        );
+      }
+      return PremiumPurchaseResult.failed(
+        provider: gpResult.provider,
+        errorMessage:
+            'Payment completed but activation failed. Please contact '
+            'support with order '
+            '${gpResult.orderId.isNotEmpty ? gpResult.orderId : gpResult.purchaseToken}.',
+        attemptId: attemptId,
+        paymentId: gpResult.paymentId,
+        transactionId: gpResult.orderId,
+        txRef: gpResult.purchaseToken,
+      );
+    }
+
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Google Play manages subscription duration server-side.
-    // We use 365 as a local placeholder; the backend should
-    // read the actual subscription period from the purchase token.
+    // Google Play/StoreKit manage subscription duration server-side.
+    // We use 365 as a local placeholder for display purposes; the
+    // worker/backend should read the actual subscription period from
+    // the purchase token / Apple transaction.
     return PremiumPurchaseResult.paid(
       receiptId: gpResult.orderId.isNotEmpty
           ? gpResult.orderId
           : gpResult.purchaseToken,
       paidAtMs: now,
-      provider: 'google_play_billing',
+      provider: gpResult.provider,
       premiumDurationDays: 365,
       attemptId: attemptId,
       paymentId: gpResult.paymentId,
@@ -389,6 +426,7 @@ class PremiumPaymentService {
         if (BackendConfig.workerEnabled) {
           try {
             await _activatePremiumViaWorker(
+              provider: 'flutterwave',
               receiptId: verification.receiptId,
               transactionId: verification.transactionId,
             );
@@ -472,10 +510,14 @@ class PremiumPaymentService {
     required BuildContext context,
     required String userId,
   }) async {
-    // Android → Google Play Billing
-    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+    // UPDATED (iOS App Review): was
+    // PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
+    // (Android-only), now useNativeInAppPurchase (Android GPB OR iOS
+    // StoreKit) — premium app access is a digital in-app feature and
+    // must go through native IAP on iOS per guideline 3.1.1.
+    if (PaymentPlatformConfig.useNativeInAppPurchase) {
       if (kDebugMode) {
-        debugPrint('[PremiumPayment] Using Google Play Billing');
+        debugPrint('[PremiumPayment] Using native IAP');
       }
       return _purchaseViaGooglePlay(userId: userId);
     }
@@ -503,9 +545,24 @@ class PremiumPaymentService {
     return response.success == true || status == 'successful';
   }
 
+  // UPDATED (iOS App Review + activation-gap fix): generalized from a
+  // Flutterwave-only signature (receiptId + transactionId, provider
+  // hardcoded 'flutterwave' in the request body) to accept ANY
+  // provider, plus an optional purchaseToken for native-IAP calls. Now
+  // called from BOTH _purchaseViaGooglePlay and _purchaseViaFlutterwave
+  // instead of only the latter.
+  //
+  // ⚠️ SAME SERVER-SIDE DEPENDENCY as master_league_entitlement_service
+  // .dart's activateAfterPayment(): whatever this worker does today for
+  // provider == 'google_play_billing' needs a matching
+  // provider == 'app_store' path that verifies against Apple's App
+  // Store Server API. Confirm this before shipping iOS premium
+  // purchases live.
   Future<void> _activatePremiumViaWorker({
-    required String receiptId,
-    required String transactionId,
+    required String provider,
+    String receiptId = '',
+    String transactionId = '',
+    String purchaseToken = '',
   }) async {
     final activateUrl = BackendConfig.premiumActivateUrl();
     if (activateUrl == null) {
@@ -531,8 +588,9 @@ class PremiumPaymentService {
 
     if (kDebugMode) {
       debugPrint(
-        '[PremiumPayment] Activating via Worker: '
-        'receiptId=$receiptId transactionId=$transactionId',
+        '[PremiumPayment] Activating via Worker: provider=$provider '
+        'receiptId=$receiptId transactionId=$transactionId '
+        'purchaseToken=${purchaseToken.isNotEmpty ? '<redacted>' : ''}',
       );
     }
 
@@ -547,11 +605,15 @@ class PremiumPaymentService {
           HttpHeaders.authorizationHeader, 'Bearer $safeIdToken');
       req.headers.set(
           HttpHeaders.contentTypeHeader, ContentType.json.mimeType);
-      req.add(utf8.encode(jsonEncode(<String, dynamic>{
-        'provider': 'flutterwave',
-        'receiptId': receiptId,
-        'transactionId': transactionId,
-      })));
+
+      final body = <String, dynamic>{
+        'provider': provider,
+        if (receiptId.isNotEmpty) 'receiptId': receiptId,
+        if (transactionId.isNotEmpty) 'transactionId': transactionId,
+        if (purchaseToken.isNotEmpty) 'purchaseToken': purchaseToken,
+      };
+
+      req.add(utf8.encode(jsonEncode(body)));
 
       final res =
           await req.close().timeout(const Duration(seconds: 25));
