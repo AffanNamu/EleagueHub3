@@ -22,6 +22,9 @@ jobs:
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       BUNDLE_ID: com.eleaguehub.app
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_B64: ${{ secrets.ASC_API_KEY_P8_B64 }}
 
     steps:
       # ─────────────────────────────────────────
@@ -516,13 +519,15 @@ jobs:
       #   ASC_API_KEY_ID       - Key ID from App Store Connect > Users and Access > Keys
       #   ASC_API_ISSUER_ID    - Issuer ID, same page
       #   ASC_API_KEY_P8_B64   - base64 of the downloaded .p8 private key
+      #
+      # NOTE: these three are already pulled into job-level `env:` above.
+      # The `secrets` context is NOT allowed directly inside a step `if:`
+      # condition — GitHub rejects the workflow file at parse time with
+      # "Unrecognized named-value: 'secrets'" if you try. Routing them
+      # through job-level env and checking `env.*` here is the fix.
       # ─────────────────────────────────────────
       - name: Upload to App Store Connect
-        if: ${{ secrets.ASC_API_KEY_ID != '' && secrets.ASC_API_ISSUER_ID != '' && secrets.ASC_API_KEY_P8_B64 != '' }}
-        env:
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-          ASC_API_KEY_P8_B64: ${{ secrets.ASC_API_KEY_P8_B64 }}
+        if: ${{ env.ASC_API_KEY_ID != '' && env.ASC_API_ISSUER_ID != '' && env.ASC_API_KEY_P8_B64 != '' }}
         run: |
           set -euo pipefail
           mkdir -p ~/private_keys
@@ -539,7 +544,7 @@ jobs:
           echo "✅ Uploaded to App Store Connect / TestFlight"
 
       - name: Skipped App Store Connect upload
-        if: ${{ !(secrets.ASC_API_KEY_ID != '' && secrets.ASC_API_ISSUER_ID != '' && secrets.ASC_API_KEY_P8_B64 != '') }}
+        if: ${{ env.ASC_API_KEY_ID == '' || env.ASC_API_ISSUER_ID == '' || env.ASC_API_KEY_P8_B64 == '' }}
         run: |
           echo "::notice::ASC_API_KEY_ID / ASC_API_ISSUER_ID / ASC_API_KEY_P8_B64 not fully set — IPA was built and uploaded as a workflow artifact only, not sent to App Store Connect."
 
