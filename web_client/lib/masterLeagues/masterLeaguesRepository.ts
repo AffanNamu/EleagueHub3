@@ -1,5 +1,5 @@
 import {
-  collection, doc, getDoc, getDocs, setDoc, updateDoc,
+  collection, doc, documentId, getDoc, getDocs, setDoc, updateDoc,
   deleteDoc, runTransaction, serverTimestamp, writeBatch,
   query, where, orderBy, limit as fsLimit,
 } from 'firebase/firestore';
@@ -344,6 +344,112 @@ export async function discoverVerified(limit: number = 12): Promise<MasterLeague
   });
 
   return list.slice(0, limit);
+}
+
+/** Mirrors discoverRecentActiveOrganizers() — over-fetches 3x then trims
+ * after the isDiscoverable filter, so a page of mostly-inactive/unnamed
+ * workspaces doesn't return fewer than `limit` results. */
+export async function discoverRecentActive(limit: number = 12): Promise<MasterLeague[]> {
+  const q = query(collection(db, 'master_leagues'), orderBy('updatedAtMs', 'desc'), fsLimit(limit * 3));
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => masterLeagueFromDoc(d.id, d.data()))
+    .filter(isDiscoverable)
+    .slice(0, limit);
+}
+
+/** Mirrors discoverNearbyOrganizers() — "Organizers Near You", filtered by
+ * the same resolved country code Search's "Teams Near You" uses. Fails
+ * closed to an empty list (never throws) since this backs an
+ * auto-loading, best-effort discovery section. */
+export async function discoverNearby(countryCode: string, limit: number = 12): Promise<MasterLeague[]> {
+  const cc = countryCode.trim().toUpperCase();
+  if (!cc) return [];
+
+  try {
+    const q = query(
+      collection(db, 'master_leagues'),
+      where('country', '==', cc),
+      orderBy('updatedAtMs', 'desc'),
+      fsLimit(limit),
+    );
+    const snap = await getDocs(q);
+    return snap.docs
+      .map((d) => masterLeagueFromDoc(d.id, d.data()))
+      .filter(isDiscoverable);
+  } catch (err) {
+    console.error('[masterLeaguesRepository] discoverNearby failed:', err);
+    return [];
+  }
+}
+
+/** Mirrors discoverFeaturedOrganizers() — reads the admin-curated
+ * app/featured_organizers doc's masterLeagueIds array, chunk-fetches
+ * those specific workspaces (Firestore's `in` operator caps at 10 ids
+ * per query), sorts by recency, and falls back to discoverAll() if the
+ * list is empty or the fetch fails — same as the Dart repo. */
+export async function discoverFeatured(limit: number = 8): Promise<MasterLeague[]> {
+  try {
+    const featuredSnap = await getDoc(doc(db, 'app', 'featured_organizers'));
+    const idsRaw = featuredSnap.data()?.masterLeagueIds;
+    const ids: string[] = Array.isArray(idsRaw)
+      ? idsRaw.map((v) => String(v ?? '').trim()).filter((s) => s.length > 0)
+      : [];
+
+    if (ids.length > 0) {
+      const out: MasterLeague[] = [];
+      const chunkSize = 10;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        try {
+          const snap = await getDocs(query(collection(db, 'master_leagues'), where(documentId(), 'in', chunk)));
+          out.push(...snap.docs.map((d) => masterLeagueFromDoc(d.id, d.data())));
+        } catch (err) {
+          console.error('[masterLeaguesRepository] discoverFeatured chunk failed:', err);
+        }
+      }
+
+      if (out.length > 0) {
+        out.sort((a, b) => b.updatedAtMs - a.updatedAtMs);
+        return out.slice(0, limit);
+      }
+    }
+
+    return await discoverAll(limit);
+  } catch (err) {
+    console.error('[masterLeaguesRepository] discoverFeatured failed:', err);
+    try {
+      return await discoverAll(limit);
+    } catch {
+      return [];
+    }
+  }
+}
+
+/** Mirrors fetchWorkspaceByUsername() — resolves an @handle to its
+ * reserved organizer_usernames doc, then fetches that workspace. Returns
+ * null (never throws) for "not found" and any failure, matching the
+ * Dart repo's best-effort behavior for this search-box lookup. */
+export async function fetchWorkspaceByUsername(username: string): Promise<MasterLeague | null> {
+  try {
+    let normalized = username.trim().toLowerCase();
+    if (normalized.startsWith('@')) normalized = normalized.slice(1);
+    if (!normalized) return null;
+
+    const reservationSnap = await getDoc(doc(db, 'organizer_usernames', normalized));
+    if (!reservationSnap.exists()) return null;
+
+    const targetId = String(reservationSnap.data()?.masterLeagueId ?? '').trim();
+    if (!targetId) return null;
+
+    const mlSnap = await getDoc(doc(db, 'master_leagues', targetId));
+    if (!mlSnap.exists()) return null;
+
+    return masterLeagueFromDoc(mlSnap.id, mlSnap.data());
+  } catch (err) {
+    console.error('[masterLeaguesRepository] fetchWorkspaceByUsername failed:', err);
+    return null;
+  }
 }
 
 // ── ORGANIZER VERIFICATION (simple payment-driven submission) ───────────────
