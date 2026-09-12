@@ -106,7 +106,16 @@ export default function DiscussionDetailScreen() {
                     <span className="text-[10px] font-bold text-gray-500">{timeAgo(r.createdAtMs)}</span>
                   </div>
                   {r.authorId === selfUid && (
-                    <button onClick={() => deleteDiscussionReplyWeb(threadId, r.replyId, selfUid)} className="text-gray-500 hover:text-red-500"><X className="w-3.5 h-3.5"/></button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await deleteDiscussionReplyWeb(threadId, r.replyId, selfUid);
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : 'Could not delete reply.');
+                        }
+                      }}
+                      className="text-gray-500 hover:text-red-500"
+                    ><X className="w-3.5 h-3.5"/></button>
                   )}
                 </div>
                 <p className="text-sm font-medium text-gray-300 leading-relaxed whitespace-pre-wrap">{r.text}</p>

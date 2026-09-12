@@ -2,13 +2,14 @@
 
 import { useRouter } from 'next/navigation';
 import { Glass } from '@/components/ui/Glass';
-import { Flame, Trophy, Network as Hub, Users, Globe } from 'lucide-react';
+import { Flame, MessageCircle, Trophy, Network as Hub, Users, Globe } from 'lucide-react';
 
 export default function DiscoveryHubScreen() {
   const router = useRouter();
 
   const routes = [
     { icon: Flame, color: 'text-green-500', bg: 'bg-green-500/10', title: 'Public Feed', subtitle: "See what's happening in the community", path: '/feed', badge: 'HOT' },
+    { icon: MessageCircle, color: 'text-[#BEF264]', bg: 'bg-[#BEF264]/10', title: 'My Chats', subtitle: 'See the users you are chatting with', path: '/messages' },
     { icon: Trophy, color: 'text-sky-400', bg: 'bg-sky-400/10', title: 'Competitions', subtitle: 'Find leagues, tournaments and upcoming matches', path: '/discovery/competitions' },
     { icon: Hub, color: 'text-purple-500', bg: 'bg-purple-500/10', title: 'Organizers', subtitle: 'Discover verified organizers and workspaces', path: '/master-leagues/discovery' },
     { icon: Users, color: 'text-teal-400', bg: 'bg-teal-400/10', title: 'Teams', subtitle: 'Find competitive teams and squads', path: '/search' },
