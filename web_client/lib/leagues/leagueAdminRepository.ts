@@ -1,17 +1,207 @@
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { KnockoutMatch } from '@/lib/models/leagueDetails';
 
 // ── MATCH & KNOCKOUT UPDATES ─────────────────────────────────────────────────
+//
+// Mirrors LocalLeaguesRepository (lib/features/leagues/data/leagues_repository_local.dart)'s
+// updateMatchScoreAndUpdateTeamAggregates() + ensureTeamAggregatesBackfilled().
+// The previous updateMatchScoreWeb only wrote homeScore/awayScore/status to
+// the match doc and never touched the team docs at all — team.basePoints/
+// goalDifference/goalsFor stayed frozen at whatever they were initialized to
+// (usually 0) forever. StandingsTable itself is unaffected (standingsEngine.ts
+// already recomputes those fields fresh from the match list), but
+// knockoutGeneration.ts's group-stage seeding and admin/knockout-draw's sort
+// both read team.finalPoints/goalDifference/goalsFor directly off the raw
+// team doc — so knockout brackets were being seeded from stale/zeroed
+// standings instead of real ones.
+
+function statusLooksPlayed(rawStatus: unknown): boolean {
+  return rawStatus === 'completed' || rawStatus === 'played';
+}
+
+function matchPlayedFromMap(m: Record<string, unknown>): boolean {
+  if (m.homeScore === null || m.homeScore === undefined) return false;
+  if (m.awayScore === null || m.awayScore === undefined) return false;
+  return statusLooksPlayed(m.status);
+}
+
+function pointsFor(scored: number, conceded: number): number {
+  if (scored > conceded) return 3;
+  if (scored === conceded) return 1;
+  return 0;
+}
+
+/** Backfills basePoints/adminAdjustment/finalPoints/goalDifference/goalsFor
+ * from the live match list, for leagues whose team docs predate this write
+ * path (or were only ever touched by createPointAdjustmentWeb, which never
+ * set basePoints/goalDifference/goalsFor). No-ops once every team has all
+ * five fields. */
+async function ensureTeamAggregatesBackfilledWeb(leagueId: string): Promise<void> {
+  const teamsSnap = await getDocs(collection(db, 'leagues', leagueId, 'teams'));
+  if (teamsSnap.empty) return;
+
+  const needsBackfill = teamsSnap.docs.some((d) => {
+    const data = d.data();
+    return (
+      typeof data.basePoints !== 'number' ||
+      typeof data.adminAdjustment !== 'number' ||
+      typeof data.finalPoints !== 'number' ||
+      typeof data.goalDifference !== 'number' ||
+      typeof data.goalsFor !== 'number'
+    );
+  });
+  if (!needsBackfill) return;
+
+  const matchesSnap = await getDocs(collection(db, 'leagues', leagueId, 'matches'));
+
+  const basePointsByTeam: Record<string, number> = {};
+  const gdByTeam: Record<string, number> = {};
+  const gfByTeam: Record<string, number> = {};
+
+  for (const d of matchesSnap.docs) {
+    const m = d.data();
+    if (!matchPlayedFromMap(m)) continue;
+
+    const homeId = String(m.homeTeamId || '').trim();
+    const awayId = String(m.awayTeamId || '').trim();
+    if (!homeId || !awayId) continue;
+
+    const hs = Number(m.homeScore);
+    const as = Number(m.awayScore);
+
+    basePointsByTeam[homeId] = (basePointsByTeam[homeId] || 0) + pointsFor(hs, as);
+    basePointsByTeam[awayId] = (basePointsByTeam[awayId] || 0) + pointsFor(as, hs);
+
+    gfByTeam[homeId] = (gfByTeam[homeId] || 0) + hs;
+    gfByTeam[awayId] = (gfByTeam[awayId] || 0) + as;
+
+    gdByTeam[homeId] = (gdByTeam[homeId] || 0) + (hs - as);
+    gdByTeam[awayId] = (gdByTeam[awayId] || 0) + (as - hs);
+  }
+
+  const now = Date.now();
+  const chunkSize = 400;
+  for (let i = 0; i < teamsSnap.docs.length; i += chunkSize) {
+    const batch = writeBatch(db);
+    for (const d of teamsSnap.docs.slice(i, i + chunkSize)) {
+      const teamId = d.id;
+      const base = basePointsByTeam[teamId] || 0;
+      const adj = Number(d.data().adminAdjustment || 0);
+      batch.set(
+        d.ref,
+        {
+          basePoints: base,
+          adminAdjustment: adj,
+          finalPoints: base + adj,
+          goalDifference: gdByTeam[teamId] || 0,
+          goalsFor: gfByTeam[teamId] || 0,
+          updatedAtMs: now,
+        },
+        { merge: true },
+      );
+    }
+    await batch.commit();
+  }
+}
 
 export async function updateMatchScoreWeb(leagueId: string, matchId: string, homeScore: number, awayScore: number) {
+  await ensureTeamAggregatesBackfilledWeb(leagueId);
+
   const matchRef = doc(db, 'leagues', leagueId, 'matches', matchId);
-  await updateDoc(matchRef, {
-    homeScore,
-    awayScore,
-    status: 'completed',
-    isPlayed: true,
-    updatedAtMs: Date.now()
+  const now = Date.now();
+  const hsNew = homeScore < 0 ? 0 : homeScore;
+  const asNew = awayScore < 0 ? 0 : awayScore;
+
+  await runTransaction(db, async (txn) => {
+    const matchSnap = await txn.get(matchRef);
+    if (!matchSnap.exists()) throw new Error("We couldn't find this match. Please refresh and try again.");
+
+    const matchData = matchSnap.data();
+    const homeId = String(matchData.homeTeamId || '').trim();
+    const awayId = String(matchData.awayTeamId || '').trim();
+    if (!homeId || !awayId) {
+      throw new Error('This match is missing team information. Please refresh and try again.');
+    }
+
+    const hsOld = typeof matchData.homeScore === 'number' ? matchData.homeScore : undefined;
+    const asOld = typeof matchData.awayScore === 'number' ? matchData.awayScore : undefined;
+    const oldPlayed = hsOld !== undefined && asOld !== undefined && statusLooksPlayed(matchData.status);
+
+    const oldHomePts = oldPlayed ? pointsFor(hsOld, asOld) : 0;
+    const oldAwayPts = oldPlayed ? pointsFor(asOld, hsOld) : 0;
+    const oldHomeGf = oldPlayed ? hsOld : 0;
+    const oldAwayGf = oldPlayed ? asOld : 0;
+    const oldHomeGd = oldPlayed ? hsOld - asOld : 0;
+    const oldAwayGd = oldPlayed ? asOld - hsOld : 0;
+
+    const newHomePts = pointsFor(hsNew, asNew);
+    const newAwayPts = pointsFor(asNew, hsNew);
+    const newHomeGf = hsNew;
+    const newAwayGf = asNew;
+    const newHomeGd = hsNew - asNew;
+    const newAwayGd = asNew - hsNew;
+
+    const deltaHomePts = newHomePts - oldHomePts;
+    const deltaAwayPts = newAwayPts - oldAwayPts;
+    const deltaHomeGf = newHomeGf - oldHomeGf;
+    const deltaAwayGf = newAwayGf - oldAwayGf;
+    const deltaHomeGd = newHomeGd - oldHomeGd;
+    const deltaAwayGd = newAwayGd - oldAwayGd;
+
+    const homeRef = doc(db, 'leagues', leagueId, 'teams', homeId);
+    const awayRef = doc(db, 'leagues', leagueId, 'teams', awayId);
+
+    const homeSnap = await txn.get(homeRef);
+    const awaySnap = await txn.get(awayRef);
+    if (!homeSnap.exists() || !awaySnap.exists()) {
+      throw new Error("We couldn't find one of the teams for this match. Please refresh and try again.");
+    }
+
+    const homeData = homeSnap.data();
+    const awayData = awaySnap.data();
+
+    const homeBase = Number(homeData.basePoints || 0);
+    const awayBase = Number(awayData.basePoints || 0);
+    const homeAdj = Number(homeData.adminAdjustment || 0);
+    const awayAdj = Number(awayData.adminAdjustment || 0);
+    const homeGd = Number(homeData.goalDifference || 0);
+    const awayGd = Number(awayData.goalDifference || 0);
+    const homeGf = Number(homeData.goalsFor || 0);
+    const awayGf = Number(awayData.goalsFor || 0);
+
+    const nextHomeBase = Math.max(0, homeBase + deltaHomePts);
+    const nextAwayBase = Math.max(0, awayBase + deltaAwayPts);
+    const nextHomeGf = Math.max(0, homeGf + deltaHomeGf);
+    const nextAwayGf = Math.max(0, awayGf + deltaAwayGf);
+    const nextHomeGd = homeGd + deltaHomeGd;
+    const nextAwayGd = awayGd + deltaAwayGd;
+
+    txn.update(matchRef, {
+      homeScore: hsNew,
+      awayScore: asNew,
+      status: 'completed',
+      isPlayed: true,
+      updatedAtMs: now,
+    });
+
+    txn.update(homeRef, {
+      basePoints: nextHomeBase,
+      adminAdjustment: homeAdj,
+      finalPoints: nextHomeBase + homeAdj,
+      goalDifference: nextHomeGd,
+      goalsFor: nextHomeGf,
+      updatedAtMs: now,
+    });
+
+    txn.update(awayRef, {
+      basePoints: nextAwayBase,
+      adminAdjustment: awayAdj,
+      finalPoints: nextAwayBase + awayAdj,
+      goalDifference: nextAwayGd,
+      goalsFor: nextAwayGf,
+      updatedAtMs: now,
+    });
   });
 }
 
@@ -27,6 +217,8 @@ export async function saveKnockoutMatchesWeb(leagueId: string, matches: Partial<
 
 // ── POINT ADJUSTMENTS ────────────────────────────────────────────────────────
 export async function createPointAdjustmentWeb({ leagueId, teamId, type, points, reason, authUid }: any) {
+  await ensureTeamAggregatesBackfilledWeb(leagueId);
+
   const now = Date.now();
   const adjustmentRef = doc(collection(db, 'leagues', leagueId, 'pointAdjustments'));
   const teamRef = doc(db, 'leagues', leagueId, 'teams', teamId);
