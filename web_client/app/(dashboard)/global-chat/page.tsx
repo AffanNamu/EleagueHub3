@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { useGlobalChat, useGlobalChatAccess } from '@/hooks/useGlobalChat';
 import { requestGlobalChatAccessWeb, sendGlobalMessageWeb, pinGlobalMessageWeb, softDeleteGlobalMessageWeb, ChatMessage } from '@/lib/chat/chatRepository';
-import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
+import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { GlobalChatBubble, PinnedMessageBar } from '@/components/chat/GlobalChatComponents';
 import { Glass } from '@/components/ui/Glass';
 import { ArrowLeft, Loader2, Send, Image as ImageIcon, Mic, X, ShieldAlert, Code } from 'lucide-react';
@@ -69,7 +69,9 @@ export default function GlobalChatScreen() {
     if (!file || sending || moderation.muted || moderation.banned) return;
     setSending(true);
     try {
-      const res = await uploadImageFile({ file, folder: 'eleaguehub/chatrooms/global', resourceType: isVoice ? 'video' : 'image' });
+      const res = isVoice
+        ? await uploadAudioFile({ file, folder: 'eleaguehub/chatrooms/global', filename: `voice_${Date.now()}.webm` })
+        : await uploadImageFile({ file, folder: 'eleaguehub/chatrooms/global' });
       await sendGlobalMessageWeb({
         senderId: authUid,
         senderName: auth.currentUser!.displayName || 'Player',

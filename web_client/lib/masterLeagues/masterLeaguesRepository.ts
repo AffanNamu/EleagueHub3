@@ -1,8 +1,10 @@
-import { 
-  collection, doc, getDoc, getDocs, setDoc, updateDoc, 
-  deleteDoc, runTransaction, serverTimestamp, writeBatch 
+import {
+  collection, doc, getDoc, getDocs, setDoc, updateDoc,
+  deleteDoc, runTransaction, serverTimestamp, writeBatch,
+  query, where, orderBy, limit as fsLimit,
 } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
+import { MasterLeague, masterLeagueFromDoc, isDiscoverable } from '@/types/masterLeague';
 
 // ── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +55,6 @@ export interface MasterLeagueData {
   verificationRequestType: string;
   country: string;
   usernameLower: string;
-  organizerProfile?: OrganizerProfile; // Client-side hydration mapping
 }
 
 export interface VerificationApplicationData {
@@ -304,5 +305,151 @@ export async function applyDisciplineActionWeb({
       chatBanned: nextBanned,
       updatedAtMs: now
     }, { merge: true });
+  });
+}
+
+// ── ENTITLEMENTS / DISCOVERY ─────────────────────────────────────────────────
+// Mirrors MasterLeagueEntitlementService.countOwnedWorkspaces() and
+// MasterLeaguesRepositoryFirebase.discoverAllOrganizers()/
+// discoverVerifiedOrganizers() — best-effort, matching Flutter's behavior
+// of returning an empty/zero result on failure rather than throwing, since
+// these back auto-loading discovery sections and plan-limit checks.
+
+export async function countOwnedWorkspaces(uid: string): Promise<number> {
+  try {
+    const q = query(collection(db, 'master_leagues'), where('ownerId', '==', uid));
+    const snap = await getDocs(q);
+    return snap.size;
+  } catch {
+    return 0;
+  }
+}
+
+export async function discoverAll(limit: number = 20): Promise<MasterLeague[]> {
+  const q = query(collection(db, 'master_leagues'), orderBy('updatedAtMs', 'desc'), fsLimit(limit));
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => masterLeagueFromDoc(d.id, d.data()))
+    .filter(isDiscoverable);
+}
+
+export async function discoverVerified(limit: number = 12): Promise<MasterLeague[]> {
+  const q = query(collection(db, 'master_leagues'), where('verifiedBadge', '==', true));
+  const snap = await getDocs(q);
+  const list = snap.docs.map((d) => masterLeagueFromDoc(d.id, d.data()));
+
+  list.sort((a, b) => {
+    if (b.followersCount !== a.followersCount) return b.followersCount - a.followersCount;
+    return b.updatedAtMs - a.updatedAtMs;
+  });
+
+  return list.slice(0, limit);
+}
+
+// ── ORGANIZER VERIFICATION (simple payment-driven submission) ───────────────
+// Mirrors MasterLeaguesRepositoryFirebase.submitVerificationRequest() /
+// submitVerificationRenewalRequest() — combined into one function since the
+// only difference between the two Dart methods is which eligibility check
+// applies and which requestType gets written.
+
+export async function submitVerificationRequest({
+  masterLeagueId, attemptId, paymentId, receiptId, provider, note = '', requestType,
+}: {
+  masterLeagueId: string;
+  attemptId: string;
+  paymentId: string;
+  receiptId: string;
+  provider: string;
+  note?: string;
+  requestType: 'initial' | 'renewal';
+}): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error('Please sign in and try again.');
+
+  const mlId = masterLeagueId.trim();
+  if (!mlId || !attemptId.trim() || !paymentId.trim() || !receiptId.trim()) {
+    throw new Error(
+      requestType === 'renewal'
+        ? 'Renewal payment details are incomplete.'
+        : 'Verification payment details are incomplete.',
+    );
+  }
+
+  const requestRef = doc(collection(db, 'master_league_verification_requests'));
+  const mlRef = doc(db, 'master_leagues', mlId);
+  const payRef = doc(db, 'payments', paymentId);
+  const now = Date.now();
+  const safeNote = note.trim().slice(0, 1000);
+
+  await runTransaction(db, async (txn) => {
+    const mlDoc = await txn.get(mlRef);
+    if (!mlDoc.exists()) throw new Error("We couldn't find that Master League.");
+
+    const mlData = mlDoc.data();
+    const ownerId = (mlData.ownerId || mlData.ownerUid || '').toString().trim();
+    if (ownerId !== uid) {
+      throw new Error(
+        requestType === 'renewal'
+          ? 'Only the owner can submit verification renewal.'
+          : 'Only the owner can submit organizer verification.',
+      );
+    }
+
+    const currentStatus = (mlData.verificationStatus || 'none').toString().trim().toLowerCase();
+    const currentVerified = mlData.verifiedBadge === true;
+
+    if (requestType === 'initial') {
+      if (currentVerified || currentStatus === 'approved') {
+        throw new Error('This organizer is already verified.');
+      }
+      if (currentStatus === 'pending') {
+        throw new Error('A verification request is already pending review.');
+      }
+    } else {
+      const expiresAtMs = Number(mlData.verificationExpiresAtMs) || 0;
+      const expired = expiresAtMs > 0 && expiresAtMs <= now;
+      const canRenew = currentVerified || expired;
+      if (!canRenew) {
+        throw new Error('This organizer is not eligible for verification renewal.');
+      }
+      const currentRequestType = (mlData.verificationRequestType || 'initial').toString().trim().toLowerCase();
+      if (currentStatus === 'pending' && currentRequestType === 'renewal') {
+        throw new Error('A verification renewal request is already pending review.');
+      }
+    }
+
+    txn.set(requestRef, {
+      requestId: requestRef.id,
+      masterLeagueId: mlId,
+      ownerId: uid,
+      status: 'pending',
+      requestType,
+      provider,
+      receiptId,
+      paymentId,
+      attemptId,
+      submittedAtMs: now,
+      reviewedAtMs: 0,
+      reviewedBy: '',
+      note: safeNote,
+    });
+
+    txn.update(mlRef, {
+      verificationStatus: 'pending',
+      verifiedBadge: false,
+      verificationRequestId: requestRef.id,
+      verificationReceiptId: receiptId,
+      verificationPaymentId: paymentId,
+      verificationProvider: provider,
+      verificationRequestedAtMs: now,
+      verificationApprovedAtMs: 0,
+      verificationExpiresAtMs: 0,
+      verificationReviewedBy: '',
+      verificationNote: safeNote,
+      verificationRequestType: requestType,
+      updatedAtMs: now,
+    });
+
+    txn.update(payRef, { fulfilledVerificationRequestId: requestRef.id, fulfilledAtMs: now, updatedAtMs: now });
   });
 }

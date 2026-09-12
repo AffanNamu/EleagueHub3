@@ -108,6 +108,15 @@ export function isOwner(ml: MasterLeague, uid: string): boolean {
   return !!uid && ml.ownerId === uid;
 }
 
+export function isActive(ml: MasterLeague): boolean {
+  const status = ml.purchaseStatus.trim().toLowerCase();
+  return status === '' || status === 'active';
+}
+
+export function isDiscoverable(ml: MasterLeague): boolean {
+  return ml.name.trim().length > 0 && isActive(ml);
+}
+
 export function isVerifiedOrganizer(ml: MasterLeague): boolean {
   return ml.verifiedBadge || ml.verificationStatus === 'approved';
 }

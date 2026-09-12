@@ -27,15 +27,17 @@ export default function OrganizerProfileScreen() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
   useEffect(() => {
-    if (masterLeague?.organizerProfile) {
-      setBio(masterLeague.organizerProfile.bio || '');
-      setBadge(masterLeague.organizerProfile.badge || '');
+    // NOTE: bannerUrl/logoUrl/bio/badge/socialLinks live flat on the
+    // master_leagues/{id} doc root, not nested under "organizerProfile".
+    if (masterLeague) {
+      setBio(masterLeague.bio || '');
+      setBadge(masterLeague.badge || '');
       setSocials({
-        facebook: masterLeague.organizerProfile.socialLinks?.facebook || '',
-        instagram: masterLeague.organizerProfile.socialLinks?.instagram || '',
-        x: masterLeague.organizerProfile.socialLinks?.x || '',
-        youtube: masterLeague.organizerProfile.socialLinks?.youtube || '',
-        tiktok: masterLeague.organizerProfile.socialLinks?.tiktok || ''
+        facebook: masterLeague.socialLinks?.facebook || '',
+        instagram: masterLeague.socialLinks?.instagram || '',
+        x: masterLeague.socialLinks?.x || '',
+        youtube: masterLeague.socialLinks?.youtube || '',
+        tiktok: masterLeague.socialLinks?.tiktok || ''
       });
     }
   }, [masterLeague]);
@@ -50,14 +52,15 @@ export default function OrganizerProfileScreen() {
     isBanner ? setUploadingBanner(true) : setUploadingLogo(true);
     try {
       const { secureUrl } = await uploadImageFile({ file, folder: 'eleaguehub/organizers' });
-      const currentProfile = masterLeague.organizerProfile || { bannerUrl: '', logoUrl: '', bio: '', badge: '', socialLinks: {} };
-      
+
       await updateOrganizerProfileWeb(mlId, {
-        ...currentProfile,
-        bannerUrl: isBanner ? secureUrl : currentProfile.bannerUrl,
-        logoUrl: !isBanner ? secureUrl : currentProfile.logoUrl,
+        bannerUrl: isBanner ? secureUrl : (masterLeague.bannerUrl || ''),
+        logoUrl: !isBanner ? secureUrl : (masterLeague.logoUrl || ''),
+        bio: masterLeague.bio || '',
+        badge: masterLeague.badge || '',
+        socialLinks: masterLeague.socialLinks || {},
       }, auth.currentUser!.uid);
-      
+
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -68,9 +71,10 @@ export default function OrganizerProfileScreen() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const currentProfile = masterLeague.organizerProfile || { bannerUrl: '', logoUrl: '' };
       await updateOrganizerProfileWeb(mlId, {
-        ...currentProfile, bio, badge, socialLinks: socials
+        bannerUrl: masterLeague.bannerUrl || '',
+        logoUrl: masterLeague.logoUrl || '',
+        bio, badge, socialLinks: socials
       }, auth.currentUser!.uid);
       alert('Profile updated successfully!');
     } catch (err: any) {
@@ -92,8 +96,8 @@ export default function OrganizerProfileScreen() {
       <Glass className="p-6 md:p-8 bg-[#0B1221] border-[#1E293B] rounded-3xl shadow-xl">
         {/* Images */}
         <div className="relative h-48 bg-slate-900 rounded-2xl mb-12 overflow-hidden border border-[#1E293B]">
-          {masterLeague.organizerProfile?.bannerUrl ? (
-            <img src={masterLeague.organizerProfile.bannerUrl} className="w-full h-full object-cover opacity-70" alt="Banner" />
+          {masterLeague.bannerUrl ? (
+            <img src={masterLeague.bannerUrl} className="w-full h-full object-cover opacity-70" alt="Banner" />
           ) : <div className="absolute inset-0 bg-gradient-to-br from-[#1E293B] to-[#070B14]" />}
           
           <button onClick={() => bannerRef.current?.click()} className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/80 rounded-xl text-white backdrop-blur flex items-center gap-2">
@@ -102,7 +106,7 @@ export default function OrganizerProfileScreen() {
 
           <div className="absolute -bottom-8 left-6">
             <div onClick={() => logoRef.current?.click()} className="relative w-24 h-24 rounded-full border-4 border-[#0B1221] bg-[#1E293B] cursor-pointer overflow-hidden group">
-              {masterLeague.organizerProfile?.logoUrl ? <img src={masterLeague.organizerProfile.logoUrl} className="w-full h-full object-cover group-hover:opacity-50" alt="Logo"/> : <Camera className="w-8 h-8 text-gray-500 m-auto mt-7 group-hover:opacity-50"/>}
+              {masterLeague.logoUrl ? <img src={masterLeague.logoUrl} className="w-full h-full object-cover group-hover:opacity-50" alt="Logo"/> : <Camera className="w-8 h-8 text-gray-500 m-auto mt-7 group-hover:opacity-50"/>}
               {uploadingLogo && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><Loader2 className="w-6 h-6 text-white animate-spin"/></div>}
             </div>
           </div>

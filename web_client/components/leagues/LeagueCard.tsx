@@ -15,13 +15,13 @@ import { LatestAnnouncement } from '@/lib/leagues/leaguesRepository';
 
 export interface LeagueCardProps {
   league: LeagueData;
-  registered: number;
-  isOwner: boolean;
-  isViewerOnly: boolean;
-  latestAnnouncement: LatestAnnouncement | null;
-  showMasterBadge: boolean;
+  registered?: number;
+  isOwner?: boolean;
+  isViewerOnly?: boolean;
+  latestAnnouncement?: LatestAnnouncement | null;
+  showMasterBadge?: boolean;
   onOpen: () => void;
-  onLeave: () => void;
+  onLeave?: () => void;
   onOpenWorkspace?: () => void;
   removing?: boolean;
 }
@@ -40,15 +40,15 @@ function buildSubtitle(
 
 export function LeagueCard({
   league,
-  registered,
-  isOwner,
-  isViewerOnly,
-  latestAnnouncement,
-  showMasterBadge,
+  registered = 0,
+  isOwner = false,
+  isViewerOnly = false,
+  latestAnnouncement = null,
+  showMasterBadge = false,
   onOpen,
-  onLeave,
+  onLeave = () => {},
   onOpenWorkspace,
-  removing,
+  removing = false,
 }: LeagueCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);

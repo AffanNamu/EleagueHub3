@@ -139,7 +139,7 @@ export default function MasterLeagueDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {childLeagues.map(l => (
                   <div key={l.id} className="h-[236px]">
-                     <LeagueCard league={l}/>
+                     <LeagueCard league={l} onOpen={() => router.push(`/leagues/${l.id}`)}/>
                   </div>
                 ))}
               </div>

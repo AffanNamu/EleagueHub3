@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { toggleFollowWorkspaceWeb } from '@/lib/masterLeagues/masterLeaguesRepository';
 import { MasterLeagueData } from '@/lib/masterLeagues/masterLeaguesRepository';
 
@@ -20,6 +20,12 @@ export async function isFollowing(mlId: string, authUid: string) {
 export function useMasterLeagueDetail(masterLeagueId: string) {
   const [workspace, setWorkspace] = useState<MasterLeagueData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null);
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((user) => setUid(user?.uid ?? null));
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     if (!masterLeagueId) return;
@@ -31,5 +37,5 @@ export function useMasterLeagueDetail(masterLeagueId: string) {
     return () => unsub();
   }, [masterLeagueId]);
 
-  return { workspace, loading };
+  return { workspace, loading, uid };
 }

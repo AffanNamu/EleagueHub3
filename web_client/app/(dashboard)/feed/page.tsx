@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { PublicPost, toggleLikeWeb, deletePostWeb, createPostWeb } from '@/lib/feed/publicFeedRepository';
 import { PostCard } from '@/components/feed/PostCard';
 import { CommentsModal } from '@/components/feed/CommentsModal';
-import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
+import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { Loader2, Plus, X, Image as ImageIcon, Music2 } from 'lucide-react';
 import { Glass } from '@/components/ui/Glass';
 
@@ -61,9 +61,8 @@ export default function PublicFeedScreen() {
         mediaUrl = imgRes.secureUrl;
       }
 
-      // Cloudinary handles audio files under the resource_type: "video" natively
       if (audioFile) {
-        const audRes = await uploadImageFile({ file: audioFile, folder: 'eleaguehub/public_posts', resourceType: 'video' });
+        const audRes = await uploadAudioFile({ file: audioFile, folder: 'eleaguehub/public_posts', filename: `voice_${Date.now()}.webm` });
         audioUrl = audRes.secureUrl;
       }
 

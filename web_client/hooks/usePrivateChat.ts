@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { PrivateThread, PrivateMessage, sendPrivateMessageWeb } from '@/lib/chat/privateChatRepository';
-import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
+import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
 
 export function usePrivateThreads() {
   const [threads, setThreads] = useState<PrivateThread[]>([]);
@@ -74,8 +74,11 @@ export function usePrivateMessages(threadId: string) {
 
   const sendVoice = async (file: File) => {
     if (!authUid) throw new Error('Not authenticated');
-    // Important: Cloudinary requires resourceType: 'video' for audio files
-    const { secureUrl } = await uploadImageFile({ file, folder: `chat_voice_messages/private/${threadId}`, resourceType: 'video' });
+    const { secureUrl } = await uploadAudioFile({
+      file,
+      folder: `chat_voice_messages/private/${threadId}`,
+      filename: `voice_${Date.now()}.webm`,
+    });
     await sendPrivateMessageWeb(threadId, authUid, 'voice', '', '', secureUrl);
   };
 

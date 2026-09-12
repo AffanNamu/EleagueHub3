@@ -39,17 +39,20 @@ export function useOrganizerProfileEditor(masterLeagueId: string) {
 
   useEffect(() => {
     if (!workspace || hydratedForId === workspace.id) return;
-    const p = workspace.organizerProfile;
-    setBannerUrl(p.bannerUrl);
-    setLogoUrl(p.logoUrl);
-    setBio(p.bio);
-    setBadge(p.badge);
+    // NOTE: organizerProfile fields (bannerUrl/logoUrl/bio/badge/socialLinks)
+    // live flat on the master_leagues/{id} doc root, not nested under an
+    // "organizerProfile" key — matching Dart's OrganizerProfile.fromRootMap().
+    const links = workspace.socialLinks ?? {};
+    setBannerUrl(workspace.bannerUrl ?? '');
+    setLogoUrl(workspace.logoUrl ?? '');
+    setBio(workspace.bio ?? '');
+    setBadge(workspace.badge ?? '');
     setSocials({
-      facebook: p.socialLinks.facebook ?? '',
-      instagram: p.socialLinks.instagram ?? '',
-      x: p.socialLinks.x ?? p.socialLinks.twitter ?? '',
-      youtube: p.socialLinks.youtube ?? '',
-      tiktok: p.socialLinks.tiktok ?? '',
+      facebook: links.facebook ?? '',
+      instagram: links.instagram ?? '',
+      x: links.x ?? links.twitter ?? '',
+      youtube: links.youtube ?? '',
+      tiktok: links.tiktok ?? '',
     });
     setHydratedForId(workspace.id);
   }, [workspace, hydratedForId]);

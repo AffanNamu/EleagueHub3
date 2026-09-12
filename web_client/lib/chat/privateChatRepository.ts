@@ -1,6 +1,6 @@
 import { collection, doc, getDoc, setDoc, query, where, orderBy, limit, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
+import { detectPremiumUser } from '@/lib/leagues/leaguesRepository';
 
 export interface PrivateThread {
   id: string;
@@ -51,9 +51,8 @@ export async function checkChatAccessWeb(authUid: string, targetUid: string) {
   }
 
   // Check if user is premium to start a new chat
-  const profile = await fetchUserProfileByUserId(authUid);
-  const isPremium = profile?.activePlanId === 'pro' || profile?.activePlanId === 'elite';
-  
+  const isPremium = await detectPremiumUser(authUid);
+
   return isPremium ? 'canStart' : 'locked';
 }
 
