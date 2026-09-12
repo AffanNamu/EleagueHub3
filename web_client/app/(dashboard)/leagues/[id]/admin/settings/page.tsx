@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { useLeagueDetail } from '@/hooks/useLeagueDetail';
+import { isOwnerForViewer } from '@/lib/models/league';
 import { uploadImageToCloudinary } from '@/lib/cloudinary';
 import { Loader2, ArrowLeft, Settings, Image as ImageIcon, ShieldAlert, Save } from 'lucide-react';
 
@@ -34,7 +35,7 @@ export default function LeagueSettingsScreen() {
     }
   }, [league]);
 
-  if (league && auth.currentUser?.uid !== league.organizerUid && auth.currentUser?.uid !== league.ownerUid) {
+  if (league && !isOwnerForViewer(league, auth.currentUser?.uid || '')) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-red-500 bg-[#070B14] min-h-screen">
         <ShieldAlert className="w-16 h-16 mb-4" />

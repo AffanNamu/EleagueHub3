@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { League } from '@/types/league';
+import { LeagueData, leagueFromRemoteMap } from '@/lib/models/league';
 
 export function useMasterLeagueTournaments(masterLeagueId: string) {
-  const [leagues, setLeagues] = useState<League[]>([]);
+  const [leagues, setLeagues] = useState<LeagueData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -15,8 +15,8 @@ export function useMasterLeagueTournaments(masterLeagueId: string) {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as League);
-        list.sort((a: any, b: any) => (b.updatedAtMs ?? 0) - (a.updatedAtMs ?? 0));
+        const list = snap.docs.map((d) => leagueFromRemoteMap({ ...d.data(), id: d.id }));
+        list.sort((a, b) => (b.updatedAtMs ?? 0) - (a.updatedAtMs ?? 0));
         setLeagues(list);
         setLoading(false);
       },

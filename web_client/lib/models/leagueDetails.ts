@@ -1,4 +1,4 @@
-export type MatchStatus = 'scheduled' | 'playing' | 'completed' | 'played';
+export type MatchStatus = 'scheduled' | 'pendingProof' | 'underReview' | 'played' | 'completed';
 
 export interface Team {
   id: string;
@@ -6,12 +6,18 @@ export interface Team {
   name: string;
   ownerId: string;
   teamImageUrl: string;
+  logoUrl?: string;
   groupId: string | null;
   basePoints: number;
   adminAdjustment: number;
   finalPoints: number;
   goalDifference: number;
   goalsFor: number;
+  goalsAgainst?: number;
+  played?: number;
+  won?: number;
+  drawn?: number;
+  lost?: number;
   updatedAtMs: number;
 }
 
@@ -25,8 +31,10 @@ export interface FixtureMatch {
   homeScore: number | null;
   awayScore: number | null;
   status: MatchStatus;
+  isPlayed?: boolean;
   sortIndex: number;
   updatedAtMs: number;
+  version?: number;
 }
 
 export interface KnockoutMatch {
@@ -37,11 +45,24 @@ export interface KnockoutMatch {
   awayTeamId: string | null;
   homeScore: number | null;
   awayScore: number | null;
+  homePenaltyScore?: number | null;
+  awayPenaltyScore?: number | null;
   status: MatchStatus;
   tiebreakWinnerTeamId: string | null;
   nextMatchId: string | null;
   loserGoesToMatchId: string | null;
   isSecondLeg: boolean;
+}
+
+export interface LeagueSpace {
+  leagueId: string;
+  hostUserId: string;
+  hostUid: string;
+  title: string;
+  isLive: boolean;
+  startedAtMs?: number;
+  endedAtMs?: number;
+  updatedAtMs: number;
 }
 
 export interface LeagueAnnouncement {

@@ -17,22 +17,10 @@
 // the real Dart getters differ, only these two functions need correcting —
 // nothing else in this file depends on their internals.
 
-export type KnockoutMatchStatus = 'scheduled' | 'completed' | 'played';
+import { KnockoutMatch, MatchStatus } from '@/lib/models/leagueDetails';
 
-export interface KnockoutMatch {
-  id: string;
-  leagueId: string;
-  roundName: string;
-  homeTeamId: string | null;
-  awayTeamId: string | null;
-  homeScore: number | null;
-  awayScore: number | null;
-  status: KnockoutMatchStatus;
-  tiebreakWinnerTeamId: string | null;
-  nextMatchId: string | null;
-  loserGoesToMatchId: string | null;
-  isSecondLeg: boolean;
-}
+export type { KnockoutMatch };
+export type KnockoutMatchStatus = MatchStatus;
 
 /// Minimal shape needed for seeding — matches Dart's StandingsRow fields
 /// that this controller actually reads (teamId, gd, gf, finalPoints).
@@ -561,6 +549,62 @@ export function seedWorldCupKnockouts48({
   seeded.push({ ...r32[13], homeTeamId: winnersIL[2].teamId, awayTeamId: runnersIL[3].teamId }); // 1K vs 2L
   seeded.push({ ...r32[14], homeTeamId: winnersIL[1].teamId, awayTeamId: runnersIL[0].teamId }); // 1J vs 2I
   seeded.push({ ...r32[15], homeTeamId: winnersIL[3].teamId, awayTeamId: runnersIL[2].teamId }); // 1L vs 2K
+
+  const seededById = new Map(seeded.map((m) => [m.id, m]));
+  return tree.map((m) => seededById.get(m.id) ?? m);
+}
+
+// ── Generic top-N seeding (admin "Knockout Draw Engine") ────────────────────
+//
+// Not a Dart port — the mobile controller only seeds format-specific
+// brackets (group/Swiss/World Cup). This backs the web-only "pick a bracket
+// size, cross-pair top-N by standings" admin tool: 1st vs last, 2nd vs
+// second-last, etc., seeded directly into the same buildKnockoutTree used
+// by every other seed function above so advancement/processMatchResult work
+// identically.
+
+const TOP_N_START_ROUND: Record<number, string> = {
+  2: 'Final',
+  4: 'Semi Finals',
+  8: 'Quarter Finals',
+  16: 'Round of 16',
+  32: 'Round of 32',
+};
+
+export function seedTopNKnockouts({
+  leagueId,
+  rankedTeamIds,
+  includeThirdPlace = false,
+}: {
+  leagueId: string;
+  rankedTeamIds: string[];
+  includeThirdPlace?: boolean;
+}): KnockoutMatch[] {
+  const n = rankedTeamIds.length;
+  const startRoundName = TOP_N_START_ROUND[n];
+  if (!startRoundName) return [];
+
+  const now = Date.now();
+  const matchCount = n / 2;
+
+  const tree = buildKnockoutTree({
+    leagueId,
+    startRoundName,
+    startRoundMatchCount: matchCount,
+    idPrefix: 'TOPN',
+    nowMs: now,
+    includeThirdPlace,
+  });
+
+  const startRound = tree.filter((m) => m.roundName === startRoundName);
+  if (startRound.length !== matchCount) return [];
+
+  // Cross-pair seeding: 1st vs last, 2nd vs second-last, etc.
+  const seeded: KnockoutMatch[] = startRound.map((m, i) => ({
+    ...m,
+    homeTeamId: rankedTeamIds[i],
+    awayTeamId: rankedTeamIds[n - 1 - i],
+  }));
 
   const seededById = new Map(seeded.map((m) => [m.id, m]));
   return tree.map((m) => seededById.get(m.id) ?? m);

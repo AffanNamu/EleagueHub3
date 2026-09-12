@@ -21,7 +21,7 @@ export default function AdminScoreMgmtScreen() {
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [savingMatches, setSavingMatches] = useState<Set<string>>(new Set());
 
-  const isGroupedFormat = league?.format === 'uclGroup' || league?.format === 1 || league?.format === 'worldCup' || league?.format === 3;
+  const isGroupedFormat = league?.format === 'uclGroup' || league?.format === 'worldCup';
 
   const totalRounds = useMemo(() => {
     if (!matches.length) return 0;

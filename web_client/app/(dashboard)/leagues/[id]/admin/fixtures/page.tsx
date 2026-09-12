@@ -10,7 +10,7 @@ import { useLeagueDetail } from '@/hooks/useLeagueDetail';
 import { useMatches } from '@/hooks/useMatches';
 import { Glass } from '@/components/ui/Glass';
 import { Loader2, ArrowLeft, CalendarPlus, CalendarDays, Zap } from 'lucide-react';
-import { FixtureMatch } from '@/types/match';
+import { FixtureMatch } from '@/lib/models/leagueDetails';
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
 
 export default function ManageFixturesScreen() {

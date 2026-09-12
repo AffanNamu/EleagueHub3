@@ -233,9 +233,9 @@ export default function LeagueDetailScreenClient() {
   const unplayedFixtures = fixtures.filter(f => !f.isPlayed);
   const upcomingMatches = unplayedFixtures.slice(0, 5); // Show top 5 upcoming
 
-  const isSwiss = league.format === 'uclSwiss' || league.format === 2;
-  const isGroup = league.format === 'uclGroup' || league.format === 1;
-  const isWorldCup = league.format === 'worldCup' || league.format === 3;
+  const isSwiss = league.format === 'uclSwiss';
+  const isGroup = league.format === 'uclGroup';
+  const isWorldCup = league.format === 'worldCup';
 
   return (
     <div className="min-h-screen bg-[#070B14] text-white font-sans pb-20">

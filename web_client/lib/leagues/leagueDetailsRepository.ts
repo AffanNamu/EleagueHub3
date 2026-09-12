@@ -1,7 +1,7 @@
 import { collection, doc, getDoc, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { LeagueData, leagueFromRemoteMap } from '@/lib/models/league';
-import { Team, FixtureMatch, KnockoutMatch, LeagueAnnouncement } from '@/lib/models/leagueDetails';
+import { Team, FixtureMatch, KnockoutMatch, LeagueAnnouncement, LeagueSpace } from '@/lib/models/leagueDetails';
 
 export interface FullLeagueDetails {
   league: LeagueData;
@@ -11,6 +11,7 @@ export interface FullLeagueDetails {
   fixtures: FixtureMatch[];
   knockouts: KnockoutMatch[];
   announcements: LeagueAnnouncement[];
+  space: LeagueSpace | null;
   partialErrors: string[];
 }
 
@@ -52,9 +53,10 @@ export async function fetchFullLeagueDetails(leagueId: string, authUid: string):
   // ── Step 2: fetch everything else, but don't let one failure nuke the rest ──
   const teamsRef = collection(db, 'leagues', leagueId, 'teams');
   const matchesRef = collection(db, 'leagues', leagueId, 'matches');
-  const knockoutsRef = collection(db, 'leagues', leagueId, 'knockout_matches');
+  const knockoutsRef = collection(db, 'leagues', leagueId, 'knockout');
   const announcementsRef = collection(db, 'leagues', leagueId, 'announcements');
   const membershipRef = doc(db, 'leagues', leagueId, 'memberships', authUid);
+  const spaceRef = doc(db, 'leagues', leagueId, 'space', 'current');
 
   const [
     teamsResult,
@@ -62,12 +64,14 @@ export async function fetchFullLeagueDetails(leagueId: string, authUid: string):
     knockoutsResult,
     announcementsResult,
     membershipResult,
+    spaceResult,
   ] = await Promise.allSettled([
     getDocs(teamsRef),
     getDocs(matchesRef),
     getDocs(knockoutsRef),
     getDocs(query(announcementsRef, orderBy('createdAtMs', 'desc'), limit(10))),
     getDoc(membershipRef),
+    getDoc(spaceRef),
   ]);
 
   const partialErrors: string[] = [];
@@ -120,6 +124,16 @@ export async function fetchFullLeagueDetails(leagueId: string, authUid: string):
     partialErrors.push(`Membership: ${describeError(membershipResult.reason)}`);
   }
 
+  let space: LeagueSpace | null = null;
+  if (spaceResult.status === 'fulfilled') {
+    if (spaceResult.value.exists()) {
+      space = spaceResult.value.data() as LeagueSpace;
+    }
+  } else {
+    console.error('[fetchFullLeagueDetails] space read failed:', spaceResult.reason);
+    partialErrors.push(`Live Space: ${describeError(spaceResult.reason)}`);
+  }
+
   const isOwnerByLeague = league.organizerUid === authUid || league.organizerUserId === authUid;
   const isOwner = isOwnerByLeague || membershipIsOrganizerRole;
   const isJoined = membershipExists || isOwner;
@@ -136,6 +150,7 @@ export async function fetchFullLeagueDetails(leagueId: string, authUid: string):
     fixtures,
     knockouts,
     announcements,
+    space,
     partialErrors,
   };
 }

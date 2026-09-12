@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
-import { League } from '@/types/league';
+import { LeagueData, leagueFromRemoteMap } from '@/lib/models/league';
 import { MasterLeague } from '@/types/masterLeague';
 // FIXED (mobile/web parity): previously imported searchUsers from
 // lib/services/userSearchRepository.ts — a second, drifted copy of the
@@ -15,7 +15,7 @@ import { MasterLeague } from '@/types/masterLeague';
 import { searchUsersWeb, UserSearchEntry } from '@/lib/search/userSearchRepository';
 
 export function useGlobalSearch(searchTerm: string) {
-  const [leagues, setLeagues] = useState<League[]>([]);
+  const [leagues, setLeagues] = useState<LeagueData[]>([]);
   const [masterLeagues, setMasterLeagues] = useState<MasterLeague[]>([]);
   const [users, setUsers] = useState<UserSearchEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -62,7 +62,7 @@ export function useGlobalSearch(searchTerm: string) {
           searchUsersWeb(term, auth.currentUser?.uid || ''),
         ]);
 
-        setLeagues(leaguesSnap.docs.map(d => ({ id: d.id, ...d.data() } as League)));
+        setLeagues(leaguesSnap.docs.map(d => leagueFromRemoteMap({ ...d.data(), id: d.id })));
         setMasterLeagues(masterSnap.docs.map(d => ({ id: d.id, ...d.data() } as MasterLeague)));
         setUsers(usersResult);
 

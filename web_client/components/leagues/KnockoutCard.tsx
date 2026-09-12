@@ -1,6 +1,5 @@
 import React from 'react';
-import { KnockoutMatch } from '@/types/match';
-import { Team } from '@/types/league';
+import { KnockoutMatch, Team } from '@/lib/models/leagueDetails';
 import { Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -9,11 +8,8 @@ interface KnockoutCardProps {
   getTeam: (id: string) => Team | undefined;
 }
 
-export const KnockoutCard: React.FC<KnockoutCardProps> = ({ match, getTeam }) => {
-  const homeTeam = getTeam(match.homeTeamId as string);
-  const awayTeam = getTeam(match.awayTeamId as string);
-
-  const TeamRow = ({ team, score, isWinner }: { team?: Team, score?: number, isWinner: boolean }) => (
+function TeamRow({ team, score, isWinner }: { team?: Team, score?: number | null, isWinner: boolean }) {
+  return (
     <div className={cn(
       "flex items-center justify-between p-2 rounded-lg transition-colors",
       isWinner ? "bg-brand-surface border border-white/5" : ""
@@ -39,21 +35,26 @@ export const KnockoutCard: React.FC<KnockoutCardProps> = ({ match, getTeam }) =>
       </span>
     </div>
   );
+}
 
-  const homeWins = (match as any).isPlayed && (match.homeScore! > match.awayScore! || (match.homeScore === match.awayScore && match.homePenaltyScore! > match.awayPenaltyScore!));
-  const awayWins = (match as any).isPlayed && !homeWins && match.homeScore !== match.awayScore;
+export const KnockoutCard: React.FC<KnockoutCardProps> = ({ match, getTeam }) => {
+  const homeTeam = getTeam(match.homeTeamId as string);
+  const awayTeam = getTeam(match.awayTeamId as string);
+
+  const isFinished = match.status === 'played' || match.status === 'completed';
+  const homeWins = isFinished && (match.homeScore! > match.awayScore! || (match.homeScore === match.awayScore && (match.homePenaltyScore ?? 0) > (match.awayPenaltyScore ?? 0)));
+  const awayWins = isFinished && !homeWins && match.homeScore !== match.awayScore;
 
   return (
     <div className="w-64 bg-brand-surfaceDark border border-white/10 rounded-xl overflow-hidden shadow-xl flex flex-col">
       <div className="bg-black/40 px-3 py-1.5 flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-white/5">
         <span>{match.roundName}</span>
-        {(match.status as string) === 'LIVE' && <span className="text-brand-red animate-pulse flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-brand-red"></span> LIVE</span>}
       </div>
       <div className="p-1 space-y-1">
         <TeamRow team={homeTeam} score={match.homeScore} isWinner={homeWins} />
         <TeamRow team={awayTeam} score={match.awayScore} isWinner={awayWins} />
       </div>
-      {(match.homePenaltyScore !== undefined && match.homePenaltyScore > 0) && (
+      {(match.homePenaltyScore ?? 0) > 0 && (
         <div className="text-[10px] text-center bg-white/5 text-gray-400 py-1">
           Pens: {match.homePenaltyScore} - {match.awayPenaltyScore}
         </div>

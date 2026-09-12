@@ -4,7 +4,9 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { uploadImageToCloudinary } from '@/lib/cloudinary';
-import { LeagueFormat, FootballCategory, LeaguePrivacy, WorldCupFormat } from '@/types/league';
+import { LeagueFormat } from '@/lib/models/leagueFormat';
+import { FootballCategory } from '@/lib/models/footballCategory';
+import { LeaguePrivacy, WorldCupFormat } from '@/lib/models/league';
 // FIXED: previously this screen built and wrote the league document
 // inline, with its own copy of the create logic that diverged from
 // lib/leagues/leaguesRepository.ts's createNewLeagueWeb() in ways that
@@ -37,8 +39,8 @@ const FREE_LEAGUE_LIMIT = 3;
 const FOOTBALL_CATEGORIES: { id: FootballCategory, label: string }[] = [
   { id: 'localFootball', label: 'Local Football' },
   { id: 'eFootball', label: 'eFootball' },
-  { id: 'eaSportsFc', label: 'EA SPORTS FC' },
-  { id: 'eaSportsFcMobile', label: 'FC Mobile' },
+  { id: 'eaSportsFC', label: 'EA SPORTS FC' },
+  { id: 'eaSportsFCMobile', label: 'FC Mobile' },
   { id: 'dreamLeagueSoccer', label: 'Dream League Soccer' },
   { id: 'totalFootball', label: 'Total Football' },
 ];

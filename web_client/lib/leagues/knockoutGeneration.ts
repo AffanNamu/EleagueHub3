@@ -13,8 +13,7 @@
 // callers (LeagueDetailScreenClient) catch and surface it, mirroring the
 // _toastWarn/_toastErr calls in the Flutter screen.
 
-import { Team } from '@/types/league';
-import { FixtureMatch } from '@/types/match';
+import { Team, FixtureMatch } from '@/lib/models/leagueDetails';
 import { StandingsEngine } from '@/lib/algorithms/standingsEngine';
 import {
   KnockoutMatch,

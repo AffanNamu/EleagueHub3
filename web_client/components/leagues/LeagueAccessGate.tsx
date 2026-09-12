@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { League } from '@/types/league';
+import { LeagueData } from '@/lib/models/league';
 import { useLeagueAccess } from '@/hooks/useLeagueAccess';
 import { useCouponRedemption } from '@/hooks/useCouponRedemption';
 import { payWithFlutterwave } from '@/lib/payments/flutterwavePay';
@@ -8,7 +8,7 @@ import { getRemotePricingPlan } from '@/lib/payments/remotePricing';
 import { Glass } from '@/components/ui/Glass';
 import { Loader2, Lock, Key, ShieldAlert } from 'lucide-react';
 
-export const LeagueAccessGate = ({ league, children }: { league: League, children: React.ReactNode }) => {
+export const LeagueAccessGate = ({ league, children }: { league: LeagueData, children: React.ReactNode }) => {
   const { status, error: accessError } = useLeagueAccess(league);
   const { redeemCoupon, redeeming, error: couponError } = useCouponRedemption(league.id);
   const [code, setCode] = useState('');

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { LeagueData } from '@/lib/models/league';
+import { LeagueData, leagueFromRemoteMap } from '@/lib/models/league';
 
 export function useLeagueDetail(leagueId: string) {
   const [league, setLeague] = useState<LeagueData | null>(null);
@@ -15,7 +15,7 @@ export function useLeagueDetail(leagueId: string) {
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setLeague({ id: docSnap.id, ...data } as LeagueData);
+        setLeague(leagueFromRemoteMap({ ...data, id: docSnap.id }));
       } else {
         setError('League not found');
       }

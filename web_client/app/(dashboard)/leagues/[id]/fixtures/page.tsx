@@ -20,7 +20,7 @@ export default function FixturesScreen() {
   const [selectedRound, setSelectedRound] = useState<number>(1);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
 
-  const isGroupedFormat = league?.format === 'uclGroup' || league?.format === 1 || league?.format === 'worldCup' || league?.format === 3;
+  const isGroupedFormat = league?.format === 'uclGroup' || league?.format === 'worldCup';
 
   // Extract total rounds
   const totalRounds = useMemo(() => {

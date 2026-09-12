@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { FixtureMatch } from '@/types/match';
+import { FixtureMatch } from '@/lib/models/leagueDetails';
 
 export function useMatches(leagueId: string) {
   const [matches, setMatches] = useState<FixtureMatch[]>([]);

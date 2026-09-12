@@ -1,6 +1,6 @@
 import React from 'react';
-import { Team, LeagueFormat } from '@/types/league';
-import { FixtureMatch } from '@/types/match';
+import { Team, FixtureMatch } from '@/lib/models/leagueDetails';
+import { LeagueFormat } from '@/lib/models/leagueFormat';
 import { StandingsEngine } from '@/lib/algorithms/standingsEngine';
 import { Shield } from 'lucide-react';
 

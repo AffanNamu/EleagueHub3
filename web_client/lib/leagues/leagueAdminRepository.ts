@@ -1,6 +1,6 @@
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { KnockoutMatch } from '@/types/match';
+import { KnockoutMatch } from '@/lib/models/leagueDetails';
 
 // ── MATCH & KNOCKOUT UPDATES ─────────────────────────────────────────────────
 

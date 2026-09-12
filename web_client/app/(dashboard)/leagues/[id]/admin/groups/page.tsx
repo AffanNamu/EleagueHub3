@@ -5,7 +5,7 @@ import { useLeagueTeams } from '@/hooks/useLeagueTeams';
 import { useLeagueDetail } from '@/hooks/useLeagueDetail';
 import { Glass } from '@/components/ui/Glass';
 import { Loader2, ArrowLeft, LayoutGrid, Shield, Globe } from 'lucide-react';
-import { Team } from '@/types/league';
+import { Team } from '@/lib/models/leagueDetails';
 
 export default function GroupDrawScreen() {
   const params = useParams();
@@ -17,7 +17,7 @@ export default function GroupDrawScreen() {
 
   if (teamsLoading || leagueLoading) return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-[#BEF264]"/></div>;
 
-  const isWorldCup = league?.format === 'worldCup' || league?.format === 3;
+  const isWorldCup = league?.format === 'worldCup';
 
   const groupedTeams = teams.reduce((acc, team) => {
     const gid = team.groupId || 'Unassigned';

@@ -6,8 +6,8 @@ import { useKnockoutMatches } from '@/hooks/useKnockoutMatches';
 import { useLeagueTeams } from '@/hooks/useLeagueTeams';
 import { Glass } from '@/components/ui/Glass';
 import { ArrowLeft, Loader2, Save, GitMerge, ShieldAlert } from 'lucide-react';
-import { KnockoutMatch } from '@/types/match';
-import { TournamentController } from '@/lib/algorithms/tournamentController';
+import { KnockoutMatch } from '@/lib/models/leagueDetails';
+import { processMatchResult } from '@/lib/algorithms/tournamentController';
 import { saveKnockoutMatchesWeb } from '@/lib/leagues/leagueAdminRepository';
 
 export default function AdminKnockoutScoreScreen() {
@@ -52,18 +52,18 @@ export default function AdminKnockoutScoreScreen() {
         return;
       }
 
-      const payload: Partial<KnockoutMatch> = {
+      const payload: KnockoutMatch = {
         ...match,
         homeScore,
         awayScore,
         homePenaltyScore: homePen > 0 || awayPen > 0 ? homePen : undefined,
         awayPenaltyScore: homePen > 0 || awayPen > 0 ? awayPen : undefined,
         status: 'completed',
-        tiebreakWinnerTeamId: winnerId || undefined
+        tiebreakWinnerTeamId: winnerId || null,
       };
 
       // STRICT PARITY: Calculate the mathematical progression
-      const advancedMatches = TournamentController.processMatchResult(payload, matches);
+      const advancedMatches = processMatchResult({ completedMatch: payload, allMatches: matches });
       
       // Batch save the updated tree to Firestore
       await saveKnockoutMatchesWeb(leagueId, advancedMatches);

@@ -1,9 +1,9 @@
 import { RoundRobinGenerator } from './roundRobin';
-import { FixtureMatch } from '@/types/match';
-import { Team, League } from '@/types/league';
+import { FixtureMatch, Team } from '@/lib/models/leagueDetails';
+import { LeagueData } from '@/lib/models/league';
 
 export class FixtureGenerator {
-  static generateClassicLeagueFixtures(league: League, teams: Team[]): Partial<FixtureMatch>[] {
+  static generateClassicLeagueFixtures(league: LeagueData, teams: Team[]): Partial<FixtureMatch>[] {
     if (teams.length < 2) throw new Error("At least 2 teams required.");
     return RoundRobinGenerator.generate({
       leagueId: league.id,
@@ -13,7 +13,7 @@ export class FixtureGenerator {
     });
   }
 
-  static generateGroupStage(league: League, teams: Team[]): Partial<FixtureMatch>[] {
+  static generateGroupStage(league: LeagueData, teams: Team[]): Partial<FixtureMatch>[] {
     const byGroup: Record<string, Team[]> = {};
     for (const t of teams) {
       const gid = t.groupId?.trim();

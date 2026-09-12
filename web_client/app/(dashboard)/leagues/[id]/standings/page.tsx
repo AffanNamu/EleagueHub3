@@ -54,11 +54,10 @@ export default function LeagueStandingsScreen() {
                <p className="text-gray-500 font-bold">No teams registered yet.</p>
              </div>
           ) : (
-            <StandingsTable 
-              teams={teams} 
-              format={league.format} 
-              worldCupFormat={league.settings?.worldCupFormat}
-              matches={matches} 
+            <StandingsTable
+              teams={teams}
+              format={league.format}
+              matches={matches}
             />
           )}
         </div>

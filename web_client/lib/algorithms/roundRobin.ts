@@ -1,5 +1,5 @@
 //lib/algorithms
-import { FixtureMatch } from '@/types/match';
+import { FixtureMatch } from '@/lib/models/leagueDetails';
 import { v4 as uuidv4 } from 'uuid';
 
 export class RoundRobinGenerator {
@@ -53,7 +53,7 @@ export class RoundRobinGenerator {
         fixtures.push({
           id: uuidv4(),
           leagueId,
-          groupId: groupId || undefined,
+          groupId: groupId || null,
           roundNumber: startRoundNumber + r,
           homeTeamId: home,
           awayTeamId: away,

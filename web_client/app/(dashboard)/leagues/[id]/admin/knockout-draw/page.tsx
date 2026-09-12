@@ -9,7 +9,7 @@ import { useLeagueTeams } from '@/hooks/useLeagueTeams';
 import { useKnockoutMatches } from '@/hooks/useKnockoutMatches';
 import { Glass } from '@/components/ui/Glass';
 import { Loader2, ArrowLeft, GitMerge, Zap, ShieldAlert, Trophy } from 'lucide-react';
-import { TournamentController } from '@/lib/algorithms/tournamentController';
+import { seedTopNKnockouts } from '@/lib/algorithms/tournamentController';
 
 export default function KnockoutDrawScreen() {
   const params = useParams();
@@ -49,12 +49,19 @@ export default function KnockoutDrawScreen() {
         batch.delete(doc(db, 'leagues', leagueId, 'knockout', m.id));
       });
 
-      // 2. Generate new mathematical bracket mapped from mobile controller
-      const generatedMatches = TournamentController.seedKnockouts(leagueId, sortedTeams, includeThirdPlace);
+      // 2. Generate new mathematical bracket (cross-paired: 1st vs last, etc.)
+      const rankedTeamIds = sortedTeams.map((t) => t.id);
+      const generatedMatches = seedTopNKnockouts({ leagueId, rankedTeamIds, includeThirdPlace });
+
+      if (generatedMatches.length === 0) {
+        setError(`Could not seed a top-${teamCount} bracket.`);
+        setLoading(false);
+        return;
+      }
 
       // 3. Commit new matches
       generatedMatches.forEach(match => {
-        const matchRef = doc(db, 'leagues', leagueId, 'knockout', match.id!);
+        const matchRef = doc(db, 'leagues', leagueId, 'knockout', match.id);
         batch.set(matchRef, match);
       });
 

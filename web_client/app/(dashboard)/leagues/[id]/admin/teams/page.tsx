@@ -8,18 +8,18 @@ import { useLeagueTeams } from '@/hooks/useLeagueTeams';
 import { useLeagueDetail } from '@/hooks/useLeagueDetail';
 import { Glass } from '@/components/ui/Glass';
 import { Loader2, ArrowLeft, Shield, PlusCircle, Trash2, Edit2, Check, X, AlertTriangle, Wand2 } from 'lucide-react';
-import { Team } from '@/types/league';
+import { Team } from '@/lib/models/leagueDetails';
 import { CsvImporter } from '@/components/leagues/CsvImporter';
 import { resolveTeamParticipant, ResolvedUserProfile } from '@/lib/services/userProfileRepository';
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
 
 const GROUPS_ALL = ['Group A','Group B','Group C','Group D','Group E','Group F','Group G','Group H','Group I','Group J','Group K','Group L'];
 
-function worldCupTeamCount(fmt?: string): number {
-  return fmt === 'fifa2026' ? 48 : 32;
+function worldCupTeamCount(worldCupFormat?: number): number {
+  return worldCupFormat === 48 ? 48 : 32;
 }
-function worldCupGroupCount(fmt?: string): number {
-  return fmt === 'fifa2026' ? 12 : 8;
+function worldCupGroupCount(worldCupFormat?: number): number {
+  return worldCupFormat === 48 ? 12 : 8;
 }
 
 export default function ManageTeamsScreen() {
@@ -52,13 +52,13 @@ export default function ManageTeamsScreen() {
     if (!league) return 0;
     if (isGroupFormat) return 32;
     if (isSwiss) return 36;
-    if (isWorldCup) return worldCupTeamCount(league.settings?.worldCupFormat);
+    if (isWorldCup) return worldCupTeamCount(league.worldCupFormat);
     return Math.min(Math.max(league.maxTeams || 20, 2), 40);
   }, [league, isGroupFormat, isSwiss, isWorldCup]);
 
   const allowedGroups = useMemo(() => {
     if (isGroupFormat) return teams.length > 16 ? GROUPS_ALL.slice(0, 8) : GROUPS_ALL.slice(0, 4);
-    if (isWorldCup) return GROUPS_ALL.slice(0, worldCupGroupCount(league?.settings?.worldCupFormat));
+    if (isWorldCup) return GROUPS_ALL.slice(0, worldCupGroupCount(league?.worldCupFormat));
     return [];
   }, [isGroupFormat, isWorldCup, teams.length, league]);
 
@@ -205,7 +205,7 @@ export default function ManageTeamsScreen() {
       if (isClassic) {
         fixtures = FixtureGenerator.generateClassicLeagueFixtures(league, teams);
       } else if (isGroupFormat || isWorldCup) {
-        const groupCount = isWorldCup ? worldCupGroupCount(league.settings?.worldCupFormat) : (teams.length > 16 ? 8 : 4);
+        const groupCount = isWorldCup ? worldCupGroupCount(league.worldCupFormat) : (teams.length > 16 ? 8 : 4);
         const validGroups = new Set(GROUPS_ALL.slice(0, groupCount));
         const structureValid =
           teams.every((t) => t.groupId && validGroups.has(t.groupId)) &&

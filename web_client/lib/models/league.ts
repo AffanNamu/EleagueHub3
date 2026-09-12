@@ -3,6 +3,15 @@ import { LeagueFormat, leagueFormatFromInt } from './leagueFormat';
 
 export type LeaguePrivacy = 'public' | 'private';
 export type LeagueRole = 'organizer' | 'member';
+export type WorldCupFormat = 'fifa2022' | 'fifa2026';
+
+export interface LeagueSettings {
+  doubleRoundRobin: boolean;
+  groupSize: number;
+  swissRounds: number;
+  worldCupFormatStr: string;
+  lastPulledAtMs: number;
+}
 
 export interface LeagueData {
   id: string;
@@ -19,6 +28,8 @@ export interface LeagueData {
   footballCategory: FootballCategory;
   format: LeagueFormat;
   worldCupFormat: number;
+  settings: LeagueSettings;
+  isInsideMasterLeague: boolean;
   privacy: LeaguePrivacy;
   region: string;
   maxTeams: number;
@@ -87,10 +98,18 @@ export function leagueFromRemoteMap(map: Record<string, unknown>): LeagueData {
   const format = leagueFormatFromInt(typeof map.format === 'number' ? map.format : Number(map.format ?? 0));
 
   // Extract World Cup Format from settings or fallback to maxTeams
-  const settings = (map.settings as Record<string, any>) || {};
-  const wcFormatStr = stringFromAny(settings.worldCupFormatStr);
+  const settingsMap = (map.settings as Record<string, unknown>) || {};
+  const wcFormatStr = stringFromAny(settingsMap.worldCupFormatStr);
   const maxTeams = intFromAny(map.maxTeams, 20);
   const worldCupFormat = wcFormatStr.includes('48') || maxTeams === 48 ? 48 : 32;
+
+  const settings: LeagueSettings = {
+    doubleRoundRobin: boolFromAny(settingsMap.doubleRoundRobin, false),
+    groupSize: intFromAny(settingsMap.groupSize, 4),
+    swissRounds: intFromAny(settingsMap.swissRounds, 0),
+    worldCupFormatStr: wcFormatStr,
+    lastPulledAtMs: intFromAny(settingsMap.lastPulledAtMs, 0),
+  };
 
   return {
     id,
@@ -107,6 +126,8 @@ export function leagueFromRemoteMap(map: Record<string, unknown>): LeagueData {
     footballCategory,
     format,
     worldCupFormat,
+    settings,
+    isInsideMasterLeague: masterLeagueId.length > 0,
     privacy: isPrivate ? 'private' : 'public',
     region: stringFromAny(map.region) || 'Global',
     maxTeams,

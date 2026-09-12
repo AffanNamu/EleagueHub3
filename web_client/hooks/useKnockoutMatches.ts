@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { KnockoutMatch } from '@/types/match';
+import { KnockoutMatch } from '@/lib/models/leagueDetails';
 
 export function useKnockoutMatches(leagueId: string) {
   const [matches, setMatches] = useState<KnockoutMatch[]>([]);

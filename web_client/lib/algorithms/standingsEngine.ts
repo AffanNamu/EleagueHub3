@@ -1,5 +1,4 @@
-import { Team } from '@/types/league';
-import { FixtureMatch } from '@/types/match';
+import { Team, FixtureMatch } from '@/lib/models/leagueDetails';
 
 // FIXED: this engine used to sort using team.finalPoints / team.goalDifference /
 // team.goalsFor read straight off the Team document, and StandingsTable.tsx

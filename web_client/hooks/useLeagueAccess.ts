@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { League } from '@/types/league';
+import { LeagueData, isOwnerForViewer } from '@/lib/models/league';
 
 type AccessStatus = 'loading' | 'allowed' | 'denied';
 
-export function useLeagueAccess(league: League | null) {
+export function useLeagueAccess(league: LeagueData | null) {
   const [status, setStatus] = useState<AccessStatus>('loading');
   const [error, setError] = useState('');
 
@@ -26,7 +26,7 @@ export function useLeagueAccess(league: League | null) {
       const uid = auth.currentUser.uid;
 
       // 2. Organizer always has access
-      if (league.organizerId === uid) {
+      if (isOwnerForViewer(league, uid)) {
         setStatus('allowed');
         return;
       }
@@ -46,7 +46,8 @@ export function useLeagueAccess(league: League | null) {
         if (league.format === 'classic' && league.privacy === 'public') {
           await setDoc(membershipRef, {
             userId: uid,
-            role: 'viewer',
+            leagueId: league.id,
+            role: 1, // member (matches Firestore rules' isMemberRole)
             joinedAt: serverTimestamp()
           }, { merge: true });
           
