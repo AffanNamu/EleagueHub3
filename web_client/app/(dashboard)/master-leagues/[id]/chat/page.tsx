@@ -3,20 +3,23 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 // FIXED: Pointing this to useChat where the updated useOrganizerChat hook actually lives
-import { useOrganizerChat } from '@/hooks/useChat';
+import { useOrganizerChat, ChatSendReply } from '@/hooks/useChat';
 import { useMasterLeagueDetail } from '@/hooks/useMasterLeagueDetail';
+import { useChatModeration } from '@/hooks/useChatModeration';
+import { chatMessagePreview } from '@/lib/chat/chatMessagePreview';
+import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { Glass } from '@/components/ui/Glass';
 import { ChatBubble } from '@/components/chat/ChatBubble';
-import { ArrowLeft, Loader2, Send, MessageSquare, Network } from 'lucide-react';
+import { ChatInputBar } from '@/components/chat/ChatInputBar';
+import { ArrowLeft, Loader2, MessageSquare, Network } from 'lucide-react';
 
 export default function OrganizerChatScreen() {
   const params = useParams();
   const router = useRouter();
   const masterLeagueId = params.id as string;
 
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [replyTo, setReplyTo] = useState<ChatSendReply | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // NEW: uid pulled from the same hook the discipline page already uses,
@@ -25,24 +28,46 @@ export default function OrganizerChatScreen() {
   const { messages, loading: chatLoading, sendMessage, pinMessage, unpinMessage, deleteMessage } = useOrganizerChat(masterLeagueId);
 
   const isOwner = !!workspace && workspace.ownerId === uid;
+  const moderation = useChatModeration(masterLeagueId);
+  const chatBlocked = moderation.organizerBanned && !isOwner;
+  const chatReadOnly = moderation.organizerMuted && !isOwner;
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!text.trim() || sending) return;
-
-    setSending(true);
+  const handleSendText = async (text: string) => {
     setSendError('');
     try {
-      await sendMessage(text);
-      setText('');
-    } catch (error: any) {
-      setSendError(error.message || 'Failed to send message.');
-    } finally {
-      setSending(false);
+      await sendMessage({ text, type: 'text', replyTo });
+      setReplyTo(null);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Failed to send message.');
+      throw error;
+    }
+  };
+
+  const handleSendImage = async (file: File) => {
+    setSendError('');
+    try {
+      const { secureUrl } = await uploadImageFile({ file, folder: `eleaguehub/chatrooms/master_leagues/${masterLeagueId}` });
+      await sendMessage({ type: 'image', imageUrl: secureUrl, replyTo });
+      setReplyTo(null);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Failed to send image.');
+      throw error;
+    }
+  };
+
+  const handleSendVoice = async (blob: Blob, durationMs: number) => {
+    setSendError('');
+    try {
+      const { secureUrl } = await uploadAudioFile({ file: blob, folder: `chat_voice_messages/master_leagues/${masterLeagueId}` });
+      await sendMessage({ type: 'voice', voiceUrl: secureUrl, voiceDurationMs: durationMs, replyTo });
+      setReplyTo(null);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Failed to send voice note.');
+      throw error;
     }
   };
 
@@ -91,34 +116,35 @@ export default function OrganizerChatScreen() {
                 message={msg}
                 canPin={isOwner}
                 canDelete={isOwner || msg.senderId === uid}
+                canReply={!chatBlocked}
                 onPin={() => pinMessage(msg.messageId)}
                 onUnpin={() => unpinMessage(msg.messageId)}
                 onDelete={() => handleDelete(msg.messageId)}
+                onReply={() =>
+                  setReplyTo({
+                    messageId: msg.messageId,
+                    senderName: msg.senderName?.trim() || 'User',
+                    text: chatMessagePreview(msg),
+                    type: msg.type,
+                  })
+                }
               />
             ))
           )}
         </div>
 
-        <div className="shrink-0 p-2 mt-2 border-t border-white/5 bg-brand-navySoft rounded-b-2xl">
-          {sendError && <p className="text-xs text-brand-red px-2 pb-2">{sendError}</p>}
-          <form onSubmit={handleSend} className="flex gap-2">
-            <input
-              type="text"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Type a message..."
-              maxLength={4000}
-              className="flex-1 bg-brand-surface border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#38BDF8] transition-colors"
-            />
-            <button
-              type="submit"
-              disabled={!text.trim() || sending}
-              className="px-4 py-3 bg-[#38BDF8] text-brand-navy font-bold rounded-xl hover:bg-[#38BDF8]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[60px]"
-            >
-              {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            </button>
-          </form>
-        </div>
+        {sendError && <p className="text-xs text-brand-red px-3 pb-1">{sendError}</p>}
+        <ChatInputBar
+          disabled={chatBlocked || chatReadOnly}
+          disabledReason={chatBlocked ? 'You are banned from this organizer chat.' : chatReadOnly ? 'You are muted in this organizer chat.' : undefined}
+          sending={false}
+          replyTo={replyTo ? { messageId: replyTo.messageId, senderName: replyTo.senderName, previewText: replyTo.text } : null}
+          onClearReply={() => setReplyTo(null)}
+          onSendText={handleSendText}
+          onSendImage={handleSendImage}
+          onSendVoice={handleSendVoice}
+          accentColor="#38BDF8"
+        />
       </Glass>
     </div>
   );

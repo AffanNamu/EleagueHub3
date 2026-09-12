@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { collection, doc, onSnapshot, orderBy, query, limit as fsLimit, where, setDoc, getDoc, getDocs, updateDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, orderBy, query, limit as fsLimit, where, setDoc, getDocs, updateDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { ChatMessage } from '@/types/chat';
 
@@ -13,6 +13,7 @@ export interface OrganizerChatMessage {
   text: string;
   imageUrl: string;
   voiceUrl: string;
+  voiceDurationMs?: number;
   type: 'text' | 'image' | 'code' | 'voice';
   timestamp: number;
   pinned: boolean;
@@ -20,6 +21,30 @@ export interface OrganizerChatMessage {
   createdAtMs: number;
   pinnedBy: string;
   deletedBy: string;
+  replyToMessageId?: string;
+  replyToSenderName?: string;
+  replyToText?: string;
+  replyToType?: string;
+}
+
+/** Context of the message being replied to, attached to the next outgoing
+ * message — mirrors league_chat_screen.dart's `_replyTo` + the
+ * replyToMessageId/replyToSenderName/replyToText/replyToType fields
+ * ChatRepository.dart writes on send. */
+export interface ChatSendReply {
+  messageId: string;
+  senderName: string;
+  text: string;
+  type: string;
+}
+
+export interface ChatSendPayload {
+  text?: string;
+  type?: 'text' | 'image' | 'voice' | 'code';
+  imageUrl?: string;
+  voiceUrl?: string;
+  voiceDurationMs?: number;
+  replyTo?: ChatSendReply | null;
 }
 
 // --- ORGANIZER CHAT (Master Leagues) ---
@@ -54,6 +79,7 @@ export function useOrganizerChat(masterLeagueId: string) {
             text: m.text ?? '',
             imageUrl: m.imageUrl ?? '',
             voiceUrl: m.voiceUrl ?? '',
+            voiceDurationMs: Number(m.voiceDurationMs) || 0,
             type: m.type,
             timestamp: Number(m.timestamp) || 0,
             pinned: m.pinned === true,
@@ -61,6 +87,10 @@ export function useOrganizerChat(masterLeagueId: string) {
             createdAtMs: Number(m.createdAtMs) || Number(m.timestamp) || 0,
             pinnedBy: m.pinnedBy ?? '',
             deletedBy: m.deletedBy ?? '',
+            replyToMessageId: m.replyToMessageId ?? '',
+            replyToSenderName: m.replyToSenderName ?? '',
+            replyToText: m.replyToText ?? '',
+            replyToType: m.replyToType ?? '',
           })) as OrganizerChatMessage[];
         
         setMessages(list.reverse());
@@ -75,34 +105,20 @@ export function useOrganizerChat(masterLeagueId: string) {
     return () => unsub();
   }, [masterLeagueId]);
 
-  const checkCanSend = useCallback(async (): Promise<string | null> => {
-    const user = auth.currentUser;
-    if (!user) return 'Please sign in to send messages.';
-
-    try {
-      const modSnap = await getDoc(doc(db, 'master_leagues', masterLeagueId, 'memberModeration', user.uid));
-      if (modSnap.exists()) {
-        const mod = modSnap.data();
-        if (mod.chatBanned === true) return 'You are banned from this organizer chat.';
-        if (mod.chatMuted === true) return 'You are muted in this organizer chat.';
-      }
-    } catch (e: any) {
-      console.warn("Bypassed moderation read check due to rules:", e.message);
-    }
-    return null;
-  }, [masterLeagueId]);
-
+  // NOTE: moderation gating (banned/muted) is UI-level only, matching
+  // organizer_chat_screen.dart — Firestore rules' validOrganizerChatMessageCreate
+  // never checks memberModeration, so the real-time useChatModeration() hook
+  // driving the caller's disabled state IS the enforcement here, same as Dart.
   const sendMessage = useCallback(
-    async (text: string, type: 'text' | 'image' | 'voice' = 'text', fileUrl: string = '') => {
+    async (payload: ChatSendPayload) => {
       const user = auth.currentUser;
       if (!user) throw new Error('Please sign in to continue.');
 
-      const blockReason = await checkCanSend();
-      if (blockReason) throw new Error(blockReason);
+      const type = payload.type ?? 'text';
+      const trimmedText = (payload.text ?? '').trim();
+      if (type === 'text' && !trimmedText) return;
 
-      const trimmed = text.trim();
-      if (!trimmed && type === 'text') return;
-
+      const reply = payload.replyTo;
       const ref = doc(organizerChatCol(masterLeagueId));
       const now = Date.now();
 
@@ -111,9 +127,10 @@ export function useOrganizerChat(masterLeagueId: string) {
         senderId: user.uid,
         senderName: user.displayName || 'User',
         senderPhoto: user.photoURL || '',
-        text: type === 'text' ? trimmed.slice(0, 4000) : trimmed,
-        imageUrl: type === 'image' ? fileUrl : '',
-        voiceUrl: type === 'voice' ? fileUrl : '',
+        text: trimmedText,
+        imageUrl: type === 'image' ? (payload.imageUrl ?? '') : '',
+        voiceUrl: type === 'voice' ? (payload.voiceUrl ?? '') : '',
+        voiceDurationMs: type === 'voice' ? Math.max(0, payload.voiceDurationMs ?? 0) : 0,
         type: type,
         masterLeagueId,
         timestamp: now,
@@ -125,9 +142,13 @@ export function useOrganizerChat(masterLeagueId: string) {
         deleted: false,
         deletedAt: null,
         deletedBy: '',
+        replyToMessageId: reply?.messageId ?? '',
+        replyToSenderName: reply?.senderName ?? '',
+        replyToText: reply?.text ?? '',
+        replyToType: reply?.type ?? '',
       });
     },
-    [masterLeagueId, checkCanSend],
+    [masterLeagueId],
   );
 
   const pinMessage = useCallback(
@@ -218,21 +239,33 @@ export function useChat(leagueId: string) {
     return () => unsubscribe();
   }, [leagueId]);
 
-  const sendMessage = async (text: string) => {
-    if (!auth.currentUser || !text.trim()) return;
+  // NOTE: like organizer chat, moderation gating (banned/muted) is UI-level
+  // only — league_chat_screen.dart's _chatBlocked/_chatReadOnly gate the
+  // send buttons using state from _watchModerationState(), and
+  // validChatMessageCreate below never checks moderation docs. The caller
+  // is expected to gate via useChatModeration() + canManageLeague() first.
+  const sendMessage = async (payload: ChatSendPayload) => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Please sign in to continue.');
 
+    const type = payload.type ?? 'text';
+    const trimmedText = (payload.text ?? '').trim();
+    if (type === 'text' && !trimmedText) return;
+
+    const reply = payload.replyTo;
     const messageId = doc(leagueChatCol(leagueId)).id;
     const nowMs = Date.now();
 
     const newMessage: Partial<ChatMessage> = {
       messageId,
-      senderId: auth.currentUser.uid,
-      senderName: auth.currentUser.displayName || 'Player',
-      senderPhoto: auth.currentUser.photoURL || '',
-      text: text.trim(),
-      imageUrl: '',
-      voiceUrl: '',
-      type: 'text',
+      senderId: user.uid,
+      senderName: user.displayName || 'Player',
+      senderPhoto: user.photoURL || '',
+      text: trimmedText,
+      imageUrl: type === 'image' ? (payload.imageUrl ?? '') : '',
+      voiceUrl: type === 'voice' ? (payload.voiceUrl ?? '') : '',
+      voiceDurationMs: type === 'voice' ? Math.max(0, payload.voiceDurationMs ?? 0) : 0,
+      type,
       leagueId,
       timestamp: nowMs,
       createdAtMs: nowMs,
@@ -240,7 +273,11 @@ export function useChat(leagueId: string) {
       pinned: false,
       pinnedBy: '',
       deleted: false,
-      deletedBy: ''
+      deletedBy: '',
+      replyToMessageId: reply?.messageId ?? '',
+      replyToSenderName: reply?.senderName ?? '',
+      replyToText: reply?.text ?? '',
+      replyToType: reply?.type ?? '',
     };
 
     try {

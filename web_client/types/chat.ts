@@ -8,6 +8,7 @@ export interface ChatMessage {
   text: string;
   imageUrl: string;
   voiceUrl: string;
+  voiceDurationMs?: number;
   type: ChatMessageType;
   leagueId?: string;
   timestamp: number;

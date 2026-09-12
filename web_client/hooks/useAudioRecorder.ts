@@ -1,15 +1,12 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+// Mirrors the recording half of league_chat_screen.dart's
+// _startRecording/_cancelRecording/_sendRecording (built on the `record`
+// package there) using the browser's MediaRecorder API instead. Records to
+// a Blob rather than a temp file — the caller uploads that Blob directly
+// via uploadAudioFile.
 
-function pickMimeType(): string | undefined {
-  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return undefined;
-  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
-  for (const c of candidates) {
-    if (MediaRecorder.isTypeSupported(c)) return c;
-  }
-  return undefined; // let the browser pick its own default
-}
+import { useCallback, useRef, useState } from 'react';
 
 export function useAudioRecorder() {
   const [isRecording, setIsRecording] = useState(false);
@@ -17,79 +14,88 @@ export function useAudioRecorder() {
   const [permissionDenied, setPermissionDenied] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const startedAtRef = useRef(0);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const startedAtRef = useRef<number>(0);
+  const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const stopStreamAndTimer = useCallback(() => {
-    if (tickRef.current) {
-      clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
+  const cleanupStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    setIsRecording(false);
+    if (tickerRef.current) {
+      clearInterval(tickerRef.current);
+      tickerRef.current = null;
+    }
   }, []);
 
   const start = useCallback(async () => {
-    setPermissionDenied(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      setPermissionDenied(false);
 
-      const mimeType = pickMimeType();
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
+      streamRef.current = stream;
       chunksRef.current = [];
 
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : undefined;
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
-
-      recorder.start();
       mediaRecorderRef.current = recorder;
+      recorder.start();
+
       startedAtRef.current = Date.now();
       setElapsedMs(0);
-      tickRef.current = setInterval(() => setElapsedMs(Date.now() - startedAtRef.current), 250);
+      tickerRef.current = setInterval(() => setElapsedMs(Date.now() - startedAtRef.current), 250);
       setIsRecording(true);
-    } catch (err) {
-      console.error('[useAudioRecorder] getUserMedia failed:', err);
+    } catch (e) {
       setPermissionDenied(true);
-      throw err;
+      cleanupStream();
+      throw e;
     }
-  }, []);
+  }, [cleanupStream]);
 
   const cancel = useCallback(() => {
-    const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state !== 'inactive') recorder.stop();
-    mediaRecorderRef.current = null;
+    try {
+      mediaRecorderRef.current?.stop();
+    } catch {
+      // ignore
+    }
+    cleanupStream();
     chunksRef.current = [];
-    stopStreamAndTimer();
-  }, [stopStreamAndTimer]);
+    mediaRecorderRef.current = null;
+    setIsRecording(false);
+    setElapsedMs(0);
+  }, [cleanupStream]);
 
-  const stopAndGetBlob = useCallback((): Promise<Blob> => {
+  /** Stops recording and resolves with the recorded audio Blob + elapsed ms. */
+  const stop = useCallback((): Promise<{ blob: Blob; durationMs: number }> => {
     return new Promise((resolve, reject) => {
       const recorder = mediaRecorderRef.current;
       if (!recorder) {
-        reject(new Error('Recording not found. Try again.'));
+        reject(new Error('Not recording.'));
         return;
       }
+
+      const durationMs = Date.now() - startedAtRef.current;
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        chunksRef.current = [];
+        cleanupStream();
         mediaRecorderRef.current = null;
-        stopStreamAndTimer();
-        resolve(blob);
+        setIsRecording(false);
+        setElapsedMs(0);
+        resolve({ blob, durationMs });
       };
-      try {
-        recorder.stop();
-      } catch (err) {
-        reject(err as Error);
-      }
+      recorder.stop();
     });
-  }, [stopStreamAndTimer]);
+  }, [cleanupStream]);
 
-  return { isRecording, elapsedMs, permissionDenied, start, cancel, stopAndGetBlob };
+  const elapsedLabel = (() => {
+    const totalSeconds = Math.floor(elapsedMs / 1000);
+    const mm = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+    const ss = (totalSeconds % 60).toString().padStart(2, '0');
+    return `${mm}:${ss}`;
+  })();
+
+  return { isRecording, elapsedMs, elapsedLabel, permissionDenied, start, stop, cancel };
 }

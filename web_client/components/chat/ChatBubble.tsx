@@ -5,12 +5,16 @@ import { ChatMessage } from '@/types/chat';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
-import { Shield, BadgeCheck, Pin, PinOff, Trash2 } from 'lucide-react';
+import { Shield, BadgeCheck, Pin, PinOff, Trash2, Reply } from 'lucide-react';
 
 type ExtendedChatMessage = ChatMessage & {
   imageUrl?: string;
   voiceUrl?: string;
   type?: string;
+  replyToMessageId?: string;
+  replyToSenderName?: string;
+  replyToText?: string;
+  replyToType?: string;
 };
 
 interface ChatBubbleProps {
@@ -19,12 +23,15 @@ interface ChatBubbleProps {
   canPin?: boolean;
   /** Show the delete button. Caller decides eligibility (organizer OR own message). */
   canDelete?: boolean;
+  /** Show the reply button. Caller wires this to its own reply-composer state. */
+  canReply?: boolean;
   onPin?: () => void;
   onUnpin?: () => void;
   onDelete?: () => void;
+  onReply?: () => void;
 }
 
-export const ChatBubble = ({ message, canPin, canDelete, onPin, onUnpin, onDelete }: ChatBubbleProps) => {
+export const ChatBubble = ({ message, canPin, canDelete, canReply, onPin, onUnpin, onDelete, onReply }: ChatBubbleProps) => {
   const isMine = auth.currentUser?.uid === message.senderId;
   const [badges, setBadges] = useState({ staff: false, organizer: false, green: false });
 
@@ -76,7 +83,7 @@ export const ChatBubble = ({ message, canPin, canDelete, onPin, onUnpin, onDelet
   };
 
   // NEW: only offer actions on messages that aren't already deleted.
-  const showActions = !message.deleted && (canPin || canDelete);
+  const showActions = !message.deleted && (canPin || canDelete || canReply);
 
   return (
     <div className={cn("flex w-full mb-4 group", isMine ? "justify-end" : "justify-start")}>
@@ -127,6 +134,21 @@ export const ChatBubble = ({ message, canPin, canDelete, onPin, onUnpin, onDelet
                 <i className="opacity-50 text-xs">Message deleted</i>
               ) : (
                 <>
+                  {/* Reply preview — a quoted snippet of the message being replied to. */}
+                  {message.replyToMessageId && (
+                    <div className={cn(
+                      "px-2.5 py-1.5 rounded-lg border-l-2 text-xs",
+                      isMine ? "bg-black/10 border-brand-navy/40" : "bg-white/5 border-[#38BDF8]/60",
+                    )}>
+                      <p className={cn("font-bold", isMine ? "text-brand-navy/80" : "text-[#38BDF8]")}>
+                        {message.replyToSenderName || 'Someone'}
+                      </p>
+                      <p className={cn("truncate opacity-75")}>
+                        {message.replyToType === 'image' ? '📷 Photo' : message.replyToType === 'voice' ? '🎤 Voice message' : (message.replyToText || '')}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Image Attachment Rendering */}
                   {message.imageUrl && message.type === 'image' && (
                     <a href={message.imageUrl} target="_blank" rel="noopener noreferrer" className="block w-full">
@@ -163,9 +185,18 @@ export const ChatBubble = ({ message, canPin, canDelete, onPin, onUnpin, onDelet
               <div
                 className={cn(
                   'absolute top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1',
-                  isMine ? '-left-[70px]' : '-right-[70px]',
+                  isMine ? '-left-[100px]' : '-right-[100px]',
                 )}
               >
+                {canReply && (
+                  <button
+                    onClick={onReply}
+                    title="Reply"
+                    className="w-7 h-7 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-slate-300"
+                  >
+                    <Reply className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 {canPin && (
                   <button
                     onClick={message.pinned ? onUnpin : onPin}

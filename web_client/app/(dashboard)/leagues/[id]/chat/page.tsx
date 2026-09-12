@@ -4,29 +4,37 @@ import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { useChat } from '@/hooks/useChat';
+import { useChat, ChatSendReply } from '@/hooks/useChat';
 import { useLeagueDetail } from '@/hooks/useLeagueDetail';
+import { useChatModeration } from '@/hooks/useChatModeration';
 import { checkCanManageLeague } from '@/lib/leagues/canManageLeague';
+import { chatMessagePreview } from '@/lib/chat/chatMessagePreview';
+import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { Glass } from '@/components/ui/Glass';
 import { ChatBubble } from '@/components/chat/ChatBubble';
-import { ArrowLeft, Loader2, Send, MessageSquare } from 'lucide-react';
+import { ChatInputBar } from '@/components/chat/ChatInputBar';
+import { ArrowLeft, Loader2, MessageSquare } from 'lucide-react';
 
 export default function LeagueChatScreen() {
   const params = useParams();
   const router = useRouter();
   const leagueId = params.id as string;
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { league, loading: leagueLoading } = useLeagueDetail(leagueId);
   const { messages, loading: chatLoading, sendMessage, pinMessage, unpinMessage, deleteMessage } = useChat(leagueId);
 
-  // NEW: whether the signed-in viewer can moderate (pin/delete-any) this
-  // league's chat. Computed the same way RoleGuard does, via
-  // lib/leagues/canManageLeague.ts.
+  // Whether the signed-in viewer can moderate (pin/delete-any, bypass
+  // mute/ban) this league's chat — computed the same way RoleGuard does,
+  // via lib/leagues/canManageLeague.ts. Mirrors league_chat_screen.dart's
+  // _canModerateLeague (minus the super-admin uid special case).
   const [authUid, setAuthUid] = useState<string | null>(null);
   const [canModerate, setCanModerate] = useState(false);
+  const [replyTo, setReplyTo] = useState<ChatSendReply | null>(null);
+
+  const moderation = useChatModeration(league?.masterLeagueId);
+  const chatBlocked = (moderation.globalBanned || moderation.organizerBanned) && !canModerate;
+  const chatReadOnly = (moderation.globalMuted || moderation.organizerMuted) && !canModerate;
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setAuthUid(u?.uid ?? null));
@@ -56,19 +64,21 @@ export default function LeagueChatScreen() {
     }
   }, [messages]);
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!text.trim() || sending) return;
+  const handleSendText = async (text: string) => {
+    await sendMessage({ text, type: 'text', replyTo });
+    setReplyTo(null);
+  };
 
-    setSending(true);
-    try {
-      await sendMessage(text);
-      setText('');
-    } catch (error) {
-      alert("Failed to send message. Check permissions.");
-    } finally {
-      setSending(false);
-    }
+  const handleSendImage = async (file: File) => {
+    const { secureUrl } = await uploadImageFile({ file, folder: `eleaguehub/chatrooms/leagues/${leagueId}` });
+    await sendMessage({ type: 'image', imageUrl: secureUrl, replyTo });
+    setReplyTo(null);
+  };
+
+  const handleSendVoice = async (blob: Blob, durationMs: number) => {
+    const { secureUrl } = await uploadAudioFile({ file: blob, folder: `chat_voice_messages/${leagueId}` });
+    await sendMessage({ type: 'voice', voiceUrl: secureUrl, voiceDurationMs: durationMs, replyTo });
+    setReplyTo(null);
   };
 
   async function handleDelete(messageId: string) {
@@ -105,7 +115,7 @@ export default function LeagueChatScreen() {
 
       {/* Chat Area */}
       <Glass className="flex-1 flex flex-col overflow-hidden p-2 md:p-4">
-        
+
         {/* Messages List */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 scroll-smooth">
           {messages.length === 0 ? (
@@ -120,33 +130,34 @@ export default function LeagueChatScreen() {
                 message={msg}
                 canPin={canModerate}
                 canDelete={canModerate || msg.senderId === authUid}
+                canReply={!chatBlocked}
                 onPin={() => pinMessage(msg.messageId)}
                 onUnpin={() => unpinMessage(msg.messageId)}
                 onDelete={() => handleDelete(msg.messageId)}
+                onReply={() =>
+                  setReplyTo({
+                    messageId: msg.messageId,
+                    senderName: msg.senderName?.trim() || 'Player',
+                    text: chatMessagePreview(msg),
+                    type: msg.type,
+                  })
+                }
               />
             ))
           )}
         </div>
 
-        {/* Input Bar */}
-        <div className="shrink-0 p-2 mt-2 border-t border-white/5 bg-brand-navySoft rounded-b-2xl">
-          <form onSubmit={handleSend} className="flex gap-2">
-            <input
-              type="text"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 bg-brand-surface border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-lime transition-colors"
-            />
-            <button 
-              type="submit"
-              disabled={!text.trim() || sending}
-              className="px-4 py-3 bg-brand-lime text-brand-navy rounded-xl hover:bg-brand-lime/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[60px]"
-            >
-              {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            </button>
-          </form>
-        </div>
+        <ChatInputBar
+          disabled={chatBlocked || chatReadOnly}
+          disabledReason={chatBlocked ? 'You are banned from chat.' : chatReadOnly ? 'You are muted in chat.' : undefined}
+          sending={false}
+          replyTo={replyTo ? { messageId: replyTo.messageId, senderName: replyTo.senderName, previewText: replyTo.text } : null}
+          onClearReply={() => setReplyTo(null)}
+          onSendText={handleSendText}
+          onSendImage={handleSendImage}
+          onSendVoice={handleSendVoice}
+          accentColor="#BEF264"
+        />
       </Glass>
     </div>
   );
