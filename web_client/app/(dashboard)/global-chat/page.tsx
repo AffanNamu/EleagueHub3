@@ -22,7 +22,7 @@ export default function GlobalChatScreen() {
   }, []);
 
   const { messages, pinnedMessage, loading } = useGlobalChat();
-  const { status, moderation, isAdmin } = useGlobalChatAccess(authUid);
+  const { status, moderation, isAdmin, allowSenderPin } = useGlobalChatAccess(authUid);
   
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -138,8 +138,8 @@ export default function GlobalChatScreen() {
       {/* ── MESSAGES LIST ── */}
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar flex flex-col-reverse">
         {messages.map(m => (
-          <GlobalChatBubble 
-            key={m.messageId} message={m} isMe={m.senderId === authUid} isAdmin={isAdmin || isSuperAdmin}
+          <GlobalChatBubble
+            key={m.messageId} message={m} isMe={m.senderId === authUid} isAdmin={isAdmin || isSuperAdmin} canPin={allowSenderPin}
             selected={selectedId === m.messageId} onSelect={() => setSelectedId(selectedId === m.messageId ? null : m.messageId)}
             onReply={() => { setReplyTo(m); setSelectedId(null); }}
             onPin={() => { pinGlobalMessageWeb(m.messageId, authUid, pinnedMessage?.messageId || null); setSelectedId(null); }}

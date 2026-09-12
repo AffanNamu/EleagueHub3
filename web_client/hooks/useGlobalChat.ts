@@ -32,6 +32,12 @@ export function useGlobalChatAccess(userId: string | null) {
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected' | 'none'>('none');
   const [moderation, setModeration] = useState({ muted: false, banned: false });
   const [isAdmin, setIsAdmin] = useState(false);
+  // Mirrors global_chat_screen.dart's _allowSenderPinGlobal — whether a
+  // non-admin sender is allowed to pin their own message, toggled by
+  // admins via the app/admins doc. Firestore's canPinGlobalMessage()
+  // enforces this server-side regardless; this just keeps the UI's pin
+  // button from appearing when the write would be rejected.
+  const [allowSenderPin, setAllowSenderPin] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -50,13 +56,15 @@ export function useGlobalChatAccess(userId: string | null) {
     // Watch Admin Roles
     const unsubAdmin = onSnapshot(doc(db, 'app', 'admins'), (d) => {
       if (d.exists()) {
-        const globalAdmins = d.data().globalChatAdmins || [];
+        const data = d.data();
+        const globalAdmins = data.globalChatAdmins || [];
         setIsAdmin(globalAdmins.includes(userId) || userId === 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'); // Super Admin check
+        setAllowSenderPin(data.allowGlobalSenderPin === true);
       }
     });
 
     return () => { unsubReq(); unsubMod(); unsubAdmin(); };
   }, [userId]);
 
-  return { status, moderation, isAdmin };
+  return { status, moderation, isAdmin, allowSenderPin };
 }

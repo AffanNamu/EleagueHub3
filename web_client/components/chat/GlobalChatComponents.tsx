@@ -6,10 +6,10 @@ import { Glass } from '@/components/ui/Glass';
 import { PlayCircle, PauseCircle, Copy, Reply, Pin as PushPin, Trash2, ShieldCheck, FileCode } from 'lucide-react';
 
 // ── BUBBLE ──
-export function GlobalChatBubble({ 
-  message, isMe, onSelect, selected, onReply, onPin, onDelete, isAdmin 
-}: { 
-  message: ChatMessage; isMe: boolean; selected: boolean; onSelect: () => void; onReply: () => void; onPin?: () => void; onDelete?: () => void; isAdmin: boolean; 
+export function GlobalChatBubble({
+  message, isMe, onSelect, selected, onReply, onPin, onDelete, isAdmin, canPin
+}: {
+  message: ChatMessage; isMe: boolean; selected: boolean; onSelect: () => void; onReply: () => void; onPin?: () => void; onDelete?: () => void; isAdmin: boolean; canPin?: boolean;
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -74,7 +74,7 @@ export function GlobalChatBubble({
       <div className={`flex items-center gap-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity ${isMe ? 'order-1' : 'order-2'} ${selected ? 'opacity-100' : ''}`}>
         <button onClick={onReply} className="p-1.5 text-gray-500 hover:text-sky-400"><Reply className="w-4 h-4"/></button>
         {(isAdmin || isMe) && <button onClick={onDelete} className="p-1.5 text-gray-500 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>}
-        {(isAdmin || isMe) && <button onClick={onPin} className="p-1.5 text-gray-500 hover:text-[#BEF264]"><PushPin className="w-4 h-4"/></button>}
+        {(isAdmin || (isMe && canPin)) && <button onClick={onPin} className="p-1.5 text-gray-500 hover:text-[#BEF264]"><PushPin className="w-4 h-4"/></button>}
       </div>
 
       <div 
