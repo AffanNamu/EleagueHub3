@@ -5,9 +5,18 @@ import { useParams, useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { useMasterLeagueDetails } from '@/hooks/useMasterLeagues';
 import { toggleFollowWorkspaceWeb, renameMasterLeagueWeb, deleteMasterLeagueWeb } from '@/lib/masterLeagues/masterLeaguesRepository';
+import {
+  useMasterLeagueAnnouncements,
+  addMasterLeagueAnnouncementWeb,
+  pinMasterLeagueAnnouncementWeb,
+  unpinMasterLeagueAnnouncementWeb,
+  deleteMasterLeagueAnnouncementWeb,
+} from '@/lib/masterLeagues/masterLeagueAnnouncementsRepository';
+import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
+import { LeagueAnnouncement } from '@/lib/models/leagueDetails';
 import { Glass } from '@/components/ui/Glass';
 import { LeagueCard } from '@/components/leagues/LeagueCard';
-import { Loader2, ArrowLeft, Network as Hub, ShieldCheck, Users, Trophy, ShieldAlert, Plus, Edit2, Link as LinkIcon, Trash2 } from 'lucide-react';
+import { Loader2, ArrowLeft, Network as Hub, ShieldCheck, Users, Trophy, ShieldAlert, Plus, Edit2, Link as LinkIcon, Trash2, Megaphone, Pin, PinOff, X } from 'lucide-react';
 import Link from 'next/link';
 
 export default function MasterLeagueDashboard() {
@@ -22,9 +31,15 @@ export default function MasterLeagueDashboard() {
   }, []);
 
   const { masterLeague, childLeagues, loading } = useMasterLeagueDetails(mlId);
+  const { announcements } = useMasterLeagueAnnouncements(mlId);
 
   const [followBusy, setFollowBusy] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+
+  const [showAnnModal, setShowAnnModal] = useState(false);
+  const [annTitle, setAnnTitle] = useState('');
+  const [annMsg, setAnnMsg] = useState('');
+  const [posting, setPosting] = useState(false);
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-[#BEF264]"/></div>;
 
@@ -65,6 +80,57 @@ export default function MasterLeagueDashboard() {
     if (confirmText === 'DELETE') {
       await deleteMasterLeagueWeb(mlId);
       router.push('/master-leagues');
+    }
+  };
+
+  const handlePostAnnouncement = async () => {
+    if (!authUid || !annTitle.trim() || !annMsg.trim()) {
+      alert('Please enter both title and message.');
+      return;
+    }
+    setPosting(true);
+    try {
+      const profile = await fetchUserProfileByUserId(authUid);
+      const authorName = profile?.teamName.trim() || 'Organizer';
+      await addMasterLeagueAnnouncementWeb({
+        masterLeagueId: mlId,
+        title: annTitle,
+        message: annMsg,
+        authorId: authUid,
+        authorName,
+      });
+      setAnnTitle('');
+      setAnnMsg('');
+      setShowAnnModal(false);
+    } catch (err) {
+      alert('Failed to post announcement.');
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const handlePin = async (ann: LeagueAnnouncement) => {
+    try {
+      await pinMasterLeagueAnnouncementWeb({ masterLeagueId: mlId, announcementId: ann.id, pinnedBy: authUid || '' });
+    } catch {
+      alert('Failed to pin announcement.');
+    }
+  };
+
+  const handleUnpin = async (ann: LeagueAnnouncement) => {
+    try {
+      await unpinMasterLeagueAnnouncementWeb({ masterLeagueId: mlId, announcementId: ann.id });
+    } catch {
+      alert('Failed to unpin announcement.');
+    }
+  };
+
+  const handleDeleteAnnouncement = async (ann: LeagueAnnouncement) => {
+    if (!confirm('Delete this announcement?')) return;
+    try {
+      await deleteMasterLeagueAnnouncementWeb({ masterLeagueId: mlId, announcementId: ann.id });
+    } catch {
+      alert('Failed to delete announcement.');
     }
   };
 
@@ -121,6 +187,68 @@ export default function MasterLeagueDashboard() {
             <StatCard bg="bg-red-500/10" border="border-red-500/20" icon={Users} label="Followers" tint="text-red-500" value={masterLeague.followersCount || 0}/>
             <StatCard bg="bg-sky-400/10" border="border-sky-400/20" icon={ShieldCheck} label="Status" tint="text-sky-400" value={masterLeague.verifiedBadge ? 'Verified' : 'Public'}/>
             <StatCard bg="bg-purple-400/10" border="border-purple-400/20" icon={Hub} label="Matches" tint="text-purple-400" value={masterLeague.totalMatches || 0}/>
+          </div>
+
+          {/* Organizer Announcements */}
+          <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-black text-white flex items-center gap-2">
+                <Megaphone className="w-5 h-5 text-[#BEF264]"/> Organizer Announcements
+              </h2>
+              {isOwner && (
+                <button onClick={() => setShowAnnModal(true)} className="px-3 py-2 bg-[#BEF264]/10 border border-[#BEF264]/20 text-[#BEF264] text-xs font-black rounded-xl hover:bg-[#BEF264]/20 transition-colors">
+                  Post Announcement
+                </button>
+              )}
+            </div>
+
+            {announcements.length === 0 ? (
+              <div className="p-8 text-center border border-[#1E293B] bg-[#070B14] rounded-2xl">
+                <p className="text-gray-500 font-bold text-sm">No announcements posted yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {[...announcements].sort((a, b) => (a.pinned === b.pinned ? 0 : a.pinned ? -1 : 1)).map((ann) => {
+                  const canManage = isOwner || ann.authorId === authUid;
+                  return (
+                    <div key={ann.id} className={`p-4 rounded-2xl border ${ann.pinned ? 'bg-[#BEF264]/5 border-[#BEF264]/30' : 'bg-[#070B14] border-[#1E293B]'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            {ann.pinned && <Pin className="w-3.5 h-3.5 text-[#BEF264] shrink-0" />}
+                            <h3 className="text-sm font-black text-white truncate">{ann.title}</h3>
+                          </div>
+                          <p className="text-xs font-semibold text-gray-400 mt-1.5 leading-relaxed whitespace-pre-wrap">{ann.message}</p>
+                          <p className="text-[10px] font-bold text-gray-600 mt-2 uppercase tracking-widest">
+                            {ann.authorName || 'Organizer'} • {new Date(ann.createdAtMs).toLocaleString()}
+                          </p>
+                        </div>
+                        {(isOwner || canManage) && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            {isOwner && (
+                              ann.pinned ? (
+                                <button onClick={() => handleUnpin(ann)} title="Unpin" className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                                  <PinOff className="w-4 h-4" />
+                                </button>
+                              ) : (
+                                <button onClick={() => handlePin(ann)} title="Pin" className="p-2 text-gray-400 hover:text-[#BEF264] hover:bg-[#BEF264]/10 rounded-lg transition-colors">
+                                  <Pin className="w-4 h-4" />
+                                </button>
+                              )
+                            )}
+                            {canManage && (
+                              <button onClick={() => handleDeleteAnnouncement(ann)} title="Delete" className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Child Competitions */}
@@ -189,6 +317,32 @@ export default function MasterLeagueDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Post Announcement Modal */}
+      {showAnnModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-[#0F172A] border border-[#1E293B] rounded-3xl p-6 shadow-2xl relative">
+            <button onClick={() => setShowAnnModal(false)} className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-[#1E293B] text-gray-400 hover:text-white transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+            <h2 className="text-xl font-black text-white mb-1">Post Organizer Announcement</h2>
+            <p className="text-xs font-semibold text-gray-400 mb-6">Visible to everyone who follows this workspace.</p>
+            <div className="space-y-4 mb-6">
+              <input
+                type="text" placeholder="Title" value={annTitle} onChange={(e) => setAnnTitle(e.target.value)}
+                className="w-full p-3.5 bg-[#0B1221] border border-[#1E293B] rounded-xl text-sm font-bold text-white outline-none focus:border-[#BEF264]"
+              />
+              <textarea
+                placeholder="Message" value={annMsg} onChange={(e) => setAnnMsg(e.target.value)} rows={4}
+                className="w-full p-3.5 bg-[#0B1221] border border-[#1E293B] rounded-xl text-sm font-medium text-white outline-none focus:border-[#BEF264] resize-none"
+              />
+            </div>
+            <button onClick={handlePostAnnouncement} disabled={posting || !annTitle.trim() || !annMsg.trim()} className="w-full py-3.5 rounded-xl bg-[#BEF264] text-[#0F172A] font-black hover:brightness-110 disabled:opacity-50 shadow-lg shadow-[#BEF264]/10">
+              {posting ? 'Posting...' : 'Post Announcement'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

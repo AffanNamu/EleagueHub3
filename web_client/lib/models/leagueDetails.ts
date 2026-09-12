@@ -76,4 +76,6 @@ export interface LeagueAnnouncement {
   authorId: string;
   authorName: string;
   pinned: boolean;
+  pinnedAtMs?: number;
+  pinnedBy?: string;
 }
