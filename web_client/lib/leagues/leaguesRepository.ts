@@ -16,6 +16,7 @@ import {
   arrayUnion,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { v4 as uuidv4 } from 'uuid';
 import {
   LeagueData,
   Membership,
@@ -25,6 +26,7 @@ import {
 } from '@/lib/models/league';
 import { FootballCategory, categoryStorageValue } from '@/lib/models/footballCategory';
 import { LeagueFormat, leagueFormatIndex } from '@/lib/models/leagueFormat';
+import { MASTER_LEAGUE_PLANS, planFromString } from '@/types/masterLeague';
 
 export async function fetchLeaguesForUser(uid: string): Promise<LeagueData[]> {
   const trimmed = uid.trim();
@@ -232,19 +234,13 @@ export async function joinLeagueByCode(
 
   const leagueDoc = snap.docs[0];
   const leagueId = leagueDoc.id;
-  const leagueData = leagueDoc.data();
 
-  // STRICT PARITY: Enforce the 3-League Free Limit for Joining
-  const memberIds = leagueData.memberIds || [];
-  if (!memberIds.includes(uid)) {
-    const isPremium = await detectPremiumUser(uid);
-    if (!isPremium) {
-      const userLeaguesSnap = await getDocs(query(collection(db, 'leagues'), where('memberIds', 'array-contains', uid)));
-      if (userLeaguesSnap.size >= 3) {
-        throw new Error('Free users can only have 3 leagues total on the leagues screen. Upgrade to Premium to join more leagues.');
-      }
-    }
-  }
+  // NOTE: joining a league is NOT gated by the Basic free-plan limit —
+  // only creating leagues/competitions is (see leagues_list_screen.dart's
+  // kIsWeb join branch and its own "Joining leagues remains available"
+  // copy). A join-side limit was previously enforced here but that
+  // contradicted the real Dart behavior and silently blocked Basic users
+  // from joining leagues they were invited to.
 
   // First write memberIds to satisfy Firestore Rules for membership subcollection write
   await updateDoc(doc(db, 'leagues', leagueId), {
@@ -306,31 +302,130 @@ export interface CreateLeagueFormPayload {
   leagueImageUrl: string;
   sponsorImageUrl: string;
   format: LeagueFormat;
-  worldCupFormat: number | string; // Handled dynamically 
+  worldCupFormat: number | string; // Handled dynamically
   category: FootballCategory;
   isPrivate: boolean;
   homeAway: boolean;
   organizerUid: string;
+  // Set when this league is really a competition being created inside a
+  // Master League workspace. Mirrors league_create_wizard.dart's
+  // widget.masterLeagueId / _inMasterLeagueMode.
+  masterLeagueId?: string;
+}
+
+async function writeOrganizerMembership(leagueId: string, organizerUid: string, nowMs: number): Promise<void> {
+  // Non-fatal, mirroring LeaguesRepositoryFirebase._createLeagueAtExactId:
+  // the league doc itself is the source of truth for who owns it: a
+  // failed membership write shouldn't fail the whole creation.
+  try {
+    const membershipDocRef = doc(db, 'leagues', leagueId, 'memberships', organizerUid);
+    await setDoc(membershipDocRef, {
+      id: organizerUid,
+      leagueId,
+      userId: organizerUid,
+      teamId: null,
+      role: 0, // 0 = Organizer
+      updatedAtMs: nowMs,
+      version: 1,
+    });
+  } catch (e) {
+    console.warn('[leaguesRepository] organizer membership write failed (non-fatal):', e);
+  }
+}
+
+// Mirrors LeaguesRepositoryFirebase._requireMasterLeagueOwnerOrThrow: only
+// the workspace owner (or a member with an 'owner'/'admin' role) may create
+// competitions inside it.
+async function requireMasterLeagueOwnerOrThrow(
+  masterLeagueId: string,
+  authUid: string,
+): Promise<Record<string, unknown>> {
+  const snap = await getDoc(doc(db, 'master_leagues', masterLeagueId));
+  if (!snap.exists()) {
+    throw new Error("We couldn't find that Master League. Please refresh and try again.");
+  }
+
+  const data = snap.data();
+  const ownerId = String(data.ownerId ?? data.ownerUid ?? '').trim();
+  if (ownerId && ownerId === authUid) return data;
+
+  const roles = (data.roles && typeof data.roles === 'object') ? (data.roles as Record<string, unknown>) : {};
+  const role = String(roles[authUid] ?? '').trim().toLowerCase();
+  if (role === 'owner' || role === 'admin') return data;
+
+  throw new Error('Only the Master League owner can create competitions inside it.');
+}
+
+// Mirrors LeaguesRepositoryFirebase._candidateCompetitionLeagueIdsForMasterLeague:
+// Basic/Pro plans get deterministic slot ids ('mlc_{masterLeagueId}_{slot}',
+// 1..plan.maxLeagues) so the competition count is enforced by which slot ids
+// are already taken, rather than a separate counter doc. Elite is unlimited,
+// so it just gets a random id like a standalone league.
+async function candidateCompetitionLeagueIds(
+  masterLeagueId: string,
+  mlData: Record<string, unknown>,
+): Promise<string[]> {
+  const plan = planFromString(mlData.plan);
+  if (plan === 'elite') {
+    return [uuidv4()];
+  }
+
+  const max = MASTER_LEAGUE_PLANS[plan].maxLeagues;
+  const prefix = `mlc_${masterLeagueId}_`;
+
+  const snap = await getDocs(query(collection(db, 'leagues'), where('masterLeagueId', '==', masterLeagueId)));
+  const ids = snap.docs.map((d) => d.id.trim()).filter(Boolean);
+
+  const takenSlots = new Set<number>();
+  let legacyCount = 0;
+  for (const id of ids) {
+    if (!id.startsWith(prefix)) {
+      legacyCount += 1;
+      continue;
+    }
+    const slot = parseInt(id.slice(prefix.length), 10);
+    if (Number.isFinite(slot) && slot >= 1 && slot <= max) {
+      takenSlots.add(slot);
+    } else {
+      legacyCount += 1;
+    }
+  }
+
+  const reserved = Math.min(legacyCount, max);
+  for (let i = 1; i <= reserved; i++) takenSlots.add(i);
+
+  const limitMessage = `You have reached the limit of ${max} competitions for your ${MASTER_LEAGUE_PLANS[plan].displayName} plan.`;
+  if (ids.length >= max) {
+    throw new Error(limitMessage);
+  }
+
+  const candidates: string[] = [];
+  for (let slot = 1; slot <= max; slot++) {
+    if (!takenSlots.has(slot)) candidates.push(`${prefix}${slot}`);
+  }
+  if (candidates.length === 0) {
+    throw new Error(limitMessage);
+  }
+  return candidates;
 }
 
 export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Promise<string> {
   const code = await generateUniqueJoinCode();
-  const leaguesRef = collection(db, 'leagues');
-  const newLeagueDoc = doc(leaguesRef);
   const nowMs = Date.now();
 
-  const maxTeams = payload.format === 'classic' ? 20 
-                 : payload.format === 'uclGroup' ? 32 
-                 : payload.format === 'uclSwiss' ? 36 
+  const maxTeams = payload.format === 'classic' ? 20
+                 : payload.format === 'uclGroup' ? 32
+                 : payload.format === 'uclSwiss' ? 36
                  : payload.worldCupFormat === 'fifa2022' ? 32 : 48;
 
   const derivedOrganizerUserId = deriveShareIdFromUid(payload.organizerUid) || payload.organizerUid;
+  const masterLeagueId = (payload.masterLeagueId || '').trim();
 
   // STRICT PARITY: Fully matching the Flutter Model and Firestore Rules constraints
-  const documentPayload = {
-    id: newLeagueDoc.id,
+  const buildDocumentPayload = (id: string) => ({
+    id,
     name: payload.name.trim(),
-    masterLeagueId: '',
+    masterLeagueId,
     description: payload.description.trim(),
     leagueImageUrl: payload.leagueImageUrl.trim(),
     sponsorImageUrl: payload.sponsorImageUrl.trim(),
@@ -340,18 +435,18 @@ export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Prom
     couponCount: 0,
     homeAwayEnabled: payload.homeAway,
     footballCategory: categoryStorageValue(payload.category),
-    format: leagueFormatIndex(payload.format), 
+    format: leagueFormatIndex(payload.format),
     isPrivate: payload.isPrivate,
     region: 'Global',
     maxTeams: maxTeams,
     season: '2026',
-    
+
     // Crucial for Firebase Rules evaluation:
     organizerUid: payload.organizerUid,
     ownerUid: payload.organizerUid,
     ownerId: payload.organizerUid,
     organizerUserId: derivedOrganizerUserId,
-    
+
     code: code,
     qrPayloadOverride: '',
     updatedAtMs: nowMs,
@@ -359,25 +454,46 @@ export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Prom
     version: 1,
     memberIds: [payload.organizerUid],
     settings: {
+      // Matches LeagueSettings.defaultsFor(): every format gets groupSize:4
+      // and swissRounds:8 written unconditionally, not just the formats
+      // that use them — leaving these out (as this used to) makes them
+      // default to the wrong value on read (swissRounds: 0) and breaks
+      // Swiss-format knockout generation's "finish all N rounds" check.
       doubleRoundRobin: payload.homeAway,
+      groupSize: 4,
+      swissRounds: 8,
       lastPulledAtMs: 0,
-      worldCupFormat: payload.format === 'worldCup' ? payload.worldCupFormat : 'fifa2022'
-    }
-  };
-
-  await setDoc(newLeagueDoc, documentPayload);
-
-  // Add the creator's membership immediately
-  const membershipDocRef = doc(db, 'leagues', newLeagueDoc.id, 'memberships', payload.organizerUid);
-  await setDoc(membershipDocRef, {
-    id: payload.organizerUid,
-    leagueId: newLeagueDoc.id,
-    userId: payload.organizerUid,
-    teamId: null,
-    role: 0, // 0 = Organizer
-    updatedAtMs: nowMs,
-    version: 1,
+      worldCupFormat: payload.format === 'worldCup' ? payload.worldCupFormat : 'fifa2022',
+    },
   });
 
-  return newLeagueDoc.id;
+  if (!masterLeagueId) {
+    const newLeagueDoc = doc(collection(db, 'leagues'));
+    await setDoc(newLeagueDoc, buildDocumentPayload(newLeagueDoc.id));
+    await writeOrganizerMembership(newLeagueDoc.id, payload.organizerUid, nowMs);
+    return newLeagueDoc.id;
+  }
+
+  // ── Master League competition path ──────────────────────────────────────
+  const mlData = await requireMasterLeagueOwnerOrThrow(masterLeagueId, payload.organizerUid);
+  const candidates = await candidateCompetitionLeagueIds(masterLeagueId, mlData);
+
+  let lastError: unknown = null;
+  for (const candidateId of candidates) {
+    try {
+      const leagueRef = doc(db, 'leagues', candidateId);
+      await setDoc(leagueRef, buildDocumentPayload(candidateId));
+      await writeOrganizerMembership(candidateId, payload.organizerUid, nowMs);
+      return candidateId;
+    } catch (e) {
+      lastError = e;
+      // Someone else claimed this slot between our read and our write —
+      // Firestore evaluates the write as an "update" against their doc,
+      // which the security rules reject. Try the next candidate slot.
+      if (e instanceof Error && 'code' in e && (e as { code?: string }).code === 'permission-denied') continue;
+      throw e;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Failed to create the competition. Please try again.');
 }

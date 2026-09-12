@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useRef, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { uploadImageToCloudinary } from '@/lib/cloudinary';
 import { LeagueFormat } from '@/lib/models/leagueFormat';
@@ -46,8 +46,26 @@ const FOOTBALL_CATEGORIES: { id: FootballCategory, label: string }[] = [
 ];
 
 export default function CreateLeagueScreen() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#070B14] flex items-center justify-center">
+        <Loader2 className="w-10 h-10 text-[#BEF264] animate-spin" />
+      </div>
+    }>
+      <CreateLeagueScreenInner />
+    </Suspense>
+  );
+}
+
+function CreateLeagueScreenInner() {
   const router = useRouter();
-  
+  const searchParams = useSearchParams();
+  // When present, this screen creates a competition inside that Master
+  // League workspace instead of a standalone league — mirrors
+  // league_create_wizard.dart's widget.masterLeagueId / _inMasterLeagueMode.
+  const masterLeagueId = (searchParams.get('masterLeagueId') || '').trim();
+  const inMasterLeagueMode = masterLeagueId.length > 0;
+
   // Access & Limits State
   const [authUid, setAuthUid] = useState<string | null>(null);
   const [checkingAccess, setCheckingAccess] = useState(true);
@@ -73,8 +91,7 @@ export default function CreateLeagueScreen() {
   const [selectedMaxTeams, setSelectedMaxTeams] = useState<number>(20);
   const [homeAwayEnabled, setHomeAwayEnabled] = useState(false);
   const [containsRewards, setContainsRewards] = useState(false);
-  const [creatorParticipates, setCreatorParticipates] = useState(false);
-  
+
   // World Cup Specific Settings
   const [worldCupFormat, setWorldCupFormat] = useState<WorldCupFormat>('fifa2022');
 
@@ -194,9 +211,14 @@ export default function CreateLeagueScreen() {
         isPrivate: privacy === 'private',
         homeAway: effectiveHomeAway,
         organizerUid: authUid,
+        masterLeagueId: inMasterLeagueMode ? masterLeagueId : undefined,
       });
 
-      router.push(`/leagues/${leagueId}`);
+      if (inMasterLeagueMode) {
+        router.push(`/master-leagues/${masterLeagueId}`);
+      } else {
+        router.push(`/leagues/${leagueId}`);
+      }
     } catch (err: any) {
       console.error(err);
       setError('Failed to create league: ' + err.message);
@@ -223,9 +245,13 @@ export default function CreateLeagueScreen() {
         <div>
           <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-3">
             <Trophy className="w-7 h-7 text-[#BEF264]" />
-            Create League
+            {inMasterLeagueMode ? 'Create Competition' : 'Create League'}
           </h1>
-          <p className="text-sm font-semibold text-gray-400 mt-1">Configure and launch a new competition</p>
+          <p className="text-sm font-semibold text-gray-400 mt-1">
+            {inMasterLeagueMode
+              ? 'This competition will be created inside your Master League workspace.'
+              : 'Configure and launch a new competition'}
+          </p>
         </div>
       </div>
 
@@ -236,7 +262,8 @@ export default function CreateLeagueScreen() {
           <div className="flex-1">
             <h3 className="text-amber-500 font-black text-sm">Basic Limit Reached</h3>
             <p className="text-amber-500/80 text-xs font-semibold mt-1">
-              Basic users can create up to {FREE_LEAGUE_LIMIT} leagues total. Upgrade to Pro or Elite to create more.
+              Basic users can create up to {FREE_LEAGUE_LIMIT} leagues/competitions total (shared across normal
+              leagues and Master League competitions). Upgrade to Pro or Elite to create more.
             </p>
           </div>
           <button onClick={() => router.push('/premium')} className="px-4 py-2 bg-amber-500 text-white text-xs font-black rounded-lg hover:brightness-110 shadow-lg">
@@ -257,7 +284,7 @@ export default function CreateLeagueScreen() {
           <div>
             <h3 className="text-gray-300 font-black text-sm">Basic Access</h3>
             <p className="text-gray-400 text-xs font-semibold mt-1">
-              You have used {createdCount} / {FREE_LEAGUE_LIMIT} free league slots.
+              You have used {createdCount} / {FREE_LEAGUE_LIMIT} free league/competition slots.
             </p>
           </div>
         </div>
@@ -454,19 +481,12 @@ export default function CreateLeagueScreen() {
                   onChange={setHomeAwayEnabled} 
                   disabled={!supportsHomeAway || limitReached} 
                 />
-                <ToggleRow 
-                  label="League Contains Rewards" 
+                <ToggleRow
+                  label="League Contains Rewards"
                   desc="Prize pool or trophies"
-                  checked={containsRewards} 
-                  onChange={setContainsRewards} 
-                  disabled={limitReached} 
-                />
-                <ToggleRow 
-                  label="I Will Participate" 
-                  desc="Join automatically as a team"
-                  checked={creatorParticipates} 
-                  onChange={setCreatorParticipates} 
-                  disabled={limitReached} 
+                  checked={containsRewards}
+                  onChange={setContainsRewards}
+                  disabled={limitReached}
                 />
               </div>
             </div>
@@ -480,7 +500,7 @@ export default function CreateLeagueScreen() {
               ) : (
                 <button type="submit" disabled={loading || !name.trim()} className="w-full py-4 bg-[#BEF264] text-[#0F172A] font-black rounded-xl hover:brightness-110 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-[#BEF264]/20">
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trophy className="w-5 h-5" />}
-                  {format === 'worldCup' ? 'CREATE WORLD CUP' : 'CREATE LEAGUE'}
+                  {format === 'worldCup' ? 'CREATE WORLD CUP' : (inMasterLeagueMode ? 'CREATE COMPETITION' : 'CREATE LEAGUE')}
                 </button>
               )}
             </div>
