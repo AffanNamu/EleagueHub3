@@ -7,6 +7,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, updateProfile, User as FirebaseUser } from 'firebase/auth';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { updateTeamBannerWeb, updateTeamBioWeb, toggleFollowWeb, toggleBlockWeb, checkRelationshipStatusWeb, resolveVerificationBadges, gameIdLabel, ResolvedVerificationBadges } from '@/lib/profile/teamProfileRepository';
+import { checkChatAccessWeb, startOrGetThreadWeb, getThreadId } from '@/lib/chat/privateChatRepository';
 import { useTeamProfile } from '@/hooks/useTeamProfile';
 import { toDisplayUsername } from '@/lib/username';
 import { SquadPitchView } from '@/components/profile/SquadPitchView';
@@ -59,6 +60,7 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
   const [isFollowing, setIsFollowing] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [interactionLoading, setInteractionLoading] = useState(false);
+  const [messaging, setMessaging] = useState(false);
 
   // Edit Modals
   const [usernameEditOpen, setUsernameEditOpen] = useState(false);
@@ -177,6 +179,39 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
     }
   };
 
+  const handleMessage = async () => {
+    // Mirrors PrivateMessageIconButton.dart's tap handling: check access
+    // first so an existing thread opens with no write at all, a blocked
+    // relationship never attempts a write, and a free (non-Premium) user
+    // gets the same upsell copy as the app instead of a raw Firestore
+    // permission error. Previously this button pushed straight to
+    // `/messages/{targetUid}` — the wrong id entirely (private_threads
+    // docs are keyed by the deterministic `dm_{sortedUidPair}` id, not a
+    // single user's uid) and never created the thread doc, so starting
+    // any new conversation from a profile silently failed.
+    if (!authUser || messaging) return;
+    setMessaging(true);
+    try {
+      const access = await checkChatAccessWeb(authUser.uid, targetUid);
+      if (access === 'blocked') {
+        alert('You cannot message this user.');
+        return;
+      }
+      if (access === 'locked') {
+        alert(`Starting a private chat requires Premium. ${displayName || 'This user'} can still message you first.`);
+        return;
+      }
+      const threadId = access === 'threadExists'
+        ? getThreadId(authUser.uid, targetUid)
+        : (await startOrGetThreadWeb(authUser.uid, targetUid)).id;
+      router.push(`/messages/${threadId}`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not start conversation.');
+    } finally {
+      setMessaging(false);
+    }
+  };
+
   const handleToggleBlock = async () => {
     if (!authUser || interactionLoading) return;
     if (!confirm(isBlocked ? 'Unblock user?' : 'Block this user? They will not be able to message you.')) return;
@@ -273,8 +308,8 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
                   <button onClick={handleToggleFollow} disabled={interactionLoading} className={`px-5 py-2.5 rounded-xl font-black text-sm flex items-center gap-2 transition-all ${isFollowing ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-[#BEF264] text-[#0F172A] hover:brightness-110'}`}>
                     {isFollowing ? <><UserCheck className="w-4 h-4"/> Following</> : <><UserPlus className="w-4 h-4"/> Follow</>}
                   </button>
-                  <button onClick={() => router.push(`/messages/${targetUid}`)} className="p-2.5 bg-[#1E293B] hover:bg-[#2A3A52] text-white rounded-xl transition-colors">
-                    <MessageSquare className="w-5 h-5"/>
+                  <button onClick={handleMessage} disabled={messaging} className="p-2.5 bg-[#1E293B] hover:bg-[#2A3A52] text-white rounded-xl transition-colors disabled:opacity-50">
+                    {messaging ? <Loader2 className="w-5 h-5 animate-spin" /> : <MessageSquare className="w-5 h-5"/>}
                   </button>
                   <button onClick={() => setShowMoreMenu(!showMoreMenu)} className="p-2.5 bg-[#1E293B] hover:bg-[#2A3A52] text-gray-400 hover:text-white rounded-xl transition-colors">
                     <MoreVertical className="w-5 h-5"/>
