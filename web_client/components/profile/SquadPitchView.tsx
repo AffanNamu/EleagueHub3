@@ -155,11 +155,15 @@ export function SquadPitchView({ userId, gameId, isEditable = false, isPreview =
 
   return (
     <div className="w-full h-full flex flex-col gap-4">
-      {/* Squad photo — real team photo, distinct from per-player photos on the pitch */}
-      {!isPreview && (squad.squadPhotoUrl || isEditable) && (
+      {/* Squad photo — real team photo, distinct from per-player photos on
+          the pitch. Shown in preview mode too (matching mobile's
+          _SquadPreview in public_team_profile_screen.dart, which always
+          surfaces this photo when present) — only the "add a photo"
+          empty-state placeholder and edit controls are preview-only. */}
+      {(squad.squadPhotoUrl || (isEditable && !isPreview)) && (
         <div
-          className={`relative w-full ${squad.squadPhotoUrl ? 'h-40' : 'h-20'} rounded-2xl border border-white/10 overflow-hidden bg-[#0B1221] ${isEditable ? 'cursor-pointer' : ''}`}
-          onClick={() => isEditable && photoInputRef.current?.click()}
+          className={`relative w-full ${squad.squadPhotoUrl ? (isPreview ? 'h-28' : 'h-40') : 'h-20'} rounded-2xl border border-white/10 overflow-hidden bg-[#0B1221] ${isEditable && !isPreview ? 'cursor-pointer' : ''}`}
+          onClick={() => isEditable && !isPreview && photoInputRef.current?.click()}
         >
           {squad.squadPhotoUrl ? (
             <img src={squad.squadPhotoUrl} className="w-full h-full object-cover" alt="Squad" />
@@ -174,7 +178,7 @@ export function SquadPitchView({ userId, gameId, isEditable = false, isPreview =
               <Loader2 className="w-6 h-6 text-white animate-spin" />
             </div>
           )}
-          {isEditable && squad.squadPhotoUrl && !uploadingPhoto && (
+          {isEditable && !isPreview && squad.squadPhotoUrl && !uploadingPhoto && (
             <div className="absolute top-2 right-2 flex gap-1">
               <button onClick={(e) => { e.stopPropagation(); photoInputRef.current?.click(); }} className="p-1.5 bg-black/50 hover:bg-black/80 rounded-lg text-white">
                 <Camera className="w-3.5 h-3.5" />
@@ -184,7 +188,7 @@ export function SquadPitchView({ userId, gameId, isEditable = false, isPreview =
               </button>
             </div>
           )}
-          {isEditable && (
+          {isEditable && !isPreview && (
             <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
           )}
         </div>

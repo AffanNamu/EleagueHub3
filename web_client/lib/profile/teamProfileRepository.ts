@@ -1,5 +1,7 @@
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction, writeBatch, query, limit, orderBy } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction, writeBatch, query, limit, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { auth } from '@/lib/firebase';
+import { v4 as uuidv4 } from 'uuid';
 
 // ── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -202,6 +204,110 @@ export async function checkRelationshipStatusWeb(authUid: string, targetUid: str
     following: followingSnap.exists(),
     blocked: blockedSnap.exists(),
   };
+}
+
+// ── GAME LABELS ──────────────────────────────────────────────────────────────
+// Mirrors lib/features/profile/models/game_id.dart's GameId.label() exactly —
+// same doc-id strings, same display strings.
+
+export const GAME_ID_LABELS: Record<string, string> = {
+  local_football: 'Local Football',
+  efootball: 'eFootball',
+  ea_fc: 'EA SPORTS FC',
+  ea_fc_mobile: 'EA SPORTS FC Mobile',
+  dream_league_soccer: 'Dream League Soccer',
+  total_football: 'Total Football',
+};
+
+export function gameIdLabel(id: string): string {
+  return GAME_ID_LABELS[id] || GAME_ID_LABELS.local_football;
+}
+
+// ── VERIFICATION BADGES ───────────────────────────────────────────────────────
+// Mirrors lib/features/verification/domain/badge_model.dart's VerificationBadges
+// (isGreenActive/isOrganizerActive/isStaffActive — expiry-aware) plus the
+// legacy/general "verified" flag mobile computes in UserProfile.verifiedActive
+// (lib/features/auth/models/user_profile.dart). These are 4 DISTINCT badges,
+// not 2 — a doc can carry the legacy blue tick and the newer green badge
+// independently of each other.
+
+export interface ResolvedVerificationBadges {
+  /** Legacy/general blue tick — isVerified / verifiedBadge / verificationStatus==='approved'. */
+  verified: boolean;
+  /** Gold organizer badge — verification.organizerVerified, or the legacy flat isVerifiedOrganizer field. */
+  organizer: boolean;
+  /** Purple staff/ambassador badge — verification.staffVerified. */
+  staff: boolean;
+  /** Green verified badge (distinct from the legacy blue tick) — verification.greenVerified. */
+  green: boolean;
+}
+
+function isExpiryStillActive(expiresAt: unknown): boolean {
+  if (expiresAt == null) return true; // no expiry = never expires
+  if (typeof expiresAt === 'number') return expiresAt > Date.now();
+  if (expiresAt instanceof Timestamp) return expiresAt.toMillis() > Date.now();
+  return true;
+}
+
+export function resolveVerificationBadges(data: Record<string, unknown> | undefined | null): ResolvedVerificationBadges {
+  const v = (data && typeof data === 'object' ? (data.verification as Record<string, unknown> | undefined) : undefined) || {};
+
+  const staff = v.staffVerified === true && isExpiryStillActive(v.staffExpiresAt);
+  const organizer =
+    (v.organizerVerified === true && isExpiryStillActive(v.organizerExpiresAt)) ||
+    data?.isVerifiedOrganizer === true;
+  const green = v.greenVerified === true && isExpiryStillActive(v.greenExpiresAt);
+  const verified =
+    data?.isVerified === true ||
+    data?.verifiedBadge === true ||
+    (typeof data?.verificationStatus === 'string' && data.verificationStatus.trim().toLowerCase() === 'approved');
+
+  return { staff, organizer, green, verified };
+}
+
+// ── USER REPORTS ─────────────────────────────────────────────────────────────
+// Mirrors lib/features/moderation/data/report_repository.dart's
+// ReportRepository.submitReport() exactly — same collection, same field
+// shape — so reports filed from web land in the same admin moderation queue
+// as reports filed from the mobile app.
+
+export const USER_REPORT_REASONS = ['spam', 'harassment', 'impersonation', 'cheating', 'other'] as const;
+export type UserReportReason = (typeof USER_REPORT_REASONS)[number];
+
+export function userReportReasonLabel(reason: string): string {
+  switch (reason) {
+    case 'spam': return 'Spam';
+    case 'harassment': return 'Harassment';
+    case 'impersonation': return 'Impersonation';
+    case 'cheating': return 'Cheating';
+    default: return 'Other';
+  }
+}
+
+export async function submitReportWeb(params: {
+  targetUserId: string;
+  reason: string;
+  details?: string;
+}) {
+  const reporterId = auth.currentUser?.uid.trim() || '';
+  if (!reporterId) throw new Error('Please sign in and try again.');
+  const target = params.targetUserId.trim();
+  if (!target || target === reporterId) throw new Error('Invalid report target.');
+
+  const id = uuidv4();
+  const now = Date.now();
+
+  await setDoc(doc(db, 'reports', id), {
+    reportId: id,
+    reporterId,
+    targetUserId: target,
+    reason: params.reason,
+    details: (params.details || '').trim(),
+    status: 'pending',
+    createdAtMs: now,
+    reviewedAtMs: 0,
+    reviewedBy: '',
+  });
 }
 
 // ── MATCH STATS & TROPHIES (Admin Operations) ────────────────────────────────
