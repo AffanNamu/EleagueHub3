@@ -244,7 +244,9 @@ export interface ResolvedVerificationBadges {
 
 function isExpiryStillActive(expiresAt: unknown): boolean {
   if (expiresAt == null) return true; // no expiry = never expires
-  if (typeof expiresAt === 'number') return expiresAt > Date.now();
+  // Matches Dart's `if (verificationExpiresAtMs <= 0) return true` — a
+  // zero/negative ms value means "unset", not "already expired".
+  if (typeof expiresAt === 'number') return expiresAt <= 0 || expiresAt > Date.now();
   if (expiresAt instanceof Timestamp) return expiresAt.toMillis() > Date.now();
   return true;
 }
@@ -257,10 +259,17 @@ export function resolveVerificationBadges(data: Record<string, unknown> | undefi
     (v.organizerVerified === true && isExpiryStillActive(v.organizerExpiresAt)) ||
     data?.isVerifiedOrganizer === true;
   const green = v.greenVerified === true && isExpiryStillActive(v.greenExpiresAt);
-  const verified =
+
+  // Mirrors UserProfile.verifiedActive: the merged isVerified/verifiedBadge/
+  // verificationStatus flag is gated by ONE shared expiry
+  // (verificationExpiresAtMs, falling back to the older verifiedExpiresAtMs
+  // field name) — previously missing here, so an expired legacy-verified
+  // user kept showing the blue tick forever.
+  const verifiedFlag =
     data?.isVerified === true ||
     data?.verifiedBadge === true ||
     (typeof data?.verificationStatus === 'string' && data.verificationStatus.trim().toLowerCase() === 'approved');
+  const verified = verifiedFlag && isExpiryStillActive(data?.verificationExpiresAtMs ?? data?.verifiedExpiresAtMs);
 
   return { staff, organizer, green, verified };
 }
