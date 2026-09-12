@@ -7,16 +7,18 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, updateProfile, User as FirebaseUser } from 'firebase/auth';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { ensureUsernameIfMissing } from '@/lib/services/userProfileRepository';
-import { updateTeamBannerWeb, updateTeamBioWeb } from '@/lib/profile/teamProfileRepository';
+import { updateTeamBannerWeb, updateTeamBioWeb, resolveVerificationBadges, gameIdLabel, ResolvedVerificationBadges } from '@/lib/profile/teamProfileRepository';
 import { useTeamProfile } from '@/hooks/useTeamProfile';
 import { toDisplayUsername } from '@/lib/username';
 import { useLeagues } from '@/hooks/useLeagues';
 
 import { UsernameEditModal } from '@/components/profile/UsernameEditModal';
 import { SquadPitchView } from '@/components/profile/SquadPitchView';
-import { 
-  Loader2, User, Trophy, ShieldCheck, Mail, Edit2, 
-  Camera, AtSign, Settings, LogOut, Image as ImageIcon, Users 
+import { VerificationBadgeIcons } from '@/components/profile/VerificationBadgeIcons';
+import { StatsRow } from '@/components/profile/StatsRow';
+import {
+  Loader2, User, Trophy, ShieldCheck, Mail, Edit2,
+  Camera, AtSign, Settings, LogOut, Image as ImageIcon, Users, Gamepad2
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -31,7 +33,7 @@ export default function ProfileScreen() {
 
   const [localDisplayName, setLocalDisplayName] = useState('');
   const [localPhotoUrl, setLocalPhotoUrl] = useState('');
-  const [badges, setBadges] = useState({ staff: false, organizer: false, green: false });
+  const [badges, setBadges] = useState<ResolvedVerificationBadges>({ staff: false, organizer: false, green: false, verified: false });
   const [shareId, setShareId] = useState('');
   
   const [usernameLower, setUsernameLower] = useState('');
@@ -63,12 +65,7 @@ export default function ProfileScreen() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const data = userDoc.data();
-          const v = data.verification || {};
-          setBadges({
-            staff: v.staffVerified === true,
-            organizer: v.organizerVerified === true || data.isVerifiedOrganizer === true,
-            green: v.greenVerified === true || data.verifiedBadge === true,
-          });
+          setBadges(resolveVerificationBadges(data));
           setShareId(data.shareId || `eS${user.uid.substring(0, 8)}`);
 
           const lower = typeof data.usernameLower === 'string' ? data.usernameLower.trim() : '';
@@ -191,15 +188,18 @@ export default function ProfileScreen() {
               <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-2">
                 {localDisplayName || 'eSports Player'}
                 <button onClick={handleEditName} className="p-1 text-gray-500 hover:text-[#BEF264] transition-colors"><Edit2 className="w-4 h-4"/></button>
-                {badges.green && <ShieldCheck className="w-5 h-5 text-[#22C55E]"/>}
-                {badges.organizer && <ShieldCheck className="w-5 h-5 text-amber-500"/>}
+                <VerificationBadgeIcons badges={badges} />
               </h1>
-              
-              <div className="flex items-center gap-4 mt-2">
+
+              <div className="flex flex-wrap items-center gap-4 mt-2">
                 <div className="flex items-center gap-1.5 text-[#BEF264] font-bold text-sm bg-[#BEF264]/10 px-3 py-1 rounded-lg">
                   <AtSign className="w-3.5 h-3.5"/>
                   {usernameLower ? toDisplayUsername(usernameLower) : 'Setup username'}
                   <button onClick={() => setUsernameEditOpen(true)} className="ml-1 text-[#BEF264]/60 hover:text-[#BEF264]"><Edit2 className="w-3 h-3"/></button>
+                </div>
+                <div className="flex items-center gap-1.5 text-gray-500 text-sm font-medium">
+                  <Gamepad2 className="w-3.5 h-3.5"/>
+                  {gameIdLabel(teamProfile?.game || 'local_football')}
                 </div>
                 <div className="text-gray-500 text-sm font-mono flex items-center gap-2">
                   #{shareId}
@@ -227,11 +227,8 @@ export default function ProfileScreen() {
       </div>
 
       {/* ── STATS ROW ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Followers" value={stats?.followersCount || 0}/>
-        <StatCard label="Matches" value={stats?.matchesPlayed || 0}/>
-        <StatCard highlight label="Win Rate" value={`${(stats?.winPercentage || 0).toFixed(0)}%`} />
-        <StatCard label="Trophies" value={stats?.trophies || 0}/>
+      <div className="mb-6">
+        <StatsRow stats={stats} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -323,15 +320,6 @@ export default function ProfileScreen() {
           onSaved={(next) => { setUsernameLower(next); setUsernameEditOpen(false); }}
         />
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, highlight = false }: any) {
-  return (
-    <div className={`p-5 rounded-3xl border flex flex-col justify-center items-center shadow-lg transition-all ${highlight ? 'bg-[#BEF264]/10 border-[#BEF264]/30 text-[#BEF264]' : 'bg-[#0B1221] border-[#1E293B] text-white'}`}>
-      <span className="text-2xl font-black tabular-nums">{value}</span>
-      <span className={`text-xs font-bold uppercase tracking-widest mt-1 ${highlight ? 'text-[#BEF264]/80' : 'text-gray-500'}`}>{label}</span>
     </div>
   );
 }

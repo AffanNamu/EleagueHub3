@@ -326,3 +326,18 @@ export async function ensureUsernameIfMissing(
     console.error('[userProfileRepository] ensureUsernameIfMissing final fallback failed:', err);
   }
 }
+
+// ── Quick messages (Premium custom quick-chat replies) ───────────────────────
+// Mirrors UserProfileRepository.updateQuickMessagesCustom() in
+// lib/features/auth/data/user_profile_repository.dart exactly: same field
+// shape (userId + quickMessagesCustom + updatedAt as an int), same 15-item
+// cap, so it satisfies the same Firestore rule on both platforms.
+
+export async function updateQuickMessagesCustom(userId: string, messages: string[]): Promise<void> {
+  const values = messages.map((m) => m.trim()).filter((m) => m.length > 0).slice(0, 15);
+  await updateDoc(doc(db, 'users', userId), {
+    userId,
+    quickMessagesCustom: values,
+    updatedAt: Date.now(),
+  });
+}

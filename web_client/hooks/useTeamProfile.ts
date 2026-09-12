@@ -80,7 +80,8 @@ export function useSquad(userId: string | null, gameId: string) {
       if (docSnap.exists()) {
         // squadPhotoUrl may be absent on docs written before this field
         // existed — default it so callers never see `undefined`.
-        setSquad({ squadPhotoUrl: '', ...(docSnap.data() as SquadData) });
+        const data = docSnap.data() as SquadData;
+        setSquad({ ...data, squadPhotoUrl: data.squadPhotoUrl ?? '' });
       } else {
         setSquad(EMPTY_SQUAD(gameId));
       }

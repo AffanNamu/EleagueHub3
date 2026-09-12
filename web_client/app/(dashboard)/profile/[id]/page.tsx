@@ -6,17 +6,20 @@ import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, updateProfile, User as FirebaseUser } from 'firebase/auth';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
-import { updateTeamBannerWeb, updateTeamBioWeb, toggleFollowWeb, toggleBlockWeb, checkRelationshipStatusWeb } from '@/lib/profile/teamProfileRepository';
+import { updateTeamBannerWeb, updateTeamBioWeb, toggleFollowWeb, toggleBlockWeb, checkRelationshipStatusWeb, resolveVerificationBadges, gameIdLabel, ResolvedVerificationBadges } from '@/lib/profile/teamProfileRepository';
 import { useTeamProfile } from '@/hooks/useTeamProfile';
 import { toDisplayUsername } from '@/lib/username';
 import { Glass } from '@/components/ui/Glass';
 import { SquadPitchView } from '@/components/profile/SquadPitchView';
 import { UsernameEditModal } from '@/components/profile/UsernameEditModal';
+import { VerificationBadgeIcons } from '@/components/profile/VerificationBadgeIcons';
+import { StatsRow } from '@/components/profile/StatsRow';
+import { ReportUserModal } from '@/components/profile/ReportUserModal';
 
-import { 
-  Loader2, User, Trophy, ShieldCheck, Edit2, Camera, AtSign, 
+import {
+  Loader2, User, Trophy, ShieldCheck, Edit2, Camera, AtSign,
   MessageSquare, UserPlus, UserCheck, MoreVertical, Copy, Link as LinkIcon, Flag, ShieldAlert,
-  Settings, LogOut
+  Settings, LogOut, Image as ImageIcon, Users, Gamepad2
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -39,10 +42,10 @@ export default function ProfileScreen() {
   // Target Display State
   const [displayName, setDisplayName] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
-  const [badges, setBadges] = useState({ staff: false, organizer: false, green: false });
+  const [badges, setBadges] = useState<ResolvedVerificationBadges>({ staff: false, organizer: false, green: false, verified: false });
   const [shareId, setShareId] = useState('');
   const [usernameLower, setUsernameLower] = useState('');
-  
+
   // Interactions
   const [isFollowing, setIsFollowing] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
@@ -51,7 +54,8 @@ export default function ProfileScreen() {
   // Edit Modals
   const [usernameEditOpen, setUsernameEditOpen] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -77,13 +81,7 @@ export default function ProfileScreen() {
           const data = userDoc.data();
           setDisplayName(data.teamName || data.displayName || 'eSports Player');
           setPhotoUrl(data.teamImageUrl || data.profileImageUrl || data.photoUrl || '');
-          
-          const v = data.verification || {};
-          setBadges({
-            staff: v.staffVerified === true,
-            organizer: v.organizerVerified === true || data.isVerifiedOrganizer === true,
-            green: v.greenVerified === true || data.verifiedBadge === true,
-          });
+          setBadges(resolveVerificationBadges(data));
 
           setShareId(data.shareId || `eS${targetUid.substring(0, 8)}`);
           setUsernameLower(data.usernameLower || '');
@@ -237,15 +235,18 @@ export default function ProfileScreen() {
               <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-2">
                 {displayName}
                 {isOwner && <button onClick={handleEditName} className="p-1 text-gray-500 hover:text-[#BEF264] transition-colors"><Edit2 className="w-4 h-4"/></button>}
-                {badges.green && <ShieldCheck className="w-5 h-5 text-[#22C55E]"/>}
-                {badges.organizer && <ShieldCheck className="w-5 h-5 text-amber-500"/>}
+                <VerificationBadgeIcons badges={badges} />
               </h1>
-              
+
               <div className="flex flex-wrap items-center gap-4 mt-2">
                 <div className="flex items-center gap-1.5 text-[#BEF264] font-bold text-sm bg-[#BEF264]/10 px-3 py-1 rounded-lg">
                   <AtSign className="w-3.5 h-3.5"/>
                   {usernameLower ? toDisplayUsername(usernameLower) : 'No username'}
                   {isOwner && <button onClick={() => setUsernameEditOpen(true)} className="ml-1 text-[#BEF264]/60 hover:text-[#BEF264]"><Edit2 className="w-3 h-3"/></button>}
+                </div>
+                <div className="flex items-center gap-1.5 text-gray-500 text-sm font-medium">
+                  <Gamepad2 className="w-3.5 h-3.5"/>
+                  {gameIdLabel(teamProfile?.game || 'local_football')}
                 </div>
                 <div className="text-gray-500 text-sm font-mono flex items-center gap-2">
                   #{shareId}
@@ -270,7 +271,8 @@ export default function ProfileScreen() {
                   {/* Public More Menu */}
                   {showMoreMenu && (
                     <div className="absolute top-14 right-0 w-48 bg-[#0F172A] border border-white/10 rounded-2xl shadow-2xl py-2 z-20">
-                      <button onClick={() => { navigator.clipboard.writeText(window.location.href); alert('Link Copied'); setShowMoreMenu(false); }} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-300 hover:bg-white/5 flex items-center gap-2"><LinkIcon className="w-4 h-4"/> Share Profile</button>
+                      <button onClick={() => { navigator.clipboard.writeText(window.location.href); alert('Link Copied'); setShowMoreMenu(false); }} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-300 hover:bg-white/5 flex items-center gap-2"><LinkIcon className="w-4 h-4"/> Copy Profile Link</button>
+                      <button onClick={() => { setShowMoreMenu(false); setReportModalOpen(true); }} className="w-full px-4 py-3 text-left text-sm font-bold text-gray-300 hover:bg-white/5 flex items-center gap-2"><Flag className="w-4 h-4"/> Report</button>
                       <button onClick={handleToggleBlock} className="w-full px-4 py-3 text-left text-sm font-bold text-red-500 hover:bg-white/5 flex items-center gap-2"><ShieldAlert className="w-4 h-4"/> {isBlocked ? 'Unblock User' : 'Block User'}</button>
                     </div>
                   )}
@@ -294,11 +296,8 @@ export default function ProfileScreen() {
       </div>
 
       {/* ── STATS ROW ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Followers" value={stats?.followersCount || 0} />
-        <StatCard label="Matches" value={stats?.matchesPlayed || 0} />
-        <StatCard label="Win Rate" value={`${(stats?.winPercentage || 0).toFixed(0)}%`} highlight />
-        <StatCard label="Trophies" value={stats?.trophies || 0} />
+      <div className="mb-6">
+        <StatsRow stats={stats} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -380,15 +379,14 @@ export default function ProfileScreen() {
       {isOwner && usernameEditOpen && (
         <UsernameEditModal authUid={authUser.uid} current={usernameLower} onClose={() => setUsernameEditOpen(false)} onSaved={(next) => { setUsernameLower(next); setUsernameEditOpen(false); }} />
       )}
-    </div>
-  );
-}
 
-function StatCard({ label, value, highlight = false }: any) {
-  return (
-    <div className={`p-5 rounded-3xl border flex flex-col justify-center items-center shadow-lg transition-all ${highlight ? 'bg-[#BEF264]/10 border-[#BEF264]/30 text-[#BEF264]' : 'bg-[#0B1221] border-[#1E293B] text-white'}`}>
-      <span className="text-2xl font-black tabular-nums">{value}</span>
-      <span className={`text-xs font-bold uppercase tracking-widest mt-1 ${highlight ? 'text-[#BEF264]/80' : 'text-gray-500'}`}>{label}</span>
+      {!isOwner && reportModalOpen && (
+        <ReportUserModal
+          targetUserId={targetUid}
+          onClose={() => setReportModalOpen(false)}
+          onSubmitted={() => { setReportModalOpen(false); alert('Report submitted. Thank you.'); }}
+        />
+      )}
     </div>
   );
 }
