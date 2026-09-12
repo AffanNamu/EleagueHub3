@@ -94,7 +94,7 @@ export const TopBar = () => {
 
         {/* Action Icons (Mock data removed) */}
         <div className="flex items-center gap-3">
-          <button className="relative p-2.5 bg-[#0B1221] border border-[#1E293B] rounded-xl hover:bg-[#1E293B] transition-colors text-gray-400 hover:text-white">
+          <button onClick={() => router.push('/organizer-feed')} title="Followed Organizer Feed" className="relative p-2.5 bg-[#0B1221] border border-[#1E293B] rounded-xl hover:bg-[#1E293B] transition-colors text-gray-400 hover:text-white">
             <Bell className="w-5 h-5" />
           </button>
           

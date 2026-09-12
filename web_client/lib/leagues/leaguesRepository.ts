@@ -27,6 +27,8 @@ import {
 import { FootballCategory, categoryStorageValue } from '@/lib/models/footballCategory';
 import { LeagueFormat, leagueFormatIndex } from '@/lib/models/leagueFormat';
 import { MASTER_LEAGUE_PLANS, planFromString } from '@/types/masterLeague';
+import { addCompetitionCreatedEvent } from '@/lib/masterLeagues/organizerFeedRepository';
+import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
 
 export async function fetchLeaguesForUser(uid: string): Promise<LeagueData[]> {
   const trimmed = uid.trim();
@@ -484,6 +486,23 @@ export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Prom
       const leagueRef = doc(db, 'leagues', candidateId);
       await setDoc(leagueRef, buildDocumentPayload(candidateId));
       await writeOrganizerMembership(candidateId, payload.organizerUid, nowMs);
+
+      // Non-fatal: lets followers of this workspace see the new
+      // competition in their Followed Organizer Feed.
+      try {
+        const ownerProfile = await fetchUserProfileByUserId(payload.organizerUid);
+        const actorName = ownerProfile?.teamName.trim() || 'Organizer';
+        await addCompetitionCreatedEvent({
+          masterLeagueId,
+          leagueId: candidateId,
+          actorId: payload.organizerUid,
+          actorName,
+          competitionName: payload.name.trim(),
+        });
+      } catch (e) {
+        console.warn('[leaguesRepository] addCompetitionCreatedEvent failed (non-fatal):', e);
+      }
+
       return candidateId;
     } catch (e) {
       lastError = e;
