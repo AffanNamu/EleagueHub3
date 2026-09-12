@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
@@ -94,6 +95,9 @@ class _OrganizerProfileScreenState
 
   String get _uid =>
       FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+  bool _isOwnerOrAdmin(MasterLeague ml) =>
+      ml.isOwner(_uid) || AppAdminsService.instance.isPricingAdminUid(_uid);
 
   // ── lifecycle ──────────────────────────────────────────────────────────────
 
@@ -417,7 +421,7 @@ class _OrganizerProfileScreenState
   Future<void> _save(MasterLeague ml) async {
     if (_saving) return;
 
-    if (!ml.isOwner(_uid)) {
+    if (!_isOwnerOrAdmin(ml)) {
       _snack(
         'Only the Master League owner can edit the organizer profile.',
         error: true,
@@ -456,7 +460,7 @@ class _OrganizerProfileScreenState
     MasterLeague ml, {
     required bool banner,
   }) async {
-    if (!ml.isOwner(_uid)) {
+    if (!_isOwnerOrAdmin(ml)) {
       _snack('Only the owner can update organizer images.',
           error: true);
       return;
@@ -1333,12 +1337,12 @@ class _OrganizerProfileScreenState
       ).toLocal().toString().split('.').first;
     }
 
-    final ownerCanStartInitial = ml.isOwner(_uid) &&
+    final ownerCanStartInitial = _isOwnerOrAdmin(ml) &&
         !ml.isVerifiedOrganizer &&
         !ml.isVerificationPending &&
         !ml.verificationExpired;
 
-    final ownerCanRenew = ml.isOwner(_uid) &&
+    final ownerCanRenew = _isOwnerOrAdmin(ml) &&
         ml.canRenewVerification &&
         !ml.isVerificationPending;
 
@@ -1455,7 +1459,7 @@ class _OrganizerProfileScreenState
     final planLabel     = 'Plan: ${ml.plan.displayName}';
     final canFollow     =
         _uid.isNotEmpty && ml.ownerId.trim() != _uid;
-    final ownerCanEdit  = ml.isOwner(_uid);
+    final ownerCanEdit  = _isOwnerOrAdmin(ml);
     final bannerUrl     = ml.organizerProfile.bannerUrl.trim();
     final logoUrl       = ml.organizerProfile.logoUrl.trim();
 
@@ -2003,7 +2007,7 @@ class _OrganizerProfileScreenState
                 child: socialTile(e.key, e.value),
               ),
             ),
-          if (ml.isOwner(_uid)) ...[
+          if (_isOwnerOrAdmin(ml)) ...[
             const SizedBox(height: 12),
             _socialEditor(),
           ],
@@ -2045,7 +2049,7 @@ class _OrganizerProfileScreenState
               fontWeight: FontWeight.w600,
             ),
           ),
-          if (ml.isOwner(_uid)) ...[
+          if (_isOwnerOrAdmin(ml)) ...[
             const SizedBox(height: 14),
             TextField(
               controller: _bioCtrl,
@@ -2182,7 +2186,7 @@ class _OrganizerProfileScreenState
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
 
-    if (!ml.isOwner(_uid)) return const SizedBox.shrink();
+    if (!_isOwnerOrAdmin(ml)) return const SizedBox.shrink();
 
     return Glass(
       borderRadius: 24,
@@ -2358,7 +2362,7 @@ class _OrganizerProfileScreenState
                   onPressed: _smartPop,
                 ),
                 actions: [
-                  if (ml.isOwner(_uid))
+                  if (_isOwnerOrAdmin(ml))
                     TextButton(
                       onPressed: _saving
                           ? null
@@ -2461,7 +2465,7 @@ class _OrganizerProfileScreenState
                     _aboutSection(ml),
                     const SizedBox(height: 16),
                     _socialLinksSection(ml),
-                    if (ml.isOwner(_uid)) ...[
+                    if (_isOwnerOrAdmin(ml)) ...[
                       const SizedBox(height: 16),
                       _ownerActions(ml),
                     ],
@@ -2501,7 +2505,7 @@ class _OrganizerProfileScreenState
         _socialLinksSection(ml),
         const SizedBox(height: 16),
         _competitionHistory(ml),
-        if (ml.isOwner(_uid)) ...[
+        if (_isOwnerOrAdmin(ml)) ...[
           const SizedBox(height: 16),
           _ownerActions(ml),
         ],

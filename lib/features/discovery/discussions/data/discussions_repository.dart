@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../../core/services/app_admins_service.dart';
 import '../models/discussion_reply.dart';
 import '../models/discussion_thread.dart';
 
@@ -193,7 +194,7 @@ class DiscussionsRepository {
       if (!snap.exists) return;
 
       final authorId = (snap.data()?['authorId'] as String? ?? '').trim();
-      if (authorId != authUid) {
+      if (authorId != authUid && !AppAdminsService.instance.isPricingAdminUid(authUid)) {
         throw const DiscussionsRepositoryException('You can only delete your own discussion.');
       }
 
@@ -212,7 +213,7 @@ class DiscussionsRepository {
       if (!snap.exists) return;
 
       final authorId = (snap.data()?['authorId'] as String? ?? '').trim();
-      if (authorId != authUid) {
+      if (authorId != authUid && !AppAdminsService.instance.isPricingAdminUid(authUid)) {
         throw const DiscussionsRepositoryException('You can only delete your own reply.');
       }
 

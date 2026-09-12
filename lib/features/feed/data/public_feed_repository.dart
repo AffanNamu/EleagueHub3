@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../core/services/app_admins_service.dart';
 import '../models/public_post.dart';
 import '../models/public_post_comment.dart';
 
@@ -282,7 +283,7 @@ class PublicFeedRepository {
           );
       if (!snap.exists) return;
       final authorId = (snap.data()?['authorId'] as String? ?? '').trim();
-      if (authorId != authUid) {
+      if (authorId != authUid && !AppAdminsService.instance.isPricingAdminUid(authUid)) {
         throw const PublicFeedRepositoryException('You can only delete your own comments.');
       }
       await ref.update(<String, dynamic>{'deleted': true}).timeout(const Duration(seconds: 15));
@@ -304,7 +305,7 @@ class PublicFeedRepository {
 
       if (!snap.exists) return;
       final authorId = (snap.data()?['authorId'] as String? ?? '').trim();
-      if (authorId != authUid) {
+      if (authorId != authUid && !AppAdminsService.instance.isPricingAdminUid(authUid)) {
         throw const PublicFeedRepositoryException('You can only delete your own posts.');
       }
 

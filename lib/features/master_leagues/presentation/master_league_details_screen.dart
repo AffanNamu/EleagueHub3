@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/routing/route_resolver.dart';
+import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -243,7 +244,9 @@ class _MasterLeagueDetailsScreenState
 
   bool _isOwner(MasterLeague? ml) {
     if (ml == null) return false;
-    return ml.ownerId.trim() == _currentUid && _currentUid.isNotEmpty;
+    if (_currentUid.isEmpty) return false;
+    return ml.ownerId.trim() == _currentUid ||
+        AppAdminsService.instance.isPricingAdminUid(_currentUid);
   }
 
   bool _userIsPaidPlan() {

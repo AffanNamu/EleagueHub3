@@ -12,6 +12,7 @@ import { renderFixturesShareCardPng } from '@/lib/leagues/fixturesShareCard';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { Loader2, ArrowLeft, Trophy, CalendarDays, ShieldCheck, CheckSquare, Square, Share2, X, Users, Globe } from 'lucide-react';
 import { auth } from '@/lib/firebase';
+import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 
 export default function FixturesScreen() {
   const params = useParams();
@@ -23,10 +24,20 @@ export default function FixturesScreen() {
   const { teams, loading: teamsLoading } = useLeagueTeams(leagueId);
 
   const [authUid, setAuthUid] = useState<string | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => setAuthUid(u?.uid ?? null));
     return () => unsub();
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    isPricingAdminUid(authUid).then((ok) => {
+      if (!cancelled) setIsSuperAdmin(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUid]);
   const { status: globalChatStatus, isAdmin: isGlobalChatAdmin } = useGlobalChatAccess(authUid);
   const canShareToGlobalChat = isGlobalChatAdmin || globalChatStatus === 'approved';
 
@@ -42,7 +53,7 @@ export default function FixturesScreen() {
   const [sharing, setSharing] = useState(false);
   const [showTargetPicker, setShowTargetPicker] = useState(false);
 
-  const isOwner = !!authUid && (league?.organizerUid === authUid || league?.organizerUserId === authUid);
+  const isOwner = !!authUid && (league?.organizerUid === authUid || league?.organizerUserId === authUid || isSuperAdmin);
 
   const isGroupedFormat = league?.format === 'uclGroup' || league?.format === 'worldCup';
 

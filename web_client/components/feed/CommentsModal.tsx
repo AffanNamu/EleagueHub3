@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import { subscribeToCommentsWeb, addCommentWeb, deleteCommentWeb, PublicPostComment } from '@/lib/feed/publicFeedRepository';
+import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 import { Glass } from '@/components/ui/Glass';
 import { X, Send, Loader2, User } from 'lucide-react';
 
@@ -30,6 +31,17 @@ export function CommentsModal({ postId, onClose }: CommentsModalProps) {
   const [error, setError] = useState('');
 
   const selfUid = auth.currentUser?.uid || '';
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    isPricingAdminUid(selfUid).then((ok) => {
+      if (!cancelled) setIsAdmin(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selfUid]);
 
   useEffect(() => {
     const unsub = subscribeToCommentsWeb(postId, (data) => {
@@ -97,7 +109,7 @@ export function CommentsModal({ postId, onClose }: CommentsModalProps) {
                     <span className="text-xs font-black text-white">{c.authorDisplayName || 'User'}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-bold text-gray-500">{timeAgo(c.createdAtMs)}</span>
-                      {c.authorId === selfUid && (
+                      {(c.authorId === selfUid || isAdmin) && (
                         <button onClick={() => handleDelete(c.commentId)} className="text-gray-500 hover:text-red-500">
                           <X className="w-3 h-3" />
                         </button>

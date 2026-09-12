@@ -1,5 +1,6 @@
 import { collection, doc, setDoc, updateDoc, getDoc, query, orderBy, limit, onSnapshot, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 
 export interface PublicPost {
   postId: string;
@@ -96,7 +97,7 @@ export async function deletePostWeb(postId: string, userId: string) {
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
 
-  if (snap.data().authorId !== userId) {
+  if (snap.data().authorId !== userId && !(await isPricingAdminUid(userId))) {
     throw new Error('You can only delete your own posts.');
   }
 
@@ -171,7 +172,7 @@ export async function deleteCommentWeb(postId: string, commentId: string, authUi
   const ref = doc(db, 'public_posts', postId, 'comments', commentId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
-  if (snap.data().authorId !== authUid) {
+  if (snap.data().authorId !== authUid && !(await isPricingAdminUid(authUid))) {
     throw new Error('You can only delete your own comments.');
   }
   await updateDoc(ref, { deleted: true });

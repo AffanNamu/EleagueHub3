@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/app_admins_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -45,6 +46,9 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
   Future<bool> _checkAllowed() async {
     final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
     if (uid.isEmpty) return false;
+
+    // Super admin can open any of these screens, regardless of role.
+    if (AppAdminsService.instance.isPricingAdminUid(uid)) return true;
 
     final repo = await _repoFuture;
 

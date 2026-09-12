@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useMasterLeagueDetail } from './useMasterLeagueDetail';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { updateOrganizerProfile } from '@/lib/masterLeagues/organizerProfileRepository';
+import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 
 export interface SocialLinksState {
   facebook: string;
@@ -36,6 +37,17 @@ export function useOrganizerProfileEditor(masterLeagueId: string) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [savedMessage, setSavedMessage] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    isPricingAdminUid(uid).then((ok) => {
+      if (!cancelled) setIsAdmin(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [uid]);
 
   useEffect(() => {
     if (!workspace || hydratedForId === workspace.id) return;
@@ -57,7 +69,7 @@ export function useOrganizerProfileEditor(masterLeagueId: string) {
     setHydratedForId(workspace.id);
   }, [workspace, hydratedForId]);
 
-  const isOwner = !!workspace && workspace.ownerId === uid;
+  const isOwner = (!!workspace && workspace.ownerId === uid) || isAdmin;
 
   async function pickAndUpload(kind: 'banner' | 'logo', file: File) {
     setError('');

@@ -13,6 +13,7 @@ import {
   deleteMasterLeagueAnnouncementWeb,
 } from '@/lib/masterLeagues/masterLeagueAnnouncementsRepository';
 import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
+import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 import { LeagueAnnouncement } from '@/lib/models/leagueDetails';
 import { checkChatAccessWeb, startOrGetThreadWeb, getThreadId } from '@/lib/chat/privateChatRepository';
 import { Glass } from '@/components/ui/Glass';
@@ -25,11 +26,22 @@ export default function MasterLeagueDashboard() {
   const router = useRouter();
   const mlId = params.id as string;
   const [authUid, setAuthUid] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(u => setAuthUid(u?.uid || null));
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    isPricingAdminUid(authUid).then((ok) => {
+      if (!cancelled) setIsAdmin(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUid]);
 
   const { masterLeague, childLeagues, loading } = useMasterLeagueDetails(mlId);
   const { announcements } = useMasterLeagueAnnouncements(mlId);
@@ -55,7 +67,7 @@ export default function MasterLeagueDashboard() {
     );
   }
 
-  const isOwner = authUid === masterLeague.ownerId;
+  const isOwner = authUid === masterLeague.ownerId || isAdmin;
 
   const handleMessage = async () => {
     // Mirrors organizer_profile_screen.dart's PrivateMessageButton, which

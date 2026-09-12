@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/connectivity_service.dart'
     hide UserFriendlyException;
 import '../../../core/services/notification_service.dart';
@@ -139,6 +140,8 @@ class _LeagueAdminScreenState
     final a = authUid.trim();
     if (a.isEmpty) return false;
 
+    if (AppAdminsService.instance.isPricingAdminUid(a)) return true;
+
     final ro = remoteOrganizerUid.trim();
     final rw = remoteOwnerUid.trim();
     if (ro.isNotEmpty || rw.isNotEmpty) {
@@ -155,6 +158,7 @@ class _LeagueAdminScreenState
   bool _canManageCoupons(League league) {
     final auth = _currentAuthUid.trim();
     if (auth.isEmpty) return false;
+    if (AppAdminsService.instance.isPricingAdminUid(auth)) return true;
     final ro = _remoteOrganizerUid.trim();
     final rw = _remoteOwnerUid.trim();
     if (ro.isEmpty && rw.isEmpty) return false;

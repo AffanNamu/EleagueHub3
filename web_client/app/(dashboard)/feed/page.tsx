@@ -8,6 +8,7 @@ import { PublicPost, toggleLikeWeb, deletePostWeb, createPostWeb } from '@/lib/f
 import { PostCard } from '@/components/feed/PostCard';
 import { CommentsModal } from '@/components/feed/CommentsModal';
 import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
+import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 import { Loader2, Plus, X, Image as ImageIcon, Music2 } from 'lucide-react';
 import { Glass } from '@/components/ui/Glass';
 
@@ -16,6 +17,7 @@ export default function PublicFeedScreen() {
   const [posts, setPosts] = useState<PublicPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [authUid, setAuthUid] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Create Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -35,6 +37,16 @@ export default function PublicFeedScreen() {
     const unsub = auth.onAuthStateChanged(user => setAuthUid(user?.uid || null));
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    isPricingAdminUid(authUid).then((ok) => {
+      if (!cancelled) setIsAdmin(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUid]);
 
   useEffect(() => {
     const q = query(collection(db, 'public_posts'), orderBy('createdAtMs', 'desc'), limit(50));
@@ -107,7 +119,7 @@ export default function PublicFeedScreen() {
             <PostCard 
               key={post.postId} 
               post={post} 
-              isOwner={post.authorId === authUid} 
+              isOwner={post.authorId === authUid || isAdmin}
               onLike={() => authUid && toggleLikeWeb(post.postId, authUid)}
               onDelete={() => authUid && deletePostWeb(post.postId, authUid)}
               onOpenLeague={() => router.push(`/leagues/${post.leagueId}`)}

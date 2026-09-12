@@ -11,11 +11,14 @@
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { leagueFromRemoteMap, isOwnerForViewer } from '@/lib/models/league';
+import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 
 export async function checkCanManageLeague(leagueId: string, uid: string): Promise<boolean> {
   if (!leagueId || !uid) return false;
 
   try {
+    if (await isPricingAdminUid(uid)) return true;
+
     const leagueRef = doc(db, 'leagues', leagueId);
     const membershipRef = doc(db, 'leagues', leagueId, 'memberships', uid);
 

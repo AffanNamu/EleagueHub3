@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/services/app_admins_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
@@ -30,6 +31,7 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
   Future<bool> _isOrganizer() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) return false;
+    if (AppAdminsService.instance.isPricingAdminUid(uid)) return true;
 
     final leagueSnap = await FirebaseFirestore.instance
         .collection('leagues')

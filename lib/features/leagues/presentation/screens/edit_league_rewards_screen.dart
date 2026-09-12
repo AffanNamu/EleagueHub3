@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/color_compat.dart';
+import '../../../../core/services/app_admins_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
@@ -36,6 +37,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
   Future<bool> _isOrganizer() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) return false;
+    if (AppAdminsService.instance.isPricingAdminUid(uid)) return true;
 
     final leagueSnap = await FirebaseFirestore.instance
         .collection('leagues')

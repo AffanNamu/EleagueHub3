@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/errors/user_friendly_error.dart';
+import '../../../../core/services/app_admins_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
@@ -124,7 +125,8 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
               );
             }
 
-            final isOwner = thread.authorId == _selfUid;
+            final isOwner = thread.authorId == _selfUid ||
+                AppAdminsService.instance.isPricingAdminUid(_selfUid);
 
             return Column(
               children: [
@@ -287,7 +289,8 @@ class _ReplyTileState extends State<_ReplyTile> {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final isOwner = widget.reply.authorId == _selfUid;
+    final isOwner = widget.reply.authorId == _selfUid ||
+        AppAdminsService.instance.isPricingAdminUid(_selfUid);
 
     return Glass(
       borderRadius: 16,
