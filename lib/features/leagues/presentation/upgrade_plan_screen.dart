@@ -80,6 +80,14 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
   // priceCacheKey -> display string, e.g. "pro|3mo" -> "₦5,000".
   final Map<String, String> _priceCache = {};
 
+  // priceCacheKey values for which the store explicitly returned "no
+  // product" for a native-IAP user (queryProductDetails found nothing).
+  // Distinct from "still loading" / "never attempted" so the UI can tell
+  // the user this specific plan+duration isn't purchasable yet instead of
+  // leaving them staring at a blank '—' forever, and so the pay button
+  // doesn't send them into a guaranteed store failure.
+  final Set<String> _unavailableKeys = {};
+
   /// True on Android when routed through Google Play Billing, OR on
   /// iOS (always, per Apple guideline 3.1.1 — there is no Flutterwave
   /// fallback for iOS digital purchases). False on web/Flutterwave.
@@ -121,6 +129,7 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
         if (info != null && info.formattedPrice.trim().isNotEmpty) {
           setState(() {
             _priceCache[key] = info.formattedPrice.trim();
+            _unavailableKeys.remove(key);
             _loadingPrice = false;
           });
         } else {
@@ -129,8 +138,14 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
           // empty so the UI shows the '—' placeholder instead of a
           // wrong/mismatched number, and don't fall back to the other
           // pricing service — that would risk showing a price the
-          // store won't actually honor at checkout.
-          setState(() => _loadingPrice = false);
+          // store won't actually honor at checkout. Do flag it as
+          // "confirmed unavailable" so the UI can say so explicitly
+          // instead of looking like it's stuck loading, and so _pay()
+          // is disabled rather than letting the user hit a store error.
+          setState(() {
+            _unavailableKeys.add(key);
+            _loadingPrice = false;
+          });
         }
         return;
       }
@@ -169,6 +184,17 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
     return _priceCache[_cacheKey(_selectedPlan, _selectedDuration)];
   }
 
+  /// True when we're a native-IAP user and the store has confirmed (not
+  /// just "still loading") that no product exists for the selected
+  /// plan+duration — e.g. a Play Console base plan that isn't active yet.
+  bool get _priceUnavailable {
+    if (_selectedPlan.isFree || !_useNativeIAP || _loadingPrice) {
+      return false;
+    }
+    return _unavailableKeys
+        .contains(_cacheKey(_selectedPlan, _selectedDuration));
+  }
+
   void _selectPlan(MasterLeaguePlan plan) {
     if (_selectedPlan == plan) return;
     setState(() {
@@ -197,7 +223,7 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
   // verifies server-side via the Cloudflare Worker before granting
   // anything.
   Future<void> _pay() async {
-    if (_processing || _selectedPlan.isFree) return;
+    if (_processing || _selectedPlan.isFree || _priceUnavailable) return;
 
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
@@ -608,17 +634,25 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                                       ),
                                     )
                                   : Text(
-                                      _currentPriceDisplay ?? '—',
+                                      _priceUnavailable
+                                          ? 'Unavailable'
+                                          : (_currentPriceDisplay ??
+                                              '—'),
                                       style: theme
                                           .textTheme.headlineSmall
                                           ?.copyWith(
                                         fontWeight: FontWeight.w900,
-                                        color: AppTheme.primaryText(
-                                            brightness),
+                                        color: _priceUnavailable
+                                            ? theme.colorScheme.error
+                                            : AppTheme.primaryText(
+                                                brightness),
                                       ),
                                     ),
                               Text(
-                                _selectedDuration.displayName,
+                                _priceUnavailable
+                                    ? 'Not available yet — try '
+                                        'again later'
+                                    : _selectedDuration.displayName,
                                 style: TextStyle(
                                   color: AppTheme.secondaryText(
                                       brightness),
@@ -631,7 +665,9 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                         ),
                         const SizedBox(width: 12),
                         FilledButton(
-                          onPressed: _processing ? null : _pay,
+                          onPressed: (_processing || _priceUnavailable)
+                              ? null
+                              : _pay,
                           style: FilledButton.styleFrom(
                             backgroundColor: accent,
                             foregroundColor:
