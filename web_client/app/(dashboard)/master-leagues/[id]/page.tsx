@@ -14,9 +14,10 @@ import {
 } from '@/lib/masterLeagues/masterLeagueAnnouncementsRepository';
 import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
 import { LeagueAnnouncement } from '@/lib/models/leagueDetails';
+import { checkChatAccessWeb, startOrGetThreadWeb, getThreadId } from '@/lib/chat/privateChatRepository';
 import { Glass } from '@/components/ui/Glass';
 import { LeagueCard } from '@/components/leagues/LeagueCard';
-import { Loader2, ArrowLeft, Network as Hub, ShieldCheck, Users, Trophy, ShieldAlert, Plus, Edit2, Link as LinkIcon, Trash2, Megaphone, Pin, PinOff, X } from 'lucide-react';
+import { Loader2, ArrowLeft, Network as Hub, ShieldCheck, Users, Trophy, ShieldAlert, Plus, Edit2, Link as LinkIcon, Trash2, Megaphone, Pin, PinOff, X, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 
 export default function MasterLeagueDashboard() {
@@ -35,6 +36,7 @@ export default function MasterLeagueDashboard() {
 
   const [followBusy, setFollowBusy] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [messaging, setMessaging] = useState(false);
 
   const [showAnnModal, setShowAnnModal] = useState(false);
   const [annTitle, setAnnTitle] = useState('');
@@ -54,6 +56,34 @@ export default function MasterLeagueDashboard() {
   }
 
   const isOwner = authUid === masterLeague.ownerId;
+
+  const handleMessage = async () => {
+    // Mirrors organizer_profile_screen.dart's PrivateMessageButton, which
+    // targets the workspace owner (ml.ownerId) — a visitor can message the
+    // organizer directly from this page, gated the same way as any other
+    // private chat (blocked/Premium-required), same as ProfileDetailView's.
+    if (!authUid || messaging) return;
+    setMessaging(true);
+    try {
+      const access = await checkChatAccessWeb(authUid, masterLeague.ownerId);
+      if (access === 'blocked') {
+        alert('You cannot message this organizer.');
+        return;
+      }
+      if (access === 'locked') {
+        alert('Starting a private chat requires Premium. This organizer can still message you first.');
+        return;
+      }
+      const threadId = access === 'threadExists'
+        ? getThreadId(authUid, masterLeague.ownerId)
+        : (await startOrGetThreadWeb(authUid, masterLeague.ownerId)).id;
+      router.push(`/messages/${threadId}`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not start conversation.');
+    } finally {
+      setMessaging(false);
+    }
+  };
 
   const handleToggleFollow = async () => {
     if (!authUid) return;
@@ -290,12 +320,20 @@ export default function MasterLeagueDashboard() {
           ) : (
             <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl">
               <h2 className="text-sm font-black text-white uppercase tracking-widest mb-4">Interact</h2>
-              <button 
-                onClick={handleToggleFollow} disabled={followBusy}
-                className={`w-full py-3.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all ${isFollowing ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-[#BEF264] text-[#0F172A] hover:brightness-110'}`}
-              >
-                {followBusy ? <Loader2 className="w-4 h-4 animate-spin"/> : (isFollowing ? <>Following</> : <><Plus className="w-4 h-4"/> Follow Organizer</>)}
-              </button>
+              <div className="space-y-3">
+                <button
+                  onClick={handleToggleFollow} disabled={followBusy}
+                  className={`w-full py-3.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all ${isFollowing ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-[#BEF264] text-[#0F172A] hover:brightness-110'}`}
+                >
+                  {followBusy ? <Loader2 className="w-4 h-4 animate-spin"/> : (isFollowing ? <>Following</> : <><Plus className="w-4 h-4"/> Follow Organizer</>)}
+                </button>
+                <button
+                  onClick={handleMessage} disabled={messaging}
+                  className="w-full py-3.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 bg-white/10 text-white hover:bg-white/20 disabled:opacity-50 transition-all"
+                >
+                  {messaging ? <Loader2 className="w-4 h-4 animate-spin"/> : <><MessageSquare className="w-4 h-4"/> Message Organizer</>}
+                </button>
+              </div>
             </div>
           )}
 
