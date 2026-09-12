@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useRef } from 'react';
 import { ChatMessage } from '@/lib/chat/chatRepository';
 import { Glass } from '@/components/ui/Glass';
-import { PlayCircle, PauseCircle, Copy, Reply, Pin as PushPin, Trash2, ShieldCheck, FileCode } from 'lucide-react';
+import { Copy, Reply, Pin as PushPin, Trash2, ShieldCheck, FileCode } from 'lucide-react';
 
 // ── BUBBLE ──
 export function GlobalChatBubble({
@@ -11,17 +10,6 @@ export function GlobalChatBubble({
 }: {
   message: ChatMessage; isMe: boolean; selected: boolean; onSelect: () => void; onReply: () => void; onPin?: () => void; onDelete?: () => void; isAdmin: boolean; canPin?: boolean;
 }) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement>(null);
-
-  const toggleVoice = (e: any) => {
-    e.stopPropagation();
-    if (!audioRef.current) return;
-    if (isPlaying) audioRef.current.pause();
-    else audioRef.current.play();
-    setIsPlaying(!isPlaying);
-  };
-
   const getPreview = () => {
     if (message.deleted) return 'This message was deleted';
     if (message.type === 'image') return message.text || '📷 Photo';
@@ -42,18 +30,11 @@ export function GlobalChatBubble({
     );
   } else if (message.type === 'voice') {
     content = (
-      <div className="flex items-center gap-3 w-48 sm:w-56 p-1">
-        <button onClick={toggleVoice} className={`p-1 rounded-full ${isMe ? 'text-[#0F172A]' : 'text-[#BEF264]'}`}>
-          {isPlaying ? <PauseCircle className="w-8 h-8" /> : <PlayCircle className="w-8 h-8" />}
-        </button>
-        <div className="flex-1">
-          <div className={`h-1.5 rounded-full w-full ${isMe ? 'bg-[#0F172A]/20' : 'bg-[#BEF264]/20'}`} />
-          <p className={`text-[10px] mt-1 font-bold ${isMe ? 'text-[#0F172A]/70' : 'text-gray-400'}`}>
-            {isPlaying ? 'Playing...' : 'Voice message'}
-          </p>
-        </div>
-        <audio ref={audioRef} src={message.voiceUrl} onEnded={() => setIsPlaying(false)} />
-      </div>
+      <audio
+        controls
+        src={message.voiceUrl}
+        className={`h-10 w-[220px] sm:w-[256px] outline-none rounded-lg ${isMe ? 'opacity-90 invert' : 'opacity-100'}`}
+      />
     );
   } else if (message.type === 'code') {
     content = (
