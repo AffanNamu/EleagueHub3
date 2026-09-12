@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { FirebaseError } from 'firebase/app';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -19,7 +20,7 @@ import { Glass } from '@/components/ui/Glass';
 import {
   Loader2, User, UserX, ShieldAlert, LogOut, Bell, Moon, Sun,
   MessageSquare, AlertTriangle, X, Check, Circle, Plus, Trash2,
-  ChevronUp, ChevronDown, Lock, SendHorizonal,
+  ChevronUp, ChevronDown, Lock, SendHorizonal, ScrollText, ChevronRight,
 } from 'lucide-react';
 
 // Mirrors the reason list in lib/features/profile/presentation/delete_account_flow.dart
@@ -312,8 +313,35 @@ export default function SettingsScreen() {
           </Glass>
         </div>
 
-        {/* Right Column: Session + Danger Zone */}
+        {/* Right Column: Legal + Session + Danger Zone */}
         <div className="space-y-6">
+          <Glass className="p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <ScrollText className="w-5 h-5 text-[#38BDF8]" />
+              <h3 className="font-bold text-white">Legal</h3>
+            </div>
+            <div className="space-y-1">
+              {[
+                { href: '/legal/privacy', label: 'Privacy Policy', sub: 'How we collect, use, and protect information.' },
+                { href: '/legal/terms', label: 'Terms of Service', sub: 'Rules and conditions for using the app.' },
+                { href: '/legal/contact', label: 'Contact', sub: 'Get help or report an issue.' },
+                { href: '/legal/affiliate-disclosure', label: 'Affiliate Disclosure', sub: 'How affiliate links work in the marketplace.' },
+              ].map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex items-center justify-between gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors group"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-200 group-hover:text-white">{item.label}</p>
+                    <p className="text-xs text-gray-500 truncate">{item.sub}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-600 shrink-0" />
+                </Link>
+              ))}
+            </div>
+          </Glass>
+
           <Glass className="p-6 flex flex-col items-start gap-4">
             <div className="w-full">
               <h3 className="text-white font-bold text-lg mb-1">Session Management</h3>
