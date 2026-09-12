@@ -12,14 +12,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/errors/user_friendly_error.dart';
+import '../../core/services/app_admins_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
 import '../auth/data/user_profile_repository.dart';
 import '../auth/models/user_profile.dart';
 import '../verification/logic/badge_service.dart';
-
-const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
 class StaffAmbassadorAdminScreen extends StatefulWidget {
   const StaffAmbassadorAdminScreen({super.key});
@@ -109,9 +108,9 @@ class _StaffAmbassadorAdminScreenState
           'Copy it exactly from the user\'s profile.');
       return;
     }
-    if (rawUid == _superAdminUid) {
+    if (AppAdminsService.instance.isPricingAdminUid(rawUid)) {
       setState(() =>
-          _error = 'You are already the super admin — no badge needed.');
+          _error = 'This user is already an admin — no badge needed.');
       return;
     }
 
@@ -259,9 +258,10 @@ class _StaffAmbassadorAdminScreenState
     final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
     // Defense in depth: even though the router already restricts this
-    // route to the super admin, refuse to render the screen's actions
-    // for anyone else who somehow lands here.
-    final isAuthorized = currentUid == _superAdminUid;
+    // route to pricing admins (matching firestore.rules' isBadgeAdminWrite,
+    // which gates the underlying write on isPricingAdmin()), refuse to
+    // render the screen's actions for anyone else who somehow lands here.
+    final isAuthorized = AppAdminsService.instance.isPricingAdminUid(currentUid);
 
     if (!isAuthorized) {
       return GlassScaffold(
@@ -363,7 +363,7 @@ class _StaffAmbassadorAdminScreenState
                         enabled: !_granting,
                         decoration: InputDecoration(
                           labelText: 'User UID',
-                          hintText: 'e.g. a0JDUelQW3TEyoXTm4ESuGi7ndq1',
+                          hintText: 'Paste the user\'s Firebase UID',
                           prefixIcon: const Icon(Icons.badge_outlined),
                           suffixIcon: IconButton(
                             tooltip: 'Paste',

@@ -1200,8 +1200,20 @@ final appRouter = GoRouter(
       if (!_isPricingAdminUidSync(uid)) return '/';
     }
 
-    if (inMarketplaceAdminUpload || inGlobalChatRequestsAdmin || inStaffAmbassadorAdmin) {
+    // firestore.rules gates globalChatRequests writes on isSuperAdmin() —
+    // the literal super-admin uid only, never delegatable — so this route
+    // must stay hardcoded-only to match.
+    if (inGlobalChatRequestsAdmin) {
       if (uid != _superAdminUid) return '/';
+    }
+
+    // marketplace_products create and the verification-badge write path
+    // (isBadgeAdminWrite) both gate on isPricingAdmin() in firestore.rules,
+    // i.e. delegatable via app/admins.pricingAdmins[] — so these routes
+    // must be too, or a delegated pricing admin would be routed away from
+    // a screen whose writes Firestore would actually accept.
+    if (inMarketplaceAdminUpload || inStaffAmbassadorAdmin) {
+      if (!_isPricingAdminUidSync(uid)) return '/';
     }
 
     if (authRouterRefresh.hasProfile) {

@@ -52,7 +52,10 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   User get _user => FirebaseAuth.instance.currentUser!;
 
-  static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
+  // Matches firestore.rules' isSuperAdmin() — the literal super-admin uid,
+  // never delegatable (unlike pricing-admin actions), since it gates
+  // chat-moderation and message-delete writes the rules hardcode the same way.
+  static const String _superAdminUid = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
   bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
 
   bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;

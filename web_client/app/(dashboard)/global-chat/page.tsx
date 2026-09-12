@@ -10,7 +10,10 @@ import { GlobalChatBubble, PinnedMessageBar } from '@/components/chat/GlobalChat
 import { Glass } from '@/components/ui/Glass';
 import { ArrowLeft, Loader2, Send, Image as ImageIcon, Mic, X, ShieldAlert, Code } from 'lucide-react';
 
-const SUPER_ADMIN_UID = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
+// Matches firestore.rules' isSuperAdmin() — the literal super-admin uid,
+// never delegatable, since it gates chat-moderation/message-delete writes
+// the rules hardcode the same way.
+const SUPER_ADMIN_UID = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
 
 export default function GlobalChatScreen() {
   const router = useRouter();

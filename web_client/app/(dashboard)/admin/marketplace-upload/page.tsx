@@ -6,13 +6,9 @@ import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { createMarketplaceProductWeb } from '@/lib/marketplace/marketplaceRepository';
+import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 import { Glass } from '@/components/ui/Glass';
 import { ArrowLeft, Loader2, ImagePlus, ShieldAlert, UploadCloud } from 'lucide-react';
-
-// Mirrors admin_marketplace_upload_screen.dart's _superAdminUid — the
-// same super admin uid firestore.rules' marketplace_products create rule
-// requires as request.auth.uid, matching request.resource.data.createdBy.
-const SUPER_ADMIN_UID = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
 // Mirrors marketplace_screen.dart's category list (minus "All", which
 // only makes sense as a browse filter, not a product's own category).
@@ -29,6 +25,7 @@ export default function AdminMarketplaceUploadScreen() {
   const router = useRouter();
   const [authUid, setAuthUid] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [isAllowed, setIsAllowed] = useState(false);
 
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
@@ -51,6 +48,16 @@ export default function AdminMarketplaceUploadScreen() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    isPricingAdminUid(authUid).then((ok) => {
+      if (!cancelled) setIsAllowed(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUid]);
 
   function handlePickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -80,7 +87,7 @@ export default function AdminMarketplaceUploadScreen() {
 
   async function handleUpload() {
     if (uploading || !authUid) return;
-    if (authUid !== SUPER_ADMIN_UID) {
+    if (!isAllowed) {
       setError('Access denied.');
       return;
     }
@@ -120,8 +127,6 @@ export default function AdminMarketplaceUploadScreen() {
   if (authLoading) {
     return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 text-brand-lime animate-spin" /></div>;
   }
-
-  const isAllowed = authUid === SUPER_ADMIN_UID;
 
   return (
     <div className="max-w-xl mx-auto space-y-4 pb-20">

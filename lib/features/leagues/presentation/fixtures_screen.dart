@@ -32,6 +32,7 @@ import 'package:path/path.dart' as p;
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -102,10 +103,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Set<String> _requestedUserImageIds = <String>{};
 
-  static const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
-
-  bool get _isSuperAdmin =>
-      (FirebaseAuth.instance.currentUser?.uid.trim() ?? '') == _superAdminUid;
+  bool get _isSuperAdmin => AppAdminsService.instance
+      .isPricingAdminUid(FirebaseAuth.instance.currentUser?.uid.trim());
 
   bool get _canAdminSelectFixtures => _isOrganizer || _isSuperAdmin;
 

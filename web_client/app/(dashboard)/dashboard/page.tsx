@@ -150,7 +150,9 @@ export default function DashboardHomeScreen() {
                 <Activity className="w-4 h-4 text-[#A78BFA]" />
                 <h3 className="text-sm font-black text-white uppercase tracking-wider">System Comms</h3>
               </div>
-              {auth.currentUser?.uid === 'a0JDUelQW3TEyoXTm4ESuGi7ndq1' && (
+              {/* Matches firestore.rules' isSuperAdmin() — platform_announcements
+                  write is hardcoded-only, never delegatable. */}
+              {auth.currentUser?.uid === 'QhYeBpvAoRV6j0xGigHkBth4qIG3' && (
                 <Link href="/admin" className="text-[10px] bg-[#1E293B] text-white px-2 py-1 rounded font-bold uppercase tracking-wider hover:bg-brand-red transition-colors">Post</Link>
               )}
             </div>

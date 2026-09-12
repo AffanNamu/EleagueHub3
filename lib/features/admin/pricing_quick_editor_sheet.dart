@@ -8,7 +8,11 @@ import '../../core/errors/user_friendly_error.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/widgets/glass.dart';
 
-const String _superAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
+// Mirrors AppAdminsService's static-admin fallback (QhYeBpvAoRV6j0xGigHkBth4qIG3),
+// but this check deliberately re-fetches app/admins from the server (rather
+// than relying on AppAdminsService's cached stream) since it gates a
+// money-sensitive write.
+const String _superAdminUid = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
 
 Future<bool> _isPricingAdminServer(String uid) async {
   final u = uid.trim();

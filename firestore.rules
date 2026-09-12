@@ -2052,8 +2052,7 @@ service cloud.firestore {
 
     match /marketplace_products/{productId} {
       allow get, list: if signedIn();
-      allow create: if signedIn()
-        && request.auth.uid == 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'
+      allow create: if isPricingAdmin()
         && (request.resource.data.createdBy is string)
         && (request.resource.data.createdBy == request.auth.uid)
         && request.resource.data.keys().hasAll(['productId','name','price','description','imageUrl','affiliateUrl','category','sellerName','createdAt','createdBy'])

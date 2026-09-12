@@ -58,7 +58,10 @@ export function useGlobalChatAccess(userId: string | null) {
       if (d.exists()) {
         const data = d.data();
         const globalAdmins = data.globalChatAdmins || [];
-        setIsAdmin(globalAdmins.includes(userId) || userId === 'a0JDUelQW3TEyoXTm4ESuGi7ndq1'); // Super Admin check
+        // Matches firestore.rules' isSuperAdmin() — the literal super-admin
+        // uid, never delegatable — OR-ed with the delegatable globalChatAdmins
+        // list above (Dart's _isSuperAdmin || _isGlobalAdmin).
+        setIsAdmin(globalAdmins.includes(userId) || userId === 'QhYeBpvAoRV6j0xGigHkBth4qIG3');
         setAllowSenderPin(data.allowGlobalSenderPin === true);
       }
     });

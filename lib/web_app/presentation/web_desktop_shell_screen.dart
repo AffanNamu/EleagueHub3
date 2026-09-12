@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/services/app_admins_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
@@ -38,8 +39,6 @@ class WebDesktopShellScreen extends StatefulWidget {
 
 class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     with WidgetsBindingObserver {
-  static const String _staticAdminUid = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
-
   int _selectedIndex = 0;
   bool _isAdmin = false;
 
@@ -47,6 +46,7 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AppAdminsService.instance.ensureStarted();
     _checkAdmin();
   }
 
@@ -65,11 +65,13 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     final uid = widget.pairedUserUid.trim();
     if (uid.isEmpty) return;
 
-    if (uid == _staticAdminUid) {
+    if (AppAdminsService.instance.isPricingAdminUid(uid)) {
       if (mounted) setState(() => _isAdmin = true);
       return;
     }
 
+    // The dynamic admins stream may not have delivered its first snapshot
+    // yet — fall back to a one-shot fetch of the same doc it watches.
     try {
       final snap = await FirebaseFirestore.instance
           .collection('app')

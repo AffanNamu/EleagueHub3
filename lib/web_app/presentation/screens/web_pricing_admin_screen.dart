@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/app_pricing_admin_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -22,8 +23,6 @@ class _WebPricingAdminScreenState extends State<WebPricingAdminScreen>
   bool _loading  = true;
   bool _isAdmin  = false;
   String? _error;
-
-  static const String _staticAdmin = 'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
 
   // ── Aggregate stats ───────────────────────────────────────────────────────
   int    _totalSuccessful   = 0;
@@ -104,6 +103,7 @@ class _WebPricingAdminScreenState extends State<WebPricingAdminScreen>
   void initState() {
     super.initState();
     _tabs = TabController(length: 5, vsync: this);
+    AppAdminsService.instance.ensureStarted();
     _init();
   }
 
@@ -148,7 +148,7 @@ class _WebPricingAdminScreenState extends State<WebPricingAdminScreen>
   Future<void> _checkAdmin() async {
     final uid = widget.pairedUserUid.trim();
     if (uid.isEmpty) { _isAdmin = false; return; }
-    if (uid == _staticAdmin) { _isAdmin = true; return; }
+    if (AppAdminsService.instance.isPricingAdminUid(uid)) { _isAdmin = true; return; }
     try {
       final snap = await FirebaseFirestore.instance
           .collection('app').doc('admins').get();

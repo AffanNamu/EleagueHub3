@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -22,8 +23,6 @@ class AdminMarketplaceUploadScreen extends StatefulWidget {
 
 class _AdminMarketplaceUploadScreenState
     extends State<AdminMarketplaceUploadScreen> {
-  static const String _superAdminUid =
-      'a0JDUelQW3TEyoXTm4ESuGi7ndq1';
   static const int _maxImageBytes =
       8 * 1024 * 1024;
 
@@ -126,7 +125,7 @@ class _AdminMarketplaceUploadScreenState
                 '')
             .trim();
 
-    if (uid != _superAdminUid) {
+    if (!AppAdminsService.instance.isPricingAdminUid(uid)) {
       _snack('Access denied.');
       return;
     }
@@ -232,7 +231,7 @@ class _AdminMarketplaceUploadScreenState
             .trim();
 
     final isAllowed =
-        uid == _superAdminUid;
+        AppAdminsService.instance.isPricingAdminUid(uid);
 
     return GlassScaffold(
       appBar: AppBar(
