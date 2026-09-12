@@ -112,6 +112,25 @@ export async function addCompetitionCreatedEvent({
   });
 }
 
+export async function addVerificationApprovedEvent({
+  masterLeagueId, actorId, actorName, isRenewal,
+}: {
+  masterLeagueId: string; actorId: string; actorName: string; isRenewal: boolean;
+}): Promise<void> {
+  await addEvent({
+    masterLeagueId: masterLeagueId.trim(),
+    type: isRenewal ? 'verification_renewed' : 'verification_approved',
+    title: isRenewal ? 'Organizer verification renewed' : 'Organizer verified',
+    message: isRenewal
+      ? 'Verification has been renewed after admin review.'
+      : 'Organizer verification has been approved.',
+    createdAtMs: Date.now(),
+    actorId: actorId.trim(),
+    actorName: actorName.trim(),
+    leagueId: '',
+  });
+}
+
 // ── Reading the followed feed ────────────────────────────────────────────
 
 export async function fetchFollowedOrganizerFeedOnce(userId: string): Promise<OrganizerFeedEvent[]> {

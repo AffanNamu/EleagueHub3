@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { SuperAdminGuard } from '@/components/guards/SuperAdminGuard';
 import { Glass } from '@/components/ui/Glass';
-import { ShieldAlert, Send, Activity, Info, Loader2 } from 'lucide-react';
+import { ShieldAlert, Send, Activity, Info, Loader2, BadgeCheck } from 'lucide-react';
 import { collection, doc, setDoc } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 
@@ -57,6 +58,19 @@ export default function SuperAdminDashboard() {
             <p className="text-brand-red/80 font-bold text-sm tracking-wider uppercase mt-1">Level 5 Access Granted</p>
           </div>
         </div>
+
+        {/* ORGANIZER VERIFICATION */}
+        <Link href="/admin/verification-requests">
+          <Glass className="p-5 border border-[#1E293B] rounded-2xl flex items-center gap-4 hover:border-[#BEF264]/40 transition-colors">
+            <div className="w-11 h-11 rounded-xl bg-[#BEF264]/10 border border-[#BEF264]/30 flex items-center justify-center shrink-0">
+              <BadgeCheck className="w-5 h-5 text-[#BEF264]" />
+            </div>
+            <div>
+              <p className="text-white font-black">Organizer Verification Requests</p>
+              <p className="text-xs text-gray-400 font-semibold">Review and approve Master League verification applications.</p>
+            </div>
+          </Glass>
+        </Link>
 
         {/* COMMS TRANSMITTER */}
         <Glass className="p-6 border border-brand-red/20 relative overflow-hidden">

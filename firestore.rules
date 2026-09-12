@@ -66,7 +66,7 @@ service cloud.firestore {
     }
 
     function validVerificationStatus(s) {
-      return (s is string) && (s in ['none', 'pending', 'approved', 'rejected']);
+      return (s is string) && (s in ['none', 'pending', 'approved', 'rejected', 'info_requested']);
     }
 
     function validVerificationRequestType(s) {
@@ -1630,9 +1630,9 @@ service cloud.firestore {
         && (request.resource.data.paymentId == resource.data.paymentId)
         && (request.resource.data.attemptId == resource.data.attemptId)
         && (request.resource.data.submittedAtMs == resource.data.submittedAtMs)
-        && (resource.data.status == 'pending')
+        && (resource.data.status in ['pending', 'info_requested'])
         && (request.resource.data.status is string)
-        && (request.resource.data.status in ['approved', 'rejected'])
+        && (request.resource.data.status in ['approved', 'rejected', 'info_requested'])
         && (request.resource.data.reviewedAtMs is int)
         && (request.resource.data.reviewedAtMs > 0)
         && (request.resource.data.reviewedBy is string)
