@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { 
-  ArrowLeft, RefreshCw, Trophy, ShieldCheck, Globe, 
-  MessageCircle, LayoutGrid, Calendar, Medal, Lock, 
+  ArrowLeft, RefreshCw, Trophy, ShieldCheck, Globe,
+  MessageCircle, LayoutGrid, Calendar, Medal, Lock,
   Mic, Settings, Network, ChevronRight, LogIn, Users,
-  ClipboardList as ListAlt, GitMerge, Edit, MicOff, SquareSquare, Loader2
+  ClipboardList as ListAlt, GitMerge, Edit, MicOff, SquareSquare, Loader2,
+  ScrollText,
 } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { doc, setDoc, arrayUnion } from 'firebase/firestore';
@@ -486,6 +487,9 @@ export default function LeagueDetailScreenClient() {
                 </button>
                 <button onClick={() => router.push(`/leagues/${leagueId}/admin`)} className="w-full py-3.5 bg-[#0B1221] border border-[#1E293B] text-[#BEF264] hover:bg-[#1E293B] font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors">
                   <Settings className="w-4 h-4" /> League Settings
+                </button>
+                <button onClick={() => router.push(`/leagues/${leagueId}/rules-editor`)} className="w-full py-3.5 bg-[#0B1221] border border-[#1E293B] text-[#BEF264] hover:bg-[#1E293B] font-black text-xs rounded-xl flex items-center justify-center gap-2 transition-colors">
+                  <ScrollText className="w-4 h-4" /> Competition Rules
                 </button>
 
                 {/* FIXED: these three previously just called

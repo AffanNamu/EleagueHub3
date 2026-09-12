@@ -162,7 +162,9 @@ export default function LeaguesListPage() {
     if (!uid) return;
     const leagueId = await joinLeagueByCode(code, uid, mode);
     setJoinModalOpen(false);
-    router.push(`/leagues/${leagueId}`);
+    // Participant joins continue through the Competition Rules gate before
+    // landing on League Detail; Viewer joins go straight there.
+    router.push(mode === 'participant' ? `/leagues/${leagueId}/rules-gate` : `/leagues/${leagueId}`);
   };
 
   const handleCreate = () => {
