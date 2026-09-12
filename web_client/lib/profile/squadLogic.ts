@@ -67,6 +67,43 @@ export function getSlotsForFormation(formation: string): FormationSlot[] {
   return FORMATION_PRESETS[formation.trim()] || FORMATION_PRESETS['4-3-3'];
 }
 
+/**
+ * Mirrors Squad.withFormationApplied() in
+ * lib/features/profile/models/squad.dart exactly: snaps the current
+ * starting XI onto the chosen formation's preset slot coordinates and
+ * reassigns slotIndex to match (starters ordered by their current
+ * slotIndex first, so the remap is stable). Overflow starters — more
+ * players than the new formation has slots for — are kept as-is rather
+ * than dropped, so no player data is lost; they just won't render on
+ * the grid until moved to a formation with enough slots.
+ *
+ * Without this, naively overwriting `formation` alone leaves every
+ * starter's OLD slotIndex pointing at whatever position happens to sit
+ * at that same index in the NEW formation's slot list — silently
+ * misplacing or hiding players instead of an explicit, predictable
+ * remap.
+ */
+export function applyFormationToSquad<T extends { formation: string; players: SquadPlayerSlot[] }>(
+  squad: T,
+  formationId: string,
+): T {
+  const id = formationId.trim();
+  const slots = getSlotsForFormation(id);
+
+  const starters = squad.players.filter((p) => p.isStarting).sort((a, b) => a.slotIndex - b.slotIndex);
+  const bench = squad.players.filter((p) => !p.isStarting);
+
+  const updatedStarters: SquadPlayerSlot[] = [];
+  for (let i = 0; i < starters.length && i < slots.length; i++) {
+    updatedStarters.push({ ...starters[i], x: slots[i].x, y: slots[i].y, isStarting: true, slotIndex: i });
+  }
+  for (let i = slots.length; i < starters.length; i++) {
+    updatedStarters.push(starters[i]);
+  }
+
+  return { ...squad, formation: id, players: [...updatedStarters, ...bench] };
+}
+
 // ── Game IDs ─────────────────────────────────────────────────────────────
 // MUST match lib/features/profile/models/game_id.dart exactly (Firestore
 // doc IDs under users/{uid}/squads/{gameId}). A mismatch here means web

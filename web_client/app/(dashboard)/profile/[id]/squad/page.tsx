@@ -6,7 +6,7 @@ import { auth } from '@/lib/firebase';
 import { SquadPitchView } from '@/components/profile/SquadPitchView';
 import { useSquadGames, useSquad } from '@/hooks/useTeamProfile';
 import { saveSquadWeb, SquadData } from '@/lib/profile/teamProfileRepository';
-import { SUPPORTED_FORMATIONS, gameLabel } from '@/lib/profile/squadLogic';
+import { SUPPORTED_FORMATIONS, gameLabel, applyFormationToSquad } from '@/lib/profile/squadLogic';
 import { ArrowLeft, Edit2, Loader2 } from 'lucide-react';
 
 export default function SquadEditorScreen() {
@@ -51,7 +51,7 @@ export default function SquadEditorScreen() {
     if (!squad) return;
     setSaving(true);
     try {
-      await saveSquadWeb(targetUid, { ...squad, formation: f } as SquadData);
+      await saveSquadWeb(targetUid, applyFormationToSquad(squad as SquadData, f));
     } finally {
       setSaving(false);
     }

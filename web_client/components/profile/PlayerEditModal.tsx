@@ -85,7 +85,7 @@ export function PlayerEditModal({ slotLabel, existing, isStarting, onClose, onSa
       x: existing?.x || 0,
       y: existing?.y || 0,
       isStarting,
-      shirtNumber: parseInt(number) || 0,
+      shirtNumber: Math.max(0, Math.min(99, parseInt(number) || 0)),
       slotIndex: existing?.slotIndex ?? -1,
       photoUrl: resolvedUrl,
     });
