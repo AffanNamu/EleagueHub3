@@ -13,6 +13,7 @@ import { Team } from '@/lib/models/leagueDetails';
 import { CsvImporter } from '@/components/leagues/CsvImporter';
 import { resolveTeamParticipant, fetchUserProfileByUserId, ResolvedUserProfile } from '@/lib/services/userProfileRepository';
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
+import { autoAssignWorldCupGroups } from '@/lib/algorithms/worldCupGrouping';
 import { SpinWheelDrawModal } from '@/components/leagues/SpinWheelDrawModal';
 
 const GROUPS_ALL = ['Group A','Group B','Group C','Group D','Group E','Group F','Group G','Group H','Group I','Group J','Group K','Group L'];
@@ -282,15 +283,24 @@ export default function ManageTeamsScreen() {
 
         let teamsForGeneration = teams;
         if (!structureValid) {
-          const sorted = [...teams].sort((a, b) => a.id.localeCompare(b.id));
           const now = Date.now();
           const batch = writeBatch(db);
           const groups = GROUPS_ALL.slice(0, groupCount);
-          teamsForGeneration = sorted.map((t, i) => {
-            const groupId = groups[Math.floor(i / 4)];
+
+          // World Cup auto-assigns via a deterministic shuffle (mirrors
+          // add_teams_screen.dart's _autoAssignWorldCupGroups) — a fair
+          // draw, not a predictable alphabetical grouping. UCL Group
+          // format keeps sequential-by-id assignment.
+          const assigned = isWorldCup
+            ? autoAssignWorldCupGroups(teams, leagueId, groups)
+            : [...teams]
+                .sort((a, b) => a.id.localeCompare(b.id))
+                .map((t, i) => ({ ...t, groupId: groups[Math.floor(i / 4)] }));
+
+          teamsForGeneration = assigned.map((t) => {
             const teamRef = doc(db, 'leagues', leagueId, 'teams', t.id);
-            batch.update(teamRef, { groupId, updatedAtMs: now });
-            return { ...t, groupId };
+            batch.update(teamRef, { groupId: t.groupId, updatedAtMs: now });
+            return t;
           });
           await batch.commit();
         }

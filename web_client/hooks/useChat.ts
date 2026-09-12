@@ -292,3 +292,36 @@ export function useChat(leagueId: string) {
 
   return { messages, loading, error, sendMessage, pinMessage, unpinMessage, deleteMessage };
 }
+
+/**
+ * Standalone (non-hook) send, for flows that don't otherwise subscribe to
+ * the chat via useChat — e.g. fixtures_screen.dart's share-to-league-chat,
+ * which posts a single image message. Mirrors useChat's sendMessage shape.
+ */
+export async function sendLeagueImageMessageWeb(leagueId: string, imageUrl: string) {
+  if (!auth.currentUser) throw new Error('Please sign in and try again.');
+
+  const messageId = doc(leagueChatCol(leagueId)).id;
+  const nowMs = Date.now();
+
+  const newMessage: Partial<ChatMessage> = {
+    messageId,
+    senderId: auth.currentUser.uid,
+    senderName: auth.currentUser.displayName || 'Player',
+    senderPhoto: auth.currentUser.photoURL || '',
+    text: '',
+    imageUrl,
+    voiceUrl: '',
+    type: 'image',
+    leagueId,
+    timestamp: nowMs,
+    createdAtMs: nowMs,
+    createdAt: serverTimestamp(),
+    pinned: false,
+    pinnedBy: '',
+    deleted: false,
+    deletedBy: '',
+  };
+
+  await setDoc(doc(leagueChatCol(leagueId), messageId), newMessage);
+}
