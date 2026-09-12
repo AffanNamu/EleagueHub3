@@ -1,15 +1,18 @@
+// Mirrors lib/features/marketplace/domain/marketplace_product_model.dart and
+// the `marketplace_products` Firestore collection exactly — an
+// admin-curated affiliate product catalog (NOT a peer-to-peer listings
+// marketplace). firestore.rules' `marketplace_products/{productId}` create
+// rule requires exactly these fields, with `price` as a free-text string
+// (e.g. "$49.99", not a number) and a single `imageUrl` (not an array).
 export interface MarketplaceProduct {
-  id: string;
-  sellerId: string;
-  sellerName: string;
-  title: string;
+  productId: string;
+  name: string;
+  price: string;
   description: string;
-  price: number;
-  currency: string;
-  imageUrls: string[];
+  imageUrl: string;
+  affiliateUrl: string;
   category: string;
-  condition: 'new' | 'used' | 'refurbished';
-  isAvailable: boolean;
-  createdAt: any; // Firestore Timestamp
-  updatedAt: any;
+  sellerName: string;
+  createdAt: number;
+  createdBy: string;
 }
