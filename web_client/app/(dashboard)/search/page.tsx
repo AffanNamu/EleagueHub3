@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { searchUsersWeb, fetchNearbyTeamsWeb, UserSearchEntry } from '@/lib/search/userSearchRepository';
+import { searchUsersWeb, fetchNearbyTeamsWeb, backfillDisplayNameIfMissingWeb, UserSearchEntry } from '@/lib/search/userSearchRepository';
 import { checkRelationshipStatusWeb, toggleFollowWeb } from '@/lib/profile/teamProfileRepository';
 import { resolveCountryCodeWeb } from '@/lib/countryResolver';
 import { Glass } from '@/components/ui/Glass';
@@ -27,7 +27,14 @@ export default function UserSearchScreen() {
 
   // Auth Listener
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setAuthUid(u?.uid || ''));
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setAuthUid(u?.uid || '');
+      // Mirrors user_search_screen.dart's _backfillOwnNameIfMissing(): heals
+      // an already-blank user_search doc using the Auth-registered name,
+      // every time this screen opens — no dependency on the Profile screen.
+      const authName = (u?.displayName ?? '').trim();
+      if (authName) void backfillDisplayNameIfMissingWeb(authName);
+    });
     return () => unsub();
   }, []);
 
@@ -183,8 +190,14 @@ function TeamTile({ entry, authUid }: { entry: UserSearchEntry; authUid: string 
 
   const gameLabel = entry.game.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
 
+  // Matches user_search_screen.dart's resolvedName/subtitle: falls back to
+  // @username (never the raw shareId) if displayName is blank, and the ID
+  // is never shown anywhere on this screen — the user explicitly asked
+  // for it to be removed (see the FIXED comment in the Dart source).
+  const resolvedName = entry.displayName || (entry.usernameLower ? `@${entry.usernameLower}` : 'Team');
+
   return (
-    <Glass 
+    <Glass
       onClick={() => router.push(`/profile/${entry.userId}`)}
       className="p-4 flex items-center justify-between border-[#1E293B] bg-[#0B1221] hover:bg-white/5 hover:border-white/10 transition-colors cursor-pointer rounded-2xl group"
     >
@@ -193,10 +206,10 @@ function TeamTile({ entry, authUid }: { entry: UserSearchEntry; authUid: string 
           {entry.avatarUrl ? <img src={entry.avatarUrl} className="w-full h-full object-cover" /> : <User className="w-6 h-6 text-gray-500" />}
         </div>
         <div>
-          <h3 className="font-black text-white text-base group-hover:text-[#BEF264] transition-colors line-clamp-1">{entry.displayName || 'Unnamed Team'}</h3>
-          <p className="text-xs font-semibold text-gray-500">
-            {entry.game ? `${gameLabel} • ` : ''}#{entry.shareId}
-          </p>
+          <h3 className="font-black text-white text-base group-hover:text-[#BEF264] transition-colors line-clamp-1">{resolvedName}</h3>
+          {entry.game && (
+            <p className="text-xs font-semibold text-gray-500">{gameLabel}</p>
+          )}
         </div>
       </div>
 

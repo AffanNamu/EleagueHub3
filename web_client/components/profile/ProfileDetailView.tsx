@@ -8,6 +8,7 @@ import { onAuthStateChanged, updateProfile, User as FirebaseUser } from 'firebas
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { updateTeamBannerWeb, updateTeamBioWeb, toggleFollowWeb, toggleBlockWeb, checkRelationshipStatusWeb, resolveVerificationBadges, gameIdLabel, ResolvedVerificationBadges } from '@/lib/profile/teamProfileRepository';
 import { checkChatAccessWeb, startOrGetThreadWeb, getThreadId } from '@/lib/chat/privateChatRepository';
+import { syncSelfIndexWeb, backfillCountryIfMissingWeb } from '@/lib/search/userSearchRepository';
 import { useTeamProfile } from '@/hooks/useTeamProfile';
 import { toDisplayUsername } from '@/lib/username';
 import { SquadPitchView } from '@/components/profile/SquadPitchView';
@@ -111,6 +112,13 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
     if (targetUid) fetchUserData();
   }, [targetUid, authUser, isOwner]);
 
+  // Mirrors profile_screen.dart calling UserSearchRepository.backfillCountryIfMissing()
+  // on load — self-heals "Teams Near You" eligibility for accounts that
+  // predate the user_search country field.
+  useEffect(() => {
+    if (isOwner && authUser) void backfillCountryIfMissingWeb();
+  }, [isOwner, authUser]);
+
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !isOwner || !authUser) return;
@@ -124,6 +132,10 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
       });
       await updateProfile(authUser, { photoURL: secureUrl });
       setPhotoUrl(secureUrl);
+      // Mirrors TeamProfileRepository.saveTeamProfile()'s syncSelfIndex call
+      // — keeps the user_search doc's avatar in sync so search results and
+      // "Teams Near You" don't show a stale photo.
+      void syncSelfIndexWeb({ displayName, shareId, game: teamProfile?.game, avatarUrl: secureUrl });
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Upload failed.');
     } finally {
@@ -153,6 +165,7 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
       await updateDoc(doc(db, 'users', authUser.uid), { teamName: newName.trim(), displayName: newName.trim(), updatedAt: Date.now() });
       await updateProfile(authUser, { displayName: newName.trim() });
       setDisplayName(newName.trim());
+      void syncSelfIndexWeb({ displayName: newName.trim(), shareId, game: teamProfile?.game, avatarUrl: photoUrl });
     } catch (error) {
       alert("Failed to update name.");
     }

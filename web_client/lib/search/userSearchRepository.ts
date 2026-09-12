@@ -1,5 +1,6 @@
-import { collection, getDocs, query, where, orderBy, limit, startAt, endAt, doc, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { collection, getDocs, getDoc, query, where, orderBy, limit, startAt, endAt, doc, setDoc } from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase';
+import { resolveCountryCodeWeb } from '@/lib/countryResolver';
 
 export interface UserSearchEntry {
   userId: string;
@@ -100,5 +101,128 @@ export async function searchUsersWeb(searchQuery: string, selfUid: string, limit
   } catch (err) {
     console.error('[UserSearchRepository] searchUsersWeb failed:', err);
     return [];
+  }
+}
+
+/**
+ * Mirrors UserSearchRepository.syncSelfIndex() — keeps this user's
+ * `user_search/{uid}` doc (the index every search/nearby query above
+ * reads) up to date. Called whenever the fields it covers change:
+ * display name, avatar, or (indirectly, via the profile save flow on
+ * mobile) game. Best-effort — never throws, matching the Dart repo's
+ * "non-fatal" background-sync behavior.
+ */
+export async function syncSelfIndexWeb(params: {
+  displayName: string;
+  shareId: string;
+  game?: string;
+  badge?: string;
+  avatarUrl: string;
+  country?: string;
+  usernameLower?: string;
+}) {
+  const uid = auth.currentUser?.uid.trim();
+  if (!uid) return;
+
+  try {
+    const displayName = params.displayName.trim() || (auth.currentUser?.displayName ?? '').trim();
+    const shareId = params.shareId.trim();
+
+    const payload: Record<string, unknown> = {
+      userId: uid,
+      displayName,
+      displayNameLower: displayName.toLowerCase(),
+      shareId,
+      shareIdLower: shareId.toLowerCase(),
+      game: (params.game ?? '').trim(),
+      badge: (params.badge ?? '').trim(),
+      avatarUrl: params.avatarUrl.trim(),
+      updatedAtMs: Date.now(),
+    };
+
+    const country = (params.country ?? '').trim().toUpperCase();
+    if (country) payload.country = country;
+
+    const usernameLower = (params.usernameLower ?? '').trim().toLowerCase();
+    if (usernameLower) payload.usernameLower = usernameLower;
+
+    await setDoc(doc(db, 'user_search', uid), payload, { merge: true });
+  } catch (err) {
+    console.warn('[userSearchRepository] syncSelfIndexWeb failed (non-fatal):', err);
+  }
+}
+
+/**
+ * Mirrors UserSearchRepository.syncUsername() — writes ONLY
+ * userId/usernameLower/updatedAtMs, called right after a username
+ * reservation commits (both an explicit edit and lazy auto-assignment)
+ * so the search index never drifts from the authoritative username doc.
+ */
+export async function syncUsernameWeb(usernameLower: string) {
+  const uid = auth.currentUser?.uid.trim();
+  const lower = usernameLower.trim().toLowerCase();
+  if (!uid || !lower) return;
+
+  try {
+    await setDoc(
+      doc(db, 'user_search', uid),
+      { userId: uid, usernameLower: lower, updatedAtMs: Date.now() },
+      { merge: true },
+    );
+  } catch (err) {
+    console.warn('[userSearchRepository] syncUsernameWeb failed (non-fatal):', err);
+  }
+}
+
+/**
+ * Mirrors UserSearchRepository.backfillDisplayNameIfMissing() — a
+ * self-heal for accounts whose user_search doc still has a blank name
+ * (e.g. it was never synced before this fix existed). Only ever touches
+ * displayName/displayNameLower, so it can never clobber other fields.
+ */
+export async function backfillDisplayNameIfMissingWeb(fallbackDisplayName: string) {
+  const uid = auth.currentUser?.uid.trim();
+  const name = fallbackDisplayName.trim();
+  if (!uid || !name) return;
+
+  try {
+    const snap = await getDoc(doc(db, 'user_search', uid));
+    const existing = typeof snap.data()?.displayName === 'string' ? snap.data()!.displayName.trim() : '';
+    if (existing) return;
+
+    await setDoc(
+      doc(db, 'user_search', uid),
+      { userId: uid, displayName: name, displayNameLower: name.toLowerCase(), updatedAtMs: Date.now() },
+      { merge: true },
+    );
+  } catch (err) {
+    console.warn('[userSearchRepository] backfillDisplayNameIfMissingWeb failed (non-fatal):', err);
+  }
+}
+
+/**
+ * Mirrors UserSearchRepository.backfillCountryIfMissing() — self-heals
+ * "Teams Near You" eligibility for accounts that predate the country
+ * field, or never triggered syncSelfIndexWeb.
+ */
+export async function backfillCountryIfMissingWeb() {
+  const uid = auth.currentUser?.uid.trim();
+  if (!uid) return;
+
+  try {
+    const snap = await getDoc(doc(db, 'user_search', uid));
+    const existing = typeof snap.data()?.country === 'string' ? snap.data()!.country.trim() : '';
+    if (existing) return;
+
+    const resolved = (await resolveCountryCodeWeb()).trim().toUpperCase();
+    if (!resolved) return;
+
+    await setDoc(
+      doc(db, 'user_search', uid),
+      { userId: uid, country: resolved, updatedAtMs: Date.now() },
+      { merge: true },
+    );
+  } catch (err) {
+    console.warn('[userSearchRepository] backfillCountryIfMissingWeb failed (non-fatal):', err);
   }
 }

@@ -22,6 +22,7 @@ import {
   USERNAME_MIN_LENGTH,
   USERNAME_MAX_LENGTH,
 } from '@/lib/username';
+import { syncUsernameWeb } from '@/lib/search/userSearchRepository';
 
 export interface ResolvedUserProfile {
   userId: string;
@@ -248,6 +249,11 @@ async function reserveAndWriteUsername(
     }
     throw err;
   }
+
+  // Mirrors UserProfileRepository's `unawaited(UserSearchRepository().syncUsername(...))`
+  // call right after a username reservation commits — keeps the search
+  // index's usernameLower in step with the authoritative username doc.
+  void syncUsernameWeb(candidateLower);
 
   // STEP 3: release the OLD reservation, best-effort. The profile
   // already points at the new username regardless of whether this
