@@ -8,6 +8,13 @@ import { updateGlobalChatRequestStatusWeb } from '@/lib/chat/chatRepository';
 import { Glass } from '@/components/ui/Glass';
 import { ArrowLeft, Loader2, CheckCircle, XCircle, ShieldAlert, Copy } from 'lucide-react';
 
+function formatRequestTime(ms: number): string {
+  if (!ms || ms <= 0) return 'Unknown time';
+  const d = new Date(ms);
+  const two = (v: number) => v.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
 export default function GlobalChatAdminRequestsScreen() {
   const router = useRouter();
   const [requests, setRequests] = useState<any[]>([]);
@@ -49,7 +56,15 @@ export default function GlobalChatAdminRequestsScreen() {
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-[#BEF264]"/></div>;
-  if (authUid !== 'a0JDUelQW3TEyoXTm4ESuGi7ndq1') return <div className="text-center py-20 text-red-500 font-bold">Super Admin Access Required</div>;
+  // FIX: this used to check a different uid ('a0JDUelQW3TEyoXTm4ESuGi7ndq1' —
+  // the chat-feature-local super-admin constant Dart's chat screens use for
+  // moderation bypass) than the one the query above and firestore.rules'
+  // isSuperAdmin()/canAccessGlobalChat() actually require
+  // ('QhYeBpvAoRV6j0xGigHkBth4qIG3', matching SuperAdminGuard.tsx and
+  // appAdminsRepository.ts). The real super admin's query would load
+  // correctly but this render gate then always showed "Access Required"
+  // instead of the loaded requests.
+  if (authUid !== 'QhYeBpvAoRV6j0xGigHkBth4qIG3') return <div className="text-center py-20 text-red-500 font-bold">Super Admin Access Required</div>;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20 px-4 mt-6">
@@ -83,6 +98,11 @@ export default function GlobalChatAdminRequestsScreen() {
                     <button onClick={() => { navigator.clipboard.writeText(req.id); alert('Copied ID'); }} className="text-gray-500 hover:text-white"><Copy className="w-3 h-3"/></button>
                   </div>
                 </div>
+              </div>
+
+              <div className="text-xs font-semibold text-gray-500 space-y-0.5">
+                <p>Requested: {formatRequestTime(req.createdAtMs)}</p>
+                <p>Last updated: {formatRequestTime(req.updatedAtMs)}</p>
               </div>
 
               <div className="flex gap-2 mt-auto pt-2 border-t border-[#1E293B]">
