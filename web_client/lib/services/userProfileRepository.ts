@@ -175,6 +175,26 @@ export async function isUsernameAvailable(
   return owner === '' || owner === forUserId.trim();
 }
 
+/**
+ * Resolves a "@username" (or bare "username") to the uid that reserved
+ * it, via the public `usernames/{lower}` collection — mirrors
+ * UserProfileRepository.fetchByUsername() in
+ * lib/features/auth/data/user_profile_repository.dart exactly, which is
+ * what mobile's /u/:username deep-link gate screen uses. Returns null
+ * if the username isn't reserved by anyone.
+ */
+export async function resolveUsernameToUserId(username: string): Promise<string | null> {
+  let normalized = username.trim().toLowerCase();
+  if (normalized.startsWith('@')) normalized = normalized.substring(1);
+  if (!normalized) return null;
+
+  const snap = await getDoc(doc(db, 'usernames', normalized));
+  if (!snap.exists()) return null;
+
+  const uid = stringFromAny(snap.data()?.userId);
+  return uid || null;
+}
+
 async function reserveAndWriteUsername(
   authUid: string,
   candidateLower: string,
