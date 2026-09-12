@@ -1,7 +1,7 @@
 //app/dashboard/leagues/[id]/admin/fixtures/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { collection, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -12,6 +12,7 @@ import { Glass } from '@/components/ui/Glass';
 import { Loader2, ArrowLeft, CalendarPlus, CalendarDays, Zap } from 'lucide-react';
 import { FixtureMatch } from '@/lib/models/leagueDetails';
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
+import { SwissPairingEngine } from '@/lib/algorithms/swissPairing';
 
 export default function ManageFixturesScreen() {
   const params = useParams();
@@ -61,16 +62,85 @@ export default function ManageFixturesScreen() {
     }
   };
 
+  // Swiss format generates ONE round at a time (organizer clicks again after
+  // every match in the current round finishes), unlike Classic/Group which
+  // generate the whole schedule up front — mirrors fixtures_screen.dart's
+  // _generateNextSwissRound.
+  const isSwiss = league?.format === 'uclSwiss';
+
+  const swissState = useMemo(() => {
+    if (!isSwiss) return null;
+    const currentMaxRound = matches.length > 0 ? Math.max(...matches.map((m) => m.roundNumber || 1)) : 0;
+    const maxRounds = league?.settings?.swissRounds || 8;
+    if (currentMaxRound === 0) return { nextRound: 1, label: 'Generate Round 1', blocked: null as string | null };
+    const currentRoundMatches = matches.filter((m) => (m.roundNumber || 1) === currentMaxRound);
+    const anyUnplayed = currentRoundMatches.some((m) => m.status !== 'completed' && m.status !== 'played' && !m.isPlayed);
+    if (anyUnplayed) {
+      return { nextRound: currentMaxRound + 1, label: `Complete Round ${currentMaxRound} first`, blocked: `Complete all matches in Round ${currentMaxRound} first.` };
+    }
+    if (currentMaxRound >= maxRounds) {
+      return { nextRound: currentMaxRound + 1, label: `All ${maxRounds} rounds generated`, blocked: `All ${maxRounds} Swiss rounds have already been generated.` };
+    }
+    return { nextRound: currentMaxRound + 1, label: `Generate Round ${currentMaxRound + 1}`, blocked: null as string | null };
+  }, [isSwiss, matches, league]);
+
   // 2. Auto-Generation Logic (using the ported algorithms)
   const handleAutoGenerate = async () => {
     if (!league) return;
+
+    if (isSwiss) {
+      if (!swissState || swissState.blocked) {
+        if (swissState?.blocked) setError(swissState.blocked);
+        return;
+      }
+      const n = teams.length;
+      if (n !== 18 && n !== 36) {
+        setError(`Swiss format requires exactly 18 or 36 teams. This league has ${n}.`);
+        return;
+      }
+
+      setLoading(true);
+      setError('');
+      try {
+        const swissRounds = league.settings?.swissRounds || 8;
+        const newFixtures =
+          swissState.nextRound === 1
+            ? SwissPairingEngine.generateInitialRound({ leagueId, teams, roundNumber: 1, totalRounds: swissRounds })
+            : SwissPairingEngine.generateNextRound({
+                leagueId,
+                teams,
+                existingMatches: matches,
+                nextRoundNumber: swissState.nextRound,
+                totalRounds: swissRounds,
+              });
+
+        if (newFixtures.length === 0) {
+          setError('No valid Swiss pairings could be generated. Please try again.');
+          return;
+        }
+
+        const batch = writeBatch(db);
+        for (const match of newFixtures) {
+          const matchRef = doc(db, 'leagues', leagueId, 'matches', match.id!);
+          batch.set(matchRef, match);
+        }
+        await batch.commit();
+        alert(`Generated Round ${swissState.nextRound} (${newFixtures.length} matches)!`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (matches.length > 0) {
       if (!confirm("This will generate additional matches. Are you sure? (Usually you only Auto-Generate once on an empty schedule).")) return;
     }
 
     setLoading(true);
     setError('');
-    
+
     try {
       let newFixtures: Partial<FixtureMatch>[] = [];
 
@@ -78,8 +148,6 @@ export default function ManageFixturesScreen() {
         newFixtures = FixtureGenerator.generateClassicLeagueFixtures(league, teams);
       } else if (league.format === 'uclGroup' || league.format === 'worldCup') {
         newFixtures = FixtureGenerator.generateGroupStage(league, teams);
-      } else {
-        throw new Error("Auto-generation for Swiss formats currently requires the mobile app engine.");
       }
 
       // Batch write to Firestore (max 500 per batch)
@@ -88,7 +156,7 @@ export default function ManageFixturesScreen() {
         const matchRef = doc(db, 'leagues', leagueId, 'matches', match.id!);
         batch.set(matchRef, match);
       }
-      
+
       await batch.commit();
       alert(`Successfully generated ${newFixtures.length} matches!`);
     } catch (err: any) {
@@ -119,13 +187,13 @@ export default function ManageFixturesScreen() {
         </div>
 
         {/* Auto Generate Button */}
-        <button 
+        <button
           onClick={handleAutoGenerate}
-          disabled={loading || teams.length < 2 || league?.format === 'uclSwiss'}
+          disabled={loading || teams.length < 2 || (isSwiss && !!swissState?.blocked)}
           className="flex items-center justify-center gap-2 px-6 py-3 bg-brand-lime text-brand-navy font-black rounded-xl hover:bg-brand-lime/90 disabled:opacity-50 transition-colors shadow-lg shadow-brand-lime/20"
         >
           {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
-          Auto-Generate Matches
+          {isSwiss ? (swissState?.label ?? 'Generate Round 1') : 'Auto-Generate Matches'}
         </button>
       </div>
 

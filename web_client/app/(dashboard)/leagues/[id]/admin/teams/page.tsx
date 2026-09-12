@@ -1,17 +1,19 @@
 'use client';
 
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, setDoc, deleteDoc, writeBatch, collection, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, writeBatch, collection, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { useLeagueTeams } from '@/hooks/useLeagueTeams';
 import { useLeagueDetail } from '@/hooks/useLeagueDetail';
+import { useMatches } from '@/hooks/useMatches';
 import { Glass } from '@/components/ui/Glass';
-import { Loader2, ArrowLeft, Shield, PlusCircle, Trash2, Edit2, Check, X, AlertTriangle, Wand2 } from 'lucide-react';
+import { Loader2, ArrowLeft, Shield, PlusCircle, Trash2, Edit2, Check, X, AlertTriangle, Wand2, Dice5, UserPlus } from 'lucide-react';
 import { Team } from '@/lib/models/leagueDetails';
 import { CsvImporter } from '@/components/leagues/CsvImporter';
-import { resolveTeamParticipant, ResolvedUserProfile } from '@/lib/services/userProfileRepository';
+import { resolveTeamParticipant, fetchUserProfileByUserId, ResolvedUserProfile } from '@/lib/services/userProfileRepository';
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
+import { SpinWheelDrawModal } from '@/components/leagues/SpinWheelDrawModal';
 
 const GROUPS_ALL = ['Group A','Group B','Group C','Group D','Group E','Group F','Group G','Group H','Group I','Group J','Group K','Group L'];
 
@@ -29,6 +31,7 @@ export default function ManageTeamsScreen() {
 
   const { league } = useLeagueDetail(leagueId);
   const { teams, loading: teamsLoading } = useLeagueTeams(leagueId);
+  const { matches } = useMatches(leagueId);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [lookupValue, setLookupValue] = useState('');
@@ -38,10 +41,63 @@ export default function ManageTeamsScreen() {
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [showSpinWheel, setShowSpinWheel] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAdjustment, setEditAdjustment] = useState<number>(0);
   const [editGroup, setEditGroup] = useState<string>('');
+
+  // Participants who already joined this league (memberships/{uid}, role
+  // LeagueRole.member = 1) but don't have a team yet — mirrors
+  // add_teams_screen.dart's _loadExistingTeams() auto-staging every joined
+  // member as a ready-to-add row instead of requiring the organizer to
+  // already know each participant's uid to add them manually.
+  const [suggested, setSuggested] = useState<ResolvedUserProfile[]>([]);
+  const [suggestedLoading, setSuggestedLoading] = useState(true);
+
+  useEffect(() => {
+    if (!leagueId || teamsLoading) return;
+    let cancelled = false;
+
+    (async () => {
+      setSuggestedLoading(true);
+      try {
+        const membershipsSnap = await getDocs(
+          query(collection(db, 'leagues', leagueId, 'memberships'), where('role', '==', 1)),
+        );
+        const existingIds = new Set(teams.map((t) => t.id));
+        const memberIds = Array.from(
+          new Set(
+            membershipsSnap.docs
+              .map((d) => (d.data().userId as string | undefined)?.trim() || d.id)
+              .filter((id) => id && !existingIds.has(id)),
+          ),
+        );
+
+        const profiles = await Promise.all(
+          memberIds.map(async (uid) => {
+            try {
+              return await fetchUserProfileByUserId(uid);
+            } catch {
+              return null;
+            }
+          }),
+        );
+
+        if (!cancelled) {
+          setSuggested(profiles.filter((p): p is ResolvedUserProfile => p !== null));
+        }
+      } catch (e) {
+        console.warn('[admin/teams] failed to load suggested participants:', e);
+      } finally {
+        if (!cancelled) setSuggestedLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [leagueId, teams, teamsLoading]);
 
   const isGroupFormat = league?.format === 'uclGroup';
   const isWorldCup = league?.format === 'worldCup';
@@ -94,8 +150,7 @@ export default function ManageTeamsScreen() {
     }
   };
 
-  const handleAddTeam = async () => {
-    if (!resolved) return;
+  const addResolvedAsTeam = async (profile: ResolvedUserProfile) => {
     if (teams.length >= maxTeams) {
       setError(`Maximum ${maxTeams} teams reached for this format.`);
       return;
@@ -104,13 +159,13 @@ export default function ManageTeamsScreen() {
     setError('');
     try {
       const now = Date.now();
-      const teamRef = doc(db, 'leagues', leagueId, 'teams', resolved.userId);
+      const teamRef = doc(db, 'leagues', leagueId, 'teams', profile.userId);
       const newTeam: Partial<Team> = {
-        id: resolved.userId,
+        id: profile.userId,
         leagueId,
-        name: resolved.teamName,
-        ownerId: resolved.userId,
-        teamImageUrl: resolved.photoUrl,
+        name: profile.teamName,
+        ownerId: profile.userId,
+        teamImageUrl: profile.photoUrl,
         groupId: isGroupFormat ? selectedGroup : undefined,
         played: 0, won: 0, drawn: 0, lost: 0,
         goalsFor: 0, goalsAgainst: 0, goalDifference: 0,
@@ -118,13 +173,19 @@ export default function ManageTeamsScreen() {
         updatedAtMs: now,
       };
       await setDoc(teamRef, newTeam, { merge: true });
-      setLookupValue('');
-      setResolved(null);
+      setSuggested((prev) => prev.filter((p) => p.userId !== profile.userId));
     } catch (err: any) {
       setError('Failed to add team: ' + err.message);
     } finally {
       setAdding(false);
     }
+  };
+
+  const handleAddTeam = async () => {
+    if (!resolved) return;
+    await addResolvedAsTeam(resolved);
+    setLookupValue('');
+    setResolved(null);
   };
 
   const handleDeleteTeam = async (teamId: string) => {
@@ -198,6 +259,14 @@ export default function ManageTeamsScreen() {
       alert(`Cannot generate fixtures: team count does not match required amount for this format.`);
       return;
     }
+    if (isSwiss) {
+      router.push(`/leagues/${leagueId}/admin/fixtures`);
+      return;
+    }
+    if (matches.length > 0) {
+      if (!confirm('Fixtures already exist for this league. Generating again will add a new schedule on top of the existing one. Continue?')) return;
+    }
+
     setGenerating(true);
     try {
       let fixtures: any[] = [];
@@ -227,9 +296,6 @@ export default function ManageTeamsScreen() {
         }
 
         fixtures = FixtureGenerator.generateGroupStage(league, teamsForGeneration);
-      } else if (isSwiss) {
-        alert('Swiss-format fixture generation is not yet available on web. Please use the Flutter app.');
-        return;
       }
 
       if (fixtures.length === 0) {
@@ -254,6 +320,54 @@ export default function ManageTeamsScreen() {
     }
   };
 
+  // Spin Wheel Draw (Classic League only). Does NOT introduce a second
+  // fixture system — it only decides the ORDER of teams handed to the
+  // exact same FixtureGenerator.generateClassicLeagueFixtures(...) call
+  // used by the "Generate Fixtures" button above, mirroring
+  // add_teams_screen.dart's _openSpinWheelDraw.
+  const handleSpinWheelConfirm = async (orderedTeams: Team[]) => {
+    if (!league) return;
+    setShowSpinWheel(false);
+    setGenerating(true);
+    try {
+      const fixtures = FixtureGenerator.generateClassicLeagueFixtures(league, orderedTeams);
+      if (fixtures.length === 0) {
+        alert('Failed to generate fixtures.');
+        return;
+      }
+
+      const batch = writeBatch(db);
+      const matchesRef = collection(db, 'leagues', leagueId, 'matches');
+      for (const f of fixtures) {
+        const ref = doc(matchesRef, f.id);
+        batch.set(ref, f);
+      }
+      await batch.commit();
+
+      alert(`Generated ${fixtures.length} fixtures.`);
+      router.push(`/leagues/${leagueId}`);
+    } catch (err) {
+      alert('Failed to generate fixtures: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const openSpinWheel = () => {
+    if (!requiredCountReached) {
+      alert('Cannot use Spin Wheel draw: team count does not match required amount for this format.');
+      return;
+    }
+    if (teams.length < 2) {
+      alert('You need at least 2 teams to use Spin Wheel draw.');
+      return;
+    }
+    if (matches.length > 0) {
+      if (!confirm('Fixtures already exist for this league. Generating again will add a new schedule on top of the existing one. Continue?')) return;
+    }
+    setShowSpinWheel(true);
+  };
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-10 px-4 sm:px-6">
       <div className="flex items-center gap-4">
@@ -271,6 +385,39 @@ export default function ManageTeamsScreen() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 space-y-6">
+          {!suggestedLoading && suggested.length > 0 && (
+            <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl">
+              <h2 className="text-lg font-black text-white mb-1 flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-[#BEF264]" /> Already Joined
+              </h2>
+              <p className="text-xs font-semibold text-gray-400 mb-4">
+                These participants joined this league but don&apos;t have a team yet.
+              </p>
+              <div className="space-y-2">
+                {suggested.map((p) => (
+                  <div key={p.userId} className="flex items-center gap-3 p-3 bg-[#070B14] border border-[#1E293B] rounded-xl">
+                    {p.photoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={p.photoUrl} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-[#1E293B] flex items-center justify-center shrink-0">
+                        <Shield className="w-4 h-4 text-gray-400" />
+                      </div>
+                    )}
+                    <span className="flex-1 min-w-0 text-sm font-black text-white truncate">{p.teamName}</span>
+                    <button
+                      onClick={() => addResolvedAsTeam(p)}
+                      disabled={adding || teams.length >= maxTeams}
+                      className="px-3 py-1.5 bg-[#BEF264] text-[#0F172A] text-xs font-black rounded-lg hover:brightness-110 disabled:opacity-50 shrink-0"
+                    >
+                      Add
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <CsvImporter leagueId={leagueId} isGroupFormat={isGroupFormat} allowedGroups={allowedGroups} onSuccess={() => {}} />
 
           <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl">
@@ -354,8 +501,19 @@ export default function ManageTeamsScreen() {
               className="w-full py-3.5 bg-[#1E293B] border border-[#BEF264]/40 text-[#BEF264] font-black rounded-xl hover:bg-[#1E293B]/80 transition-all disabled:opacity-40 flex items-center justify-center gap-2 text-xs"
             >
               {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-              Generate Fixtures
+              {isSwiss ? 'Go to Swiss Round Generator' : 'Generate Fixtures (Automatic)'}
             </button>
+
+            {isClassic && (
+              <button
+                onClick={openSpinWheel}
+                disabled={generating || !requiredCountReached}
+                className="w-full mt-2 py-3.5 bg-[#1E293B] border border-white/10 text-gray-300 font-black rounded-xl hover:bg-[#1E293B]/80 transition-all disabled:opacity-40 flex items-center justify-center gap-2 text-xs"
+              >
+                <Dice5 className="w-4 h-4" />
+                Spin Wheel Draw
+              </button>
+            )}
           </div>
         </div>
 
@@ -453,6 +611,14 @@ export default function ManageTeamsScreen() {
           </div>
         </div>
       </div>
+
+      {showSpinWheel && (
+        <SpinWheelDrawModal
+          teams={teams}
+          onConfirm={handleSpinWheelConfirm}
+          onCancel={() => setShowSpinWheel(false)}
+        />
+      )}
     </div>
   );
 }
