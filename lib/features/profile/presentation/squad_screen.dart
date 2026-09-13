@@ -54,7 +54,11 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
 
   Future<void> _loadAvailableGames() async {
     try {
-      final ids = await _repo.fetchSquadGameIds(widget.userId);
+      // resolveDisplayGameIds falls back to the user's onboarding choice
+      // (users/{uid}.preferredGameId) when no squad has been built yet —
+      // true for every new user — instead of hardcoding Local Football
+      // regardless of what they actually picked.
+      final ids = await _repo.resolveDisplayGameIds(widget.userId);
       if (!mounted) return;
       setState(() {
         _availableGames = ids.isEmpty ? [GameId.localFootball] : ids;

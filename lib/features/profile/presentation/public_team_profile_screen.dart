@@ -1074,7 +1074,11 @@ class _SquadPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<String>>(
-      future: repo.fetchSquadGameIds(userId),
+      // Falls back to the user's onboarding choice
+      // (users/{uid}.preferredGameId) when they haven't built a squad
+      // yet, instead of hardcoding Local Football regardless of what
+      // they actually picked.
+      future: repo.resolveDisplayGameIds(userId),
       builder: (context, gamesSnap) {
         final games = gamesSnap.data ?? const [GameId.localFootball];
         final firstGame = games.isEmpty ? GameId.localFootball : games.first;

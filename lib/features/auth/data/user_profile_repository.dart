@@ -9,6 +9,7 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 
 import '../../master_leagues/domain/master_league_plan.dart';
+import '../../profile/models/game_id.dart';
 import '../../search/data/user_search_repository.dart';
 import '../../verification/domain/badge_model.dart';
 import '../../verification/logic/badge_service.dart';
@@ -1103,6 +1104,24 @@ class UserProfileRepository {
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
+      // The onboarding screen's chosen game/football-platform answer was
+      // previously accepted into `onboardingAnswers` and then silently
+      // dropped here — never written anywhere. That's why the Squad and
+      // public team profile screens always fell back to Local Football:
+      // they read `users/{uid}/squads/*` doc IDs (empty for every new
+      // user, since onboarding never created one) or, on web, the
+      // separate `team_profile/profile.game` field (also never set), and
+      // both default to Local Football when the real value is missing.
+      // Persist the mapped GameId in both places so either platform's
+      // onboarding produces a consistent, correct value for both.
+      String? preferredGameId;
+      if (onboardingAnswers is Map) {
+        final rawGame = (onboardingAnswers['game'] as String?)?.trim() ?? '';
+        if (rawGame.isNotEmpty) {
+          preferredGameId = GameId.fromOnboardingLabel(rawGame);
+        }
+      }
+
       await ref.set(
         <String, dynamic>{
           'userId': targetUid,
@@ -1117,9 +1136,32 @@ class UserProfileRepository {
           'planExpiresAtMs': 0,
           'planReceiptId': '',
           'planProvider': '',
+          if (preferredGameId != null) 'preferredGameId': preferredGameId,
         },
         SetOptions(merge: false),
       ).timeout(const Duration(seconds: 20));
+
+      if (preferredGameId != null) {
+        try {
+          await ref.collection('team_profile').doc('profile').set(<String, dynamic>{
+            'game': preferredGameId,
+            'favoriteClub': '',
+            'favoritePlayer': '',
+            'bio': '',
+            'bannerImageUrl': '',
+            'themeColor': '',
+            'visibility': 'public',
+            'updatedAtMs': now,
+          });
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint(
+              '[UserProfileRepository] createIfMissing: team_profile seed '
+              'failed for $targetUid (non-fatal): $e',
+            );
+          }
+        }
+      }
 
       try {
         await ensureUsernameIfMissing();

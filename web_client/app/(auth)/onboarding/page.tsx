@@ -51,6 +51,37 @@ function deriveShareIdFromUid(uid: string): string {
   return `eS${base}`;
 }
 
+// Maps a free-text game title from GAME_GROUPS above to the 6-value
+// GameId taxonomy used by squads/team_profile — mirrors
+// lib/features/profile/models/game_id.dart's GameId.fromOnboardingLabel
+// exactly (same buckets, same catch-all), so either platform's
+// onboarding produces the same value for the same choice.
+function gameIdForOnboardingLabel(label: string): string {
+  switch (label.trim()) {
+    case 'EA Sports FC 25':
+    case 'FIFA 23':
+      return 'ea_fc';
+    case 'eFootball':
+    case 'PES 2021':
+    case 'PES 2017':
+      return 'efootball';
+    case 'EA Sports FC Mobile':
+      return 'ea_fc_mobile';
+    case 'Dream League Soccer':
+      return 'dream_league_soccer';
+    case 'Total Football':
+    case 'Soccer Stars':
+    case 'Football Strike':
+    case 'Mini Football':
+    case 'Score! Match':
+    case 'UFL':
+    case 'Rocket League':
+      return 'total_football';
+    default:
+      return 'local_football';
+  }
+}
+
 export default function OnboardingScreen() {
   const router = useRouter();
   const goalRef = useRef<HTMLTextAreaElement>(null);
@@ -135,6 +166,15 @@ export default function OnboardingScreen() {
           ? 'email'
           : providerId || 'unknown';
 
+      // The chosen game was previously collected here but never
+      // persisted anywhere, so the Squad screen (mobile) and team
+      // profile (web) always fell back to their own hardcoded "Local
+      // Football" default. Write it to both places a display screen
+      // might read it from: the root user doc (read by mobile's Squad
+      // screen fallback) and team_profile/profile.game (read directly
+      // by ProfileDetailView here on web).
+      const preferredGameId = game.trim() ? gameIdForOnboardingLabel(game) : '';
+
       await setDoc(ref, {
         userId: uid,
         teamName: teamName.trim(),
@@ -148,12 +188,26 @@ export default function OnboardingScreen() {
         planExpiresAtMs: 0,
         planReceiptId: '',
         planProvider: '',
+        ...(preferredGameId ? { preferredGameId } : {}),
       });
 
+      if (preferredGameId) {
+        await setDoc(doc(db, 'users', uid, 'team_profile', 'profile'), {
+          game: preferredGameId,
+          favoriteClub: '',
+          favoritePlayer: '',
+          bio: '',
+          bannerImageUrl: '',
+          themeColor: '',
+          visibility: 'public',
+          updatedAtMs: nowMs,
+        });
+      }
+
       router.push('/leagues');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setError('Failed to save your profile: ' + (err?.message ?? 'Unknown error'));
+      setError('Failed to save your profile: ' + (err instanceof Error ? err.message : 'Unknown error'));
       setSaving(false);
     }
   };

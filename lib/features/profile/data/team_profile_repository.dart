@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/services/country/country_resolver_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../search/data/user_search_repository.dart';
+import '../models/game_id.dart';
 import '../models/recent_match.dart';
 import '../models/squad.dart';
 import '../models/team_profile.dart';
@@ -217,6 +218,40 @@ class TeamProfileRepository {
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
+  }
+
+  /// The game the user actually chose during onboarding
+  /// (`users/{uid}.preferredGameId`, written by
+  /// UserProfileRepository.createIfMissing). Used as the fallback when
+  /// [fetchSquadGameIds] returns empty — true for every user who hasn't
+  /// built a squad roster yet, i.e. every new user — so the Squad and
+  /// public team profile screens show the user's real choice instead of
+  /// unconditionally defaulting to Local Football.
+  Future<String> fetchPreferredGameId(String userId) async {
+    try {
+      final uid = userId.trim();
+      final doc = await _users
+          .doc(uid)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      final raw = (doc.data()?['preferredGameId'] as String?)?.trim() ?? '';
+      return GameId.all.contains(raw) ? raw : GameId.localFootball;
+    } catch (_) {
+      return GameId.localFootball;
+    }
+  }
+
+  /// The game IDs to actually display for this user: their built squads
+  /// if any exist, otherwise a single-item list with their onboarding
+  /// choice (never a hardcoded Local Football unless that's genuinely
+  /// what they picked or nothing was ever recorded). Shared by
+  /// SquadScreen and the public team profile's squad preview so both
+  /// apply the exact same fallback.
+  Future<List<String>> resolveDisplayGameIds(String userId) async {
+    final ids = await fetchSquadGameIds(userId);
+    if (ids.isNotEmpty) return ids;
+    return [await fetchPreferredGameId(userId)];
   }
 
   Future<void> saveSquad(Squad squad) async {
