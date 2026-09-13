@@ -58,19 +58,22 @@ dependencies:
   record: ^6.0.0
   just_audio: ^0.9.38
   path: ^1.9.0
-  google_mobile_ads: ^5.1.0
+  google_mobile_ads: ^9.1.0
   # ── Explicit (not just transitive-via-google_mobile_ads) deps ──
-  # google_mobile_ads 5.x depends on these for its iOS WebView-based ad
-  # rendering, but as a purely transitive plugin dependency,
-  # webview_flutter_wkwebview's native iOS pod doesn't reliably get
-  # symlinked/registered by Flutter's CocoaPods tooling — a known Flutter
-  # issue (flutter/flutter#100480). Declaring it directly here fixes
-  # "Unable to find a specification for webview_flutter_wkwebview" during
-  # pod install. Versions pinned to match google_mobile_ads 5.3.1's own
-  # declared requirement exactly, to avoid a resolver conflict.
+  # google_mobile_ads depends on these for its iOS WebView-based ad
+  # rendering. Its own native iOS podspec (verified against the
+  # googleads-mobile-flutter GitHub source, still true as of 9.1.0) has
+  # a bare, unversioned `s.dependency 'webview_flutter_wkwebview'` line —
+  # a packaging defect on Google's side, since that pod is never
+  # published to the public CocoaPods trunk and only resolves via
+  # Flutter's local plugin symlinking. Declaring these directly (instead
+  # of relying on them being pulled in transitively) plus the explicit
+  # Podfile pod declaration below (see ios/Podfile) is required to get
+  # CocoaPods to resolve it. Versions pinned to match google_mobile_ads
+  # 9.1.0's own declared requirement exactly, to avoid a resolver conflict.
   webview_flutter: ^4.10.0
-  webview_flutter_wkwebview: ^3.17.0
-  webview_flutter_android: ^4.3.1
+  webview_flutter_wkwebview: ^3.23.4
+  webview_flutter_android: ^4.10.9
   # ── Google Play Billing (Android in-app purchases) ──
   # Pinned in_app_purchase_android via override below to guarantee
   # Billing Library 8.0.0+ regardless of what in_app_purchase's own
