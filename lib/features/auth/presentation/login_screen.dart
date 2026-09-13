@@ -1,4 +1,6 @@
 //LoginScreen
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -104,6 +106,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _submitting = true);
     try {
       await _authService.signInWithGoogle();
+      await _afterAuth();
+    } catch (e) {
+      _showError(e);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  /// iOS only for now — see AuthService.signInWithApple's doc comment for
+  /// why Android isn't wired up here yet.
+  bool get _appleSignInAvailable => !kIsWeb && Platform.isIOS;
+
+  Future<void> _signInApple() async {
+    setState(() => _submitting = true);
+    try {
+      await _authService.signInWithApple();
       await _afterAuth();
     } catch (e) {
       _showError(e);
@@ -237,6 +255,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           label: Text(l10n.authLoginContinueWithGoogle),
                         ),
                       ),
+                      if (_appleSignInAvailable) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.black,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: _submitting ? null : _signInApple,
+                            icon: const Icon(Icons.apple),
+                            label: const Text('Continue with Apple'),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       Row(
                         children: [

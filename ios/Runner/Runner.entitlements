@@ -10,9 +10,12 @@
 
 	<!-- Required because google_sign_in is offered as a login option.
 	     Apple guideline 4.8 requires Sign in with Apple be offered
-	     alongside any other third-party login. This entitlement alone
-	     does NOT implement it — you still need to add the
-	     sign_in_with_apple package and build the actual auth flow. -->
+	     alongside any other third-party login. The auth flow itself is
+	     AuthService.signInWithApple() (lib/features/auth/data/auth_service.dart),
+	     wired to the "Continue with Apple" button on login_screen.dart —
+	     iOS only for now; confirm the Sign in with Apple capability is
+	     also enabled on this app's App ID in the Apple Developer portal,
+	     this entitlement alone isn't sufficient without that. -->
 	<key>com.apple.developer.applesignin</key>
 	<array>
 		<string>Default</string>
