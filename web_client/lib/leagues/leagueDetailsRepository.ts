@@ -1,7 +1,6 @@
 import { collection, doc, getDoc, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { LeagueData, leagueFromRemoteMap } from '@/lib/models/league';
-import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 import { Team, FixtureMatch, KnockoutMatch, LeagueAnnouncement, LeagueSpace } from '@/lib/models/leagueDetails';
 
 export interface FullLeagueDetails {
@@ -136,7 +135,7 @@ export async function fetchFullLeagueDetails(leagueId: string, authUid: string):
   }
 
   const isOwnerByLeague = league.organizerUid === authUid || league.organizerUserId === authUid;
-  const isOwner = isOwnerByLeague || membershipIsOrganizerRole || (await isPricingAdminUid(authUid));
+  const isOwner = isOwnerByLeague || membershipIsOrganizerRole;
   const isJoined = membershipExists || isOwner;
 
   if (partialErrors.length > 0) {

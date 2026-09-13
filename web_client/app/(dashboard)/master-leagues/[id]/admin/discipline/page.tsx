@@ -11,7 +11,6 @@ import {
   runTransaction,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
-import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 import { useMasterLeagueDetail } from '@/hooks/useMasterLeagueDetail';
 import { PanelCard } from '@/components/masterLeagues/PanelCard';
 import {
@@ -72,19 +71,8 @@ export default function OrganizerDisciplineScreen() {
   const [history, setHistory] = useState<DisciplineActionDoc[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    isPricingAdminUid(uid).then((ok) => {
-      if (!cancelled) setIsAdmin(ok);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [uid]);
-
-  const isOwner = (!!workspace && workspace.ownerId === uid) || isAdmin;
+  const isOwner = !!workspace && workspace.ownerId === uid;
 
   useEffect(() => {
     if (!masterLeagueId) return;

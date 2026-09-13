@@ -33,7 +33,6 @@ import 'package:intl/intl.dart' hide TextDirection;
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
-import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -844,10 +843,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   league.organizerUid.trim().isNotEmpty &&
                       league.organizerUid.trim() ==
                           currentUserId.trim();
-              final isOwner = isOwnerByMembership ||
-                  isOwnerByLeague ||
-                  AppAdminsService.instance
-                      .isPricingAdminUid(currentUserId.trim());
+              final isOwner =
+                  isOwnerByMembership || isOwnerByLeague;
 
               const canChat = true;
               final spaceLive = space?['isLive'] == true;

@@ -7,7 +7,6 @@ import { auth, db } from '@/lib/firebase';
 import { Loader2, ShieldAlert } from 'lucide-react';
 import { Glass } from '@/components/ui/Glass';
 import { leagueFromRemoteMap, isOwnerForViewer } from '@/lib/models/league';
-import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 
 interface RoleGuardProps {
   leagueId: string;
@@ -28,14 +27,6 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({ leagueId, allowedRoles, ch
       if (!uid || !leagueId) return;
 
       try {
-        if (await isPricingAdminUid(uid)) {
-          if (!cancelled) {
-            setHasAccess(true);
-            setLoading(false);
-          }
-          return;
-        }
-
         // ── Single source of truth for ownership ──────────────────────────
         // This mirrors exactly how fetchFullLeagueDetails / the league
         // detail page determine ownership, so this guard never disagrees

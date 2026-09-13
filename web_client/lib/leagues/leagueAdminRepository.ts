@@ -1,7 +1,6 @@
 import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { KnockoutMatch } from '@/lib/models/leagueDetails';
-import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 
 // ── MATCH & KNOCKOUT UPDATES ─────────────────────────────────────────────────
 //
@@ -329,8 +328,7 @@ export async function deleteLeagueWeb(leagueId: string) {
 // ── COUPON CONFIG ────────────────────────────────────────────────────────────
 export async function ensureCouponConfigWeb(leagueId: string, authUid: string) {
   const ref = doc(db, 'leagues', leagueId, 'couponConfig', 'config');
-  const isAdmin = await isPricingAdminUid(authUid);
-
+  
   await runTransaction(db, async (tx) => {
     const cfgSnap = await tx.get(ref);
     const nowMs = Date.now();
@@ -352,7 +350,7 @@ export async function ensureCouponConfigWeb(leagueId: string, authUid: string) {
     const ld = leagueSnap.data();
 
     const isOwner = ld.organizerUid === authUid || ld.ownerUid === authUid || ld.organizerUserId === authUid || ld.ownerId === authUid;
-    if (!isOwner && !isAdmin) throw new Error("Permission denied.");
+    if (!isOwner) throw new Error("Permission denied.");
 
     const settings = ld.settings || {};
     let currency = (ld.currency || settings.currency || 'USD').toUpperCase();

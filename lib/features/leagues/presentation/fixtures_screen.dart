@@ -600,7 +600,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
 
     if (_isGeneratingNextRound || _format != LeagueFormat.uclSwiss) return;
 
-    if (!_canAdminSelectFixtures) {
+    if (!_isOrganizer) {
       _snack(l10n.tr('fixtures_only_organiser_can_generate_swiss_rounds'));
       return;
     }
@@ -1110,7 +1110,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                   onPressed: _isLoading ? null : _loadInitialData,
                   icon: const Icon(Icons.refresh),
                 ),
-                if (_format == LeagueFormat.uclSwiss && _canAdminSelectFixtures)
+                if (_format == LeagueFormat.uclSwiss && _isOrganizer)
                   IconButton(
                     onPressed:
                         _isGeneratingNextRound ? null : _generateNextSwissRound,

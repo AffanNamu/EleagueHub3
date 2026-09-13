@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
-import '../../../core/services/app_admins_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -255,8 +254,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                               final isLiked = _likedCache[post.postId] ?? false;
                               return _PostCard(
                                 post: post,
-                                isOwner: post.authorId == _selfUid ||
-                                    AppAdminsService.instance.isPricingAdminUid(_selfUid),
+                                isOwner: post.authorId == _selfUid,
                                 isLiked: isLiked,
                                 onLike: () => _handleLike(post.postId),
                                 onComment: () => _handleComment(post.postId, account),

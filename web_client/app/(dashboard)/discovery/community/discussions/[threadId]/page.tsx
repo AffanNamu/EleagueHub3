@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { useDiscussionDetail } from '@/hooks/useDiscovery';
 import { createDiscussionReplyWeb, deleteDiscussionThreadWeb, deleteDiscussionReplyWeb } from '@/lib/discovery/discoveryRepository';
-import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 import { Glass } from '@/components/ui/Glass';
 import { ArrowLeft, Loader2, Send, User, Trash2, X } from 'lucide-react';
 
@@ -26,18 +25,7 @@ export default function DiscussionDetailScreen() {
   
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const selfUid = auth.currentUser?.uid || '';
-
-  useEffect(() => {
-    let cancelled = false;
-    isPricingAdminUid(selfUid).then((ok) => {
-      if (!cancelled) setIsAdmin(ok);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [selfUid]);
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-green-500" /></div>;
   if (!thread) return <div className="text-center py-20 font-bold text-gray-500">This discussion is no longer available.</div>;
@@ -93,7 +81,7 @@ export default function DiscussionDetailScreen() {
                 <div className="text-xs font-bold text-gray-500">{timeAgo(thread.createdAtMs)}</div>
               </div>
             </div>
-            {(thread.authorId === selfUid || isAdmin) && (
+            {thread.authorId === selfUid && (
               <button onClick={handleDeleteThread} className="p-2 text-gray-500 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4"/></button>
             )}
           </div>
@@ -117,7 +105,7 @@ export default function DiscussionDetailScreen() {
                     <span className="text-xs font-black text-white">{r.authorDisplayName || 'User'}</span>
                     <span className="text-[10px] font-bold text-gray-500">{timeAgo(r.createdAtMs)}</span>
                   </div>
-                  {(r.authorId === selfUid || isAdmin) && (
+                  {r.authorId === selfUid && (
                     <button
                       onClick={async () => {
                         try {

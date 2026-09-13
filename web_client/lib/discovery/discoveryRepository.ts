@@ -1,6 +1,5 @@
 import { collection, doc, setDoc, updateDoc, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { isPricingAdminUid } from '@/lib/admin/appAdminsRepository';
 
 export interface DiscussionThread {
   threadId: string;
@@ -85,9 +84,7 @@ export async function deleteDiscussionThreadWeb(threadId: string, authUid: strin
   const ref = doc(db, 'discussion_threads', threadId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
-  if (snap.data().authorId !== authUid && !(await isPricingAdminUid(authUid))) {
-    throw new Error('You can only delete your own discussion.');
-  }
+  if (snap.data().authorId !== authUid) throw new Error('You can only delete your own discussion.');
   await updateDoc(ref, { deleted: true });
 }
 
@@ -95,8 +92,6 @@ export async function deleteDiscussionReplyWeb(threadId: string, replyId: string
   const ref = doc(db, 'discussion_threads', threadId, 'replies', replyId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
-  if (snap.data().authorId !== authUid && !(await isPricingAdminUid(authUid))) {
-    throw new Error('You can only delete your own reply.');
-  }
+  if (snap.data().authorId !== authUid) throw new Error('You can only delete your own reply.');
   await updateDoc(ref, { deleted: true });
 }
