@@ -9,6 +9,7 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { ProfileCompletionGate } from '@/components/auth/ProfileCompletionGate';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -41,8 +42,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   return (
+    <ProfileCompletionGate>
     <div className="flex h-screen bg-[#070B14] text-white overflow-hidden font-sans">
-      
+
       {/* DESKTOP SIDEBAR */}
       <aside className="hidden md:flex flex-col w-64 bg-[#0B1221] border-r border-[#1E293B] h-full flex-shrink-0 z-20">
         {/* Logo Area */}
@@ -137,5 +139,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </main>
     </div>
+    </ProfileCompletionGate>
   );
 }
