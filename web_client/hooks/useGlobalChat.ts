@@ -7,25 +7,44 @@ export function useGlobalChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pinnedMessage, setPinnedMessage] = useState<ChatMessage | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     // 1. Watch Messages
     const qMsgs = query(collection(db, 'globalChatroom'), orderBy('createdAtMs', 'desc'), limit(120));
-    const unsubMsgs = onSnapshot(qMsgs, (snap) => {
-      setMessages(snap.docs.map(d => ({ ...d.data(), messageId: d.id } as ChatMessage)));
-      setLoading(false);
-    });
+    const unsubMsgs = onSnapshot(
+      qMsgs,
+      (snap) => {
+        setMessages(snap.docs.map(d => ({ ...d.data(), messageId: d.id } as ChatMessage)));
+        setLoading(false);
+      },
+      (err) => {
+        // Without this, a query failure (e.g. permission-denied) left
+        // `loading` stuck at true forever with no error ever surfaced —
+        // the screen just spins indefinitely with nothing in the console
+        // to diagnose from.
+        console.error('[useGlobalChat] messages query failed:', err);
+        setError(err.message);
+        setLoading(false);
+      },
+    );
 
     // 2. Watch Pinned Message
     const qPinned = query(collection(db, 'globalChatroom'), where('pinned', '==', true), orderBy('pinnedAt', 'desc'), limit(1));
-    const unsubPinned = onSnapshot(qPinned, (snap) => {
-      setPinnedMessage(snap.docs.length > 0 ? { ...snap.docs[0].data(), messageId: snap.docs[0].id } as ChatMessage : null);
-    });
+    const unsubPinned = onSnapshot(
+      qPinned,
+      (snap) => {
+        setPinnedMessage(snap.docs.length > 0 ? { ...snap.docs[0].data(), messageId: snap.docs[0].id } as ChatMessage : null);
+      },
+      (err) => {
+        console.error('[useGlobalChat] pinned-message query failed:', err);
+      },
+    );
 
     return () => { unsubMsgs(); unsubPinned(); };
   }, []);
 
-  return { messages, pinnedMessage, loading };
+  return { messages, pinnedMessage, loading, error };
 }
 
 export function useGlobalChatAccess(userId: string | null) {

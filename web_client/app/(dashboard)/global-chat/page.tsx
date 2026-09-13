@@ -19,7 +19,7 @@ export default function GlobalChatScreen() {
     return () => unsub();
   }, []);
 
-  const { messages, pinnedMessage, loading } = useGlobalChat();
+  const { messages, pinnedMessage, loading, error: chatError } = useGlobalChat();
   const { status, moderation, allowSenderPin } = useGlobalChatAccess(authUid);
   
   const [text, setText] = useState('');
@@ -89,6 +89,18 @@ export default function GlobalChatScreen() {
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-[#BEF264]" /></div>;
+
+  if (chatError) {
+    return (
+      <div className="max-w-xl mx-auto pt-20 px-4">
+        <Glass className="p-8 bg-[#0B1221] border-[#1E293B] rounded-3xl text-center shadow-2xl">
+          <ShieldAlert className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-black text-white mb-2">Couldn&apos;t load Global Chat</h2>
+          <p className="text-sm font-medium text-gray-400">{chatError}</p>
+        </Glass>
+      </div>
+    );
+  }
 
   if (!hasAccess) {
     return (
