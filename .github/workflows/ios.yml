@@ -431,6 +431,27 @@ jobs:
           echo "✅ Certificate and profile installed"
 
       # ─────────────────────────────────────────
+      # 6b. DEBUG: inspect plugin registration before pod install
+      # Temporary diagnostic for the "No podspec found for
+      # webview_flutter_wkwebview" CocoaPods failure — prints exactly what
+      # Flutter's tooling registered so we can see whether the plugin (and
+      # its iOS symlink) actually exists before pod install runs.
+      # ─────────────────────────────────────────
+      - name: Debug - inspect plugin registration
+        run: |
+          echo "── .flutter-plugins-dependencies (ios-relevant) ──"
+          cat .flutter-plugins-dependencies 2>&1 || echo "FILE MISSING"
+          echo ""
+          echo "── ios/.symlinks/plugins listing ──"
+          ls -la ios/.symlinks/plugins/ 2>&1 || echo "DIR MISSING: ios/.symlinks/plugins"
+          echo ""
+          echo "── ios/.symlinks/plugins/webview_flutter_wkwebview listing ──"
+          ls -laR ios/.symlinks/plugins/webview_flutter_wkwebview/ 2>&1 || echo "DIR MISSING: webview_flutter_wkwebview symlink"
+          echo ""
+          echo "── pubspec.lock webview_flutter_wkwebview entry ──"
+          grep -A5 "webview_flutter_wkwebview:" pubspec.lock 2>&1 || echo "NOT IN pubspec.lock"
+
+      # ─────────────────────────────────────────
       # 7. COCOAPODS
       # ─────────────────────────────────────────
       - name: Install CocoaPods dependencies
