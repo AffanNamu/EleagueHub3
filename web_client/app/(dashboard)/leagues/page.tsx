@@ -64,10 +64,23 @@ export default function LeaguesListPage() {
     return () => unsubscribe();
   }, [router]);
 
+  // useLeagues() merges 5 separate onSnapshot listeners into a brand-new
+  // array on every emission (cache, then server, then any metadata change)
+  // even when the actual set of leagues hasn't changed. Keying this effect
+  // off that array's reference re-ran the whole secondary-data fetch storm
+  // (2 extra reads per league, plus premium/created-count/membership calls)
+  // on every one of those re-emissions — a thundering herd that could spike
+  // memory/CPU enough to crash the tab on a phone. Key off a stable string
+  // of ids instead, so it only re-fetches when leagues actually change.
+  const leagueIdsKey = useMemo(
+    () => leagues.map((l) => l.id).sort().join(','),
+    [leagues],
+  );
+
   // STRICT PARITY: Fetch secondary data when real-time leagues update
   useEffect(() => {
     if (!uid || leaguesLoading) return;
-    
+
     let isMounted = true;
     
     const loadSecondaryData = async () => {
@@ -112,7 +125,11 @@ export default function LeaguesListPage() {
 
     loadSecondaryData();
     return () => { isMounted = false; };
-  }, [uid, leagues, leaguesLoading]);
+    // Intentionally keyed on leagueIdsKey (stable) instead of `leagues` (a
+    // new reference on every snapshot re-emission) — see comment above
+    // leagueIdsKey's declaration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, leagueIdsKey, leaguesLoading]);
 
   const normalLeagues = useMemo(() => leagues.filter((l) => !leagueIsInsideMasterLeague(l)), [leagues]);
   const masterLeagues = useMemo(() => leagues.filter((l) => leagueIsInsideMasterLeague(l)), [leagues]);
