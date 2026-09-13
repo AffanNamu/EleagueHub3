@@ -23,6 +23,11 @@ export function leagueFormatDisplayName(f: LeagueFormat): string {
       return 'Series League';
     case 'worldCup':
       return 'World Cup';
+    default:
+      // A value that reaches here without going through
+      // leagueFormatFromInt (e.g. a raw Firestore numeric index) falls
+      // outside this union at runtime even though TS assumes it can't.
+      return 'Classic League';
   }
 }
 

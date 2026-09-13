@@ -43,12 +43,22 @@ export function categoryStorageValue(c: FootballCategory): string {
   return CATEGORY_META[c].storageValue;
 }
 
+// CATEGORY_META[c] assumes c is one of the 6 known keys. That's guaranteed
+// for any FootballCategory produced by footballCategoryFromStorage, but a
+// value that reaches here some other way (e.g. a raw Firestore string that
+// bypassed normalization) would otherwise throw reading .storageValue/
+// .emoji/.icon off undefined — an uncaught crash during render. Fall back
+// to Local Football's meta instead of trusting the type alone.
+function metaFor(c: FootballCategory): CategoryMeta {
+  return CATEGORY_META[c] ?? CATEGORY_META.localFootball;
+}
+
 export function categoryLabel(c: FootballCategory): string {
-  return CATEGORY_META[c].storageValue;
+  return metaFor(c).storageValue;
 }
 
 export function categoryEmoji(c: FootballCategory): string {
-  return CATEGORY_META[c].emoji;
+  return metaFor(c).emoji;
 }
 
 export function categoryBadgeLabel(c: FootballCategory): string {
@@ -56,7 +66,7 @@ export function categoryBadgeLabel(c: FootballCategory): string {
 }
 
 export function categoryIcon(c: FootballCategory): LucideIcon {
-  return CATEGORY_META[c].icon;
+  return metaFor(c).icon;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { LeagueData } from '@/lib/models/league';
+import { LeagueData, leagueFromRemoteMap } from '@/lib/models/league';
 
 export function useLeagues() {
   const [leagues, setLeagues] = useState<LeagueData[]>([]);
@@ -58,11 +58,7 @@ export function useLeagues() {
 
         const merged = new Map<string, LeagueData>();
         for (const docs of queryResults.values()) {
-          docs.forEach(d => {
-            // Guarantee ID exists exactly like Flutter's `map['id'] = entry.key;`
-            if (!d.id) d.id = d.id;
-            merged.set(d.id, d);
-          });
+          docs.forEach(d => merged.set(d.id, d));
         }
 
         setLeagues(Array.from(merged.values()));
@@ -71,9 +67,19 @@ export function useLeagues() {
 
       activeUnsubscribes = queries.map((q, index) =>
         onSnapshot(q, (snap) => {
+          // Raw-casting `{ id: d.id, ...d.data() } as LeagueData` (the
+          // previous code here) skips leagueFromRemoteMap's normalization
+          // entirely — footballCategory stays the raw Firestore storage
+          // string (e.g. "Local Football") instead of the union key
+          // (e.g. "localFootball"), and format stays the raw numeric
+          // index instead of the string union. categoryEmoji/categoryLabel
+          // in LeagueCard then index CATEGORY_META by that raw value,
+          // which isn't a valid key, and throw reading .emoji/.label off
+          // undefined — an uncaught render-time crash the instant a real
+          // league (not the loading skeleton) renders.
           queryResults.set(
             index,
-            snap.docs.map(d => ({ id: d.id, ...d.data() } as LeagueData))
+            snap.docs.map(d => leagueFromRemoteMap({ ...d.data(), id: d.id }))
           );
 
           if (loadedCount < queries.length) {
