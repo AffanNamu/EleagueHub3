@@ -76,19 +76,28 @@ export async function fetchMembershipsForUser(uid: string, leagues: LeagueData[]
   const trimmed = uid.trim();
   if (!trimmed || leagues.length === 0) return [];
 
-  const results = await Promise.all(
-    leagues.map(async (league) => {
-      try {
-        const snap = await getDoc(doc(db, 'leagues', league.id, 'memberships', trimmed));
-        if (snap.exists()) {
-          return membershipFromRemoteMap({ ...snap.data(), id: snap.id });
+  // Capped concurrency instead of one getDoc per league fired all at once
+  // — an account with many leagues could otherwise launch hundreds of
+  // simultaneous reads the instant the league list loads.
+  const CONCURRENCY = 8;
+  const results: (Membership | null)[] = [];
+  for (let i = 0; i < leagues.length; i += CONCURRENCY) {
+    const batch = leagues.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async (league) => {
+        try {
+          const snap = await getDoc(doc(db, 'leagues', league.id, 'memberships', trimmed));
+          if (snap.exists()) {
+            return membershipFromRemoteMap({ ...snap.data(), id: snap.id });
+          }
+        } catch (e) {
+          console.warn(`[leaguesRepository] membership read failed for ${league.id}:`, e);
         }
-      } catch (e) {
-        console.warn(`[leaguesRepository] membership read failed for ${league.id}:`, e);
-      }
-      return null;
-    }),
-  );
+        return null;
+      }),
+    );
+    results.push(...batchResults);
+  }
 
   return results.filter((m): m is Membership => m !== null);
 }

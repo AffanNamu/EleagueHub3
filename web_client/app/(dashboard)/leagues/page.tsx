@@ -94,17 +94,26 @@ export default function LeaguesListPage() {
 
         const counts: Record<string, number> = {};
         const anns: Record<string, LatestAnnouncement | null> = {};
-        
-        await Promise.all(
-          leagues.map(async (l) => {
-            const [count, ann] = await Promise.all([
-              countParticipants(l.id),
-              fetchLatestAnnouncement(l.id)
-            ]);
-            counts[l.id] = count;
-            anns[l.id] = ann;
-          }),
-        );
+
+        // Firing 2 Firestore reads per league via a single unbounded
+        // Promise.all meant an account with many leagues launched hundreds
+        // of simultaneous requests the instant loading finished — heavy
+        // enough to crash the tab on a phone. Cap concurrency instead of
+        // firing every league's reads at once.
+        const CONCURRENCY = 8;
+        for (let i = 0; i < leagues.length; i += CONCURRENCY) {
+          const batch = leagues.slice(i, i + CONCURRENCY);
+          await Promise.all(
+            batch.map(async (l) => {
+              const [count, ann] = await Promise.all([
+                countParticipants(l.id),
+                fetchLatestAnnouncement(l.id)
+              ]);
+              counts[l.id] = count;
+              anns[l.id] = ann;
+            }),
+          );
+        }
 
         if (!isMounted) return;
         
