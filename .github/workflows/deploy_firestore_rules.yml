@@ -15,8 +15,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Reuses the same FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY secrets
+      # already used by worker/src/index.js for its own Firebase Admin
+      # access, rather than requiring a separate key. That worker mints its
+      # own OAuth access tokens with a narrow, hand-picked scope list
+      # (identitytoolkit/datastore/androidpublisher) for its own requests —
+      # unrelated here, since firebase-tools requests whatever scopes it
+      # needs itself via Application Default Credentials. All that matters
+      # is the underlying service account's IAM role includes rules-deploy
+      # permission, true by default for the standard Firebase Admin SDK
+      # service account (Editor role) generated from Firebase Console.
+      # Mirrors worker/src/index.js's _serviceAccountPrivateKeyPem(): the
+      # secret may store the PEM with literal "\n" escapes instead of real
+      # newlines, so unescape defensively before embedding it in JSON.
       - name: Write service account key
-        run: echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}" > "${{ runner.temp }}/firebase-sa.json"
+        env:
+          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+        run: |
+          PRIVATE_KEY=$(printf '%s' "$FIREBASE_PRIVATE_KEY" | sed 's/\\n/\n/g')
+          jq -n \
+            --arg type "service_account" \
+            --arg project_id "esportlyic" \
+            --arg client_email "$FIREBASE_CLIENT_EMAIL" \
+            --arg private_key "$PRIVATE_KEY" \
+            '{type: $type, project_id: $project_id, client_email: $client_email, private_key: $private_key}' \
+            > "${{ runner.temp }}/firebase-sa.json"
 
       - name: Deploy Firestore rules
         env:
