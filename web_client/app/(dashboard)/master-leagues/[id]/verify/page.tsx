@@ -2,8 +2,11 @@
 
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { auth } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import { submitVerificationApplicationWeb, VerificationApplicationData } from '@/lib/masterLeagues/masterLeaguesRepository';
+import { getOrganizerVerificationFee, paymentsGloballyEnabled } from '@/lib/masterLeagues/pricing';
+import { payWithFlutterwave } from '@/lib/payments/flutterwavePay';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { Glass } from '@/components/ui/Glass';
 import { ArrowLeft, Loader2, ShieldCheck, UploadCloud, ShieldAlert } from 'lucide-react';
@@ -94,17 +97,51 @@ export default function OrganizerVerificationScreen() {
     setError('');
 
     try {
-      // 1. Upload Logo
+      if (!(await paymentsGloballyEnabled())) {
+        throw new Error('Payments are temporarily disabled by the administrator.');
+      }
+      const fee = await getOrganizerVerificationFee();
+      if (!fee) {
+        throw new Error('Verification price is not configured correctly.');
+      }
+
+      const mlSnap = await getDoc(doc(db, 'master_leagues', mlId));
+      const mlName = (mlSnap.data()?.name || 'your Master League').toString().trim();
+
+      // 1. Charge the real verification fee via Flutterwave and have the
+      // worker verify + record the payment (same path master-league plan
+      // subscriptions and league entry fees already use).
+      const payment = await payWithFlutterwave({
+        amount: fee.amount,
+        currency: fee.currency,
+        masterLeagueId: mlId,
+        leagueName: mlName,
+        productType: 'organizer_verification',
+        productSubType: 'master_league_organizer_verification',
+        description: `Organizer verification: ${mlName}`,
+        items: [{
+          productType: 'organizer_verification',
+          productSubType: 'master_league_organizer_verification',
+          quantity: 1,
+          amount: fee.amount,
+        }],
+        metadata: { masterLeagueId: mlId, verificationMode: 'initial' },
+      });
+
+      if (!payment.success) {
+        throw new Error(payment.errorMessage || 'Payment failed.');
+      }
+
+      // 2. Upload Logo
       const { secureUrl } = await uploadImageFile({ file: logoFile!, folder: 'eleaguehub/organizer_verification' });
 
-      // 2. We skip actual payments on Web for now (requires your payment gateway integration like Stripe/Flutterwave),
-      // so we will pass dummy payment data for testing. In production, wrap this in your payment flow.
+      // 3. Submit the application, tied to the real payment above.
       await submitVerificationApplicationWeb({
         mlId,
         authUid: uid,
-        attemptId: `web_attempt_${Date.now()}`,
-        paymentId: `web_payment_${Date.now()}`,
-        receiptId: `web_receipt_${Date.now()}`,
+        attemptId: payment.attemptId,
+        paymentId: payment.paymentId,
+        receiptId: payment.receiptId || '',
         application: { ...formData, logoUrl: secureUrl }
       });
 

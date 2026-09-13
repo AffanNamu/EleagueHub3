@@ -3,7 +3,7 @@ import { LeagueData } from '@/lib/models/league';
 import { useLeagueAccess } from '@/hooks/useLeagueAccess';
 import { useCouponRedemption } from '@/hooks/useCouponRedemption';
 import { payWithFlutterwave } from '@/lib/payments/flutterwavePay';
-import { getRemotePricingPlan } from '@/lib/payments/remotePricing';
+import { getRemotePricingPlan } from '@/lib/masterLeagues/pricing';
 
 import { Glass } from '@/components/ui/Glass';
 import { Loader2, Lock, Key, ShieldAlert } from 'lucide-react';
