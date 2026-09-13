@@ -21,8 +21,8 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 // Your real production Android Ad Unit ID
 const String _rewardedAndroid = 'ca-app-pub-9284565371998347/5830580550';
-// NOTE: Still using the test key for iOS. Update this when you set up your iOS app in AdMob!
-const String _rewardedIOS     = 'ca-app-pub-3940256099942544/1712485313';
+// Your real production iOS Ad Unit ID (rewarded interstitial)
+const String _rewardedIOS     = 'ca-app-pub-9284565371998347/8933717622';
 
 const Duration _loadTimeout = Duration(seconds: 15);
 

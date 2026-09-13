@@ -99,13 +99,11 @@
 	<string>This identifier will be used to deliver personalized ads to you.</string>
 
 	<!-- ══════════════════════════════════════════════════════════
-	     ADMOB — GADApplicationIdentifier below is a PLACEHOLDER.
-	     Your Android AdMob App ID (ca-app-pub-9284565371998347~4995728889)
-	     CANNOT be reused — AdMob requires a separate iOS app entry.
-	     Create one at admob.google.com and paste its ID here.
+	     ADMOB — iOS app entry, separate from the Android AdMob App ID
+	     (ca-app-pub-9284565371998347~4995728889).
 	     ══════════════════════════════════════════════════════════ -->
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-REPLACE-WITH-IOS-ADMOB-APP-ID~0000000000</string>
+	<string>ca-app-pub-9284565371998347~8223271180</string>
 
 	<!-- SKAdNetworkItems: minimum required Google network ID only.
 	     Google's own current full list (which changes over time, and
