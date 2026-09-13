@@ -664,24 +664,6 @@ service cloud.firestore {
       return (id is string) && id.matches('^[a-z0-9_]{3,20}$');
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Super-admin global bypass
-    // ─────────────────────────────────────────────────────────────────────────
-    // The single hardcoded super-admin uid (isSuperAdmin()) can read and
-    // write ANY document in the database, full stop — this is a deliberate,
-    // explicit "break glass" rule. Cloud Firestore unions every `match`
-    // block that applies to a given path: this recursive-wildcard block
-    // does not replace or narrow any rule below, it just adds an extra
-    // always-available "or allow if isSuperAdmin()" alongside them, so every
-    // existing rule for every other user is completely unchanged.
-    //
-    // Every other admin/delegated-admin check in this file (isPricingAdmin(),
-    // isBadgeAdminWrite(), etc.) stays scoped to its specific action — only
-    // this one uid gets unconditional access to everything.
-    match /{document=**} {
-      allow read, write: if isSuperAdmin();
-    }
-
     match /usernames/{username} {
       allow get: if true;
       allow list: if false;
