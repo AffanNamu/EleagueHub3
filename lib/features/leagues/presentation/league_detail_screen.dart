@@ -33,10 +33,12 @@ import 'package:intl/intl.dart' hide TextDirection;
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/routing/route_resolver.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../../core/widgets/share_button.dart';
 import '../../highlights/data/highlights_feed_repository_firebase.dart';
 import '../../highlights/domain/match_highlight.dart';
 import '../../highlights/presentation/league_highlights_section.dart';
@@ -503,6 +505,13 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       'space': space,
     };
 
+    // The AppBar's ShareButton reads _cachedData directly (it's built
+    // outside the FutureBuilder below, so it can't see the future's
+    // resolved value on its own) — trigger one rebuild once data is
+    // ready so the button actually appears instead of only showing up
+    // after some unrelated later rebuild.
+    if (mounted) setState(() {});
+
     return _cachedData!;
   }
 
@@ -696,6 +705,17 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
+          if (_cachedData?['league'] is League)
+            ShareButton(
+              entity: ShareableEntity(
+                type: ShareableEntityType.competition,
+                id: (_cachedData!['league'] as League).id,
+              ),
+              title: (_cachedData!['league'] as League).name,
+              description:
+                  '${(_cachedData!['league'] as League).format.displayName} • '
+                  '${(_cachedData!['league'] as League).season}',
+            ),
           IconButton(
             tooltip: l10n.tr('common_refresh'),
             onPressed: () {

@@ -79,6 +79,23 @@
                 <data android:scheme="esportlyic" android:host="auth" />
             </intent-filter>
 
+            <!-- Universal Sharing & Deep Linking (Android App Links).
+                 android:autoVerify="true" makes this a verified "App Link"
+                 (opens the app directly, no chooser dialog) once Android
+                 has verified the assetlinks.json file served at
+                 https://esportlyic.com/.well-known/assetlinks.json —
+                 see web_client/public/.well-known/assetlinks.json.
+                 Handles /u/{username}, /leagues/{id}, /team/{id},
+                 /post/{id}, /master-leagues/{id} — see
+                 lib/core/routing/route_resolver.dart. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="esportlyic.com" />
+                <data android:scheme="https" android:host="www.esportlyic.com" />
+            </intent-filter>
+
         </activity>
 
         <service

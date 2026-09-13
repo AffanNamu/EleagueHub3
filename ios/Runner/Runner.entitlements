@@ -27,5 +27,18 @@
 	<array>
 		<string>group.com.eleaguehub.app</string>
 	</array>
+
+	<!-- Universal Links (Android App Links equivalent) for Universal
+	     Sharing deep links — /u/{username}, /leagues/{id}, /team/{id},
+	     /post/{id}, /master-leagues/{id}, /join. Requires
+	     https://esportlyic.com/.well-known/apple-app-site-association
+	     (see web_client/public/.well-known/apple-app-site-association)
+	     to list this app's Team ID + bundle ID, or Apple will not
+	     associate this domain with the app. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:esportlyic.com</string>
+		<string>applinks:www.esportlyic.com</string>
+	</array>
 </dict>
 </plist>
