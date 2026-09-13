@@ -19,9 +19,10 @@ export default function GlobalChatScreen() {
     return () => unsub();
   }, []);
 
-  const { messages, pinnedMessage, loading, error: chatError } = useGlobalChat();
   const { status, moderation, allowSenderPin } = useGlobalChatAccess(authUid);
-  
+  const hasAccess = status === 'approved';
+  const { messages, pinnedMessage, loading, error: chatError } = useGlobalChat(hasAccess);
+
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [codeMode, setCodeMode] = useState(false);
@@ -30,8 +31,6 @@ export default function GlobalChatScreen() {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLInputElement>(null);
-
-  const hasAccess = status === 'approved';
 
   const handleRequestAccess = async () => {
     if (!auth.currentUser) return router.push('/login');

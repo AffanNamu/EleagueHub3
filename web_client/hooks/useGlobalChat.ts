@@ -3,13 +3,31 @@ import { collection, doc, query, orderBy, limit, where, onSnapshot } from 'fireb
 import { db } from '@/lib/firebase';
 import { ChatMessage } from '@/lib/chat/chatRepository';
 
-export function useGlobalChat() {
+export function useGlobalChat(enabled: boolean) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pinnedMessage, setPinnedMessage] = useState<ChatMessage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // firestore.rules gates get/list on globalChatroom behind
+    // canAccessGlobalChat() (an approved globalChatRequests doc, or super
+    // admin). Subscribing unconditionally on mount fired this query before
+    // the caller's access status was known, so anyone not yet approved got
+    // a permission-denied error here instead of ever reaching the "Request
+    // Access" screen. Only subscribe once the caller confirms access.
+    if (!enabled) {
+      // Resets state for the case `enabled` flips true -> false while
+      // mounted (e.g. access revoked mid-session); on first mount with
+      // `enabled` already false these are all already at their defaults.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMessages([]);
+      setPinnedMessage(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     // 1. Watch Messages
     const qMsgs = query(collection(db, 'globalChatroom'), orderBy('createdAtMs', 'desc'), limit(120));
     const unsubMsgs = onSnapshot(
@@ -42,7 +60,7 @@ export function useGlobalChat() {
     );
 
     return () => { unsubMsgs(); unsubPinned(); };
-  }, []);
+  }, [enabled]);
 
   return { messages, pinnedMessage, loading, error };
 }
