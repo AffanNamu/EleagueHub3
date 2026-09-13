@@ -1,0 +1,32 @@
+name: Deploy Firestore Rules
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'firestore.rules'
+      - 'firebase.json'
+      - '.github/workflows/deploy_firestore_rules.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write service account key
+        run: echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}" > "${{ runner.temp }}/firebase-sa.json"
+
+      - name: Deploy Firestore rules
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+        run: |
+          npx --yes firebase-tools deploy \
+            --only firestore:rules \
+            --project esportlyic \
+            --non-interactive
+
+      - name: Clean up credentials
+        if: always()
+        run: rm -f "${{ runner.temp }}/firebase-sa.json"
