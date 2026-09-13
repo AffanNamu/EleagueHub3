@@ -59,6 +59,18 @@ dependencies:
   just_audio: ^0.9.38
   path: ^1.9.0
   google_mobile_ads: ^5.1.0
+  # ── Explicit (not just transitive-via-google_mobile_ads) deps ──
+  # google_mobile_ads 5.x depends on these for its iOS WebView-based ad
+  # rendering, but as a purely transitive plugin dependency,
+  # webview_flutter_wkwebview's native iOS pod doesn't reliably get
+  # symlinked/registered by Flutter's CocoaPods tooling — a known Flutter
+  # issue (flutter/flutter#100480). Declaring it directly here fixes
+  # "Unable to find a specification for webview_flutter_wkwebview" during
+  # pod install. Versions pinned to match google_mobile_ads 5.3.1's own
+  # declared requirement exactly, to avoid a resolver conflict.
+  webview_flutter: ^4.10.0
+  webview_flutter_wkwebview: ^3.17.0
+  webview_flutter_android: ^4.3.1
   # ── Google Play Billing (Android in-app purchases) ──
   # Pinned in_app_purchase_android via override below to guarantee
   # Billing Library 8.0.0+ regardless of what in_app_purchase's own
