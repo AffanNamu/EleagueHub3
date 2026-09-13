@@ -17,7 +17,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Desktop Sidebar Navigation (Expanded for larger screens)
   const desktopNavItems = [
-    { href: '/', icon: Home, label: 'Home' },
+    { href: '/dashboard', icon: Home, label: 'Home' },
     { href: '/leagues', icon: Trophy, label: 'Competitions' },
     { href: '/master-leagues', icon: LayoutDashboard, label: 'Workspaces' },
     { href: '/discovery/community', icon: MessageSquare, label: 'Community' },
@@ -28,7 +28,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Mobile Bottom Navigation (Strictly matches Flutter HomeShell's 5 tabs)
   const mobileNavItems = [
-    { href: '/', icon: Home, label: 'Home' },
+    { href: '/dashboard', icon: Home, label: 'Home' },
     { href: '/leagues', icon: Trophy, label: 'Leagues' },
     { href: '/discovery/community', icon: Compass, label: 'Discover' },
     { href: '/marketplace', icon: Store, label: 'Market' },
@@ -37,9 +37,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Helper to determine active state precisely
   const isActiveRoute = (itemHref: string) => {
-    if (itemHref === '/') {
-      return pathname === '/';
-    }
     return pathname === itemHref || pathname.startsWith(`${itemHref}/`);
   };
 
