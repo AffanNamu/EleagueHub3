@@ -16,7 +16,7 @@ import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../../master_leagues/domain/organizer_feed_event.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../social/ui/widgets/notification_bell_button.dart';
-import '../../social/ui/widgets/platform_announcement_banner.dart';
+import 'widgets/home_content_widgets.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
   final v = l10n.tr(key);
@@ -364,8 +364,11 @@ class _HomeTab extends StatelessWidget {
       ),
       padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 100),
       children: [
-        // ── Platform announcement banner ────────────────────────────────
-        const PlatformAnnouncementBanner(),
+        // ── Home content: hero + promo strip (admin-controlled) ─────────
+        // Announcements now show as a modal bottom sheet instead of the
+        // old inline banner.
+        const HomeAnnouncementTrigger(),
+        const HomeContentSection(),
 
         // ── Welcome hero ────────────────────────────────────────────────
         Glass(

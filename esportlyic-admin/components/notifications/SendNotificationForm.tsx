@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Send, CheckCircle2 } from 'lucide-react';
 import { useSendNotification } from '@/hooks/useSendNotification';
 import type { NotificationSegment } from '@/types/notification';
+import type { AnnouncementSeverity } from '@/types/homeContent';
 
 export function SendNotificationForm() {
   const { send, submitting, error, result } = useSendNotification();
@@ -12,6 +13,7 @@ export function SendNotificationForm() {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [postToHomeScreen, setPostToHomeScreen] = useState(true);
+  const [homeScreenSeverity, setHomeScreenSeverity] = useState<AnnouncementSeverity>('info');
 
   async function handleSubmit() {
     if (!confirm(`Send this notification to segment "${segment}"? This cannot be undone.`)) return;
@@ -21,6 +23,7 @@ export function SendNotificationForm() {
       title,
       body,
       postToHomeScreen: segment === 'all' && postToHomeScreen,
+      homeScreenSeverity,
     });
   }
 
@@ -39,7 +42,7 @@ export function SendNotificationForm() {
             Delivered to <span className="font-medium text-ink-primary">{result.successCount}</span> of{' '}
             {result.tokensFound} device(s) across {result.targetedUsers} targeted user(s).
             {result.failureCount > 0 && ` ${result.failureCount} failed (likely stale/uninstalled tokens).`}
-            {result.postedToHomeScreen && ' Also posted as a home screen banner.'}
+            {result.postedToHomeScreen && ' Also posted as a home screen announcement.'}
           </p>
         </div>
       )}
@@ -92,21 +95,37 @@ export function SendNotificationForm() {
       </div>
 
       {segment === 'all' && (
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-sm bg-base-raised px-3 py-2.5">
-          <input
-            type="checkbox"
-            checked={postToHomeScreen}
-            onChange={(event) => setPostToHomeScreen(event.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded-sm border-base-border bg-base text-brand focus:ring-brand"
-          />
-          <div>
-            <p className="text-sm text-ink-primary">Also post as a home screen banner</p>
-            <p className="text-xs text-ink-secondary">
-              Push notifications alone may not show while a user has the app open. This posts a
-              persistent banner every user sees, closing that gap.
-            </p>
-          </div>
-        </label>
+        <div className="space-y-3 rounded-sm bg-base-raised px-3 py-2.5">
+          <label className="flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={postToHomeScreen}
+              onChange={(event) => setPostToHomeScreen(event.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded-sm border-base-border bg-base text-brand focus:ring-brand"
+            />
+            <div>
+              <p className="text-sm text-ink-primary">Also show as a home screen announcement</p>
+              <p className="text-xs text-ink-secondary">
+                Push notifications alone may not show while a user has the app open. This shows a
+                dismissible bottom sheet the next time they open the home screen, closing that gap.
+              </p>
+            </div>
+          </label>
+          {postToHomeScreen && (
+            <div>
+              <label className="mb-1.5 block text-xs text-ink-secondary">Severity</label>
+              <select
+                value={homeScreenSeverity}
+                onChange={(event) => setHomeScreenSeverity(event.target.value as AnnouncementSeverity)}
+                className="w-full rounded-sm border border-base-border bg-base px-3 py-1.5 text-sm text-ink-primary outline-none focus:border-brand"
+              >
+                <option value="info">Info</option>
+                <option value="warning">Warning</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+          )}
+        </div>
       )}
 
       <button

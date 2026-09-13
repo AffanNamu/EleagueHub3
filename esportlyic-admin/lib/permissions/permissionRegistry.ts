@@ -26,6 +26,8 @@ export const PERMISSIONS: PermissionDefinition[] = [
   // Content & Engagement
   { id: 'content.view', label: 'View Content', description: 'View public posts and comments.', category: 'Content & Engagement' },
   { id: 'content.moderate', label: 'Moderate Content', description: 'Remove posts and comments that violate platform rules.', category: 'Content & Engagement' },
+  { id: 'home_content.view', label: 'View Home Content', description: 'View hero banners, promo cards, and announcements shown on the app/web home screen.', category: 'Content & Engagement' },
+  { id: 'home_content.manage', label: 'Manage Home Content', description: 'Create, edit, publish, unpublish, or delete hero banners, promo cards, and announcements.', category: 'Content & Engagement' },
 
   // Trust & Safety
   { id: 'reports.view', label: 'View Reports', description: 'View user-submitted reports.', category: 'Trust & Safety' },

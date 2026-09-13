@@ -3,8 +3,10 @@ import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
 import { sendNotification, NotificationSendError } from '@/lib/repositories/notificationsAdminRepository';
 import type { NotificationSegment } from '@/types/notification';
+import type { AnnouncementSeverity } from '@/types/homeContent';
 
 const VALID_SEGMENTS: NotificationSegment[] = ['all', 'pro', 'elite', 'league'];
+const VALID_SEVERITIES: AnnouncementSeverity[] = ['info', 'warning', 'critical'];
 
 export async function POST(request: Request) {
   const identity = await getCurrentAdminIdentity();
@@ -26,6 +28,7 @@ export async function POST(request: Request) {
         title: body?.title ?? '',
         body: body?.body ?? '',
         postToHomeScreen: body?.postToHomeScreen === true,
+        homeScreenSeverity: VALID_SEVERITIES.includes(body?.homeScreenSeverity) ? body.homeScreenSeverity : undefined,
       },
       { uid: identity!.uid, email: identity!.email },
     );

@@ -13,6 +13,7 @@ import {
   Building2,
   FileText,
   MessagesSquare,
+  Sparkles,
   FileWarning,
   FolderSearch,
   MessageCircle,
@@ -69,6 +70,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Posts', href: '/content/posts', icon: FileText, permission: 'content.view' },
       { label: 'Discussions', href: '/content/discussions', icon: MessagesSquare, permission: 'content.view' },
+      { label: 'Home Content', href: '/content/home', icon: Sparkles, permission: 'home_content.view' },
     ],
   },
   {

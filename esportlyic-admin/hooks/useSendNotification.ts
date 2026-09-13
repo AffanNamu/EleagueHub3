@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { NotificationSegment, SendNotificationResult } from '@/types/notification';
+import type { AnnouncementSeverity } from '@/types/homeContent';
 
 export function useSendNotification() {
   const [submitting, setSubmitting] = useState(false);
@@ -14,6 +15,7 @@ export function useSendNotification() {
     title: string;
     body: string;
     postToHomeScreen: boolean;
+    homeScreenSeverity?: AnnouncementSeverity;
   }) {
     setSubmitting(true);
     setError(null);

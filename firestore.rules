@@ -889,6 +889,23 @@ service cloud.firestore {
           )
 
           || (
+            // Per-user "seen" cursors for platform_announcements and the
+            // newer home_content announcements — plain read-tracking
+            // timestamps, no validation needed beyond type. NOTE: the
+            // client (markAllSeenWeb/markAllSeen, and the new
+            // markAnnouncementSeenWeb/markAnnouncementSeen) writes these
+            // bare, without userId/updatedAt, so they must NOT be listed
+            // here — including them would make hasOnly() reject the real
+            // payload and this write would still silently fail (the
+            // caller wraps it in try/catch, so a rules mismatch here is
+            // invisible until someone actually checks whether "seen"
+            // state persists).
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastSeenAnnouncementAtMs','lastSeenHomeAnnouncementAtMs'])
+            && (!('lastSeenAnnouncementAtMs' in request.resource.data) || isNumericMs(request.resource.data.lastSeenAnnouncementAtMs))
+            && (!('lastSeenHomeAnnouncementAtMs' in request.resource.data) || isNumericMs(request.resource.data.lastSeenHomeAnnouncementAtMs))
+          )
+
+          || (
             request.resource.data.diff(resource.data).changedKeys().hasOnly(['photoUrl','profileImageUrl','teamImageUrl','userId','updatedAt'])
             && (!('photoUrl' in request.resource.data) || (request.resource.data.photoUrl is string))
             && (!('profileImageUrl' in request.resource.data) || (request.resource.data.profileImageUrl is string))
@@ -2391,6 +2408,16 @@ service cloud.firestore {
     }
 
     match /platform_announcements/{docId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // Admin-controlled Home Content CMS (hero banners, promo cards,
+    // announcements). Real gating happens in esportlyic-admin's API
+    // routes via the granular home_content.manage permission (Admin SDK,
+    // bypasses this rule same as notifications/moderation do) — this is
+    // just the client-write backstop, same pattern as platform_announcements.
+    match /home_content/{docId} {
       allow read: if true;
       allow write: if isSuperAdmin();
     }

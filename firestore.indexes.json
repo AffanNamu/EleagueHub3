@@ -1,6 +1,20 @@
 {
   "indexes": [
     {
+      "collectionGroup": "home_content",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "active",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "order",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "leagues",
       "queryScope": "COLLECTION",
       "fields": [

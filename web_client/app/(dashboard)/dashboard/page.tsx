@@ -2,19 +2,21 @@
 
 import React, { useEffect, useState } from 'react';
 import { Glass } from '@/components/ui/Glass';
-import { 
-  Trophy, Gamepad2, Users, ArrowRight, Activity, 
-  ChevronRight, Swords, Radio, Plus, QrCode, Loader2
+import {
+  Trophy, Gamepad2, Users,
+  ChevronRight, Swords, Plus, QrCode
 } from 'lucide-react';
 import Link from 'next/link';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { usePlatformAnnouncements } from '@/hooks/usePlatformAnnouncements';
-import { formatDistanceToNow } from 'date-fns';
+import { useHomeContent } from '@/hooks/useHomeContent';
+import { HeroBanner } from '@/components/home/HeroBanner';
+import { PromoStrip } from '@/components/home/PromoStrip';
+import { AnnouncementSheet } from '@/components/home/AnnouncementSheet';
 
 export default function DashboardHomeScreen() {
   const [userName, setUserName] = useState<string>('Commander');
-  const { announcements, loading: commsLoading } = usePlatformAnnouncements(3);
+  const { hero, promoCards, announcement } = useHomeContent();
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -31,7 +33,8 @@ export default function DashboardHomeScreen() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-20">
-      
+      <AnnouncementSheet announcement={announcement} />
+
       {/* 1. WELCOME HEADER & STATS MATRIX */}
       <div className="flex flex-col lg:flex-row gap-6 lg:items-end justify-between">
         <div>
@@ -79,27 +82,7 @@ export default function DashboardHomeScreen() {
         
         {/* LEFT COLUMN: Hero Focus & Fixtures */}
         <div className="xl:col-span-2 space-y-6">
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0B1221] to-[#070B14] border border-[#1E293B] p-8 group">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-brand-lime/10 blur-[80px] rounded-full pointer-events-none group-hover:bg-brand-lime/20 transition-all duration-700"></div>
-            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-              <div className="space-y-4 max-w-lg">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-lime/10 border border-brand-lime/20 text-brand-lime text-xs font-black uppercase tracking-widest">
-                  <Radio className="w-3 h-3 animate-pulse" /> Platform Ready
-                </div>
-                <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight leading-tight">
-                  No Active Tournaments
-                </h2>
-                <p className="text-gray-400 font-medium">
-                  Create a new tournament or join an existing arena to start competing on the global circuit.
-                </p>
-                <div className="pt-2">
-                  <Link href="/leagues/create" className="inline-flex items-center gap-2 px-6 py-3 bg-brand-lime text-[#070B14] font-black rounded-xl hover:brightness-110 transition-all shadow-[0_0_20px_rgba(182,255,0,0.15)]">
-                    Create Tournament <ArrowRight className="w-4 h-4" />
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
+          <HeroBanner items={hero} />
 
           <Glass className="p-1 md:p-6 border border-[#1E293B]">
             <div className="flex items-center justify-between mb-6 px-3 md:px-0">
@@ -143,56 +126,16 @@ export default function DashboardHomeScreen() {
             </Link>
           </div>
 
-          {/* REAL-TIME GLOBAL COMMS */}
-          <Glass className="p-5 border border-[#1E293B]">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-[#A78BFA]" />
-                <h3 className="text-sm font-black text-white uppercase tracking-wider">System Comms</h3>
+          {/* PROMO STRIP */}
+          {promoCards.length > 0 && (
+            <Glass className="p-5 border border-[#1E293B]">
+              <div className="flex items-center gap-2 mb-4">
+                <Swords className="w-4 h-4 text-[#A78BFA]" />
+                <h3 className="text-sm font-black text-white uppercase tracking-wider">What&apos;s New</h3>
               </div>
-              <Link href="/notifications" className="text-xs font-bold text-[#A78BFA] hover:underline">View all</Link>
-            </div>
-
-            <div className="space-y-4">
-              {commsLoading ? (
-                <div className="flex justify-center py-6">
-                  <Loader2 className="w-6 h-6 animate-spin text-[#A78BFA]" />
-                </div>
-              ) : announcements.length === 0 ? (
-                <div className="text-center py-6">
-                  <p className="text-xs text-gray-500 font-medium">All systems operational.</p>
-                </div>
-              ) : (
-                announcements.map((ann) => {
-                  let colorClass = 'bg-[#A78BFA]';
-                  let textClass = 'text-[#A78BFA]';
-                  let typeLabel = 'Platform Update';
-
-                  if (ann.severity === 'warning') {
-                    colorClass = 'bg-brand-lime';
-                    textClass = 'text-brand-lime';
-                    typeLabel = 'Warning';
-                  } else if (ann.severity === 'critical') {
-                    colorClass = 'bg-brand-red';
-                    textClass = 'text-brand-red';
-                    typeLabel = 'Critical Alert';
-                  }
-
-                  return (
-                    <div key={ann.id} className="p-4 rounded-xl bg-[#070B14] border border-[#1E293B] relative overflow-hidden">
-                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${colorClass}`}></div>
-                      <p className={`text-[10px] ${textClass} font-black mb-1.5 tracking-widest uppercase`}>{typeLabel}</p>
-                      <h4 className="text-sm font-bold text-white mb-2 leading-snug">{ann.title}</h4>
-                      <p className="text-xs text-gray-400 leading-relaxed whitespace-pre-wrap">{ann.message}</p>
-                      <p className="text-[10px] text-gray-600 font-bold mt-3 tracking-wider uppercase">
-                        {formatDistanceToNow(ann.createdAtMs)} AGO
-                      </p>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </Glass>
+              <PromoStrip items={promoCards} />
+            </Glass>
+          )}
         </div>
       </div>
     </div>
