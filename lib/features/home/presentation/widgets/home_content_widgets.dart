@@ -21,7 +21,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
-import '../../data/home_content_repository.dart';
+import '../../../social/data/home_content_repository.dart';
 
 void _navigate(BuildContext context, String route) {
   if (route.trim().isEmpty) return;
