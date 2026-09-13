@@ -47,6 +47,11 @@ build/Release
 # Dependency directories
 node_modules/
 
+# Next.js build output (web_client already has its own /.next/ ignore;
+# esportlyic-admin's was mistakenly committed at some point, generating
+# large diffs on every dev/build run — untracked and ignored here).
+esportlyic-admin/.next/
+
 # Optional npm cache directory
 .npm
 
