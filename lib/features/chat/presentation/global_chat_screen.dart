@@ -407,8 +407,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
           final selecting = (selectedId ?? '').trim().isNotEmpty;
 
           if (!selecting) {
-            return const AppBar(
-              title: Text('Global Chat'),
+            return AppBar(
+              title: const Text('Global Chat'),
             );
           }
 
