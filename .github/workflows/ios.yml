@@ -240,6 +240,11 @@ jobs:
           	<array>
           		<string>group.com.eleaguehub.app</string>
           	</array>
+          	<key>com.apple.developer.associated-domains</key>
+          	<array>
+          		<string>applinks:esportlyic.com</string>
+          		<string>applinks:www.esportlyic.com</string>
+          	</array>
           </dict>
           </plist>
           ENTITLEMENTS
