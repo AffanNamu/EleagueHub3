@@ -16,11 +16,13 @@ import { UsernameEditModal } from '@/components/profile/UsernameEditModal';
 import { VerificationBadgeIcons } from '@/components/profile/VerificationBadgeIcons';
 import { StatsRow } from '@/components/profile/StatsRow';
 import { ReportUserModal } from '@/components/profile/ReportUserModal';
+import { CreateStatusModal } from '@/components/status/CreateStatusModal';
+import { watchHasActiveStatusWeb } from '@/lib/status/statusRepository';
 
 import {
   Loader2, User, Trophy, ShieldCheck, Edit2, Camera, AtSign,
   MessageSquare, UserPlus, UserCheck, MoreVertical, Copy, Link as LinkIcon, Flag, ShieldAlert,
-  Settings, LogOut, Image as ImageIcon, Users, Gamepad2
+  Settings, LogOut, Image as ImageIcon, Users, Gamepad2, Plus
 } from 'lucide-react';
 
 /**
@@ -56,6 +58,13 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
   const [badges, setBadges] = useState<ResolvedVerificationBadges>({ staff: false, organizer: false, green: false, verified: false });
   const [shareId, setShareId] = useState('');
   const [usernameLower, setUsernameLower] = useState('');
+  const [activePlanId, setActivePlanId] = useState('');
+
+  // Feature 2 — Status: mirrors public_team_profile_screen.dart's
+  // avatar ring + tap-to-view/create behavior.
+  const [hasActiveStatus, setHasActiveStatus] = useState(false);
+  const [createStatusOpen, setCreateStatusOpen] = useState(false);
+  const eligibleForStatus = activePlanId === 'pro' || activePlanId === 'elite';
 
   // Interactions
   const [isFollowing, setIsFollowing] = useState(false);
@@ -97,6 +106,7 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
 
           setShareId(data.shareId || `eS${targetUid.substring(0, 8)}`);
           setUsernameLower(data.usernameLower || '');
+          setActivePlanId((data.activePlanId || '').trim());
         }
 
         if (authUser && !isOwner) {
@@ -111,6 +121,11 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
 
     if (targetUid) fetchUserData();
   }, [targetUid, authUser, isOwner]);
+
+  useEffect(() => {
+    if (!targetUid) return;
+    return watchHasActiveStatusWeb(targetUid, setHasActiveStatus);
+  }, [targetUid]);
 
   // Mirrors profile_screen.dart calling UserSearchRepository.backfillCountryIfMissing()
   // on load — self-heals "Teams Near You" eligibility for accounts that
@@ -271,16 +286,34 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
           )}
 
           <div className="absolute -bottom-12 left-6 md:left-10 flex items-end">
-            <div onClick={() => isOwner && !uploadingAvatar && avatarInputRef.current?.click()} className={`relative w-28 h-28 md:w-32 md:h-32 rounded-full border-4 border-[#0B1221] bg-[#1E293B] shadow-2xl overflow-hidden ${isOwner ? 'cursor-pointer group/avatar' : ''}`}>
-              {photoUrl ? (
-                <img src={photoUrl} className="w-full h-full object-cover transition-opacity group-hover/avatar:opacity-50" alt="Avatar" />
-              ) : (
-                <User className="w-12 h-12 m-auto text-gray-500 mt-8 group-hover/avatar:opacity-50"/>
-              )}
-              {isOwner && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/avatar:opacity-100 transition-opacity">
-                  {uploadingAvatar ? <Loader2 className="w-6 h-6 text-white animate-spin"/> : <Camera className="w-6 h-6 text-white"/>}
-                </div>
+            <div className="relative">
+              <div
+                onClick={() => isOwner && !uploadingAvatar && avatarInputRef.current?.click()}
+                className={`relative w-28 h-28 md:w-32 md:h-32 rounded-full border-4 ${hasActiveStatus ? 'border-[#BEF264]' : 'border-[#0B1221]'} bg-[#1E293B] shadow-2xl overflow-hidden ${isOwner ? 'cursor-pointer group/avatar' : ''}`}
+              >
+                {photoUrl ? (
+                  <img src={photoUrl} className="w-full h-full object-cover transition-opacity group-hover/avatar:opacity-50" alt="Avatar" />
+                ) : (
+                  <User className="w-12 h-12 m-auto text-gray-500 mt-8 group-hover/avatar:opacity-50"/>
+                )}
+                {isOwner && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/avatar:opacity-100 transition-opacity">
+                    {uploadingAvatar ? <Loader2 className="w-6 h-6 text-white animate-spin"/> : <Camera className="w-6 h-6 text-white"/>}
+                  </div>
+                )}
+              </div>
+              {(hasActiveStatus || (isOwner && eligibleForStatus)) && (
+                <button
+                  title={hasActiveStatus ? 'View status' : 'Add status'}
+                  onClick={() => (hasActiveStatus ? router.push(`/status/${targetUid}`) : setCreateStatusOpen(true))}
+                  className="absolute -right-1 -bottom-1 w-7 h-7 rounded-full bg-[#BEF264] border-2 border-[#0B1221] flex items-center justify-center shadow-lg"
+                >
+                  {hasActiveStatus ? (
+                    <span className="w-2 h-2 rounded-full bg-[#0F172A]" />
+                  ) : (
+                    <Plus className="w-3.5 h-3.5 text-[#0F172A]" strokeWidth={3} />
+                  )}
+                </button>
               )}
             </div>
             {isOwner && (
@@ -445,6 +478,13 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
           targetUserId={targetUid}
           onClose={() => setReportModalOpen(false)}
           onSubmitted={() => { setReportModalOpen(false); alert('Report submitted. Thank you.'); }}
+        />
+      )}
+
+      {isOwner && createStatusOpen && (
+        <CreateStatusModal
+          onClose={() => setCreateStatusOpen(false)}
+          onPosted={() => setCreateStatusOpen(false)}
         />
       )}
     </div>

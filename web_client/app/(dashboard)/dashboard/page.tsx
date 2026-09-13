@@ -150,8 +150,9 @@ export default function DashboardHomeScreen() {
                 <Activity className="w-4 h-4 text-[#A78BFA]" />
                 <h3 className="text-sm font-black text-white uppercase tracking-wider">System Comms</h3>
               </div>
+              <Link href="/notifications" className="text-xs font-bold text-[#A78BFA] hover:underline">View all</Link>
             </div>
-            
+
             <div className="space-y-4">
               {commsLoading ? (
                 <div className="flex justify-center py-6">
@@ -167,14 +168,14 @@ export default function DashboardHomeScreen() {
                   let textClass = 'text-[#A78BFA]';
                   let typeLabel = 'Platform Update';
 
-                  if (ann.type === 'alert') {
+                  if (ann.severity === 'warning') {
                     colorClass = 'bg-brand-lime';
                     textClass = 'text-brand-lime';
-                    typeLabel = 'Event Alert';
-                  } else if (ann.type === 'maintenance') {
+                    typeLabel = 'Warning';
+                  } else if (ann.severity === 'critical') {
                     colorClass = 'bg-brand-red';
                     textClass = 'text-brand-red';
-                    typeLabel = 'System Alert';
+                    typeLabel = 'Critical Alert';
                   }
 
                   return (
