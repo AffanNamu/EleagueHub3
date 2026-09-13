@@ -250,7 +250,9 @@ jobs:
           ENTITLEMENTS
 
           cat > ios/Podfile <<'PODFILE'
-          platform :ios, '13.0'
+          # Flutter 3.47+ bumped the engine pod's own minimum to iOS 15.0 —
+          # CocoaPods fails to resolve the "Flutter" pod if this is lower.
+          platform :ios, '15.0'
           ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
           project 'Runner', {
@@ -287,7 +289,7 @@ jobs:
             installer.pods_project.targets.each do |target|
               flutter_additional_ios_build_settings(target)
               target.build_configurations.each do |config|
-                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
               end
             end
           end
