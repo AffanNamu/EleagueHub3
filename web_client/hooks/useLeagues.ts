@@ -9,7 +9,28 @@ export function useLeagues() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // auth.onAuthStateChanged does NOT use a listener callback's return
+    // value for cleanup (it's a plain observer, not an effect) — a
+    // `return () => {...}` written inside that callback, as this used to
+    // do, is silently discarded and never runs. onAuthStateChanged fires
+    // more than once per session (at least once on mount and again once
+    // Firebase finishes restoring persisted auth, plus again on token
+    // refresh/tab visibility changes), so every re-fire was piling on
+    // another 5 live Firestore listeners with the previous batch never
+    // torn down — an unbounded listener leak that compounds over a
+    // session and was the real cause of /leagues eventually crashing the
+    // tab. Track the current batch outside the callback instead, and
+    // tear it down both before starting a new batch and on unmount.
+    let activeUnsubscribes: Unsubscribe[] = [];
+
+    function teardownActiveListeners() {
+      activeUnsubscribes.forEach((unsub) => unsub());
+      activeUnsubscribes = [];
+    }
+
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      teardownActiveListeners();
+
       if (!user) {
         setLeagues([]);
         setLoading(false);
@@ -29,33 +50,32 @@ export function useLeagues() {
         query(leaguesRef, where('organizerUserId', '==', uid)),
       ];
 
-      const unsubscribes: Unsubscribe[] = [];
       const queryResults = new Map<number, LeagueData[]>();
       let loadedCount = 0;
 
       const handleData = () => {
         if (loadedCount < queries.length) return;
-        
+
         const merged = new Map<string, LeagueData>();
         for (const docs of queryResults.values()) {
           docs.forEach(d => {
             // Guarantee ID exists exactly like Flutter's `map['id'] = entry.key;`
-            if (!d.id) d.id = d.id; 
+            if (!d.id) d.id = d.id;
             merged.set(d.id, d);
           });
         }
-        
+
         setLeagues(Array.from(merged.values()));
         setLoading(false);
       };
 
-      queries.forEach((q, index) => {
-        const unsub = onSnapshot(q, (snap) => {
+      activeUnsubscribes = queries.map((q, index) =>
+        onSnapshot(q, (snap) => {
           queryResults.set(
-            index, 
+            index,
             snap.docs.map(d => ({ id: d.id, ...d.data() } as LeagueData))
           );
-          
+
           if (loadedCount < queries.length) {
             loadedCount++;
           }
@@ -63,17 +83,14 @@ export function useLeagues() {
         }, (err) => {
           console.error(`[useLeagues] Query ${index} failed:`, err);
           setError(err.message);
-        });
-        
-        unsubscribes.push(unsub);
-      });
-
-      return () => {
-        unsubscribes.forEach(unsub => unsub());
-      };
+        })
+      );
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      teardownActiveListeners();
+    };
   }, []);
 
   return { leagues, loading, error };

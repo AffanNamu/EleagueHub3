@@ -9,7 +9,23 @@ export function usePrivateThreads() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // auth.onAuthStateChanged does not use a callback's return value for
+    // cleanup (it's a plain observer, not an effect) — the
+    // `return () => unsubSnap()` this used to have inside the callback was
+    // silently discarded and never ran. onAuthStateChanged can fire more
+    // than once per session (mount, persisted-auth restore, token
+    // refresh), so every re-fire left the previous onSnapshot listener
+    // running forever on top of a new one — an unbounded listener leak.
+    // Track it outside the callback and tear it down before starting a
+    // new one and on unmount (same fix as useLeagues.ts).
+    let activeUnsub: (() => void) | null = null;
+
     const unsubAuth = auth.onAuthStateChanged(user => {
+      if (activeUnsub) {
+        activeUnsub();
+        activeUnsub = null;
+      }
+
       if (!user) {
         setThreads([]);
         setLoading(false);
@@ -22,18 +38,19 @@ export function usePrivateThreads() {
         orderBy('lastMessageAtMs', 'desc')
       );
 
-      const unsubSnap = onSnapshot(q, (snap) => {
+      activeUnsub = onSnapshot(q, (snap) => {
         setThreads(snap.docs.map(d => ({ id: d.id, ...d.data() } as PrivateThread)));
         setLoading(false);
       }, (err) => {
         console.error(err);
         setLoading(false);
       });
-
-      return () => unsubSnap();
     });
 
-    return () => unsubAuth();
+    return () => {
+      unsubAuth();
+      if (activeUnsub) activeUnsub();
+    };
   }, []);
 
   return { threads, loading };
