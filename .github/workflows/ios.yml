@@ -98,15 +98,20 @@ jobs:
           flutter config --no-analytics
           flutter doctor -v
 
-      - name: Install Flutter dependencies
-        run: flutter pub get
-
       # ─────────────────────────────────────────
       # 4b. GENERATE iOS PLATFORM PROJECT IF MISSING
       # You're building entirely from GitHub Actions (no local Mac), so
       # this has to happen here, every run, not on a developer machine.
       # `flutter create` is idempotent/safe to re-run — it only fills in
       # missing platform files, it will not overwrite your lib/ Dart code.
+      #
+      # MUST run before `flutter pub get` below: Flutter's tooling only
+      # symlinks each plugin's native pod into ios/.symlinks/plugins/*/ios
+      # when it recognizes the project as having iOS platform support
+      # (i.e. ios/Flutter/ already exists). Running pub get first left
+      # purely-transitive iOS plugins (e.g. webview_flutter_wkwebview,
+      # pulled in by google_mobile_ads) unsymlinked, causing CocoaPods to
+      # fail with "No podspec found for `webview_flutter_wkwebview`".
       # ─────────────────────────────────────────
       - name: Ensure iOS platform project exists
         run: |
@@ -117,6 +122,9 @@ jobs:
           else
             echo "ios/ Xcode project already present in repo — skipping generation."
           fi
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
 
       # ─────────────────────────────────────────
       # 4c. OVERLAY ANDROID-DERIVED iOS CONFIG
