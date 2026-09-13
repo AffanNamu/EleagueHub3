@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/services/app_admins_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/glass_scaffold.dart';
@@ -11,7 +10,6 @@ import '../../features/leagues/presentation/leagues_list_screen.dart';
 import '../../features/marketplace/presentation/marketplace_list_screen.dart';
 import '../../features/master_leagues/presentation/master_leagues_list_screen.dart';
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
-import 'screens/web_pricing_admin_screen.dart';
 import 'web_desktop_session_store.dart';
 
 // ---------------------------------------------------------------------------
@@ -40,14 +38,11 @@ class WebDesktopShellScreen extends StatefulWidget {
 class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
     with WidgetsBindingObserver {
   int _selectedIndex = 0;
-  bool _isAdmin = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    AppAdminsService.instance.ensureStarted();
-    _checkAdmin();
   }
 
   @override
@@ -59,31 +54,6 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
   @override
   void didChangeMetrics() {
     if (mounted) setState(() {});
-  }
-
-  Future<void> _checkAdmin() async {
-    final uid = widget.pairedUserUid.trim();
-    if (uid.isEmpty) return;
-
-    if (AppAdminsService.instance.isPricingAdminUid(uid)) {
-      if (mounted) setState(() => _isAdmin = true);
-      return;
-    }
-
-    // The dynamic admins stream may not have delivered its first snapshot
-    // yet — fall back to a one-shot fetch of the same doc it watches.
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('app')
-          .doc('admins')
-          .get();
-      if (!snap.exists) return;
-      final list = snap.data()?['pricingAdmins'];
-      if (list is List &&
-          list.any((v) => v.toString().trim() == uid)) {
-        if (mounted) setState(() => _isAdmin = true);
-      }
-    } catch (_) {}
   }
 
   List<_NavItem> get _navItems => [
@@ -112,12 +82,6 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
           icon: Icons.storefront_outlined,
           activeIcon: Icons.storefront_rounded,
         ),
-        if (_isAdmin)
-          const _NavItem(
-            label: 'Admin',
-            icon: Icons.admin_panel_settings_outlined,
-            activeIcon: Icons.admin_panel_settings_rounded,
-          ),
       ];
 
   int get _safeSelectedIndex {
@@ -283,11 +247,6 @@ class _WebDesktopShellScreenState extends State<WebDesktopShellScreen>
 
         case 'Marketplace':
           return const MarketplaceListScreen();
-
-        case 'Admin':
-          return WebPricingAdminScreen(
-            pairedUserUid: widget.pairedUserUid,
-          );
 
         default:
           return _HomePanel(

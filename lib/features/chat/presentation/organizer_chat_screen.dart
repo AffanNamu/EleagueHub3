@@ -81,14 +81,9 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
   User get _user => FirebaseAuth.instance.currentUser!;
 
-  // Matches firestore.rules' isSuperAdmin() — the literal super-admin uid,
-  // never delegatable, since it gates chat-moderation writes the rules
-  // hardcode the same way.
-  static const String _superAdminUid = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
-  bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
   bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;
   bool get _canModerateOrganizer =>
-      _isSuperAdmin || (_workspacePermsResolved && _workspaceOwnerOrStaff);
+      _workspacePermsResolved && _workspaceOwnerOrStaff;
 
   bool get _chatReadOnly => _chatMuted && !_canModerateOrganizer;
   bool get _chatBlocked => _chatBanned && !_canModerateOrganizer;

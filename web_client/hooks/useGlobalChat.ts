@@ -31,12 +31,10 @@ export function useGlobalChat() {
 export function useGlobalChatAccess(userId: string | null) {
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected' | 'none'>('none');
   const [moderation, setModeration] = useState({ muted: false, banned: false });
-  const [isAdmin, setIsAdmin] = useState(false);
-  // Mirrors global_chat_screen.dart's _allowSenderPinGlobal — whether a
-  // non-admin sender is allowed to pin their own message, toggled by
-  // admins via the app/admins doc. Firestore's canPinGlobalMessage()
-  // enforces this server-side regardless; this just keeps the UI's pin
-  // button from appearing when the write would be rejected.
+  // Whether any sender is allowed to pin their own message, toggled from
+  // esportlyic-admin via the app/admins doc. Firestore's
+  // canPinGlobalMessage() enforces this server-side regardless; this just
+  // keeps the UI's pin button from appearing when the write would be rejected.
   const [allowSenderPin, setAllowSenderPin] = useState(false);
 
   useEffect(() => {
@@ -53,21 +51,15 @@ export function useGlobalChatAccess(userId: string | null) {
       if (d.exists()) setModeration({ muted: d.data().allChatMuted, banned: d.data().allChatBanned });
     });
 
-    // Watch Admin Roles
+    // Watch sender-pin toggle
     const unsubAdmin = onSnapshot(doc(db, 'app', 'admins'), (d) => {
       if (d.exists()) {
-        const data = d.data();
-        const globalAdmins = data.globalChatAdmins || [];
-        // Matches firestore.rules' isSuperAdmin() — the literal super-admin
-        // uid, never delegatable — OR-ed with the delegatable globalChatAdmins
-        // list above (Dart's _isSuperAdmin || _isGlobalAdmin).
-        setIsAdmin(globalAdmins.includes(userId) || userId === 'QhYeBpvAoRV6j0xGigHkBth4qIG3');
-        setAllowSenderPin(data.allowGlobalSenderPin === true);
+        setAllowSenderPin(d.data().allowGlobalSenderPin === true);
       }
     });
 
     return () => { unsubReq(); unsubMod(); unsubAdmin(); };
   }, [userId]);
 
-  return { status, moderation, isAdmin, allowSenderPin };
+  return { status, moderation, allowSenderPin };
 }

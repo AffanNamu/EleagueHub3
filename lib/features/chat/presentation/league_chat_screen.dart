@@ -83,12 +83,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   User get _user => FirebaseAuth.instance.currentUser!;
 
-  // Matches firestore.rules' isSuperAdmin() — the literal super-admin uid,
-  // never delegatable, since it gates chat-moderation writes the rules
-  // hardcode the same way.
-  static const String _superAdminUid = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
-  bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
-
   bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;
 
   bool get _isOrganizerFromParam =>
@@ -97,7 +91,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       widget.organizerUid!.trim() == _user.uid.trim();
 
   bool get _canModerateLeague =>
-      _isSuperAdmin || _isOrganizerFromParam || (_leaguePermsResolved && _leagueOwnerOrOrganizer);
+      _isOrganizerFromParam || (_leaguePermsResolved && _leagueOwnerOrOrganizer);
 
   bool get _chatBlocked =>
       (_organizerChatBanned || _globalChatBanned) && !_canModerateLeague;

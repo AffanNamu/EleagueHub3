@@ -12,7 +12,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
-import '../../../core/services/app_admins_service.dart';
 import '../../../core/services/cloudinary_upload_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
@@ -21,11 +20,9 @@ import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
-import '../../admin/pricing_quick_editor_sheet.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/domain/username_utils.dart';
 import '../../auth/models/user_profile.dart';
-import '../../chat/presentation/global_chat_admin_requests_screen.dart';
 import '../../legal/affiliate_disclosure_screen.dart';
 import '../../legal/contact_screen.dart';
 import '../../legal/privacy_policy_screen.dart';
@@ -42,7 +39,6 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   static const int _maxBytes = 5 * 1024 * 1024;
-  static const String _superAdminUid = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
 
   bool _uploadingAvatar = false;
 
@@ -1130,16 +1126,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final user = FirebaseAuth.instance.currentUser;
     final uid = (user?.uid ?? '').trim();
 
-    final isSuperAdmin = uid == _superAdminUid;
-
-    if (uid.isNotEmpty) {
-      AppAdminsService.instance.ensureStarted();
-    }
-
     final themeState = ref.watch(themeControllerProvider);
-
-    final isPricingAdmin =
-        AppAdminsService.instance.isPricingAdminUid(uid);
 
     final repo = UserProfileRepository();
 
@@ -1832,75 +1819,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
-                if (isPricingAdmin || isSuperAdmin) ...[
-                  const SectionHeader('Admin'),
-                  const SizedBox(height: 12),
-                  Glass(
-                    borderRadius: 22,
-                    padding: const EdgeInsets.all(6),
-                    fill: AppTheme.cardColor(brightness),
-                    borderColor: AppTheme.cardBorder(brightness),
-                    child: Column(
-                      children: [
-                        // Super admin: the ONLY capability kept in this
-                        // screen is approving Global Chat access
-                        // requests. Everything else that used to live
-                        // here — Rewards Fulfillment, Marketplace
-                        // Upload, Staff/Ambassadors — has been removed
-                        // per request.
-                        if (isSuperAdmin) ...[
-                          _AdminRow(
-                            icon: Icons.forum_rounded,
-                            title: 'Global Chat Requests',
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    const GlobalChatAdminRequestsScreen(),
-                              ),
-                            ),
-                          ),
-                          if (isPricingAdmin)
-                            Divider(
-                              color:
-                                  AppTheme.cardBorder(brightness),
-                              height: 1,
-                            ),
-                        ],
-                        if (isPricingAdmin) ...[
-                          _AdminRow(
-                            icon: Icons.price_change_rounded,
-                            title: 'Pricing (Quick Editor)',
-                            onTap: () =>
-                                showPricingQuickEditorSheet(
-                                    context),
-                          ),
-                          Divider(
-                            color: AppTheme.cardBorder(brightness),
-                            height: 1,
-                          ),
-                          _AdminRow(
-                            icon: Icons
-                                .admin_panel_settings_rounded,
-                            title: 'Pricing Admin',
-                            onTap: () => GoRouter.of(context)
-                                .push('/admin/pricing'),
-                          ),
-                          Divider(
-                            color: AppTheme.cardBorder(brightness),
-                            height: 1,
-                          ),
-                          _AdminRow(
-                            icon: Icons.group_add_rounded,
-                            title: 'Manage Pricing Admins',
-                            onTap: () => GoRouter.of(context)
-                                .push('/admin/pricing-admins'),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 18),
                 Row(
                   children: [
@@ -2685,76 +2603,6 @@ class _LegalNavRow extends StatelessWidget {
                     ),
                   ),
                 ],
-              ),
-            ),
-            Icon(
-              chevron,
-              color: AppTheme.secondaryText(brightness),
-              size: 20,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AdminRow extends StatelessWidget {
-  const _AdminRow({
-    required this.icon,
-    required this.title,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final isRtl =
-        Directionality.of(context) == TextDirection.rtl;
-    final chevron = isRtl
-        ? Icons.chevron_left_rounded
-        : Icons.chevron_right_rounded;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 14,
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color:
-                    AppTheme.iconCircleBackground(brightness),
-              ),
-              child: Icon(
-                icon,
-                color: AppTheme.limeAccentDark,
-                size: 18,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color:
-                          AppTheme.primaryText(brightness),
-                    ),
               ),
             ),
             Icon(

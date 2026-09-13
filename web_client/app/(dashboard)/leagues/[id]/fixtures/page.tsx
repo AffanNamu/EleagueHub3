@@ -27,8 +27,8 @@ export default function FixturesScreen() {
     const unsub = auth.onAuthStateChanged((u) => setAuthUid(u?.uid ?? null));
     return () => unsub();
   }, []);
-  const { status: globalChatStatus, isAdmin: isGlobalChatAdmin } = useGlobalChatAccess(authUid);
-  const canShareToGlobalChat = isGlobalChatAdmin || globalChatStatus === 'approved';
+  const { status: globalChatStatus } = useGlobalChatAccess(authUid);
+  const canShareToGlobalChat = globalChatStatus === 'approved';
 
   const [selectedRound, setSelectedRound] = useState<number>(1);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
@@ -36,7 +36,7 @@ export default function FixturesScreen() {
   // Fixture sharing (share selected fixtures as an image to League/Global
   // Chat) — mirrors fixtures_screen.dart's selection mode +
   // _shareSelectedFixturesToChat. Organizer-only, matching
-  // _canAdminSelectFixtures = _isOrganizer || _isSuperAdmin.
+  // _canAdminSelectFixtures = _isOrganizer.
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sharing, setSharing] = useState(false);

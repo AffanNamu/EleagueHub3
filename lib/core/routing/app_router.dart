@@ -7,11 +7,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/admin/developer_analytics_dashboard_screen.dart';
-import '../../features/admin/organizer_verification_requests_screen.dart';
-import '../../features/admin/pricing_admin_screen.dart';
-import '../../features/admin/pricing_admins_screen.dart';
-import '../../features/admin/staff_ambassador_admin_screen.dart';
 import '../../features/auth/data/user_profile_repository.dart';
 import '../../features/auth/presentation/bootstrap_screen.dart';
 import '../../features/auth/presentation/forgot_password_screen.dart';
@@ -20,7 +15,6 @@ import '../../features/auth/presentation/onboarding_screen.dart';
 import '../../features/auth/presentation/reset_password_screen.dart';
 import '../../features/auth/presentation/verify_email_screen.dart';
 import '../../features/call/presentation/call_room_screen.dart';
-import '../../features/chat/presentation/global_chat_admin_requests_screen.dart';
 import '../../features/chat/presentation/global_chat_screen.dart';
 import '../../features/chat/presentation/league_chat_screen.dart';
 import '../../features/chat/presentation/organizer_chat_screen.dart';
@@ -59,7 +53,6 @@ import '../../features/legal/privacy_policy_screen.dart';
 import '../../features/legal/terms_of_service_screen.dart';
 import '../../features/live/presentation/join_match_screen.dart';
 import '../../features/live/presentation/live_view_screen.dart';
-import '../../features/marketplace/presentation/admin_marketplace_upload_screen.dart';
 import '../../features/marketplace/presentation/marketplace_screen.dart';
 import '../../features/master_leagues/presentation/create_master_league_screen.dart';
 import '../../features/master_leagues/presentation/followed_organizer_feed_screen.dart';
@@ -80,7 +73,6 @@ import '../../features/team/presentation/team_profile_gate_screen.dart';
 import '../../web_app/presentation/web_desktop_session_store.dart';
 import '../../web_app/presentation/web_desktop_shell_screen.dart';
 import '../../web_app/presentation/web_pairing_screen.dart';
-import '../services/app_admins_service.dart';
 import '../services/connectivity_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass.dart';
@@ -811,8 +803,6 @@ class AuthRouterRefresh extends ChangeNotifier {
       final prevUserId = _user?.uid;
       _user = user;
 
-      AppAdminsService.instance.ensureStarted();
-
       _cancelRetry();
       _retryAttempt = 0;
 
@@ -1031,17 +1021,6 @@ class AuthRouterRefresh extends ChangeNotifier {
 
 final AuthRouterRefresh authRouterRefresh = AuthRouterRefresh();
 
-// ---------------------------------------------------------------------------
-// Admin helpers
-// ---------------------------------------------------------------------------
-
-bool _isPricingAdminUidSync(String uid) {
-  if (uid.isEmpty) return false;
-  return AppAdminsService.instance.isPricingAdminUid(uid);
-}
-
-const String _superAdminUid = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
-
 bool auth_routerRefreshNeedsOnboardingFix(AuthRouterRefresh r) =>
     r.needsOnboarding;
 
@@ -1098,11 +1077,7 @@ final appRouter = GoRouter(
   refreshListenable: authRouterRefresh,
   debugLogDiagnostics: kDebugMode,
   redirect: (context, state) {
-    AppAdminsService.instance.ensureStarted();
-
     final loc = state.matchedLocation;
-    final uid =
-        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
     if (_publicRoutes.contains(loc)) return null;
     if (_isPublicShareRoute(loc)) return null;
@@ -1116,18 +1091,6 @@ final appRouter = GoRouter(
     final inBootstrap = loc == '/bootstrap';
     final inJoin = loc == '/join';
     final inRoot = loc == '/';
-
-    final inPricingAdmin = loc == '/admin/pricing';
-    final inPricingAdmins = loc == '/admin/pricing-admins';
-    final inAnalyticsAdmin = loc == '/admin/analytics';
-    final inVerificationAdmin =
-        loc == '/admin/verification-requests';
-    final inMarketplaceAdminUpload =
-        loc == '/admin/marketplace-upload';
-    final inGlobalChatRequestsAdmin =
-        loc == '/admin/global-chat-requests';
-    final inStaffAmbassadorAdmin =
-        loc == '/admin/staff-ambassadors';
 
     if (kIsWeb) {
       if (loc.startsWith('/live') || loc == '/call') {
@@ -1191,29 +1154,6 @@ final appRouter = GoRouter(
         authRouterRefresh)) {
       if (inOnboarding) return null;
       return '/onboarding';
-    }
-
-    if (inPricingAdmin ||
-        inPricingAdmins ||
-        inAnalyticsAdmin ||
-        inVerificationAdmin) {
-      if (!_isPricingAdminUidSync(uid)) return '/';
-    }
-
-    // firestore.rules gates globalChatRequests writes on isSuperAdmin() —
-    // the literal super-admin uid only, never delegatable — so this route
-    // must stay hardcoded-only to match.
-    if (inGlobalChatRequestsAdmin) {
-      if (uid != _superAdminUid) return '/';
-    }
-
-    // marketplace_products create and the verification-badge write path
-    // (isBadgeAdminWrite) both gate on isPricingAdmin() in firestore.rules,
-    // i.e. delegatable via app/admins.pricingAdmins[] — so these routes
-    // must be too, or a delegated pricing admin would be routed away from
-    // a screen whose writes Firestore would actually accept.
-    if (inMarketplaceAdminUpload || inStaffAmbassadorAdmin) {
-      if (!_isPricingAdminUidSync(uid)) return '/';
     }
 
     if (authRouterRefresh.hasProfile) {
@@ -1347,39 +1287,6 @@ final appRouter = GoRouter(
               featureName: 'Voice Room');
         return const CallRoomScreen();
       },
-    ),
-    GoRoute(
-      path: '/admin/pricing',
-      builder: (context, state) => const PricingAdminScreen(),
-    ),
-    GoRoute(
-      path: '/admin/pricing-admins',
-      builder: (context, state) => const PricingAdminsScreen(),
-    ),
-    GoRoute(
-      path: '/admin/analytics',
-      builder: (context, state) =>
-          const DeveloperAnalyticsDashboardScreen(),
-    ),
-    GoRoute(
-      path: '/admin/verification-requests',
-      builder: (context, state) =>
-          const OrganizerVerificationRequestsScreen(),
-    ),
-    GoRoute(
-      path: '/admin/marketplace-upload',
-      builder: (context, state) =>
-          const AdminMarketplaceUploadScreen(),
-    ),
-    GoRoute(
-      path: '/admin/global-chat-requests',
-      builder: (context, state) =>
-          const GlobalChatAdminRequestsScreen(),
-    ),
-    GoRoute(
-      path: '/admin/staff-ambassadors',
-      builder: (context, state) =>
-          const StaffAmbassadorAdminScreen(),
     ),
     GoRoute(
       path: '/',

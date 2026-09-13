@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/connectivity_service.dart';
@@ -43,7 +42,6 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   String _resolvedPhoto = '';
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _adminsSub;
-  Set<String> _globalChatAdmins = <String>{};
   bool _allowSenderPinGlobal = false;
 
   bool _globalChatMuted = false;
@@ -52,14 +50,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   User get _user => FirebaseAuth.instance.currentUser!;
 
-  // Matches firestore.rules' isSuperAdmin() — the literal super-admin uid,
-  // never delegatable (unlike pricing-admin actions), since it gates
-  // chat-moderation and message-delete writes the rules hardcode the same way.
-  static const String _superAdminUid = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
-  bool get _isSuperAdmin => _user.uid.trim() == _superAdminUid;
-
   bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;
-  bool get _isGlobalAdmin => _globalChatAdmins.contains(_user.uid.trim());
 
   DocumentReference<Map<String, dynamic>> get _globalModerationDoc =>
       FirebaseFirestore.instance
@@ -68,8 +59,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
           .collection('users')
           .doc(_user.uid.trim());
 
-  bool get _chatBlocked => _globalChatBanned && !_isSuperAdmin;
-  bool get _chatReadOnly => _globalChatMuted && !_isSuperAdmin;
+  bool get _chatBlocked => _globalChatBanned;
+  bool get _chatReadOnly => _globalChatMuted;
 
   @override
   void initState() {
@@ -101,21 +92,11 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   void _listenAdminsDoc() {
     _adminsSub = _repo.appAdminsDocStream().listen((snap) {
       final data = snap.data() ?? const <String, dynamic>{};
-      final rawAdmins = data['globalChatAdmins'];
       final allowSenderPin = data['allowGlobalSenderPin'];
-
-      final admins = <String>{};
-      if (rawAdmins is List) {
-        for (final v in rawAdmins) {
-          if (v is String && v.trim().isNotEmpty) admins.add(v.trim());
-        }
-      }
-
       final allow = allowSenderPin is bool ? allowSenderPin : false;
 
       if (!mounted) return;
       setState(() {
-        _globalChatAdmins = admins;
         _allowSenderPinGlobal = allow;
       });
     });
@@ -315,14 +296,10 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   }
 
   bool _canDeleteMessage(ChatMessage msg) {
-    if (_isSuperAdmin) return true;
-    if (_isGlobalAdmin) return true;
     return _user.uid.trim() == msg.senderId.trim();
   }
 
   bool _canPinMessage(ChatMessage msg) {
-    if (_isSuperAdmin) return true;
-    if (_isGlobalAdmin) return true;
     final isSender = _user.uid.trim() == msg.senderId.trim();
     return _allowSenderPinGlobal && isSender;
   }
@@ -363,15 +340,13 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       return;
     }
 
-    final isAdmin = _isSuperAdmin || _isGlobalAdmin;
-
     try {
       await ConnectivityService.instance
           .requireOnline(timeout: const Duration(seconds: 4));
       await _repo.pinGlobalMessage(
         messageId: msg.messageId,
         pinnedBy: _user.uid,
-        unpinPrevious: isAdmin,
+        unpinPrevious: false,
       );
       _selectedMessageId.value = null;
       _toast('Pinned');
@@ -432,19 +407,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
           final selecting = (selectedId ?? '').trim().isNotEmpty;
 
           if (!selecting) {
-            return AppBar(
-              title: const Text('Global Chat'),
-              actions: [
-                if (_isSuperAdmin)
-                  IconButton(
-                    tooltip: 'Requests',
-                    onPressed: () =>
-                        context.push('/admin/global-chat-requests'),
-                    icon: const Icon(
-                      Icons.admin_panel_settings_outlined,
-                    ),
-                  ),
-              ],
+            return const AppBar(
+              title: Text('Global Chat'),
             );
           }
 
@@ -741,7 +705,6 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bypassRequest = _isSuperAdmin;
     final brightness = Theme.of(context).brightness;
 
     return WillPopScope(
@@ -754,9 +717,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       },
       child: GlassScaffold(
         appBar: _buildAppBar(),
-        body: bypassRequest
-            ? _chatBody(canSend: true)
-            : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                 stream: _repo.globalChatRequestDoc(_user.uid).snapshots(),
                 builder: (context, snap) {
                   if (snap.hasError) {

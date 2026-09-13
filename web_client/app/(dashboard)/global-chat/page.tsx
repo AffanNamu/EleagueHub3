@@ -10,11 +10,6 @@ import { GlobalChatBubble, PinnedMessageBar } from '@/components/chat/GlobalChat
 import { Glass } from '@/components/ui/Glass';
 import { ArrowLeft, Loader2, Send, Image as ImageIcon, Mic, X, ShieldAlert, Code } from 'lucide-react';
 
-// Matches firestore.rules' isSuperAdmin() — the literal super-admin uid,
-// never delegatable, since it gates chat-moderation/message-delete writes
-// the rules hardcode the same way.
-const SUPER_ADMIN_UID = 'QhYeBpvAoRV6j0xGigHkBth4qIG3';
-
 export default function GlobalChatScreen() {
   const router = useRouter();
   const [authUid, setAuthUid] = useState<string>('');
@@ -25,7 +20,7 @@ export default function GlobalChatScreen() {
   }, []);
 
   const { messages, pinnedMessage, loading } = useGlobalChat();
-  const { status, moderation, isAdmin, allowSenderPin } = useGlobalChatAccess(authUid);
+  const { status, moderation, allowSenderPin } = useGlobalChatAccess(authUid);
   
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -36,8 +31,7 @@ export default function GlobalChatScreen() {
   const fileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLInputElement>(null);
 
-  const isSuperAdmin = authUid === SUPER_ADMIN_UID;
-  const hasAccess = isSuperAdmin || status === 'approved';
+  const hasAccess = status === 'approved';
 
   const handleRequestAccess = async () => {
     if (!auth.currentUser) return router.push('/login');
@@ -124,11 +118,6 @@ export default function GlobalChatScreen() {
           </button>
           <h1 className="text-lg font-black text-white">Global Chat</h1>
         </div>
-        {isSuperAdmin && (
-          <button onClick={() => router.push('/admin/global-chat-requests')} className="text-xs font-black text-[#BEF264] bg-[#BEF264]/10 px-3 py-1.5 rounded-lg border border-[#BEF264]/30 hover:bg-[#BEF264]/20">
-            Admin Requests
-          </button>
-        )}
       </div>
 
       {/* ── MODERATION BANNERS ── */}
@@ -136,13 +125,13 @@ export default function GlobalChatScreen() {
       {moderation.muted && !moderation.banned && <div className="p-3 bg-amber-500/10 text-amber-500 text-xs font-bold text-center border-b border-amber-500/20">You are muted. You can read but cannot send messages.</div>}
 
       {/* ── PINNED MESSAGE ── */}
-      {pinnedMessage && <PinnedMessageBar message={pinnedMessage} isAdmin={isAdmin || isSuperAdmin} onUnpin={() => pinGlobalMessageWeb(pinnedMessage.messageId, '', pinnedMessage.messageId)} />}
+      {pinnedMessage && <PinnedMessageBar message={pinnedMessage} isAdmin={false} onUnpin={() => pinGlobalMessageWeb(pinnedMessage.messageId, '', pinnedMessage.messageId)} />}
 
       {/* ── MESSAGES LIST ── */}
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar flex flex-col-reverse">
         {messages.map(m => (
           <GlobalChatBubble
-            key={m.messageId} message={m} isMe={m.senderId === authUid} isAdmin={isAdmin || isSuperAdmin} canPin={allowSenderPin}
+            key={m.messageId} message={m} isMe={m.senderId === authUid} isAdmin={false} canPin={allowSenderPin}
             selected={selectedId === m.messageId} onSelect={() => setSelectedId(selectedId === m.messageId ? null : m.messageId)}
             onReply={() => { setReplyTo(m); setSelectedId(null); }}
             onPin={() => { pinGlobalMessageWeb(m.messageId, authUid, pinnedMessage?.messageId || null); setSelectedId(null); }}
