@@ -96,6 +96,16 @@ jobs:
         run: |
           flutter --version
           flutter config --no-analytics
+          # Flutter 3.47.1 enables Swift Package Manager for iOS by default,
+          # which stops it from generating the legacy ios/.symlinks/plugins/*
+          # directory structure our hand-rolled Podfile depends on
+          # (flutter_install_all_ios_pods needs those symlinks to declare
+          # each plugin's local pod). Confirmed via CI diagnostic: with SPM
+          # on, ios/.symlinks/plugins/ doesn't exist at all, which is why
+          # pod install failed with "No podspec found for
+          # webview_flutter_wkwebview" — not specific to that one plugin,
+          # every plugin's local pod path was broken the same way.
+          flutter config --no-enable-swift-package-manager
           flutter doctor -v
 
       # ─────────────────────────────────────────
@@ -287,12 +297,6 @@ jobs:
 
           target 'Runner' do
             use_frameworks!
-            # google_mobile_ads' own iOS podspec has an unversioned
-            # `s.dependency 'webview_flutter_wkwebview'` line CocoaPods can't
-            # resolve on its own (never published to the public trunk; only
-            # exists as this locally-symlinked Flutter plugin). Declare it
-            # explicitly so CocoaPods has a local spec to satisfy it with.
-            pod 'webview_flutter_wkwebview', :path => File.join('.symlinks', 'plugins', 'webview_flutter_wkwebview', 'ios')
             flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
             target 'RunnerTests' do
               inherit! :search_paths

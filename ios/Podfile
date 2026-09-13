@@ -31,15 +31,6 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
 
-  # google_mobile_ads' own iOS podspec has an unversioned
-  # `s.dependency 'webview_flutter_wkwebview'` line that CocoaPods cannot
-  # resolve on its own — that pod is never published to the public
-  # CocoaPods trunk, it only exists as this locally-symlinked Flutter
-  # plugin, and flutter_install_all_ios_pods below isn't reliably adding
-  # it. Declaring it explicitly here gives CocoaPods a local spec to
-  # satisfy google_mobile_ads' dependency with.
-  pod 'webview_flutter_wkwebview', :path => File.join('.symlinks', 'plugins', 'webview_flutter_wkwebview', 'ios')
-
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths
