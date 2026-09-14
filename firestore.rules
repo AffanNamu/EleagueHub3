@@ -133,6 +133,7 @@ service cloud.firestore {
         && (!('badge' in data) || ((data.badge is string) && (data.badge.size() <= 80)))
         && (!('socialLinks' in data) || validMasterLeagueSocialLinksMap(data.socialLinks))
         && (!('staffShareIds' in data) || (data.staffShareIds is map))
+        && (!('staffScopes' in data) || (data.staffScopes is map))
         && (!('totalTournamentsCreated' in data) || ((data.totalTournamentsCreated is int) && (data.totalTournamentsCreated >= 0)))
         && (!('totalParticipantsTeams' in data) || ((data.totalParticipantsTeams is int) && (data.totalParticipantsTeams >= 0)))
         && (!('totalMatches' in data) || ((data.totalMatches is int) && (data.totalMatches >= 0)))
@@ -1353,7 +1354,7 @@ service cloud.firestore {
           && (resource.data.ownerId == request.auth.uid)
           && request.resource.data.keys().hasOnly([
             'name','ownerId','ownerUid','createdAt','purchaseStatus','memberIds',
-            'roles','staffShareIds','updatedAtMs','plan','bannerUrl','logoUrl',
+            'roles','staffShareIds','staffScopes','updatedAtMs','plan','bannerUrl','logoUrl',
             'bio','socialLinks','badge','totalTournamentsCreated',
             'totalParticipantsTeams','totalMatches','followersCount',
             'createdViaAttemptId','sourcePaymentId','sourceReceiptId',
