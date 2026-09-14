@@ -129,6 +129,20 @@ jobs:
           if [ ! -f "ios/Runner.xcodeproj/project.pbxproj" ]; then
             echo "No ios/ Xcode project found — generating it now."
             flutter create --platforms=ios .
+
+            # `flutter create` derives the bundle identifier as
+            # <org>.<pubspec-name>, i.e. com.eleaguehub.eleaguehub3 — not
+            # com.eleaguehub.app, which is what Android's applicationId,
+            # the AdMob/Firebase config, and the Apple provisioning
+            # profile/certificate were all issued against. Confirmed via
+            # a real CI failure: "Provisioning profile ... has app ID
+            # com.eleaguehub.app, which does not match the bundle ID
+            # com.eleaguehub.eleaguehub3." Patch it to the real bundle ID.
+            sed -i '' \
+              's/PRODUCT_BUNDLE_IDENTIFIER = com\.eleaguehub\.eleaguehub3/PRODUCT_BUNDLE_IDENTIFIER = com.eleaguehub.app/g' \
+              ios/Runner.xcodeproj/project.pbxproj
+            echo "── PRODUCT_BUNDLE_IDENTIFIER after patch ──"
+            grep "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj
           else
             echo "ios/ Xcode project already present in repo — skipping generation."
           fi
@@ -539,11 +553,24 @@ jobs:
           # passing xcodebuild build-setting overrides, which take highest
           # precedence over the project file -- this forces the archive
           # step to use manual signing with our actual Distribution
-          # identity/profile instead of the generated project's default.
+          # identity/team instead of the generated project's default.
+          #
+          # NOTE: deliberately NOT setting FLUTTER_XCODE_PROVISIONING_
+          # PROFILE_SPECIFIER here -- these FLUTTER_XCODE_* overrides apply
+          # globally to every target xcodebuild compiles, including all 60+
+          # CocoaPods library targets, which correctly reject having any
+          # provisioning profile forced on them ("X does not support
+          # provisioning profiles") since libraries don't need one. Only
+          # the Runner app target does, and ExportOptions.plist's
+          # provisioningProfiles dict already maps that specific bundle ID
+          # to our profile correctly for the export step. At archive time,
+          # Xcode auto-matches Runner against whatever's installed in
+          # ~/Library/MobileDevice/Provisioning Profiles/ by bundle ID +
+          # team + distribution type -- which now works since the bundle ID
+          # mismatch (see the sed patch above) is fixed too.
           export FLUTTER_XCODE_CODE_SIGN_STYLE="Manual"
           export FLUTTER_XCODE_CODE_SIGN_IDENTITY="Apple Distribution"
           export FLUTTER_XCODE_DEVELOPMENT_TEAM="$IOS_EXPORT_TEAM_ID"
-          export FLUTTER_XCODE_PROVISIONING_PROFILE_SPECIFIER="$IOS_PROVISION_PROFILE_NAME"
 
           flutter build ipa \
             --release \
