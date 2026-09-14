@@ -448,7 +448,7 @@ service cloud.firestore {
           || (
             (d.roundName is string)
             && (d.roundName in [
-              'Play-off','Round of 32','Round of 16','Quarter Finals','Semi Finals','Final','3rd Place'
+              'Play-off','Round of 64','Round of 32','Round of 16','Quarter Finals','Semi Finals','Final','3rd Place'
             ])
           ))
         && (!('qualificationSlot' in d) || (d.qualificationSlot is string) || (d.qualificationSlot == null));

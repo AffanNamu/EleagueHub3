@@ -19,8 +19,9 @@ export function useKnockoutMatches(leagueId: string) {
         ...doc.data()
       })) as KnockoutMatch[];
       
-      // Strict Parity with Flutter: Round of 32 added for World Cup format
-      const roundOrder = ['Play-off', 'Round of 32', 'Round of 16', 'Quarter Finals', 'Semi Finals', '3rd Place', 'Final'];
+      // Strict Parity with Flutter: Round of 32 added for World Cup format,
+      // Round of 64 added for Direct Knockout's largest bracket size.
+      const roundOrder = ['Play-off', 'Round of 64', 'Round of 32', 'Round of 16', 'Quarter Finals', 'Semi Finals', '3rd Place', 'Final'];
       
       matchesData.sort((a, b) => {
         const ai = roundOrder.indexOf(a.roundName);

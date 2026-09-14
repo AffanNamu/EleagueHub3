@@ -113,8 +113,10 @@ class _KnockoutBracketScreenState
   static const double _unit = _matchCardHeight + _baseGap;
 
   // MODIFIED: Added 'Round of 32' before 'Round of 16' for World Cup 48-team.
+  // Added 'Round of 64' for Direct Knockout's largest bracket size.
   static const _roundOrder = <String>[
     'Play-off',
+    'Round of 64', // Direct Knockout (64-participant bracket)
     'Round of 32', // World Cup FIFA 2026 (48-team)
     'Round of 16',
     'Quarter Finals',
@@ -281,6 +283,9 @@ class _KnockoutBracketScreenState
     switch (roundName) {
       case 'Play-off':
         return l10n.tr('admin_knockout_round_playoff');
+      case 'Round of 64':
+        // Direct Knockout 64-participant bracket.
+        return 'Round of 64';
       case 'Round of 32':
         // World Cup 48-team format.
         return 'Round of 32';
@@ -1561,8 +1566,10 @@ class _KnockoutBracketScreenState
         (rounds['Play-off'] ?? const <KnockoutMatch>[]);
 
     // MODIFIED: Include 'Round of 32' in bracket rounds for FIFA 2026.
+    // Include 'Round of 64' for Direct Knockout's largest bracket size.
     final bracketRounds = <String>[
       for (final rn in const [
+        'Round of 64', // Direct Knockout (64-participant bracket)
         'Round of 32', // World Cup 48-team format
         'Round of 16',
         'Quarter Finals',

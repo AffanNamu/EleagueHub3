@@ -59,6 +59,8 @@ class TournamentController {
     switch (roundName) {
       case 'Play-off':
         return 'PO';
+      case 'Round of 64':
+        return 'R64';
       case 'Round of 32':
         return 'R32';
       case 'Round of 16':
@@ -78,6 +80,8 @@ class TournamentController {
 
   static String _nextRoundName(String current) {
     switch (current) {
+      case 'Round of 64':
+        return 'Round of 32';
       case 'Round of 32':
         return 'Round of 16';
       case 'Round of 16':
@@ -142,7 +146,16 @@ class TournamentController {
 
     // Ordered round names from start to Final.
     final orderedRoundNames = <String>[];
-    if (startRoundName == 'Round of 32') {
+    if (startRoundName == 'Round of 64') {
+      orderedRoundNames.addAll([
+        'Round of 64',
+        'Round of 32',
+        'Round of 16',
+        'Quarter Finals',
+        'Semi Finals',
+        'Final',
+      ]);
+    } else if (startRoundName == 'Round of 32') {
       orderedRoundNames.addAll([
         'Round of 32',
         'Round of 16',

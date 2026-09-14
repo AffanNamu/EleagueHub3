@@ -49,6 +49,8 @@ function shortCode(roundName: string): string {
   switch (roundName) {
     case 'Play-off':
       return 'PO';
+    case 'Round of 64':
+      return 'R64';
     case 'Round of 32':
       return 'R32';
     case 'Round of 16':
@@ -68,6 +70,8 @@ function shortCode(roundName: string): string {
 
 function nextRoundName(current: string): string {
   switch (current) {
+    case 'Round of 64':
+      return 'Round of 32';
     case 'Round of 32':
       return 'Round of 16';
     case 'Round of 16':
@@ -136,7 +140,16 @@ function buildKnockoutTree({
 
   // Ordered round names from start to Final.
   const orderedRoundNames: string[] = [];
-  if (startRoundName === 'Round of 32') {
+  if (startRoundName === 'Round of 64') {
+    orderedRoundNames.push(
+      'Round of 64',
+      'Round of 32',
+      'Round of 16',
+      'Quarter Finals',
+      'Semi Finals',
+      'Final',
+    );
+  } else if (startRoundName === 'Round of 32') {
     orderedRoundNames.push('Round of 32', 'Round of 16', 'Quarter Finals', 'Semi Finals', 'Final');
   } else if (startRoundName === 'Round of 16') {
     orderedRoundNames.push('Round of 16', 'Quarter Finals', 'Semi Finals', 'Final');
@@ -569,6 +582,7 @@ const TOP_N_START_ROUND: Record<number, string> = {
   8: 'Quarter Finals',
   16: 'Round of 16',
   32: 'Round of 32',
+  64: 'Round of 64',
 };
 
 export function seedTopNKnockouts({
