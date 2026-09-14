@@ -579,10 +579,7 @@ jobs:
           # three configs (Debug/Profile/Release), never RunnerTests
           # (whose bundle ID has a distinct ".RunnerTests" suffix) or any
           # Pods target (a separate .xcodeproj file entirely).
-          sed -i '' \
-            "/PRODUCT_BUNDLE_IDENTIFIER = com\\.eleaguehub\\.app;/a\\
-				PROVISIONING_PROFILE_SPECIFIER = \"${IOS_PROVISION_PROFILE_NAME}\";
-" \
+          perl -pi -e 's/(PRODUCT_BUNDLE_IDENTIFIER = com\.eleaguehub\.app;)/$1\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'"${IOS_PROVISION_PROFILE_NAME}"'";/' \
             ios/Runner.xcodeproj/project.pbxproj
           echo "── PROVISIONING_PROFILE_SPECIFIER after patch ──"
           grep "PROVISIONING_PROFILE_SPECIFIER" ios/Runner.xcodeproj/project.pbxproj
