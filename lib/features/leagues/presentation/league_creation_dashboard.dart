@@ -550,6 +550,8 @@ class _LeagueCreationDashboardState
       case LeagueFormat.worldCup:
         // Locked — the format selector controls this, not a chip.
         return [_worldCupFormat.teamCount];
+      case LeagueFormat.directKnockout:
+        return const [4, 8, 16, 32, 64];
       case LeagueFormat.classic:
       default:
         return const [20];
@@ -1665,6 +1667,14 @@ class _LeagueCreationDashboardState
           title: l10n.tr('league_create_type_classic_title'),
           subtitle: l10n.tr('league_create_type_classic_subtitle'),
           icon: Icons.table_chart,
+        ),
+        const SizedBox(height: 10),
+        _typeCard(
+          type: LeagueCreationType.directKnockout,
+          title: 'Direct Knockout',
+          subtitle:
+              'Skip groups and qualifiers — straight to a knockout bracket',
+          icon: Icons.bolt_rounded,
         ),
         const SizedBox(height: 10),
 

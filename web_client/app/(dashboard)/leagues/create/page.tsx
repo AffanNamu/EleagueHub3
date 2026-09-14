@@ -27,10 +27,10 @@ import { LeaguePrivacy, WorldCupFormat } from '@/lib/models/league';
 // now delegates to it instead of duplicating — and getting wrong —
 // that logic.
 import { detectPremiumUser, countCreatedLeagues, createNewLeagueWeb } from '@/lib/leagues/leaguesRepository';
-import { 
-  Loader2, ArrowLeft, Image as ImageIcon, Trophy, 
-  ShieldAlert, Globe, LayoutGrid, ListOrdered, Lock, 
-  CreditCard, CheckCircle2, Mic
+import {
+  Loader2, ArrowLeft, Image as ImageIcon, Trophy,
+  ShieldAlert, Globe, LayoutGrid, ListOrdered, Lock,
+  CreditCard, CheckCircle2, Mic, Zap
 } from 'lucide-react';
 
 const FREE_LEAGUE_LIMIT = 3;
@@ -144,6 +144,9 @@ function CreateLeagueScreenInner() {
     } else if (newFormat === 'uclSwiss') {
       setSelectedMaxTeams(36);
       setHomeAwayEnabled(false);
+    } else if (newFormat === 'directKnockout') {
+      setSelectedMaxTeams(16);
+      setHomeAwayEnabled(false);
     } else {
       setSelectedMaxTeams(20);
     }
@@ -212,6 +215,7 @@ function CreateLeagueScreenInner() {
         homeAway: effectiveHomeAway,
         organizerUid: authUid,
         masterLeagueId: inMasterLeagueMode ? masterLeagueId : undefined,
+        directKnockoutCapacity: format === 'directKnockout' ? selectedMaxTeams : undefined,
       });
 
       if (inMasterLeagueMode) {
@@ -318,12 +322,17 @@ function CreateLeagueScreenInner() {
                 title="Group Stage" desc="Multiple groups into knockouts" 
                 onClick={() => handleFormatChange('uclGroup')} 
               />
-              <TypeCard 
-                id="uclSwiss" current={format} icon={ShieldAlert} 
-                title="Swiss Series" desc="Dynamic matchmaking rounds" 
-                onClick={() => handleFormatChange('uclSwiss')} 
+              <TypeCard
+                id="uclSwiss" current={format} icon={ShieldAlert}
+                title="Swiss Series" desc="Dynamic matchmaking rounds"
+                onClick={() => handleFormatChange('uclSwiss')}
               />
-              
+              <TypeCard
+                id="directKnockout" current={format} icon={Zap}
+                title="Direct Knockout" desc="Skip groups — straight to a bracket"
+                onClick={() => handleFormatChange('directKnockout')}
+              />
+
               {/* Premium World Cup Card */}
               <div 
                 onClick={() => handleFormatChange('worldCup')}
@@ -458,18 +467,42 @@ function CreateLeagueScreenInner() {
 
               {/* Max Teams */}
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Max Teams</label>
-                <input 
-                  type="number" value={selectedMaxTeams} disabled
-                  className="w-full bg-[#070B14] border border-[#1E293B] rounded-xl p-3 text-sm font-bold text-white outline-none disabled:opacity-50"
-                />
-                {/* FIXED: this field is now always disabled/display-only.
-                    createNewLeagueWeb() derives maxTeams from the selected
-                    format (20 / 32 / 36 / 32-or-48) the same way Flutter's
-                    wizard does, so a manually typed value here previously
-                    had no effect on what actually got saved — it looked
-                    editable but silently did nothing. */}
-                <p className="text-[10px] text-gray-500 mt-1 font-bold">Determined automatically by competition type</p>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
+                  {format === 'directKnockout' ? 'Bracket Size' : 'Max Teams'}
+                </label>
+                {format === 'directKnockout' ? (
+                  <select
+                    value={selectedMaxTeams}
+                    onChange={(e) => setSelectedMaxTeams(parseInt(e.target.value))}
+                    disabled={limitReached}
+                    className="w-full bg-[#070B14] border border-[#1E293B] rounded-xl p-3 text-sm font-bold text-white focus:border-[#BEF264] outline-none disabled:opacity-50"
+                  >
+                    <option value={4}>4 Teams</option>
+                    <option value={8}>8 Teams</option>
+                    <option value={16}>16 Teams</option>
+                    <option value={32}>32 Teams</option>
+                    <option value={64}>64 Teams</option>
+                  </select>
+                ) : (
+                  <input
+                    type="number" value={selectedMaxTeams} disabled
+                    className="w-full bg-[#070B14] border border-[#1E293B] rounded-xl p-3 text-sm font-bold text-white outline-none disabled:opacity-50"
+                  />
+                )}
+                {/* FIXED: this field is disabled/display-only for every
+                    format except Direct Knockout. createNewLeagueWeb()
+                    derives maxTeams from the selected format (20 / 32 /
+                    36 / 32-or-48) the same way Flutter's wizard does, so
+                    a manually typed value here previously had no effect
+                    on what actually got saved — it looked editable but
+                    silently did nothing. Direct Knockout has no single
+                    per-format team count, so it's the one format where
+                    the organizer actually picks the bracket size. */}
+                <p className="text-[10px] text-gray-500 mt-1 font-bold">
+                  {format === 'directKnockout'
+                    ? 'All registered teams are cross-paired into this bracket size'
+                    : 'Determined automatically by competition type'}
+                </p>
               </div>
 
               {/* Toggles */}

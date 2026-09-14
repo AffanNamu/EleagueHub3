@@ -322,6 +322,11 @@ export interface CreateLeagueFormPayload {
   // Master League workspace. Mirrors league_create_wizard.dart's
   // widget.masterLeagueId / _inMasterLeagueMode.
   masterLeagueId?: string;
+  // Only meaningful when format === 'directKnockout': the chosen bracket
+  // size (4/8/16/32/64) — Direct Knockout has no fixed per-format team
+  // count the way classic/uclGroup/uclSwiss do, so the caller must supply
+  // it. Ignored for every other format.
+  directKnockoutCapacity?: number;
 }
 
 async function writeOrganizerMembership(leagueId: string, organizerUid: string, nowMs: number): Promise<void> {
@@ -424,9 +429,14 @@ export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Prom
   const code = await generateUniqueJoinCode();
   const nowMs = Date.now();
 
+  const DIRECT_KNOCKOUT_SIZES = [4, 8, 16, 32, 64];
   const maxTeams = payload.format === 'classic' ? 20
                  : payload.format === 'uclGroup' ? 32
                  : payload.format === 'uclSwiss' ? 36
+                 : payload.format === 'directKnockout'
+                   ? (DIRECT_KNOCKOUT_SIZES.includes(payload.directKnockoutCapacity ?? -1)
+                       ? (payload.directKnockoutCapacity as number)
+                       : 16)
                  : payload.worldCupFormat === 'fifa2022' ? 32 : 48;
 
   const derivedOrganizerUserId = deriveShareIdFromUid(payload.organizerUid) || payload.organizerUid;
