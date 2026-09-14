@@ -857,106 +857,6 @@ class _MasterLeagueDetailsScreenState
     }
   }
 
-  // ── add staff ──────────────────────────────────────────────────────────────
-
-  Future<void> _showAddStaffDialog({required String role}) async {
-    final brightness = Theme.of(context).brightness;
-    final ctrl = TextEditingController();
-    final shortId = await showDialog<String>(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.35),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(16),
-        child: Glass(
-          borderRadius: 28,
-          padding: const EdgeInsets.all(16),
-          fill: AppTheme.cardColor(brightness),
-          borderColor: AppTheme.cardBorder(brightness),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Add ${role == 'admin' ? 'Admin' : 'Moderator'}',
-                style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: AppTheme.primaryText(brightness),
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Enter the user short id (share id). Example: eS44e35f',
-                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.secondaryText(brightness),
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: ctrl,
-                autofocus: true,
-                textInputAction: TextInputAction.done,
-                onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
-                decoration: InputDecoration(
-                  labelText: 'Short ID',
-                  prefixIcon: Icon(
-                    role == 'admin'
-                        ? Icons.admin_panel_settings_outlined
-                        : Icons.shield_outlined,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(ctx).pop(null),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.limeAccent,
-                        foregroundColor: AppTheme.darkText,
-                      ),
-                      onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-                      child: const Text(
-                        'Add',
-                        style: TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    ctrl.dispose();
-    if (shortId == null || shortId.isEmpty) return;
-    setState(() => _busy = true);
-    try {
-      await ref.read(masterLeaguesRepositoryProvider).addStaffByShortId(
-            masterLeagueId: widget.masterLeagueId,
-            shortId: shortId,
-            role: role,
-          );
-      _snack('${role == 'admin' ? 'Admin' : 'Moderator'} added');
-    } catch (e) {
-      _snack('$e', error: true);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
   // ── template composer ──────────────────────────────────────────────────────
 
   Future<void> _showTemplateComposer(MasterLeague ml) async {
@@ -1657,14 +1557,9 @@ class _MasterLeagueDetailsScreenState
                   onTap: () => Navigator.of(ctx).pop('profile'),
                 ),
                 ListTile(
-                  leading: const Icon(Icons.admin_panel_settings_outlined),
-                  title: const Text('Add Admin'),
-                  onTap: () => Navigator.of(ctx).pop('admin'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.shield_outlined),
-                  title: const Text('Add Moderator'),
-                  onTap: () => Navigator.of(ctx).pop('moderator'),
+                  leading: const Icon(Icons.groups_2_outlined),
+                  title: const Text('Manage Staff'),
+                  onTap: () => Navigator.of(ctx).pop('staff'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.delete_forever_outlined),
@@ -1685,11 +1580,8 @@ class _MasterLeagueDetailsScreenState
       case 'profile':
         _openOrganizerProfile(master);
         break;
-      case 'admin':
-        await _showAddStaffDialog(role: 'admin');
-        break;
-      case 'moderator':
-        await _showAddStaffDialog(role: 'moderator');
+      case 'staff':
+        _safePush('/master-leagues/${master.id}/staff');
         break;
       case 'delete':
         await _confirmDeleteWorkspace(master);
@@ -2717,6 +2609,15 @@ class _MasterLeagueDetailsScreenState
           onTap: () =>
               _safePush('/master-leagues/${master.id}/discipline'),
           tint: const Color(0xFFDC2626),
+        ),
+        const SizedBox(height: 12),
+        tile(
+          icon: Icons.groups_2_outlined,
+          title: 'Manage Staff',
+          subtitle:
+              'Delegate competition management, results, or moderation',
+          onTap: () => _safePush('/master-leagues/${master.id}/staff'),
+          tint: const Color(0xFF0EA5E9),
         ),
         const SizedBox(height: 12),
         tile(

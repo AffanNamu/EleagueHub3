@@ -59,6 +59,7 @@ import '../../features/master_leagues/presentation/followed_organizer_feed_scree
 import '../../features/master_leagues/presentation/master_league_details_screen.dart';
 import '../../features/master_leagues/presentation/master_leagues_list_screen.dart';
 import '../../features/master_leagues/presentation/organizer_discipline_screen.dart';
+import '../../features/master_leagues/presentation/master_league_staff_screen.dart';
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../features/organizer/presentation/organizer_workspace_gate_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
@@ -1470,6 +1471,14 @@ final appRouter = GoRouter(
                   path: 'discipline',
                   builder: (context, state) =>
                       OrganizerDisciplineScreen(
+                    masterLeagueId:
+                        state.pathParameters['id']!,
+                  ),
+                ),
+                GoRoute(
+                  path: 'staff',
+                  builder: (context, state) =>
+                      MasterLeagueStaffScreen(
                     masterLeagueId:
                         state.pathParameters['id']!,
                   ),
