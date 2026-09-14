@@ -16,6 +16,7 @@ const PLANS: { id: MasterLeaguePlanId; displayName: string; isFree: boolean; fea
 ];
 
 const DURATIONS: { id: PlanDurationId; displayName: string; discount: string }[] = [
+  { id: '1mo', displayName: '1 Month', discount: '' },
   { id: '3mo', displayName: '3 Months', discount: '' },
   { id: '6mo', displayName: '6 Months', discount: 'Save 10%' },
   { id: 'yearly', displayName: '1 Year', discount: 'Save 25%' },

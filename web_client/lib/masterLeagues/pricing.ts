@@ -233,11 +233,13 @@ export async function getPlanPrice(
   // keep both in sync if a new plan/duration is ever added.
   const feesByPlan: Partial<Record<MasterLeaguePlanId, Record<PlanDurationId, number>>> = {
     pro: {
+      '1mo': cfg.proPlan1moFee,
       '3mo': cfg.proPlan3moFee,
       '6mo': cfg.proPlan6moFee,
       yearly: cfg.proPlanYearlyFee,
     },
     elite: {
+      '1mo': cfg.elitePlan1moFee,
       '3mo': cfg.elitePlan3moFee,
       '6mo': cfg.elitePlan6moFee,
       yearly: cfg.elitePlanYearlyFee,

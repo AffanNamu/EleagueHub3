@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
 import { getPricingConfig, updatePricingConfig, PricingConfigError } from '@/lib/repositories/pricingConfigAdminRepository';
+import type { PricingFieldEdit } from '@/types/pricingConfig';
 
 export async function GET() {
   const identity = await getCurrentAdminIdentity();
@@ -13,6 +14,16 @@ export async function GET() {
   return NextResponse.json({ config });
 }
 
+function isValidEdit(e: unknown): e is PricingFieldEdit {
+  if (!e || typeof e !== 'object') return false;
+  const edit = e as Record<string, unknown>;
+  return (
+    (edit.currency === 'ngn' || edit.currency === 'usd') &&
+    typeof edit.key === 'string' &&
+    (typeof edit.value === 'number' || typeof edit.value === 'boolean' || edit.value === null)
+  );
+}
+
 export async function PATCH(request: Request) {
   const identity = await getCurrentAdminIdentity();
   if (!hasPermission(identity, 'pricing.edit')) {
@@ -21,10 +32,15 @@ export async function PATCH(request: Request) {
 
   try {
     const body = await request.json();
-    const updates = body?.updates && typeof body.updates === 'object' ? body.updates : {};
+    const rawEdits = Array.isArray(body?.edits) ? body.edits : [];
+    const edits = rawEdits.filter(isValidEdit);
+
+    if (edits.length !== rawEdits.length) {
+      return NextResponse.json({ error: 'Malformed pricing edit payload.' }, { status: 400 });
+    }
 
     await updatePricingConfig({
-      updates,
+      edits,
       actorUid: identity!.uid,
       actorEmail: identity!.email,
     });

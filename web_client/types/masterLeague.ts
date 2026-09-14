@@ -1,5 +1,5 @@
 export type MasterLeaguePlanId = 'basic' | 'pro' | 'elite';
-export type PlanDurationId = '3mo' | '6mo' | 'yearly';
+export type PlanDurationId = '1mo' | '3mo' | '6mo' | 'yearly';
 
 export interface MasterLeaguePlanDef {
   id: MasterLeaguePlanId;
@@ -20,6 +20,7 @@ export const MASTER_LEAGUE_PLANS: Record<MasterLeaguePlanId, MasterLeaguePlanDef
 };
 
 export const PLAN_DURATIONS: Record<PlanDurationId, { id: PlanDurationId; displayName: string; months: number; discountLabel: string }> = {
+  '1mo': { id: '1mo', displayName: '1 Month', months: 1, discountLabel: '' },
   '3mo': { id: '3mo', displayName: '3 Months', months: 3, discountLabel: '' },
   '6mo': { id: '6mo', displayName: '6 Months', months: 6, discountLabel: 'Save 10%' },
   yearly: { id: 'yearly', displayName: '1 Year', months: 12, discountLabel: 'Save 25%' },

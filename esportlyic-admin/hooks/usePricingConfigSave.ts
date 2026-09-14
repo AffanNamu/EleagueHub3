@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { PricingFieldValue } from '@/types/pricingConfig';
+import type { PricingFieldEdit } from '@/types/pricingConfig';
 
 export function usePricingConfigSave() {
   const router = useRouter();
@@ -10,7 +10,7 @@ export function usePricingConfigSave() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  async function save(updates: Record<string, PricingFieldValue>): Promise<boolean> {
+  async function save(edits: PricingFieldEdit[]): Promise<boolean> {
     setSubmitting(true);
     setError(null);
     setSaved(false);
@@ -19,7 +19,7 @@ export function usePricingConfigSave() {
       const response = await fetch('/api/admin/settings/pricing', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
+        body: JSON.stringify({ edits }),
       });
 
       if (!response.ok) {

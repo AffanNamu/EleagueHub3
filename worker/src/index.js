@@ -1002,15 +1002,14 @@ async function _readPricingConfig(env) {
       premiumFee: 5000,
       premiumDurationDays: 30,
       premiumEnabled: true,
-      // PLACEHOLDER — confirm/replace via the pricing admin panel before
-      // enabling Monthly in production. Not derived from any real pricing
-      // decision; set high enough per-month that it doesn't undercut the
-      // discounted quarterly rate (5000/3mo ≈ 1667/mo undiscounted).
+      // Fallback only — used when app_config/pricing is unreachable or
+      // doesn't have this field set. Real values are set via the
+      // esportlyic-admin Pricing Settings page (Master League Plan Fees
+      // section), which writes straight to app_config/pricing.ngn.*.
       proPlan1moFee: 2000,
       proPlan3moFee: 5000,
       proPlan6moFee: 9000,
       proPlanYearlyFee: 15000,
-      // PLACEHOLDER — see proPlan1moFee note above.
       elitePlan1moFee: 4000,
       elitePlan3moFee: 10000,
       elitePlan6moFee: 18000,
@@ -1035,12 +1034,11 @@ async function _readPricingConfig(env) {
       premiumFee: 9.99,
       premiumDurationDays: 30,
       premiumEnabled: true,
-      // PLACEHOLDER — see the ngn.proPlan1moFee note above.
+      // Fallback only — see the ngn.proPlan1moFee note above.
       proPlan1moFee: 4.0,
       proPlan3moFee: 10.0,
       proPlan6moFee: 18.0,
       proPlanYearlyFee: 30.0,
-      // PLACEHOLDER — see the ngn.proPlan1moFee note above.
       elitePlan1moFee: 8.0,
       elitePlan3moFee: 20.0,
       elitePlan6moFee: 36.0,

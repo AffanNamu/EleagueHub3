@@ -25,7 +25,9 @@ export default async function PricingSettingsPage() {
       <div>
         <h1 className="font-display text-xl font-semibold text-ink-primary">Pricing Configuration</h1>
         <p className="mt-1 text-sm text-ink-secondary">
-          Editing the same app/pricing document the mobile app's pricing screen reads from. Changes take effect immediately.
+          Editing app_config/pricing — the live document web, mobile, and the payment verification
+          worker all read prices from. Changes take effect immediately (a 10-minute client-side cache
+          on web means already-loaded pages may take up to that long to reflect a change).
         </p>
       </div>
       <PricingEditor config={config} canEdit={canEdit} />
