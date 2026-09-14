@@ -78,7 +78,19 @@ const ROLE_CAPABILITIES: Record<MasterLeagueStaffRoleId, MasterLeagueCapability[
     'manageAnnouncements',
     'viewAnalytics',
   ],
-  admin: ['manageCompetitions', 'manageResults', 'manageAnnouncements', 'viewAnalytics'],
+  // Also grants moderateDiscipline/moderateChat: the organizer discipline
+  // and organizer chat screens have always treated "admin" as a general
+  // staff role with moderation access (see their own "owner, admins, or
+  // moderators" copy) — narrowing that here would regress already-shipped
+  // behavior, not just tidy the model.
+  admin: [
+    'manageCompetitions',
+    'manageResults',
+    'moderateDiscipline',
+    'moderateChat',
+    'manageAnnouncements',
+    'viewAnalytics',
+  ],
   result_manager: ['manageResults'],
   moderator: ['moderateDiscipline', 'moderateChat'],
 };

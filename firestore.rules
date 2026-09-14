@@ -226,6 +226,46 @@ service cloud.firestore {
         );
     }
 
+    // ── Master League staff capability checks ──────────────────────────────
+    // Mirrors lib/features/master_leagues/domain/master_league_roles.dart /
+    // web_client/lib/masterLeagues/roles.ts. Storage values only —
+    // 'admin' is the storage value for the "Competition Manager" role.
+    // 'admin' also carries moderateDiscipline/moderateChat: the organizer
+    // discipline and organizer chat screens have always treated it as a
+    // general staff role with moderation access, so the server-side check
+    // matches that already-shipped behavior instead of a stricter reading
+    // of the role names.
+    function masterLeagueStaffRole(masterLeagueId) {
+      let path = /databases/$(database)/documents/master_leagues/$(masterLeagueId);
+      return get(path).data.get('roles', {}).get(request.auth.uid, '');
+    }
+
+    function hasMasterLeagueRole(masterLeagueId, allowedRoles) {
+      let path = /databases/$(database)/documents/master_leagues/$(masterLeagueId);
+      return signedIn()
+        && validMasterLeagueId(masterLeagueId)
+        && exists(path)
+        && (masterLeagueStaffRole(masterLeagueId) in allowedRoles);
+    }
+
+    function canManageMasterLeagueCompetitions(masterLeagueId) {
+      return isSuperAdmin()
+        || isMasterLeagueOwner(masterLeagueId)
+        || hasMasterLeagueRole(masterLeagueId, ['admin']);
+    }
+
+    function canManageMasterLeagueResults(masterLeagueId) {
+      return isSuperAdmin()
+        || isMasterLeagueOwner(masterLeagueId)
+        || hasMasterLeagueRole(masterLeagueId, ['admin', 'result_manager']);
+    }
+
+    function canModerateMasterLeague(masterLeagueId) {
+      return isSuperAdmin()
+        || isMasterLeagueOwner(masterLeagueId)
+        || hasMasterLeagueRole(masterLeagueId, ['admin', 'moderator']);
+    }
+
     function isOwner(leagueId) {
       let path = /databases/$(database)/documents/leagues/$(leagueId);
       return signedIn()
@@ -265,6 +305,43 @@ service cloud.firestore {
 
     function canManageLeague(leagueId) {
       return isSuperAdmin() || isOwner(leagueId) || isOrganizerByMembership(leagueId);
+    }
+
+    // Delegated result-entry access for Master League staff (Competition
+    // Manager / Result Manager), scoped by staffScopes when set. Deliberately
+    // narrower than canManageLeague — it only backs the match/knockout write
+    // rules below, not teams/rewards/competitionRules/memberships, since the
+    // Result Manager role is "enter/edit match results only".
+    function masterLeagueStaffInScope(masterLeagueId, leagueId) {
+      let path = /databases/$(database)/documents/master_leagues/$(masterLeagueId);
+      let scope = get(path).data.get('staffScopes', {}).get(request.auth.uid, []);
+      return (scope.size() == 0) || (leagueId in scope);
+    }
+
+    function canManageCompetitionResults(leagueId) {
+      let path = /databases/$(database)/documents/leagues/$(leagueId);
+      return signedIn()
+        && exists(path)
+        && (get(path).data.get('masterLeagueId', '') is string)
+        && (get(path).data.get('masterLeagueId', '').size() > 0)
+        && canManageMasterLeagueResults(get(path).data.get('masterLeagueId', ''))
+        && masterLeagueStaffInScope(get(path).data.get('masterLeagueId', ''), leagueId);
+    }
+
+    // Guards a leagues/{leagueId} write's masterLeagueId field: unset/empty
+    // is always fine, but linking to a real workspace requires competition-
+    // management authority there — otherwise anyone could plant a rogue
+    // competition inside another organizer's workspace.
+    function validLeagueMasterLeagueLink(data) {
+      return !('masterLeagueId' in data)
+        || (data.masterLeagueId == null)
+        || (data.masterLeagueId == '')
+        || (
+          (data.masterLeagueId is string)
+          && (data.masterLeagueId.size() > 0)
+          && validMasterLeagueId(data.masterLeagueId)
+          && canManageMasterLeagueCompetitions(data.masterLeagueId)
+        );
     }
 
     function canReadLeagueDirect() {
@@ -619,6 +696,13 @@ service cloud.firestore {
 
     function canDeleteLeagueMessage(leagueId) {
       return canManageLeague(leagueId)
+        || (('senderId' in resource.data) && (resource.data.senderId is string) && (resource.data.senderId == request.auth.uid));
+    }
+
+    function canPinMasterLeagueMessage(masterLeagueId) { return canModerateMasterLeague(masterLeagueId); }
+
+    function canDeleteMasterLeagueMessage(masterLeagueId) {
+      return canModerateMasterLeague(masterLeagueId)
         || (('senderId' in resource.data) && (resource.data.senderId is string) && (resource.data.senderId == request.auth.uid));
     }
 
@@ -1468,14 +1552,18 @@ service cloud.firestore {
       match /chatroom/{messageId} {
         allow get, list: if signedIn();
         allow create: if signedIn() && validOrganizerChatMessageCreate(messageId, masterLeagueId);
-        allow update: if signedIn() && (validChatSoftDeleteUpdate() || validChatPinUpdate());
+        allow update: if signedIn()
+          && (
+            (validChatPinUpdate() && canPinMasterLeagueMessage(masterLeagueId))
+            || (validChatSoftDeleteUpdate() && canDeleteMasterLeagueMessage(masterLeagueId))
+          );
         allow delete: if false;
       }
 
       match /disciplineActions/{actionId} {
         allow get, list: if signedIn();
 
-        allow create: if signedIn()
+        allow create: if canModerateMasterLeague(masterLeagueId)
           && request.resource.data.keys().hasOnly([
             'id','masterLeagueId','targetUserId','targetShareId','targetName',
             'targetRole','actionType','pointsDelta','reason','createdBy',
@@ -1516,7 +1604,7 @@ service cloud.firestore {
           && (!('reversedByName' in request.resource.data) || ((request.resource.data.reversedByName is string) && (request.resource.data.reversedByName.size() <= 120)))
           && (request.resource.data.reversalReason is string);
 
-        allow update: if signedIn()
+        allow update: if canModerateMasterLeague(masterLeagueId)
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'active','reversedAtMs','reversedBy','reversedByName','reversalReason'
           ])
@@ -1575,7 +1663,7 @@ service cloud.firestore {
         allow get: if signedIn() && (request.auth.uid == userId || isSuperAdmin());
         allow list: if signedIn();
 
-        allow create, update: if signedIn()
+        allow create, update: if canModerateMasterLeague(masterLeagueId)
           && (request.resource.data.userId is string)
           && (request.resource.data.userId == userId)
           && (!('shareId' in request.resource.data) || ((request.resource.data.shareId is string) && (request.resource.data.shareId.size() <= 20)))
@@ -1729,11 +1817,7 @@ service cloud.firestore {
         && (!('ownerUid' in request.resource.data) || ((request.resource.data.ownerUid is string) && (request.resource.data.ownerUid == request.auth.uid)))
         && (!('ownerId' in request.resource.data) || ((request.resource.data.ownerId is string) && (request.resource.data.ownerId == request.auth.uid)))
         && (!(request.resource.data.memberIds is list) || (request.auth.uid in request.resource.data.memberIds))
-        && (!('masterLeagueId' in request.resource.data)
-          || (request.resource.data.masterLeagueId == null)
-          || (request.resource.data.masterLeagueId == '')
-          || ((request.resource.data.masterLeagueId is string) && (request.resource.data.masterLeagueId.size() > 0) && validMasterLeagueId(request.resource.data.masterLeagueId))
-        )
+        && validLeagueMasterLeagueLink(request.resource.data)
         && (!('format' in request.resource.data) || validLeagueFormatIndex(request.resource.data.format))
         && (!('settings' in request.resource.data) || validLeagueSettingsMap(request.resource.data.settings))
         && validWorldCupTeamCount(request.resource.data)
@@ -1748,6 +1832,9 @@ service cloud.firestore {
               && (request.auth.uid in request.resource.data.memberIds)
               && !request.resource.data.diff(resource.data).changedKeys().hasAny(['masterLeagueId'])
             )
+          ) && (
+            !request.resource.data.diff(resource.data).changedKeys().hasAny(['masterLeagueId'])
+            || validLeagueMasterLeagueLink(request.resource.data)
           ) && (
             (!('format' in request.resource.data) || validLeagueFormatIndex(request.resource.data.format))
             && (!('settings' in request.resource.data) || validLeagueSettingsMap(request.resource.data.settings))
@@ -1812,13 +1899,13 @@ service cloud.firestore {
 
       match /matches/{matchId} {
         allow read: if signedIn();
-        allow write: if canManageLeague(leagueId)
+        allow write: if (canManageLeague(leagueId) || canManageCompetitionResults(leagueId))
           && validWorldCupGroupMatchWrite();
       }
 
       match /knockout/{matchId} {
         allow read: if signedIn();
-        allow write: if canManageLeague(leagueId)
+        allow write: if (canManageLeague(leagueId) || canManageCompetitionResults(leagueId))
           && validWorldCupKnockoutFields();
       }
 
