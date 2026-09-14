@@ -1619,6 +1619,40 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // Lightweight, append-only audit trail for staff CRUD (add/remove/
+      // scope changes) — mirrors disciplineActions' create-only shape.
+      // manageStaff is owner-only and non-delegable, so writes here are
+      // owner-only too; visibility matches the staff screen's own gate.
+      match /staffAuditLog/{entryId} {
+        allow get, list: if isMasterLeagueOwner(masterLeagueId);
+
+        allow create: if isMasterLeagueOwner(masterLeagueId)
+          && request.resource.data.keys().hasOnly([
+            'id','masterLeagueId','action','performedBy','targetUserId',
+            'targetRole','details','performedAtMs'
+          ])
+          && (request.resource.data.id is string)
+          && (request.resource.data.id == entryId)
+          && (request.resource.data.masterLeagueId is string)
+          && (request.resource.data.masterLeagueId == masterLeagueId)
+          && (request.resource.data.action is string)
+          && (request.resource.data.action in [
+            'staff_added', 'staff_removed', 'scope_changed'
+          ])
+          && (request.resource.data.performedBy is string)
+          && (request.resource.data.performedBy == request.auth.uid)
+          && (request.resource.data.targetUserId is string)
+          && (request.resource.data.targetUserId.size() > 0)
+          && (request.resource.data.targetRole is string)
+          && (request.resource.data.targetRole.size() <= 40)
+          && (request.resource.data.details is string)
+          && (request.resource.data.details.size() <= 500)
+          && (request.resource.data.performedAtMs is int);
+
+        allow update: if false;
+        allow delete: if false;
+      }
+
       match /announcements/{announcementId} {
         allow get, list: if signedIn();
 

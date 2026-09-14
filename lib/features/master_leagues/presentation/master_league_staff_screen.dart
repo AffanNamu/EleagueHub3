@@ -452,11 +452,120 @@ class _MasterLeagueStaffScreenState
                       padding: const EdgeInsets.only(bottom: 10),
                       child: _staffTile(row),
                     )),
+                const SizedBox(height: 16),
+                _buildActivityLog(names),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  // ── Recent activity (audit log) ────────────────────────────────────────────
+
+  Widget _buildActivityLog(Map<String, String> names) {
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+
+    return Glass(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(16),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Recent Activity',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: AppTheme.primaryText(brightness),
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('master_leagues')
+                .doc(widget.masterLeagueId)
+                .collection('staffAuditLog')
+                .orderBy('performedAtMs', descending: true)
+                .limit(20)
+                .snapshots(),
+            builder: (context, snap) {
+              final docs = snap.data?.docs ?? const [];
+              if (snap.connectionState == ConnectionState.waiting &&
+                  docs.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (docs.isEmpty) {
+                return Text(
+                  'No staff changes yet.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.secondaryText(brightness),
+                    fontWeight: FontWeight.w700,
+                  ),
+                );
+              }
+              return Column(
+                children: docs.map((d) {
+                  final data = d.data();
+                  final action =
+                      (data['action'] as String? ?? '').trim();
+                  final targetUid =
+                      (data['targetUserId'] as String? ?? '').trim();
+                  final targetRole =
+                      (data['targetRole'] as String? ?? '').trim();
+                  final performedAtMs =
+                      (data['performedAtMs'] as num?)?.toInt() ?? 0;
+
+                  final targetLabel = names[targetUid]?.isNotEmpty == true
+                      ? names[targetUid]!
+                      : targetUid;
+
+                  final roleLabel =
+                      MasterLeagueStaffRole.fromStorageValue(targetRole)
+                          ?.displayName ??
+                          targetRole;
+
+                  final text = switch (action) {
+                    'staff_added' =>
+                        '$targetLabel added as $roleLabel',
+                    'staff_removed' =>
+                        '$targetLabel removed (was $roleLabel)',
+                    'scope_changed' =>
+                        '$targetLabel\'s competition access changed',
+                    _ => '$targetLabel • $action',
+                  };
+
+                  final when = performedAtMs > 0
+                      ? DateTime.fromMillisecondsSinceEpoch(performedAtMs)
+                          .toLocal()
+                          .toString()
+                          .split('.')
+                          .first
+                      : '';
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      when.isNotEmpty ? '$text • $when' : text,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTheme.secondaryText(brightness),
+                        fontWeight: FontWeight.w700,
+                        height: 1.3,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 

@@ -8,7 +8,9 @@ import {
   addStaffByShortIdWeb,
   removeStaffWeb,
   listStaffWeb,
+  listStaffAuditLogWeb,
   MasterLeagueStaffMember,
+  MasterLeagueStaffAuditEntry,
 } from '@/lib/masterLeagues/masterLeaguesRepository';
 import {
   MASTER_LEAGUE_STAFF_ROLES,
@@ -53,6 +55,7 @@ export default function MasterLeagueStaffPage() {
 
   const [staff, setStaff] = useState<MasterLeagueStaffMember[]>([]);
   const [staffLoading, setStaffLoading] = useState(true);
+  const [auditLog, setAuditLog] = useState<MasterLeagueStaffAuditEntry[]>([]);
   const [error, setError] = useState('');
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -66,8 +69,12 @@ export default function MasterLeagueStaffPage() {
   const refreshStaff = useCallback(async () => {
     setStaffLoading(true);
     try {
-      const list = await listStaffWeb(mlId);
+      const [list, log] = await Promise.all([
+        listStaffWeb(mlId),
+        listStaffAuditLogWeb(mlId).catch(() => []),
+      ]);
       setStaff(list);
+      setAuditLog(log);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load staff.');
     } finally {
@@ -222,6 +229,40 @@ export default function MasterLeagueStaffPage() {
                 No staff yet.
               </div>
             )}
+          </div>
+        )}
+      </PanelCard>
+
+      <PanelCard title="Recent Activity" icon={<ScrollText className="w-4 h-4 text-gray-400" />}>
+        {auditLog.length === 0 ? (
+          <p className="text-xs font-semibold text-gray-500">No staff changes yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {auditLog.map((entry) => {
+              const target = staff.find((m) => m.userId === entry.targetUserId);
+              const targetLabel = target?.displayName || entry.targetUserId;
+              const roleLabel = MASTER_LEAGUE_STAFF_ROLES[
+                (entry.targetRole as MasterLeagueStaffRoleId) in MASTER_LEAGUE_STAFF_ROLES
+                  ? (entry.targetRole as MasterLeagueStaffRoleId)
+                  : 'admin'
+              ]?.displayName || entry.targetRole;
+              const text =
+                entry.action === 'staff_added'
+                  ? `${targetLabel} added as ${roleLabel}`
+                  : entry.action === 'staff_removed'
+                  ? `${targetLabel} removed (was ${roleLabel})`
+                  : entry.action === 'scope_changed'
+                  ? `${targetLabel}'s competition access changed`
+                  : `${targetLabel} • ${entry.action}`;
+              const when = entry.performedAtMs > 0 ? new Date(entry.performedAtMs).toLocaleString() : '';
+
+              return (
+                <p key={entry.id} className="text-xs font-semibold text-gray-500">
+                  {text}
+                  {when ? ` • ${when}` : ''}
+                </p>
+              );
+            })}
           </div>
         )}
       </PanelCard>

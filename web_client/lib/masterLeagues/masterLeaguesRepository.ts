@@ -329,6 +329,29 @@ export interface MasterLeagueStaffMember {
 }
 
 /**
+ * Lightweight, append-only audit trail for staff CRUD — mirrors the
+ * disciplineActions pattern (create-only, no update/delete) and the
+ * matching _staffAuditEntry() helper in master_leagues_repository_firebase.dart.
+ */
+function staffAuditEntry({
+  entryId, mlId, action, performedBy, targetUserId, targetRole = '', details = '',
+}: {
+  entryId: string; mlId: string; action: string; performedBy: string;
+  targetUserId: string; targetRole?: string; details?: string;
+}) {
+  return {
+    id: entryId,
+    masterLeagueId: mlId,
+    action,
+    performedBy,
+    targetUserId,
+    targetRole,
+    details,
+    performedAtMs: Date.now(),
+  };
+}
+
+/**
  * Adds a staff member by their short id (or full uid) and role.
  * Owner-only — enforced both here (pre-check) and by firestore.rules.
  */
@@ -374,6 +397,16 @@ export async function addStaffByShortIdWeb({
       roles,
       updatedAtMs: Date.now(),
     });
+
+    const auditRef = doc(collection(db, 'master_leagues', mlId, 'staffAuditLog'));
+    txn.set(auditRef, staffAuditEntry({
+      entryId: auditRef.id,
+      mlId,
+      action: 'staff_added',
+      performedBy: authUid,
+      targetUserId: targetUid,
+      targetRole: resolvedRole,
+    }));
   });
 }
 
@@ -400,12 +433,27 @@ export async function removeStaffWeb({
     throw new Error('The workspace owner cannot be removed as staff.');
   }
 
-  await updateDoc(mlRef, {
+  const previousRole = String((data.roles ?? {})[target] ?? '').trim();
+
+  const batch = writeBatch(db);
+  batch.update(mlRef, {
     [`roles.${target}`]: deleteField(),
     [`staffScopes.${target}`]: deleteField(),
     memberIds: arrayRemove(target),
     updatedAtMs: Date.now(),
   });
+
+  const auditRef = doc(collection(db, 'master_leagues', mlId, 'staffAuditLog'));
+  batch.set(auditRef, staffAuditEntry({
+    entryId: auditRef.id,
+    mlId,
+    action: 'staff_removed',
+    performedBy: authUid,
+    targetUserId: target,
+    targetRole: previousRole,
+  }));
+
+  await batch.commit();
 }
 
 /**
@@ -437,11 +485,26 @@ export async function setStaffCompetitionScopeWeb({
   }
 
   const cleanIds = Array.from(new Set(leagueIds.map((id) => id.trim()).filter(Boolean)));
+  const targetRole = String(roles[target] ?? '').trim();
 
-  await updateDoc(mlRef, {
+  const batch = writeBatch(db);
+  batch.update(mlRef, {
     [`staffScopes.${target}`]: cleanIds.length === 0 ? deleteField() : cleanIds,
     updatedAtMs: Date.now(),
   });
+
+  const auditRef = doc(collection(db, 'master_leagues', mlId, 'staffAuditLog'));
+  batch.set(auditRef, staffAuditEntry({
+    entryId: auditRef.id,
+    mlId,
+    action: 'scope_changed',
+    performedBy: authUid,
+    targetUserId: target,
+    targetRole,
+    details: cleanIds.length === 0 ? 'all competitions' : cleanIds.join(','),
+  }));
+
+  await batch.commit();
 }
 
 /**
@@ -491,6 +554,41 @@ export async function listStaffWeb(mlId: string): Promise<MasterLeagueStaffMembe
       };
     })
     .filter((m): m is MasterLeagueStaffMember => m !== null);
+}
+
+export interface MasterLeagueStaffAuditEntry {
+  id: string;
+  action: string;
+  performedBy: string;
+  targetUserId: string;
+  targetRole: string;
+  details: string;
+  performedAtMs: number;
+}
+
+/** Recent staff CRUD activity, newest first. Owner-only per firestore.rules. */
+export async function listStaffAuditLogWeb(
+  mlId: string,
+  max: number = 20,
+): Promise<MasterLeagueStaffAuditEntry[]> {
+  const q = query(
+    collection(db, 'master_leagues', mlId, 'staffAuditLog'),
+    orderBy('performedAtMs', 'desc'),
+    fsLimit(max),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => {
+    const data = d.data();
+    return {
+      id: d.id,
+      action: String(data.action ?? '').trim(),
+      performedBy: String(data.performedBy ?? '').trim(),
+      targetUserId: String(data.targetUserId ?? '').trim(),
+      targetRole: String(data.targetRole ?? '').trim(),
+      details: String(data.details ?? '').trim(),
+      performedAtMs: Number(data.performedAtMs ?? 0),
+    };
+  });
 }
 
 // ── ENTITLEMENTS / DISCOVERY ─────────────────────────────────────────────────

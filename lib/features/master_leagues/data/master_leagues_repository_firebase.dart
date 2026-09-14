@@ -2521,6 +2521,30 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  /// Lightweight, append-only audit trail for staff CRUD — mirrors the
+  /// disciplineActions pattern (create-only, no update/delete). Not meant
+  /// to capture every possible detail, just who did what to whom and when.
+  Map<String, dynamic> _staffAuditEntry({
+    required String entryId,
+    required String masterLeagueId,
+    required String action,
+    required String performedBy,
+    required String targetUserId,
+    String targetRole = '',
+    String details = '',
+  }) {
+    return <String, dynamic>{
+      'id': entryId,
+      'masterLeagueId': masterLeagueId,
+      'action': action,
+      'performedBy': performedBy,
+      'targetUserId': targetUserId,
+      'targetRole': targetRole,
+      'details': details,
+      'performedAtMs': _nowMs(),
+    };
+  }
+
   Future<void> addStaffByShortId({
     required String masterLeagueId,
     required String shortId,
@@ -2640,6 +2664,19 @@ class MasterLeaguesRepositoryFirebase {
           'roles': roles,
           'updatedAtMs': _nowMs(),
         });
+
+        final auditRef = mlRef.collection('staffAuditLog').doc();
+        txn.set(
+          auditRef,
+          _staffAuditEntry(
+            entryId: auditRef.id,
+            masterLeagueId: id,
+            action: 'staff_added',
+            performedBy: uid,
+            targetUserId: targetUid,
+            targetRole: safeRole,
+          ),
+        );
       });
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
@@ -2691,12 +2728,32 @@ class MasterLeaguesRepositoryFirebase {
         );
       }
 
-      await mlRef.update(<String, dynamic>{
+      final rolesRaw =
+          (mlData['roles'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final previousRole = ('${rolesRaw[target] ?? ''}').trim();
+
+      final batch = _firestore.batch();
+      batch.update(mlRef, <String, dynamic>{
         'roles.$target': FieldValue.delete(),
         'staffScopes.$target': FieldValue.delete(),
         'memberIds': FieldValue.arrayRemove(<String>[target]),
         'updatedAtMs': _nowMs(),
-      }).timeout(const Duration(seconds: 15));
+      });
+
+      final auditRef = mlRef.collection('staffAuditLog').doc();
+      batch.set(
+        auditRef,
+        _staffAuditEntry(
+          entryId: auditRef.id,
+          masterLeagueId: id,
+          action: 'staff_removed',
+          performedBy: uid,
+          targetUserId: target,
+          targetRole: previousRole,
+        ),
+      );
+
+      await batch.commit().timeout(const Duration(seconds: 15));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -2760,18 +2817,30 @@ class MasterLeaguesRepositoryFirebase {
           .where((e) => e.isNotEmpty)
           .toSet()
           .toList(growable: false);
+      final targetRole = ('${rolesRaw[target] ?? ''}').trim();
 
-      if (cleanIds.isEmpty) {
-        await mlRef.update(<String, dynamic>{
-          'staffScopes.$target': FieldValue.delete(),
-          'updatedAtMs': _nowMs(),
-        }).timeout(const Duration(seconds: 15));
-      } else {
-        await mlRef.update(<String, dynamic>{
-          'staffScopes.$target': cleanIds,
-          'updatedAtMs': _nowMs(),
-        }).timeout(const Duration(seconds: 15));
-      }
+      final batch = _firestore.batch();
+      batch.update(mlRef, <String, dynamic>{
+        'staffScopes.$target':
+            cleanIds.isEmpty ? FieldValue.delete() : cleanIds,
+        'updatedAtMs': _nowMs(),
+      });
+
+      final auditRef = mlRef.collection('staffAuditLog').doc();
+      batch.set(
+        auditRef,
+        _staffAuditEntry(
+          entryId: auditRef.id,
+          masterLeagueId: id,
+          action: 'scope_changed',
+          performedBy: uid,
+          targetUserId: target,
+          targetRole: targetRole,
+          details: cleanIds.isEmpty ? 'all competitions' : cleanIds.join(','),
+        ),
+      );
+
+      await batch.commit().timeout(const Duration(seconds: 15));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
