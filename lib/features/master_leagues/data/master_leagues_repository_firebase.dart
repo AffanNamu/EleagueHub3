@@ -14,6 +14,7 @@ import '../../leagues/models/league_settings.dart';
 import '../domain/competition_template.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
+import '../domain/master_league_roles.dart';
 import '../domain/organizer_verification_request.dart';
 
 class UserFriendlyException implements Exception {
@@ -2529,7 +2530,7 @@ class MasterLeaguesRepositoryFirebase {
       final uid = _requireAuthUid();
       final id = masterLeagueId.trim();
       final shareId = shortId.trim();
-      final safeRole = role.trim().toLowerCase();
+      final resolvedRole = MasterLeagueStaffRole.fromStorageValue(role);
 
       if (id.isEmpty) {
         throw const UserFriendlyException(
@@ -2541,11 +2542,12 @@ class MasterLeaguesRepositoryFirebase {
           'Please enter a valid user short id.',
         );
       }
-      if (safeRole != 'admin' && safeRole != 'moderator') {
+      if (resolvedRole == null || !resolvedRole.isAssignable) {
         throw const UserFriendlyException(
           'Invalid staff role selected.',
         );
       }
+      final safeRole = resolvedRole.storageValue;
 
       final mlRef = _col.doc(id);
 
