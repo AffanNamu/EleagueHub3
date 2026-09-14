@@ -560,17 +560,32 @@ jobs:
           # globally to every target xcodebuild compiles, including all 60+
           # CocoaPods library targets, which correctly reject having any
           # provisioning profile forced on them ("X does not support
-          # provisioning profiles") since libraries don't need one. Only
-          # the Runner app target does, and ExportOptions.plist's
-          # provisioningProfiles dict already maps that specific bundle ID
-          # to our profile correctly for the export step. At archive time,
-          # Xcode auto-matches Runner against whatever's installed in
-          # ~/Library/MobileDevice/Provisioning Profiles/ by bundle ID +
-          # team + distribution type -- which now works since the bundle ID
-          # mismatch (see the sed patch above) is fixed too.
+          # provisioning profiles") since libraries don't need one.
           export FLUTTER_XCODE_CODE_SIGN_STYLE="Manual"
           export FLUTTER_XCODE_CODE_SIGN_IDENTITY="Apple Distribution"
           export FLUTTER_XCODE_DEVELOPMENT_TEAM="$IOS_EXPORT_TEAM_ID"
+
+          # With CODE_SIGN_STYLE=Manual, Xcode does NOT auto-search
+          # installed profiles the way Automatic style does -- manual
+          # signing requires an explicit PROVISIONING_PROFILE_SPECIFIER,
+          # confirmed by run #62 failing with `"Runner" requires a
+          # provisioning profile` even though the correct profile was
+          # already installed and the bundle ID now matches it. Since a
+          # global FLUTTER_XCODE_PROVISIONING_PROFILE_SPECIFIER breaks
+          # every CocoaPods target (see note above), patch it directly
+          # into Runner.xcodeproj instead -- scoped only to Runner's own
+          # build settings, anchored right after the (already-patched)
+          # PRODUCT_BUNDLE_IDENTIFIER line so it only touches Runner's
+          # three configs (Debug/Profile/Release), never RunnerTests
+          # (whose bundle ID has a distinct ".RunnerTests" suffix) or any
+          # Pods target (a separate .xcodeproj file entirely).
+          sed -i '' \
+            "/PRODUCT_BUNDLE_IDENTIFIER = com\\.eleaguehub\\.app;/a\\
+				PROVISIONING_PROFILE_SPECIFIER = \"${IOS_PROVISION_PROFILE_NAME}\";
+" \
+            ios/Runner.xcodeproj/project.pbxproj
+          echo "── PROVISIONING_PROFILE_SPECIFIER after patch ──"
+          grep "PROVISIONING_PROFILE_SPECIFIER" ios/Runner.xcodeproj/project.pbxproj
 
           flutter build ipa \
             --release \
