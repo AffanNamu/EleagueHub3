@@ -3,6 +3,18 @@ name: iOS CI (Release IPA - Production)
 on:
   push:
     branches: [ main ]
+    # Scoped to what can actually affect the iOS build/archive/upload --
+    # without this, every push to main (web_client/, esportlyic-admin/,
+    # worker/, docs, firestore config, etc.) triggers a full iOS CI run,
+    # and the concurrency group below then cancels any iOS run already
+    # in progress, which repeatedly delayed real iOS work this session.
+    paths:
+      - 'lib/**'
+      - 'ios/**'
+      - 'assets/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ios.yml'
   workflow_dispatch:
 
 concurrency:
