@@ -107,6 +107,15 @@ dev_dependencies:
 # Billing Library from 7.1.1 to 8.0.0; 0.5.2 is current latest.
 dependency_overrides:
   in_app_purchase_android: ^0.5.2
+  # device_info_plus is only a transitive dependency (via
+  # livekit_client: ^2.8.1, which itself depends on ^12.3.0), so pub
+  # freely resolves it up to 12.4.0 -- which added an
+  # NSProcessInfo.isiOSAppOnVision reference in its Objective-C source
+  # requiring an iOS SDK newer than what this CI's Xcode (16.4, iOS
+  # 18.5 SDK) ships, failing with "No visible @interface for
+  # 'NSProcessInfo' declares the selector 'isiOSAppOnVision'" during
+  # archive. Pinned to the last version before that reference was added.
+  device_info_plus: 12.3.0
 
 flutter_launcher_icons:
   android: true
