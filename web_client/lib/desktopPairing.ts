@@ -18,7 +18,7 @@ export interface DesktopSessionStatus {
 }
 
 export async function createDesktopSession(): Promise<DesktopSession> {
-  const { data, error } = await supabase.functions.invoke('create-session', {
+  const { data, error } = await supabase.functions.invoke('create-desktop-session', {
     method: 'POST',
   });
 
@@ -37,7 +37,7 @@ export async function getDesktopSessionStatus(
   sessionId: string,
   sessionSecret: string,
 ): Promise<DesktopSessionStatus> {
-  const { data, error } = await supabase.functions.invoke('get-status', {
+  const { data, error } = await supabase.functions.invoke('get-desktop-session-status', {
     body: { session_id: sessionId, session_secret: sessionSecret },
   });
 

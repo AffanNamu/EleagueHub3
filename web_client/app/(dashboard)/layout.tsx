@@ -42,7 +42,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   return (
-    <ProfileCompletionGate>
     <div className="flex h-screen bg-[#070B14] text-white overflow-hidden font-sans">
 
       {/* DESKTOP SIDEBAR */}
@@ -110,7 +109,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         
         {/* Scrollable Page Content */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 relative">
-          {children}
+          <ProfileCompletionGate>{children}</ProfileCompletionGate>
         </div>
 
         {/* MOBILE BOTTOM NAV */}
@@ -139,6 +138,5 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </main>
     </div>
-    </ProfileCompletionGate>
   );
 }

@@ -55,7 +55,7 @@ export function ProfileCompletionGate({ children }: { children: React.ReactNode 
 
   if (status === 'checking' || status === 'redirecting') {
     return (
-      <div className="flex items-center justify-center h-screen bg-[#070B14]">
+      <div className="flex items-center justify-center h-full min-h-[50vh]">
         <Loader2 className="w-8 h-8 text-brand-lime animate-spin" />
       </div>
     );
