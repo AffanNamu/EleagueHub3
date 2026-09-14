@@ -4,10 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
-import { 
+import {
   ArrowLeft, RefreshCw, Trash2, Mic, Wifi, Shield,
   MessageSquare, DownloadCloud, Ticket, Activity,
-  CheckCircle2, X, Users, Gift, Settings, ShieldCheck, CheckCircle
+  CheckCircle2, X, Users, Gift, Settings, ShieldCheck, CheckCircle, Zap
 } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { fetchFullLeagueDetails, FullLeagueDetails } from '@/lib/leagues/leagueDetailsRepository';
@@ -299,10 +299,23 @@ export default function LeagueAdminScreen() {
             icon={MessageSquare} title="Send Announcement" subtitle="Push a global notification to participants"
             onClick={() => setActiveModal('announcement')}
           />
-          <AdminActionCard 
+          <AdminActionCard
             icon={Mic} title={data.space?.isLive ? 'End Live Space' : 'Start Live Space'} subtitle={data.space?.isLive ? 'Close the current audio room' : 'Host an audio room for this league'}
             onClick={handleToggleSpace} loading={isProcessing} active={data.space?.isLive}
           />
+          {data.league.format === 'directKnockout' && (
+            <AdminActionCard
+              icon={Zap}
+              title={data.knockouts.length > 0 ? 'Bracket Generated' : 'Generate Bracket'}
+              subtitle={
+                data.knockouts.length > 0
+                  ? 'Cross-paired bracket already generated for this competition'
+                  : 'Cross-pair all registered teams into a knockout bracket'
+              }
+              onClick={() => router.push(`/leagues/${leagueId}/admin/knockout-draw`)}
+              active={data.knockouts.length > 0}
+            />
+          )}
         </div>
 
         <div className="pt-8">
