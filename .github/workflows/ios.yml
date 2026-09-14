@@ -526,20 +526,29 @@ jobs:
           </plist>
           PLIST
 
-          # --verbose: "No valid code signing certificates were found" is
-          # Flutter's generic wrapper message for ANY codesign failure during
-          # xcodebuild archive -- a CI diagnostic already proved a valid
-          # Apple Distribution identity IS present and found by
-          # `security find-identity` at this point in the job, so the real
-          # cause is something more specific in the actual xcodebuild
-          # archive invocation (entitlements, profile UUID matching, etc.)
-          # that Flutter's default output hides. --verbose surfaces the
-          # underlying xcodebuild command and its real error.
+          # The Xcode project flutter create generates defaults its Release
+          # configuration's CODE_SIGN_IDENTITY to "iPhone Developer" (a
+          # Development identity type). Our keychain only has the Apple
+          # Distribution identity (correct for app-store-connect export),
+          # so xcodebuild archive looked for a Development identity, found
+          # none, and reported "No valid code signing certificates were
+          # found" -- confirmed via --verbose build settings dump showing
+          # `CODE_SIGN_IDENTITY = iPhone Developer` despite `security
+          # find-identity` proving a valid Distribution identity exists.
+          # FLUTTER_XCODE_* env vars are Flutter's supported mechanism for
+          # passing xcodebuild build-setting overrides, which take highest
+          # precedence over the project file -- this forces the archive
+          # step to use manual signing with our actual Distribution
+          # identity/profile instead of the generated project's default.
+          export FLUTTER_XCODE_CODE_SIGN_STYLE="Manual"
+          export FLUTTER_XCODE_CODE_SIGN_IDENTITY="Apple Distribution"
+          export FLUTTER_XCODE_DEVELOPMENT_TEAM="$IOS_EXPORT_TEAM_ID"
+          export FLUTTER_XCODE_PROVISIONING_PROFILE_SPECIFIER="$IOS_PROVISION_PROFILE_NAME"
+
           flutter build ipa \
             --release \
             --no-tree-shake-icons \
             --export-options-plist=ios/ExportOptions.plist \
-            --verbose \
             ${DART_DEFINES}
 
           echo "✅ IPA built successfully"
