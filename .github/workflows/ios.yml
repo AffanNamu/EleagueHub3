@@ -526,10 +526,20 @@ jobs:
           </plist>
           PLIST
 
+          # --verbose: "No valid code signing certificates were found" is
+          # Flutter's generic wrapper message for ANY codesign failure during
+          # xcodebuild archive -- a CI diagnostic already proved a valid
+          # Apple Distribution identity IS present and found by
+          # `security find-identity` at this point in the job, so the real
+          # cause is something more specific in the actual xcodebuild
+          # archive invocation (entitlements, profile UUID matching, etc.)
+          # that Flutter's default output hides. --verbose surfaces the
+          # underlying xcodebuild command and its real error.
           flutter build ipa \
             --release \
             --no-tree-shake-icons \
             --export-options-plist=ios/ExportOptions.plist \
+            --verbose \
             ${DART_DEFINES}
 
           echo "✅ IPA built successfully"
