@@ -159,6 +159,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       case LeagueFormat.worldCup:
         // Must be exactly 32 (FIFA 2022) or 48 (FIFA 2026).
         return n == _maxTeamsForFormat;
+      case LeagueFormat.directKnockout:
+        // Must be exactly the chosen bracket size (4/8/16/32/64) —
+        // seedTopNKnockouts() refuses anything else.
+        return n == _maxTeamsForFormat;
       case LeagueFormat.classic:
       default:
         return n >= 2;
@@ -384,6 +388,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         final teams = _maxTeamsForFormat;
         return 'Add exactly $teams teams. '
             'Groups and fixtures will be generated automatically.';
+      case LeagueFormat.directKnockout:
+        final teams = _maxTeamsForFormat;
+        return 'Add exactly $teams teams, then generate the bracket '
+            'from the competition page.';
       case LeagueFormat.classic:
       default:
         return l10n.tr('add_teams_unlock_classic');

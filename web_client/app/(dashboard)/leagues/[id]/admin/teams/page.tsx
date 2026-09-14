@@ -104,14 +104,18 @@ export default function ManageTeamsScreen() {
   const isWorldCup = league?.format === 'worldCup';
   const isSwiss = league?.format === 'uclSwiss';
   const isClassic = league?.format === 'classic';
+  const isDirectKnockout = league?.format === 'directKnockout';
 
   const maxTeams = useMemo(() => {
     if (!league) return 0;
     if (isGroupFormat) return 32;
     if (isSwiss) return 36;
     if (isWorldCup) return worldCupTeamCount(league.worldCupFormat);
+    // Direct Knockout's bracket size (4/8/16/32/64) can exceed the 40-team
+    // clamp below, which only makes sense for the classic/default case.
+    if (isDirectKnockout) return league.maxTeams || 16;
     return Math.min(Math.max(league.maxTeams || 20, 2), 40);
-  }, [league, isGroupFormat, isSwiss, isWorldCup]);
+  }, [league, isGroupFormat, isSwiss, isWorldCup, isDirectKnockout]);
 
   const allowedGroups = useMemo(() => {
     if (isGroupFormat) return teams.length > 16 ? GROUPS_ALL.slice(0, 8) : GROUPS_ALL.slice(0, 4);
@@ -124,8 +128,11 @@ export default function ManageTeamsScreen() {
     if (isGroupFormat) return n === 16 || n === 32;
     if (isSwiss) return n === 18 || n === 36;
     if (isWorldCup) return n === maxTeams;
+    // Must be exactly the chosen bracket size (4/8/16/32/64) —
+    // seedTopNKnockouts() refuses anything else.
+    if (isDirectKnockout) return n === maxTeams;
     return n >= 2;
-  }, [teams.length, isGroupFormat, isSwiss, isWorldCup, maxTeams]);
+  }, [teams.length, isGroupFormat, isSwiss, isWorldCup, isDirectKnockout, maxTeams]);
 
   const handleLookup = async () => {
     setError('');
