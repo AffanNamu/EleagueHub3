@@ -131,7 +131,7 @@ export function SendNotificationForm() {
       <button
         onClick={handleSubmit}
         disabled={submitting || !title.trim() || !body.trim() || (segment === 'league' && !leagueId.trim())}
-        className="flex items-center gap-2 rounded-sm bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-soft disabled:opacity-60"
+        className="flex items-center gap-2 rounded-sm bg-brand px-4 py-2 text-sm font-medium text-base hover:bg-brand-soft disabled:opacity-60"
       >
         <Send size={15} /> {submitting ? 'Sending…' : 'Send Notification'}
       </button>

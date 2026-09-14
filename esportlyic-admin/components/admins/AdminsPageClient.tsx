@@ -130,7 +130,7 @@ function AdminFormModal({
           <button
             onClick={handleSubmit}
             disabled={submitting || (mode === 'add' && !email.trim())}
-            className="rounded-sm bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-soft disabled:opacity-60"
+            className="rounded-sm bg-brand px-3 py-1.5 text-sm font-medium text-base hover:bg-brand-soft disabled:opacity-60"
           >
             {submitting ? 'Saving…' : mode === 'add' ? 'Add Admin' : 'Save Changes'}
           </button>
@@ -183,7 +183,7 @@ export function AdminsPageClient({
         </div>
         <button
           onClick={() => setModalState('add')}
-          className="flex items-center gap-2 rounded-sm bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-soft"
+          className="flex items-center gap-2 rounded-sm bg-brand px-3 py-2 text-sm font-medium text-base hover:bg-brand-soft"
         >
           <Plus size={15} /> Add Admin
         </button>

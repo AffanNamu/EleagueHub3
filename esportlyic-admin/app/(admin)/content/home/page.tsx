@@ -34,7 +34,7 @@ export default async function HomeContentPage() {
         {canManage && (
           <Link
             href="/content/home/new"
-            className="flex items-center gap-2 rounded-sm bg-brand px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-soft"
+            className="flex items-center gap-2 rounded-sm bg-brand px-3.5 py-2 text-sm font-medium text-base hover:bg-brand-soft"
           >
             <Plus size={15} /> New
           </Link>

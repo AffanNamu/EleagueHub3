@@ -88,7 +88,7 @@ function LoginForm() {
   return (
     <div className="w-full max-w-sm">
       <div className="mb-8 text-center">
-        <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-md bg-brand text-sm font-semibold text-white">
+        <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-md bg-brand text-sm font-semibold text-base">
           N
         </div>
         <h1 className="font-display text-xl font-semibold text-ink-primary">
@@ -140,7 +140,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-sm bg-brand py-2 text-sm font-medium text-white transition-colors hover:bg-brand-soft disabled:opacity-60"
+            className="w-full rounded-sm bg-brand py-2 text-sm font-medium text-base transition-colors hover:bg-brand-soft disabled:opacity-60"
           >
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>

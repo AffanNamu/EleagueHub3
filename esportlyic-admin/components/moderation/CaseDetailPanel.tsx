@@ -115,7 +115,7 @@ export function CaseDetailPanel({ caseData, canManage }: { caseData: ModerationC
               <button
                 onClick={handleAddNote}
                 disabled={submitting || !noteText.trim()}
-                className="rounded-sm bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-soft disabled:opacity-60"
+                className="rounded-sm bg-brand px-3 py-2 text-sm font-medium text-base hover:bg-brand-soft disabled:opacity-60"
               >
                 Add
               </button>

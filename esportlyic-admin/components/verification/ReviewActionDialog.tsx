@@ -72,7 +72,7 @@ export function ReviewActionDialog({
           <button
             onClick={() => onConfirm(note)}
             disabled={!canSubmit || submitting}
-            className="rounded-sm bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-soft disabled:opacity-60"
+            className="rounded-sm bg-brand px-3 py-1.5 text-sm font-medium text-base hover:bg-brand-soft disabled:opacity-60"
           >
             {submitting ? 'Submitting…' : copy.confirmLabel}
           </button>

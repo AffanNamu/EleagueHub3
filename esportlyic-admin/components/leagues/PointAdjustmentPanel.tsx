@@ -87,7 +87,7 @@ export function PointAdjustmentPanel({
           <button
             onClick={handleSubmit}
             disabled={submitting || !teamId || !reason.trim()}
-            className="mt-3 flex items-center gap-2 rounded-sm bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-soft disabled:opacity-60"
+            className="mt-3 flex items-center gap-2 rounded-sm bg-brand px-3 py-1.5 text-sm font-medium text-base hover:bg-brand-soft disabled:opacity-60"
           >
             {type === 'ADDITION' ? <PlusCircle size={15} /> : <MinusCircle size={15} />}
             {submitting ? 'Applying…' : `${type === 'ADDITION' ? 'Add' : 'Deduct'} ${points} Point(s)`}

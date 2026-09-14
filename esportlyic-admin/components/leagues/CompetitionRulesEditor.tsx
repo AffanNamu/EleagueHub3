@@ -427,7 +427,7 @@ export function CompetitionRulesEditor({
         <button
           onClick={handleSave}
           disabled={submitting}
-          className="rounded-sm bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-soft disabled:opacity-60"
+          className="rounded-sm bg-brand px-4 py-2 text-sm font-medium text-base hover:bg-brand-soft disabled:opacity-60"
         >
           {submitting ? 'Saving…' : 'Save Rules'}
         </button>

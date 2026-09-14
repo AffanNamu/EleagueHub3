@@ -11,29 +11,32 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Matches the mobile/web app's brand palette (lib/core/theme/app_theme.dart
+        // and web_client/tailwind.config.ts) so the admin panel reads as the same
+        // product — navy surfaces, lime accent.
         base: {
-          DEFAULT: '#0B0F1A',
-          panel: '#131926',
-          raised: '#1B2333',
-          border: '#232B3D',
+          DEFAULT: '#081120', // app: navyBg
+          panel: '#182230', // app: darkCard
+          raised: '#222E3D', // app: darkCardAlt
+          border: '#334155', // app: darkBorder
         },
         ink: {
-          primary: '#EDF1F7',
-          secondary: '#8892A6',
-          muted: '#5B6479',
+          primary: '#FFFFFF',
+          secondary: '#94A3B8', // app: darkMutedText
+          muted: '#64748B',
         },
         brand: {
-          DEFAULT: '#4C6FFF',
-          soft: '#3A55CC',
-          faint: 'rgba(76, 111, 255, 0.12)',
+          DEFAULT: '#B6FF00', // app: limeAccent
+          soft: '#84CC16', // app: limeAccentDark
+          faint: 'rgba(182, 255, 0, 0.12)',
         },
         signal: {
-          success: '#00E5A0',
-          successFaint: 'rgba(0, 229, 160, 0.12)',
+          success: '#22C55E', // app: completed-status green
+          successFaint: 'rgba(34, 197, 94, 0.12)',
           warning: '#FFB020',
           warningFaint: 'rgba(255, 176, 32, 0.12)',
-          danger: '#FF5470',
-          dangerFaint: 'rgba(255, 84, 112, 0.12)',
+          danger: '#EF4444', // app: ownerRed
+          dangerFaint: 'rgba(239, 68, 68, 0.12)',
           info: '#38BDF8',
           infoFaint: 'rgba(56, 189, 248, 0.12)',
         },

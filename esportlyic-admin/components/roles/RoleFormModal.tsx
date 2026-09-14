@@ -89,7 +89,7 @@ export function RoleFormModal({
           <button
             onClick={handleSubmit}
             disabled={submitting || !name.trim() || permissions.length === 0}
-            className="rounded-sm bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-soft disabled:opacity-60"
+            className="rounded-sm bg-brand px-3 py-1.5 text-sm font-medium text-base hover:bg-brand-soft disabled:opacity-60"
           >
             {submitting ? 'Saving…' : existingRole ? 'Save Changes' : 'Create Role'}
           </button>

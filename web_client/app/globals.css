@@ -4,7 +4,8 @@
 
 @layer base {
   body {
-    /* If Light mode, use slate-50 and dark text. If Dark mode, use your premium navy and white text. */
-    @apply bg-slate-50 text-slate-900 dark:bg-[#081120] dark:text-white transition-colors duration-300;
+    /* Light mode: pure white and dark text, matching the app's light theme.
+       Dark mode: premium navy and white text. */
+    @apply bg-white text-slate-900 dark:bg-[#081120] dark:text-white transition-colors duration-300;
   }
 }

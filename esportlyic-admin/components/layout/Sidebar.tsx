@@ -120,7 +120,7 @@ export function Sidebar({ identity }: { identity: AdminIdentity }) {
   return (
     <aside className="flex h-screen w-60 flex-shrink-0 flex-col border-r border-base-border bg-base-panel">
       <div className="flex h-14 items-center gap-2.5 border-b border-base-border px-4">
-        <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-brand text-xs font-semibold text-white">
+        <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-brand text-xs font-semibold text-base">
           N
         </div>
         <div className="leading-tight">

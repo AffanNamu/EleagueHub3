@@ -43,7 +43,7 @@ export function RolesPageClient({ initialRoles }: { initialRoles: AdminRole[] })
         </div>
         <button
           onClick={() => setModalState('create')}
-          className="flex items-center gap-2 rounded-sm bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-soft"
+          className="flex items-center gap-2 rounded-sm bg-brand px-3 py-2 text-sm font-medium text-base hover:bg-brand-soft"
         >
           <Plus size={15} /> Create Role
         </button>
