@@ -14,7 +14,15 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    # macos-15 (Xcode 16.4 / iOS 18.5 SDK) now fails App Store Connect
+    # upload validation: "All iOS and iPadOS apps must be built with
+    # the iOS 26 SDK or later, included in Xcode 26 or later" (Apple's
+    # new minimum-SDK requirement, confirmed via run #71's altool
+    # error -- the archive/signing/upload itself all succeeded, only
+    # Apple's server-side submission check rejected the SDK version).
+    # macos-26 runners default to Xcode 26.6 as of 2026-07-21 (GA since
+    # 2026-02-26), which satisfies this.
+    runs-on: macos-26
     timeout-minutes: 90
 
     env:
