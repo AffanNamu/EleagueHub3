@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   GoogleAuthProvider,
   User
@@ -32,6 +33,15 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
   const [loggedInUser, setLoggedInUser] = useState<User | null>(null);
 
   useEffect(() => {
+    // Mobile browsers (especially iOS Safari) routinely block or silently
+    // swallow signInWithPopup -- this is a mobile-only view (see page.tsx's
+    // device-mode gate), so it always uses the redirect flow instead.
+    // getRedirectResult picks up the result after Google redirects back.
+    getRedirectResult(auth).catch((err) => {
+      console.error('Google redirect sign-in failed', err);
+      setError(err.message || 'Google sign-in failed.');
+    });
+
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (user) {
         try {
@@ -55,7 +65,9 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
     setError('');
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      await signInWithRedirect(auth, provider);
+      // Browser navigates away to Google; getRedirectResult (above) and
+      // onAuthStateChanged pick up the result when it comes back.
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Google sign-in failed.');
@@ -146,7 +158,12 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
               <button
                 onClick={() => {
                   setLoading(true);
-                  router.push('/onboarding');
+                  // Not /onboarding -- that unconditionally forced even
+                  // complete-profile users through onboarding again.
+                  // ProfileCompletionGate (in the dashboard layout) is the
+                  // single source of truth for whether onboarding is
+                  // actually needed, and redirects there itself if so.
+                  router.push('/dashboard');
                 }}
                 disabled={loading}
                 className="w-full py-4 bg-brand-lime text-slate-900 font-black rounded-2xl hover:brightness-95 transition-all shadow-lg flex items-center justify-center gap-2 mb-4"
