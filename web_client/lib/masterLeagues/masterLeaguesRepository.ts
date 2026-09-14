@@ -1,10 +1,16 @@
 import {
   collection, doc, documentId, getDoc, getDocs, setDoc, updateDoc,
-  deleteDoc, runTransaction, serverTimestamp, writeBatch,
+  deleteDoc, deleteField, arrayRemove, runTransaction, serverTimestamp, writeBatch,
   query, where, orderBy, limit as fsLimit,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { MasterLeague, masterLeagueFromDoc, isDiscoverable } from '@/types/masterLeague';
+import {
+  MasterLeagueStaffRoleId,
+  staffRoleFromStorageValue,
+  MASTER_LEAGUE_STAFF_ROLES,
+} from '@/lib/masterLeagues/roles';
+import { resolveTeamParticipant } from '@/lib/services/userProfileRepository';
 
 // ── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -306,6 +312,185 @@ export async function applyDisciplineActionWeb({
       updatedAtMs: now
     }, { merge: true });
   });
+}
+
+// ── STAFF MANAGEMENT ─────────────────────────────────────────────────────────
+// Mirrors MasterLeaguesRepositoryFirebase.addStaffByShortId/removeStaff/
+// setStaffCompetitionScope (master_leagues_repository_firebase.dart). Web
+// previously had no staff management at all — mobile's add-staff dialog was
+// the only entry point.
+
+export interface MasterLeagueStaffMember {
+  userId: string;
+  displayName: string;
+  photoUrl: string;
+  role: MasterLeagueStaffRoleId;
+  competitionScope: string[]; // empty = unrestricted (all competitions)
+}
+
+/**
+ * Adds a staff member by their short id (or full uid) and role.
+ * Owner-only — enforced both here (pre-check) and by firestore.rules.
+ */
+export async function addStaffByShortIdWeb({
+  mlId, authUid, shortId, role,
+}: {
+  mlId: string; authUid: string; shortId: string; role: MasterLeagueStaffRoleId;
+}): Promise<void> {
+  const shareId = shortId.trim();
+  const resolvedRole = staffRoleFromStorageValue(role);
+  if (!resolvedRole || !MASTER_LEAGUE_STAFF_ROLES[resolvedRole].isAssignable) {
+    throw new Error('Invalid staff role selected.');
+  }
+
+  const participant = await resolveTeamParticipant(shareId);
+  if (!participant) {
+    throw new Error("We couldn't find a user with that short id.");
+  }
+  const targetUid = participant.userId;
+
+  const mlRef = doc(db, 'master_leagues', mlId);
+
+  await runTransaction(db, async (txn) => {
+    const mlSnap = await txn.get(mlRef);
+    if (!mlSnap.exists()) throw new Error("We couldn't find that Master League.");
+    const data = mlSnap.data();
+
+    if ((data.ownerId ?? '') !== authUid) {
+      throw new Error('Only the Master League owner can add staff.');
+    }
+    if (targetUid === authUid) {
+      throw new Error('The owner is already part of this Master League.');
+    }
+
+    const memberIds: string[] = Array.isArray(data.memberIds) ? [...data.memberIds] : [];
+    if (!memberIds.includes(targetUid)) memberIds.push(targetUid);
+
+    const roles: Record<string, string> = { ...(data.roles ?? {}) };
+    roles[targetUid] = resolvedRole;
+
+    txn.update(mlRef, {
+      memberIds,
+      roles,
+      updatedAtMs: Date.now(),
+    });
+  });
+}
+
+/**
+ * Removes a staff member's role, membership, and competition scope.
+ * Owner-only. Never removes the owner.
+ */
+export async function removeStaffWeb({
+  mlId, authUid, targetUid,
+}: {
+  mlId: string; authUid: string; targetUid: string;
+}): Promise<void> {
+  const target = targetUid.trim();
+  const mlRef = doc(db, 'master_leagues', mlId);
+
+  const mlSnap = await getDoc(mlRef);
+  if (!mlSnap.exists()) throw new Error("We couldn't find that Master League.");
+  const data = mlSnap.data();
+
+  if ((data.ownerId ?? '') !== authUid) {
+    throw new Error('Only the Master League owner can remove staff.');
+  }
+  if (target === (data.ownerId ?? '')) {
+    throw new Error('The workspace owner cannot be removed as staff.');
+  }
+
+  await updateDoc(mlRef, {
+    [`roles.${target}`]: deleteField(),
+    [`staffScopes.${target}`]: deleteField(),
+    memberIds: arrayRemove(target),
+    updatedAtMs: Date.now(),
+  });
+}
+
+/**
+ * Restricts (or clears the restriction on) which competitions a staff
+ * member may act on. An empty leagueIds array clears the scope.
+ * Owner-only.
+ */
+export async function setStaffCompetitionScopeWeb({
+  mlId, authUid, targetUid, leagueIds,
+}: {
+  mlId: string; authUid: string; targetUid: string; leagueIds: string[];
+}): Promise<void> {
+  const target = targetUid.trim();
+  const mlRef = doc(db, 'master_leagues', mlId);
+
+  const mlSnap = await getDoc(mlRef);
+  if (!mlSnap.exists()) throw new Error("We couldn't find that Master League.");
+  const data = mlSnap.data();
+
+  if ((data.ownerId ?? '') !== authUid) {
+    throw new Error('Only the Master League owner can change staff access.');
+  }
+  if (target === (data.ownerId ?? '')) {
+    throw new Error('The workspace owner always has full access.');
+  }
+  const roles: Record<string, string> = data.roles ?? {};
+  if (!(target in roles)) {
+    throw new Error('That user is not a staff member of this workspace.');
+  }
+
+  const cleanIds = Array.from(new Set(leagueIds.map((id) => id.trim()).filter(Boolean)));
+
+  await updateDoc(mlRef, {
+    [`staffScopes.${target}`]: cleanIds.length === 0 ? deleteField() : cleanIds,
+    updatedAtMs: Date.now(),
+  });
+}
+
+/**
+ * Lists the owner plus every staff member, resolved with display names —
+ * mirrors _OrganizerMemberPickerSheet's user-loading logic (chunked
+ * documentId() whereIn lookups) plus the owner row.
+ */
+export async function listStaffWeb(mlId: string): Promise<MasterLeagueStaffMember[]> {
+  const mlSnap = await getDoc(doc(db, 'master_leagues', mlId));
+  if (!mlSnap.exists()) return [];
+  const data = mlSnap.data();
+
+  const ownerId = String(data.ownerId ?? '').trim();
+  const roles: Record<string, string> = data.roles ?? {};
+  const staffScopes: Record<string, string[]> = data.staffScopes ?? {};
+
+  const uids = Array.from(
+    new Set([ownerId, ...Object.keys(roles)].map((u) => u.trim()).filter(Boolean)),
+  );
+  if (uids.length === 0) return [];
+
+  const profiles = new Map<string, { displayName: string; photoUrl: string }>();
+  const chunkSize = 10;
+  for (let i = 0; i < uids.length; i += chunkSize) {
+    const chunk = uids.slice(i, i + chunkSize);
+    const q = query(collection(db, 'users'), where(documentId(), 'in', chunk));
+    const snap = await getDocs(q);
+    snap.docs.forEach((d) => {
+      const u = d.data();
+      const displayName = String(u.teamName ?? u.displayName ?? u.name ?? u.username ?? '').trim();
+      const photoUrl = String(u.photoUrl ?? u.profileImageUrl ?? u.teamImageUrl ?? '').trim();
+      profiles.set(d.id, { displayName, photoUrl });
+    });
+  }
+
+  return uids
+    .map((uid): MasterLeagueStaffMember | null => {
+      const role = uid === ownerId ? 'owner' : staffRoleFromStorageValue(roles[uid]);
+      if (!role) return null;
+      const profile = profiles.get(uid);
+      return {
+        userId: uid,
+        displayName: profile?.displayName ?? '',
+        photoUrl: profile?.photoUrl ?? '',
+        role,
+        competitionScope: staffScopes[uid] ?? [],
+      };
+    })
+    .filter((m): m is MasterLeagueStaffMember => m !== null);
 }
 
 // ── ENTITLEMENTS / DISCOVERY ─────────────────────────────────────────────────

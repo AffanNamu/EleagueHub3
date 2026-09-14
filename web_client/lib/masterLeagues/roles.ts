@@ -106,7 +106,7 @@ export class MasterLeagueAccess {
     this.roles = roles ?? {};
   }
 
-  static fromData(data: Record<string, any>): MasterLeagueAccess {
+  static fromData(data: Record<string, unknown>): MasterLeagueAccess {
     const ownerId = (data?.ownerId ?? '').toString().trim();
     const rawRoles = data?.roles;
     const roles: Record<string, string> = {};
