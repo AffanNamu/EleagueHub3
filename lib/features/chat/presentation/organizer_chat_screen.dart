@@ -138,17 +138,22 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         return;
       }
 
-      final adminIds = (data['adminIds'] as List?)
-              ?.map((e) => e.toString().trim())
-              .where((e) => e.isNotEmpty)
-              .toSet() ??
-          <String>{};
+      final rolesMap = (data['roles'] as Map?)
+              ?.map((k, v) => MapEntry(
+                  k.toString().trim(), v.toString().trim().toLowerCase())) ??
+          <String, String>{};
 
-      final moderatorIds = (data['moderatorIds'] as List?)
-              ?.map((e) => e.toString().trim())
-              .where((e) => e.isNotEmpty)
-              .toSet() ??
-          <String>{};
+      final adminIds = rolesMap.entries
+          .where((e) => e.value == 'admin')
+          .map((e) => e.key)
+          .where((e) => e.isNotEmpty)
+          .toSet();
+
+      final moderatorIds = rolesMap.entries
+          .where((e) => e.value == 'moderator')
+          .map((e) => e.key)
+          .where((e) => e.isNotEmpty)
+          .toSet();
 
       final memberIds = (data['memberIds'] as List?)
               ?.map((e) => e.toString().trim())
@@ -295,17 +300,22 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         allowed = true;
       }
 
-      final adminIds = (data['adminIds'] as List?)
-              ?.map((e) => e.toString().trim())
-              .where((e) => e.isNotEmpty)
-              .toSet() ??
-          <String>{};
+      final rolesMap = (data['roles'] as Map?)
+              ?.map((k, v) => MapEntry(
+                  k.toString().trim(), v.toString().trim().toLowerCase())) ??
+          <String, String>{};
 
-      final moderatorIds = (data['moderatorIds'] as List?)
-              ?.map((e) => e.toString().trim())
-              .where((e) => e.isNotEmpty)
-              .toSet() ??
-          <String>{};
+      final adminIds = rolesMap.entries
+          .where((e) => e.value == 'admin')
+          .map((e) => e.key)
+          .where((e) => e.isNotEmpty)
+          .toSet();
+
+      final moderatorIds = rolesMap.entries
+          .where((e) => e.value == 'moderator')
+          .map((e) => e.key)
+          .where((e) => e.isNotEmpty)
+          .toSet();
 
       final memberIds = (data['memberIds'] as List?)
               ?.map((e) => e.toString().trim())
