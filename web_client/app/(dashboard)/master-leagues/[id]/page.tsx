@@ -313,7 +313,8 @@ export default function MasterLeagueDashboard() {
               <div className="space-y-3">
                 <ActionBtn desc="New league inside this workspace" icon={Plus} label="Create Competition" onClick={() => router.push(`/leagues/create?masterLeagueId=${mlId}`)} tint="text-[#BEF264]"/>
                 <ActionBtn desc="Update name" icon={Edit2} label="Rename Workspace" onClick={handleRename} tint="text-[#BEF264]"/>
-                <ActionBtn desc="Manage users" icon={ShieldAlert} label="Discipline" onClick={() => alert('Discipline panel coming soon')} tint="text-red-500" />
+                <ActionBtn desc="Delegate roles and remove staff" icon={Users} label="Manage Staff" onClick={() => router.push(`/master-leagues/${mlId}/staff`)} tint="text-[#0EA5E9]" />
+                <ActionBtn desc="Manage users" icon={ShieldAlert} label="Discipline" onClick={() => router.push(`/master-leagues/${mlId}/admin/discipline`)} tint="text-red-500" />
                 <ActionBtn bg="bg-red-500/10" border="border-red-500/30" desc="Permanent action" icon={Trash2} label="Delete Workspace" onClick={handleDelete} tint="text-red-500"/>
               </div>
             </div>
