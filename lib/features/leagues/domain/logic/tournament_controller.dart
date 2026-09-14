@@ -964,6 +964,67 @@ class TournamentController {
 
     return updated;
   }
+
+  // ── Generic top-N seeding (Direct Knockout, and any "just pick a bracket
+  // size and cross-pair by rank" competition) ───────────────────────────────
+  //
+  // Mirrors seedTopNKnockouts in tournamentController.ts (the web-only
+  // admin "Knockout Draw Engine"), now ported here so mobile's Direct
+  // Knockout format can generate a bracket the same way: cross-pair
+  // seeding (1st vs last, 2nd vs second-last, etc.) into the same
+  // _buildKnockoutTree every other format above uses, so advancement /
+  // processMatchResult work identically. [rankedTeamIds] is whatever
+  // order the caller wants seed 1 first — for Direct Knockout there's no
+  // pre-knockout standings, so callers pass registration order.
+
+  static const Map<int, String> _topNStartRound = {
+    2: 'Final',
+    4: 'Semi Finals',
+    8: 'Quarter Finals',
+    16: 'Round of 16',
+    32: 'Round of 32',
+    64: 'Round of 64',
+  };
+
+  /// Returns empty list if [rankedTeamIds].length isn't a supported
+  /// bracket size (2/4/8/16/32/64).
+  static List<KnockoutMatch> seedTopNKnockouts({
+    required String leagueId,
+    required List<String> rankedTeamIds,
+    bool includeThirdPlace = false,
+  }) {
+    final n = rankedTeamIds.length;
+    final startRoundName = _topNStartRound[n];
+    if (startRoundName == null) return [];
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final matchCount = n ~/ 2;
+
+    final tree = _buildKnockoutTree(
+      leagueId: leagueId,
+      startRoundName: startRoundName,
+      startRoundMatchCount: matchCount,
+      idPrefix: 'TOPN',
+      nowMs: now,
+      includeThirdPlace: includeThirdPlace,
+    );
+
+    final startRound =
+        tree.where((m) => m.roundName == startRoundName).toList();
+    if (startRound.length != matchCount) return [];
+
+    // Cross-pair seeding: 1st vs last, 2nd vs second-last, etc.
+    final seeded = <KnockoutMatch>[
+      for (var i = 0; i < startRound.length; i++)
+        startRound[i].copyWith(
+          homeTeamId: rankedTeamIds[i],
+          awayTeamId: rankedTeamIds[n - 1 - i],
+        ),
+    ];
+
+    final seededById = {for (final m in seeded) m.id: m};
+    return tree.map((m) => seededById[m.id] ?? m).toList();
+  }
 }
 
 // ---------------------------------------------------------------------------

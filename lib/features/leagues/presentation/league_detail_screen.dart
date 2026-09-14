@@ -1509,6 +1509,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final isSwiss = league.format == LeagueFormat.uclSwiss;
     final isGroup = league.format == LeagueFormat.uclGroup;
     final isWorldCup = league.format == LeagueFormat.worldCup; // NEW
+    final isDirectKnockout =
+        league.format == LeagueFormat.directKnockout;
     final hasKnockouts = knockouts.isNotEmpty;
 
     void showNeedKnockoutsSnack() =>
@@ -1836,8 +1838,37 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ],
 
-            // MODIFIED: Include World Cup in KO viewing/admin row visibility.
-            if (isSwiss || isGroup || isWorldCup) ...[
+            // ── NEW: Direct Knockout bracket generation ──────────────────────
+            if (isDirectKnockout) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(
+                        color: AppTheme.limeAccentDark),
+                    foregroundColor: AppTheme.limeAccentDark,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.bolt_rounded),
+                  label: const Text(
+                    'Generate Bracket',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12),
+                  ),
+                  onPressed: () => _generateDirectKnockoutBracket(
+                      context, league),
+                ),
+              ),
+            ],
+
+            // MODIFIED: Include World Cup + Direct Knockout in KO viewing/admin row visibility.
+            if (isSwiss || isGroup || isWorldCup || isDirectKnockout) ...[
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -2722,6 +2753,71 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             ? 'World Cup knockouts generated (Round of 32).'
             : 'World Cup knockouts generated (Round of 16).',
       );
+
+      if (mounted) _reloadScreen();
+    } catch (e) {
+      _toastErr(
+        UserFriendlyError.toMessage(
+            e is Object ? e : Exception('unknown')),
+      );
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // NEW: Direct Knockout bracket generation
+  // ───────────────────────────────────────────────────────────────────────────
+  //
+  // Direct Knockout has no group/qualification stage, so there are no
+  // pre-knockout standings to seed by — teams are cross-paired (1st vs
+  // last, 2nd vs second-last, etc.) in the order _repo.getTeams() returns
+  // them. One-time generation: once a bracket exists it is never
+  // regenerated, matching every other format's knockout-generation button.
+  static const _directKnockoutBracketSizes = <int>{4, 8, 16, 32, 64};
+
+  Future<void> _generateDirectKnockoutBracket(
+    BuildContext context,
+    League league,
+  ) async {
+    try {
+      if (league.format != LeagueFormat.directKnockout) {
+        _toastWarn(
+            'This action is only available for Direct Knockout competitions.');
+        return;
+      }
+
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
+
+      final existing = await _repo.getKnockoutMatches(league.id);
+      if (existing.isNotEmpty) {
+        _toastWarn(context.l10n
+            .tr('league_details_knockout_already_generated'));
+        if (mounted) setState(() => _reloadScreen);
+        return;
+      }
+
+      final teams = await _repo.getTeams(league.id);
+      if (!_directKnockoutBracketSizes.contains(teams.length)) {
+        _toastErr(
+          'Direct Knockout needs exactly 4, 8, 16, 32, or 64 teams — '
+          'currently ${teams.length}.',
+        );
+        return;
+      }
+
+      final koMatches = TournamentController.seedTopNKnockouts(
+        leagueId: league.id,
+        rankedTeamIds: teams.map((t) => t.id).toList(),
+      );
+
+      if (koMatches.isEmpty) {
+        _toastErr('Failed to seed Direct Knockout bracket.');
+        return;
+      }
+
+      await _repo.saveKnockoutMatches(league.id, koMatches);
+
+      _toastOk('Bracket generated (${teams.length} teams).');
 
       if (mounted) _reloadScreen();
     } catch (e) {
