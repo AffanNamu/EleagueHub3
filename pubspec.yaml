@@ -29,7 +29,16 @@ dependencies:
 
   app_links: ^6.4.0
   shared_preferences: ^2.2.3
-  connectivity_plus: ^7.3.1
+  # ── Pinned below 7.1.0: 7.1.0+ references NWPath.isUltraConstrained
+  # (an iOS 26 SDK API) in its Swift source, guarded by #available at
+  # runtime but still required to exist in the SDK at compile time.
+  # This CI's Xcode (16.4, iOS 18.5 SDK) doesn't have that symbol, so
+  # 7.1.0+ fails with "value of type 'NWPath' has no member
+  # 'isUltraConstrained'" during archive. Upstream tracking:
+  # https://github.com/fluttercommunity/plus_plugins/issues/3787
+  # (closed as not planned) — bump back to ^7.x once CI's Xcode ships
+  # the iOS 26 SDK.
+  connectivity_plus: ">=7.0.0 <7.1.0"
   qr_flutter: ^4.1.0
   # ── Bumped from ^5.1.0: 5.x bundles a pre-16KB-aligned CameraX/ML Kit
   # native build (libbarhopper_v3.so, libimage_processing_util_jni.so),
