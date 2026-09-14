@@ -67,7 +67,20 @@ dependencies:
   record: ^6.0.0
   just_audio: ^0.9.38
   path: ^1.9.0
-  google_mobile_ads: ^9.1.0
+  # ── Pinned below 9.1.0: 9.1.0 added FLTAdPreloader.h (Ad Preloading
+  # APIs), whose FLTAd_Internal.h non-modularly #imports
+  # GoogleMobileAds/GoogleMobileAds_Beta.h -- a private header of the
+  # GoogleMobileAds.framework XCFramework. Xcode's archive build
+  # enforces -Wnon-modular-include-in-framework-module as an error,
+  # failing with "Include of non-modular header inside framework
+  # module 'google_mobile_ads.FLTAd_Internal'"/'.FLTAdPreloader'. The
+  # Podfile-level CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES
+  # override does not suppress this for archive builds. 9.0.0 doesn't
+  # have FLTAdPreloader.h/the Beta header import at all (confirmed via
+  # the plugin's own CHANGELOG.md), and still ships GMA iOS SDK 13.x
+  # (13.3.0) -- same generation as 9.1.0's 13.7.0 -- so the
+  # MobileAds.shared API used in AppDelegate.swift is unaffected.
+  google_mobile_ads: ">=9.0.0 <9.1.0"
   # ── Explicit (not just transitive-via-google_mobile_ads) deps ──
   # google_mobile_ads depends on these for its iOS WebView-based ad
   # rendering. Its own native iOS podspec (verified against the
