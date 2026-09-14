@@ -72,3 +72,24 @@ esportlyic-admin/.next/
 
 # dataconnect generated files
 .dataconnect
+
+# ── Code-signing / API credential material ──
+# These must NEVER be committed -- iOS builds decode them fresh on every
+# CI run from base64 GitHub Actions secrets (see .github/workflows/ios.yml),
+# so plaintext copies in the repo are never needed and are pure exposure.
+# (AuthKey_FHU84658L6.p8.txt, distribution.cer, ios_development.p12,
+# ios_distribution.p12, release-key.jks, upload-keystore.jks, and others
+# were found already committed on origin/main and removed -- see commit
+# message for the incident writeup.)
+*.p8
+*.p8.txt
+AuthKey_*
+*.p12
+*.cer
+*.pem
+*.mobileprovision
+*.jks
+*.keystore
+encoded_keystore.txt
+GoogleService-Info.plist
+GoogleService-Info.plist.b64
