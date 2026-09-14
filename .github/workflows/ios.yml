@@ -434,6 +434,22 @@ jobs:
           cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
           echo "✅ Certificate and profile installed"
 
+          # ── DIAGNOSTIC: exactly what xcodebuild/flutter build ipa will see ──
+          # "No valid code signing certificates were found" has happened on
+          # every run so far despite the cert/profile checking out fine when
+          # verified locally with openssl. This prints the same identity
+          # lookup xcodebuild performs internally, plus the profile's
+          # decoded identifiers, so we can see the CI-side truth directly
+          # instead of guessing about what got pasted into which secret.
+          echo "── security find-identity -p codesigning (this keychain) ──"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
+          echo ""
+          echo "── security find-identity -p codesigning (default search list) ──"
+          security find-identity -v -p codesigning || true
+          echo ""
+          echo "── Provisioning profile identifiers (decoded on this runner) ──"
+          security cms -D -i "$PROFILE_PATH" | grep -A2 "TeamIdentifier\|application-identifier\|<key>Name</key>" || true
+
       # ─────────────────────────────────────────
       # 7. COCOAPODS
       # ─────────────────────────────────────────
