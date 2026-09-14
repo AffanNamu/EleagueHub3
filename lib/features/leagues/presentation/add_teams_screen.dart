@@ -142,6 +142,10 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                 ? WorldCupFormat.fifa2026
                 : WorldCupFormat.fifa2022);
         return wc.teamCount;
+      case LeagueFormat.directKnockout:
+        // Bracket capacity (4/8/16/32/64) is set at creation and stored as
+        // maxTeams — fall back to 16 if somehow unset.
+        return (_league?.maxTeams ?? 16).clamp(4, 64);
     }
   }
 
@@ -365,6 +369,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         return l10n.tr('add_teams_format_ucl_swiss');
       case LeagueFormat.worldCup:
         return 'World Cup';
+      case LeagueFormat.directKnockout:
+        return 'Direct Knockout';
     }
   }
 

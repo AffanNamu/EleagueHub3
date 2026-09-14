@@ -156,6 +156,15 @@ class LeagueSettings {
           lastPulledAtMs: 0,
           worldCupFormat: WorldCupFormat.fifa2022,
         );
+      case LeagueFormat.directKnockout:
+        // No groups, no Swiss rounds, no round-robin — straight to bracket.
+        return const LeagueSettings(
+          doubleRoundRobin: false,
+          groupSize: 0,
+          swissRounds: 0,
+          lastPulledAtMs: 0,
+          worldCupFormat: WorldCupFormat.fifa2022,
+        );
     }
   }
 

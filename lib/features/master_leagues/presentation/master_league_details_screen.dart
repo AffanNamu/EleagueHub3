@@ -585,6 +585,8 @@ class _MasterLeagueDetailsScreenState
         return 'ucl';
       case LeagueFormat.worldCup:
         return 'worldcup';
+      case LeagueFormat.directKnockout:
+        return 'direct_knockout';
     }
   }
 

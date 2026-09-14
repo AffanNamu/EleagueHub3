@@ -83,6 +83,7 @@ enum LeagueCreationType {
   group,
   classic,
   worldCup, // NEW — World Cup format (FIFA 2022 or 2026)
+  directKnockout, // Straight-to-bracket knockout, no groups/qualifiers
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +468,8 @@ class _LeagueCreationDashboardState
         return LeagueCreationType.classic;
       case LeagueFormat.worldCup:
         return LeagueCreationType.worldCup;
+      case LeagueFormat.directKnockout:
+        return LeagueCreationType.directKnockout;
     }
   }
 
@@ -481,6 +484,12 @@ class _LeagueCreationDashboardState
         s == 'world cup' ||
         s == 'wc') {
       return LeagueCreationType.worldCup;
+    }
+    if (s == 'directknockout' ||
+        s == 'direct_knockout' ||
+        s == 'direct knockout' ||
+        s == 'knockout') {
+      return LeagueCreationType.directKnockout;
     }
     return null;
   }
@@ -520,6 +529,8 @@ class _LeagueCreationDashboardState
         return LeagueFormat.classic;
       case LeagueCreationType.worldCup:
         return LeagueFormat.worldCup;
+      case LeagueCreationType.directKnockout:
+        return LeagueFormat.directKnockout;
     }
   }
 
@@ -558,6 +569,8 @@ class _LeagueCreationDashboardState
         return 36;
       case LeagueFormat.worldCup:
         return _worldCupFormat.teamCount;
+      case LeagueFormat.directKnockout:
+        return 64;
     }
   }
 
@@ -576,6 +589,8 @@ class _LeagueCreationDashboardState
         return l10n.tr('league_create_type_classic_title');
       case LeagueCreationType.worldCup:
         return '🌍 World Cup';
+      case LeagueCreationType.directKnockout:
+        return 'Direct Knockout';
     }
   }
 
@@ -591,6 +606,8 @@ class _LeagueCreationDashboardState
         return Icons.table_chart;
       case LeagueCreationType.worldCup:
         return Icons.public_rounded;
+      case LeagueCreationType.directKnockout:
+        return Icons.bolt_rounded;
     }
   }
 
@@ -618,6 +635,9 @@ class _LeagueCreationDashboardState
           break;
         case LeagueCreationType.classic:
           _selectedMaxTeams = 20;
+          break;
+        case LeagueCreationType.directKnockout:
+          _selectedMaxTeams = 16;
           break;
       }
 

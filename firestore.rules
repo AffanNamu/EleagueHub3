@@ -90,7 +90,7 @@ service cloud.firestore {
     }
 
     function validLeagueFormatIndex(n) {
-      return (n is int) && (n >= 0) && (n <= 3);
+      return (n is int) && (n >= 0) && (n <= 4);
     }
 
     function validWorldCupTeamCount(data) {

@@ -1,14 +1,15 @@
 // lib/features/leagues/models/league_format.dart
 //
-// MODIFIED: Added `worldCup` as index 3.
+// MODIFIED: Added `worldCup` as index 3, `directKnockout` as index 4.
 // Fully backward-compatible — fromInt returns classic for unknown indices.
-// Do NOT reorder existing values (classic=0, uclGroup=1, uclSwiss=2).
+// Do NOT reorder existing values (classic=0, uclGroup=1, uclSwiss=2, worldCup=3).
 
 enum LeagueFormat {
-  classic,    // index 0 — Classic League (single round-robin table)
-  uclGroup,   // index 1 — Group League (UCL-style groups)
-  uclSwiss,   // index 2 — Series League (Swiss system)
-  worldCup,   // index 3 — World Cup (32-team FIFA 2022 or 48-team FIFA 2026)
+  classic,        // index 0 — Classic League (single round-robin table)
+  uclGroup,       // index 1 — Group League (UCL-style groups)
+  uclSwiss,       // index 2 — Series League (Swiss system)
+  worldCup,       // index 3 — World Cup (32-team FIFA 2022 or 48-team FIFA 2026)
+  directKnockout, // index 4 — straight-to-bracket knockout, no groups/qualifiers
   ;
 
   /// Legacy (English-only) display name.
@@ -24,6 +25,8 @@ enum LeagueFormat {
         return 'Series League';
       case LeagueFormat.worldCup:
         return 'World Cup';
+      case LeagueFormat.directKnockout:
+        return 'Direct Knockout';
     }
   }
 
@@ -41,11 +44,17 @@ enum LeagueFormat {
         return 'league_format_ucl_swiss';
       case LeagueFormat.worldCup:
         return 'league_format_world_cup';
+      case LeagueFormat.directKnockout:
+        return 'league_format_direct_knockout';
     }
   }
 
   /// Whether this format uses a World Cup engine.
   bool get isWorldCup => this == LeagueFormat.worldCup;
+
+  /// Whether this format skips groups/qualifiers and goes straight to a
+  /// knockout bracket.
+  bool get isDirectKnockout => this == LeagueFormat.directKnockout;
 
   /// Whether this format uses group stages at all.
   bool get hasGroups =>
@@ -55,7 +64,8 @@ enum LeagueFormat {
   bool get hasKnockout =>
       this == LeagueFormat.uclGroup ||
       this == LeagueFormat.uclSwiss ||
-      this == LeagueFormat.worldCup;
+      this == LeagueFormat.worldCup ||
+      this == LeagueFormat.directKnockout;
 }
 
 extension LeagueFormatX on LeagueFormat {
@@ -84,6 +94,11 @@ extension LeagueFormatX on LeagueFormat {
       case 'swiss':
       case 'series':
         return LeagueFormat.uclSwiss;
+      case 'directknockout':
+      case 'direct_knockout':
+      case 'direct knockout':
+      case 'knockout':
+        return LeagueFormat.directKnockout;
       default:
         return LeagueFormat.classic;
     }

@@ -405,6 +405,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         return 36;
       case LeagueFormat.worldCup:
         return _worldCupFormat.teamCount;
+      case LeagueFormat.directKnockout:
+        return 64;
     }
   }
 
