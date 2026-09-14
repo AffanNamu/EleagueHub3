@@ -157,6 +157,7 @@ class MasterLeague {
     required this.ownerId,
     required this.memberIds,
     required this.roles,
+    this.staffScopes = const <String, List<String>>{},
     required this.updatedAtMs,
     required this.plan,
     required this.createdAt,
@@ -189,6 +190,13 @@ class MasterLeague {
   final String ownerId;
   final List<String> memberIds;
   final Map<String, String> roles;
+
+  /// Per-staff-member competition scope: uid -> league ids they're
+  /// restricted to. A uid absent here, or mapped to an empty list, has
+  /// unrestricted (workspace-wide) access to every competition —
+  /// this is the default for the owner and for staff assigned before
+  /// scoping existed, so no backfill/migration is required.
+  final Map<String, List<String>> staffScopes;
   final int updatedAtMs;
   final MasterLeaguePlan plan;
   final Timestamp? createdAt;
@@ -307,6 +315,19 @@ class MasterLeague {
     return roles;
   }
 
+  static Map<String, List<String>> _readStaffScopes(Map<String, dynamic> map) {
+    final raw = map['staffScopes'];
+    final out = <String, List<String>>{};
+    if (raw is Map) {
+      for (final entry in raw.entries) {
+        final k = entry.key.toString().trim();
+        if (k.isEmpty) continue;
+        out[k] = _asStringList(entry.value);
+      }
+    }
+    return out;
+  }
+
   factory MasterLeague.fromMap(String id, Map<String, dynamic> map) {
     final ownerId = _readOwnerId(map);
     final planId = (map['plan'] as String? ?? 'basic').trim();
@@ -318,6 +339,7 @@ class MasterLeague {
       ownerId: ownerId,
       memberIds: List<String>.from(_readMemberIds(map, ownerId)),
       roles: Map<String, String>.from(_readRoles(map, ownerId)),
+      staffScopes: Map<String, List<String>>.from(_readStaffScopes(map)),
       updatedAtMs: _asInt(map['updatedAtMs']),
       plan: _planFromId(planId),
       createdAt: map['createdAt'] is Timestamp ? map['createdAt'] as Timestamp : null,
@@ -399,6 +421,21 @@ class MasterLeague {
 
     final role = roles[cleanUid]?.trim().toLowerCase() ?? '';
     return role == 'admin' || role == 'moderator';
+  }
+
+  /// Whether [uid] (assumed to already have some staff capability) may
+  /// act on competition [leagueId]. The owner and any staff member with
+  /// no explicit scope entry have unrestricted access; an empty or
+  /// missing [staffScopes] entry always means "all competitions" so
+  /// staff assigned before scoping existed keep working unchanged.
+  bool canAccessCompetition(String uid, String leagueId) {
+    final cleanUid = uid.trim();
+    if (cleanUid.isEmpty) return false;
+    if (isOwner(cleanUid)) return true;
+
+    final scope = staffScopes[cleanUid];
+    if (scope == null || scope.isEmpty) return true;
+    return scope.contains(leagueId.trim());
   }
 
   int get maxTeamsPerLeague {

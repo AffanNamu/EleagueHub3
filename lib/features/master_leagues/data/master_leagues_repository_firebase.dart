@@ -2646,6 +2646,137 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  /// Removes a staff member's role, membership, and competition scope.
+  /// Owner-only. The owner can never remove themselves through this path
+  /// (there is no "give up ownership" flow here) — this is deliberate
+  /// self-escalation protection, not an oversight.
+  Future<void> removeStaff({
+    required String masterLeagueId,
+    required String targetUid,
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      final target = targetUid.trim();
+
+      if (id.isEmpty || target.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+
+      final mlRef = _col.doc(id);
+      final mlSnap = await mlRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (!mlSnap.exists) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+
+      final mlData =
+          (mlSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final ownerId =
+          (mlData['ownerId'] as String? ?? mlData['ownerUid'] as String? ?? '')
+              .trim();
+      if (ownerId != uid) {
+        throw const UserFriendlyException(
+          'Only the Master League owner can remove staff.',
+        );
+      }
+      if (target == ownerId) {
+        throw const UserFriendlyException(
+          'The workspace owner cannot be removed as staff.',
+        );
+      }
+
+      await mlRef.update(<String, dynamic>{
+        'roles.$target': FieldValue.delete(),
+        'staffScopes.$target': FieldValue.delete(),
+        'memberIds': FieldValue.arrayRemove(<String>[target]),
+        'updatedAtMs': _nowMs(),
+      }).timeout(const Duration(seconds: 15));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
+  /// Restricts (or clears the restriction on) which competitions a staff
+  /// member may act on. An empty [leagueIds] clears the scope, restoring
+  /// unrestricted workspace-wide access. Owner-only.
+  Future<void> setStaffCompetitionScope({
+    required String masterLeagueId,
+    required String targetUid,
+    required List<String> leagueIds,
+  }) async {
+    try {
+      final uid = _requireAuthUid();
+      final id = masterLeagueId.trim();
+      final target = targetUid.trim();
+
+      if (id.isEmpty || target.isEmpty) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+
+      final mlRef = _col.doc(id);
+      final mlSnap = await mlRef
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+      if (!mlSnap.exists) {
+        throw const UserFriendlyException(
+          "We couldn't find that Master League.",
+        );
+      }
+
+      final mlData =
+          (mlSnap.data() ?? <String, dynamic>{}).cast<String, dynamic>();
+      final ownerId =
+          (mlData['ownerId'] as String? ?? mlData['ownerUid'] as String? ?? '')
+              .trim();
+      if (ownerId != uid) {
+        throw const UserFriendlyException(
+          'Only the Master League owner can change staff access.',
+        );
+      }
+      if (target == ownerId) {
+        throw const UserFriendlyException(
+          'The workspace owner always has full access.',
+        );
+      }
+
+      final rolesRaw =
+          (mlData['roles'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      if (!rolesRaw.containsKey(target)) {
+        throw const UserFriendlyException(
+          'That user is not a staff member of this workspace.',
+        );
+      }
+
+      final cleanIds = leagueIds
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toSet()
+          .toList(growable: false);
+
+      if (cleanIds.isEmpty) {
+        await mlRef.update(<String, dynamic>{
+          'staffScopes.$target': FieldValue.delete(),
+          'updatedAtMs': _nowMs(),
+        }).timeout(const Duration(seconds: 15));
+      } else {
+        await mlRef.update(<String, dynamic>{
+          'staffScopes.$target': cleanIds,
+          'updatedAtMs': _nowMs(),
+        }).timeout(const Duration(seconds: 15));
+      }
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
+
   Future<void> updateOrganizerProfile({
     required String masterLeagueId,
     required OrganizerProfile profile,
