@@ -629,16 +629,38 @@ jobs:
         if: ${{ env.ASC_API_KEY_ID != '' && env.ASC_API_ISSUER_ID != '' && env.ASC_API_KEY_P8_B64 != '' }}
         run: |
           set -euo pipefail
+
+          # ── DIAGNOSTIC: altool failed on run #69 with a generic
+          # "Failure to authenticate" (-26000), which gives no hint
+          # whether the cause is a malformed/mis-pasted secret (stray
+          # whitespace/newline, wrong file entirely) vs a genuinely
+          # wrong/revoked Key ID or Issuer ID. Trim whitespace
+          # defensively (a trailing newline from how a secret was
+          # pasted is a common cause of this exact error) and print
+          # non-secret structural facts -- lengths and the PEM
+          # header -- so we can tell those cases apart without ever
+          # printing the actual credential values.
+          KEY_ID_TRIMMED="$(printf '%s' "$ASC_API_KEY_ID" | tr -d '[:space:]')"
+          ISSUER_ID_TRIMMED="$(printf '%s' "$ASC_API_ISSUER_ID" | tr -d '[:space:]')"
+
           mkdir -p ~/private_keys
-          echo -n "$ASC_API_KEY_P8_B64" | base64 --decode -o ~/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
+          printf '%s' "$ASC_API_KEY_P8_B64" | tr -d '[:space:]' | base64 --decode -o ~/private_keys/AuthKey_${KEY_ID_TRIMMED}.p8
+
+          echo "── ASC credential diagnostics (no secret values printed) ──"
+          echo "ASC_API_KEY_ID length: ${#ASC_API_KEY_ID} (trimmed: ${#KEY_ID_TRIMMED}, expected 10)"
+          echo "ASC_API_ISSUER_ID length: ${#ASC_API_ISSUER_ID} (trimmed: ${#ISSUER_ID_TRIMMED}, expected 36, UUID format)"
+          echo "Decoded .p8 file size: $(wc -c < ~/private_keys/AuthKey_${KEY_ID_TRIMMED}.p8) bytes"
+          echo "Decoded .p8 first line: $(head -n1 ~/private_keys/AuthKey_${KEY_ID_TRIMMED}.p8)"
+          echo "Decoded .p8 line count: $(wc -l < ~/private_keys/AuthKey_${KEY_ID_TRIMMED}.p8)"
 
           IPA_FILE=$(find build/ios/ipa -name "*.ipa" | head -n 1)
 
           xcrun altool --upload-app \
             --type ios \
             --file "$IPA_FILE" \
-            --apiKey "$ASC_API_KEY_ID" \
-            --apiIssuer "$ASC_API_ISSUER_ID"
+            --apiKey "$KEY_ID_TRIMMED" \
+            --apiIssuer "$ISSUER_ID_TRIMMED" \
+            --verbose
 
           echo "✅ Uploaded to App Store Connect / TestFlight"
 
