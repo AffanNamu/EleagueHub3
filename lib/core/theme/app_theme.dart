@@ -16,7 +16,7 @@ class AppTheme {
   static const Color searchBorder = Color(0xFFE2E8F0);
   static const Color ownerRed = Color(0xFFEF4444);
 
-  static const Color lightBg = Color(0xFFF8FAFC);
+  static const Color lightBg = Color(0xFFFFFFFF);
   static const Color lightCard = Color(0xFFFFFFFF);
   static const Color lightCardAlt = Color(0xFFF9FAFB);
   static const Color lightIconCircle = Color(0xFFECFCCB);
@@ -317,7 +317,7 @@ class AppTheme {
       end: Alignment.bottomCenter,
       colors: [
         Color(0xFFFFFFFF),
-        Color(0xFFF8FAFC),
+        Color(0xFFFFFFFF),
         Color(0xFFF1F5F9),
       ],
     );

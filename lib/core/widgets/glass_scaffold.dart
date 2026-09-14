@@ -41,7 +41,7 @@ class GlassScaffold extends StatelessWidget {
         resizeToAvoidBottomInset: resizeToAvoidBottomInset,
         backgroundColor: brightness == Brightness.dark
             ? const Color(0xFF0F172A)
-            : const Color(0xFFF8FAFC),
+            : const Color(0xFFFFFFFF),
         appBar: appBar,
         floatingActionButton: floatingActionButton,
         floatingActionButtonLocation: floatingActionButtonLocation,
