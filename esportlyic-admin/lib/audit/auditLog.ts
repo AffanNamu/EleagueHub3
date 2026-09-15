@@ -40,19 +40,38 @@ export async function recordAuditLog(params: {
   }
 }
 
+function toAuditLogEntry(id: string, data: FirebaseFirestore.DocumentData): AuditLogEntry {
+  return {
+    id,
+    actorUid: data.actorUid ?? '',
+    actorEmail: data.actorEmail ?? null,
+    action: data.action ?? '',
+    targetType: data.targetType ?? '',
+    targetId: data.targetId ?? '',
+    summary: data.summary ?? '',
+    createdAtMs: typeof data.createdAtMs === 'number' ? data.createdAtMs : 0,
+  };
+}
+
 export async function listAuditLogs(limit = 200): Promise<AuditLogEntry[]> {
   const snap = await adminDb.collection(COLLECTION).orderBy('createdAtMs', 'desc').limit(limit).get();
-  return snap.docs.map((doc) => {
-    const data = doc.data();
-    return {
-      id: doc.id,
-      actorUid: data.actorUid ?? '',
-      actorEmail: data.actorEmail ?? null,
-      action: data.action ?? '',
-      targetType: data.targetType ?? '',
-      targetId: data.targetId ?? '',
-      summary: data.summary ?? '',
-      createdAtMs: typeof data.createdAtMs === 'number' ? data.createdAtMs : 0,
-    };
-  });
+  return snap.docs.map((doc) => toAuditLogEntry(doc.id, doc.data()));
+}
+
+/**
+ * Exact-action lookup (an equality filter + a single orderBy on a
+ * different field, so no composite index needs configuring) -- used to
+ * derive a feature's own history from the shared audit trail instead of
+ * standing up a dedicated collection for it. Every action string used
+ * this way is a single literal (e.g. 'notification.send'), not a
+ * prefix, so it only ever returns exact matches.
+ */
+export async function listAuditLogsByAction(action: string, limit = 50): Promise<AuditLogEntry[]> {
+  const snap = await adminDb
+    .collection(COLLECTION)
+    .where('action', '==', action)
+    .orderBy('createdAtMs', 'desc')
+    .limit(limit)
+    .get();
+  return snap.docs.map((doc) => toAuditLogEntry(doc.id, doc.data()));
 }

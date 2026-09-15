@@ -1,5 +1,7 @@
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { SendNotificationForm } from '@/components/notifications/SendNotificationForm';
+import { RecentNotifications } from '@/components/notifications/RecentNotifications';
+import { listAuditLogsByAction } from '@/lib/audit/auditLog';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
 
@@ -15,6 +17,8 @@ export default async function NotificationsPage() {
     );
   }
 
+  const recentSends = await listAuditLogsByAction('notification.send');
+
   return (
     <div className="space-y-4">
       <Breadcrumbs items={[{ label: 'Notifications' }]} />
@@ -25,6 +29,7 @@ export default async function NotificationsPage() {
         </p>
       </div>
       <SendNotificationForm />
+      <RecentNotifications entries={recentSends} />
     </div>
   );
 }

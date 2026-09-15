@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { NotificationSegment, SendNotificationResult } from '@/types/notification';
 import type { AnnouncementSeverity } from '@/types/homeContent';
 
 export function useSendNotification() {
+  const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SendNotificationResult | null>(null);
@@ -38,6 +40,7 @@ export function useSendNotification() {
 
       setResult(responseBody.result);
       setSubmitting(false);
+      router.refresh();
     } catch {
       setError('Network error. Please check your connection and try again.');
       setSubmitting(false);
