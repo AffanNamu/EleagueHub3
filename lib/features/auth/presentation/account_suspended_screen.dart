@@ -63,7 +63,7 @@ class _AccountSuspendedScreenState extends State<AccountSuspendedScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.block,
                       size: 44,
                       color: AppTheme.limeAccentDark,
