@@ -231,6 +231,18 @@ class _HomeShellState extends ConsumerState<HomeShell>
             }),
           ),
         ),
+        // FIXED: was Flutter's stock Material NavigationBar/
+        // NavigationDestination -- its label is rendered internally as a
+        // bare `Text(label, style: textStyle)` with no maxLines/overflow
+        // set (confirmed in the Flutter SDK source itself), so a longer
+        // label like "Marketplace" genuinely wraps onto a second line
+        // and breaks the bar's layout on narrower phones, or under a
+        // larger system font-scaling setting, rather than truncating.
+        // NavigationDestination's `label` field only accepts a String
+        // (no widget override), so there was no way to add overflow
+        // control without either shrinking every device's font size
+        // (still breakable under font-scaling) or replacing it with a
+        // custom row that has full control -- this is that custom row.
         bottomNavigationBar: SafeArea(
           top: false,
           child: Padding(
@@ -243,77 +255,133 @@ class _HomeShellState extends ConsumerState<HomeShell>
                   ? AppTheme.darkNavBg
                   : AppTheme.lightNavBg,
               borderColor: AppTheme.cardBorder(brightness),
-              child: Theme(
-                data: theme.copyWith(
-                  navigationBarTheme: NavigationBarThemeData(
-                    backgroundColor: Colors.transparent,
-                    surfaceTintColor: Colors.transparent,
-                    indicatorColor: AppTheme.limeAccent,
-                    labelTextStyle:
-                        WidgetStateProperty.resolveWith((states) {
-                      final selected =
-                          states.contains(WidgetState.selected);
-                      return TextStyle(
-                        color: selected
-                            ? AppTheme.limeAccentDark
-                            : const Color(0xFF9CA3AF),
-                        fontSize: 11,
-                        fontWeight: selected
-                            ? FontWeight.w800
-                            : FontWeight.w600,
-                      );
-                    }),
-                    iconTheme:
-                        WidgetStateProperty.resolveWith((states) {
-                      final selected =
-                          states.contains(WidgetState.selected);
-                      return IconThemeData(
-                        color: selected
-                            ? AppTheme.limeAccentDark
-                            : const Color(0xFF9CA3AF),
-                        size: 24,
-                      );
-                    }),
-                  ),
-                ),
-                child: NavigationBar(
-                  height: 68,
-                  backgroundColor: Colors.transparent,
-                  surfaceTintColor: Colors.transparent,
-                  indicatorColor: AppTheme.limeAccent,
-                  selectedIndex: _index,
-                  onDestinationSelected: _onDestinationSelected,
-                  labelBehavior:
-                      NavigationDestinationLabelBehavior.alwaysShow,
-                  destinations: [
-                    NavigationDestination(
-                      icon: const Icon(Icons.home_outlined),
-                      selectedIcon: const Icon(Icons.home),
+              child: SizedBox(
+                height: 68,
+                child: Row(
+                  children: [
+                    _NavBarItem(
+                      icon: Icons.home_outlined,
+                      selectedIcon: Icons.home,
                       label: l10n.homeTabHome,
+                      selected: _index == 0,
+                      onTap: () => _onDestinationSelected(0),
                     ),
-                    NavigationDestination(
-                      icon: const Icon(Icons.emoji_events_outlined),
-                      selectedIcon: const Icon(Icons.emoji_events),
+                    _NavBarItem(
+                      icon: Icons.emoji_events_outlined,
+                      selectedIcon: Icons.emoji_events,
                       label: l10n.homeTabLeagues,
+                      selected: _index == 1,
+                      onTap: () => _onDestinationSelected(1),
                     ),
-                    const NavigationDestination(
-                      icon: Icon(Icons.explore_outlined),
-                      selectedIcon: Icon(Icons.explore),
+                    _NavBarItem(
+                      icon: Icons.explore_outlined,
+                      selectedIcon: Icons.explore,
                       label: 'Discover',
+                      selected: _index == 2,
+                      onTap: () => _onDestinationSelected(2),
                     ),
-                    NavigationDestination(
-                      icon: const Icon(Icons.storefront_outlined),
-                      selectedIcon: const Icon(Icons.storefront),
+                    _NavBarItem(
+                      icon: Icons.storefront_outlined,
+                      selectedIcon: Icons.storefront,
                       label: l10n.homeTabMarketplace,
+                      selected: _index == 3,
+                      onTap: () => _onDestinationSelected(3),
                     ),
-                    NavigationDestination(
-                      icon: const Icon(Icons.person_outline),
-                      selectedIcon: const Icon(Icons.person),
+                    _NavBarItem(
+                      icon: Icons.person_outline,
+                      selectedIcon: Icons.person,
                       label: l10n.homeTabProfile,
+                      selected: _index == 4,
+                      onTap: () => _onDestinationSelected(4),
                     ),
                   ],
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _NavBarItem
+// ---------------------------------------------------------------------------
+
+/// A single bottom-nav destination. Custom-built (rather than
+/// NavigationDestination) specifically so its label can set
+/// maxLines/overflow/softWrap -- see the FIXED comment above this
+/// widget's call site for why that control isn't available through the
+/// stock Material NavigationBar API.
+class _NavBarItem extends StatelessWidget {
+  const _NavBarItem({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        selected ? AppTheme.limeAccentDark : const Color(0xFF9CA3AF);
+
+    return Expanded(
+      child: Semantics(
+        selected: selected,
+        button: true,
+        label: label,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const StadiumBorder(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 18, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? AppTheme.limeAccent.withOpacity(0.25)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Icon(
+                    selected ? selectedIcon : icon,
+                    color: color,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 11,
+                      fontWeight:
+                          selected ? FontWeight.w800 : FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
