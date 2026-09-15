@@ -37,7 +37,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: { st
         </p>
       </div>
       <ReportsFilterTabs />
-      <ReportsTable reports={reports} />
+      <ReportsTable reports={reports} canReview={hasPermission(identity, 'reports.review')} />
     </div>
   );
 }
