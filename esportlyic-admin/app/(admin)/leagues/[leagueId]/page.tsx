@@ -39,7 +39,7 @@ export default async function LeagueDetailPage({ params }: { params: { leagueId:
   return (
     <div className="space-y-4">
       <Breadcrumbs items={[{ label: 'Leagues', href: '/leagues' }, { label: league.name || league.id }]} />
-      <LeagueDetailPanel league={league} />
+      <LeagueDetailPanel league={league} canManage={canManage} />
       <LeagueMatchesSection
         leagueId={params.leagueId}
         fixtures={fixtures}

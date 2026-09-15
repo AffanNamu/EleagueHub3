@@ -1,6 +1,9 @@
+'use client';
+
 import Link from 'next/link';
-import { Trophy, Lock, Globe, ScrollText, ChevronRight } from 'lucide-react';
+import { Trophy, Lock, Globe, ScrollText, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { useLeagueDelete } from '@/hooks/useLeagueActions';
 import { leagueFormatLabel } from '@/types/league';
 import { formatRelativeTime } from '@/lib/utils';
 import type { League } from '@/types/league';
@@ -14,9 +17,17 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export function LeagueDetailPanel({ league }: { league: League }) {
+export function LeagueDetailPanel({ league, canManage }: { league: League; canManage: boolean }) {
+  const { remove, deleting, error } = useLeagueDelete();
+
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="rounded-sm border border-signal-danger/40 bg-signal-dangerFaint px-3 py-2 text-sm text-signal-danger">
+          {error}
+        </div>
+      )}
+
       <div className="panel p-5">
         <div className="flex items-start gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-md bg-base-raised text-ink-muted">
@@ -36,7 +47,27 @@ export function LeagueDetailPanel({ league }: { league: League }) {
               )}
             </div>
             <p className="mt-1 text-sm text-ink-secondary">{leagueFormatLabel(league.format)}</p>
+            {league.description && <p className="mt-2 text-sm text-ink-secondary">{league.description}</p>}
           </div>
+          {canManage && (
+            <div className="flex items-center gap-1">
+              <Link
+                href={`/leagues/${league.id}/edit`}
+                className="rounded-sm p-2 text-ink-secondary hover:bg-base-raised hover:text-ink-primary"
+                aria-label="Edit league"
+              >
+                <Pencil size={16} />
+              </Link>
+              <button
+                onClick={() => remove(league.id, league.name || league.id)}
+                disabled={deleting}
+                className="rounded-sm p-2 text-ink-secondary hover:bg-base-raised hover:text-signal-danger disabled:opacity-60"
+                aria-label="Delete league"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
