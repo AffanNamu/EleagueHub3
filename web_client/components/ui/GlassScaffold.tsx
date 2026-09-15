@@ -1,5 +1,5 @@
 import React from 'react';
-import { useThemeStore } from '@/store/themeStore';
+import { useTheme } from '@/components/providers/ClientThemeProvider';
 import { cn } from '@/lib/utils';
 
 interface GlassScaffoldProps {
@@ -13,13 +13,14 @@ export const GlassScaffold: React.FC<GlassScaffoldProps> = ({
   appBar,
   bottomNavigation,
 }) => {
-  const isDarkMode = useThemeStore((state) => state.isDarkMode);
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
 
   return (
     <div
       className={cn(
         'min-h-screen w-full flex flex-col transition-colors duration-300',
-        isDarkMode ? 'bg-brand-navy text-white' : 'bg-gray-50 text-gray-900'
+        isDarkMode ? 'bg-brand-navy text-white' : 'bg-white text-slate-900'
       )}
     >
       {appBar && <header className="sticky top-0 z-50 w-full">{appBar}</header>}
