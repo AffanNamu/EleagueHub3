@@ -6,6 +6,14 @@ import { ClientThemeProvider } from '@/components/providers/ClientThemeProvider'
 export const metadata: Metadata = {
   title: 'eSportlyic Web',
   description: 'Manage your leagues like a pro.',
+  // AdSense site verification looks for this tag in the raw server-rendered
+  // <head>. The adsbygoogle <Script> below uses strategy="afterInteractive",
+  // which Next.js injects client-side AFTER hydration — it's never present
+  // in the HTML a verification fetch sees. This meta tag is Next.js
+  // Metadata API output, so it's always in the initial SSR'd HTML.
+  other: {
+    'google-adsense-account': 'ca-pub-9284565371998347',
+  },
 };
 
 export default function RootLayout({
