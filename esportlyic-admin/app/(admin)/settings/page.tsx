@@ -21,9 +21,8 @@ export default async function SettingsHubPage() {
       href: '/settings/system-health',
       icon: Activity,
       title: 'System Health',
-      description: 'Not built yet — no automated health pipeline exists to surface here.',
+      description: 'Live backlog alerts, pending queue counts, and build/version info.',
       visible: hasPermission(identity, 'settings.manage'),
-      disabled: true,
     },
   ].filter((link) => link.visible);
 
@@ -47,11 +46,7 @@ export default async function SettingsHubPage() {
             </div>
           );
 
-          return link.disabled ? (
-            <div key={link.href} className="opacity-60">
-              {content}
-            </div>
-          ) : (
+          return (
             <Link key={link.href} href={link.href}>
               {content}
             </Link>
