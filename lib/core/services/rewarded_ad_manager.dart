@@ -37,7 +37,7 @@ class RewardedAdManager {
   /// regardless, so callers can fall back to their existing "ad missing"
   /// behavior without losing the in-flight preload.
   Future<bool> waitUntilReady({
-    Duration timeout = const Duration(seconds: 4),
+    Duration timeout = const Duration(seconds: 30),
   }) =>
       _impl.waitUntilReady(timeout: timeout);
 

@@ -756,18 +756,17 @@ class _LeaguesListScreenState
     }
 
     // ── Ad still loading ────────────────────────────────────────────────
-    // Rather than blocking the user for the full ad-load timeout, give
-    // the in-flight preload a short, bounded grace period. If it lands
-    // in time, show it immediately (no perceptible delay beyond the
-    // wait). If not, fall through to the existing fail-open behavior —
-    // the load keeps running in the background regardless, so a retry
-    // next time is likely to hit the fast path above.
+    // Give the in-flight preload up to 30s to finish (a spinner is shown
+    // via _rewardGateInProgress). If it lands in time, show it. If not,
+    // fall through to the existing fail-open behavior — the load keeps
+    // running in the background regardless, so a retry next time is
+    // likely to hit the fast path above.
     setState(() => _rewardGateInProgress = true);
 
     bool becameReady;
     try {
       becameReady = await RewardedAdManager.instance
-          .waitUntilReady(timeout: const Duration(seconds: 4));
+          .waitUntilReady(timeout: const Duration(seconds: 30));
     } finally {
       if (mounted) {
         setState(() => _rewardGateInProgress = false);

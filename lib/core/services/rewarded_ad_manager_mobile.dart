@@ -24,7 +24,7 @@ const String _rewardedAndroid = 'ca-app-pub-9284565371998347/5830580550';
 // Your real production iOS Ad Unit ID (rewarded interstitial)
 const String _rewardedIOS     = 'ca-app-pub-9284565371998347/8933717622';
 
-const Duration _loadTimeout = Duration(seconds: 15);
+const Duration _loadTimeout = Duration(seconds: 30);
 
 // ── Module-level singleton state ─────────────────────────────────────────────
 // State lives at module scope so the conditional-import pattern works:
@@ -71,7 +71,7 @@ Future<void> preload({String placement = 'preload'}) async {
 /// whenever it eventually finishes — no ad is ever shown as a side
 /// effect of calling this function.
 Future<bool> waitUntilReady({
-  Duration timeout = const Duration(seconds: 4),
+  Duration timeout = const Duration(seconds: 30),
 }) async {
   if (!_adsSupported) return false;
   if (_rewardedAd != null) return true;
