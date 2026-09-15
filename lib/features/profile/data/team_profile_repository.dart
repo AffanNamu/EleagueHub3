@@ -124,28 +124,24 @@ class TeamProfileRepository {
           .set(profile.toMap(), SetOptions(merge: true))
           .timeout(const Duration(seconds: 15));
 
-      final account = await UserProfileRepository().fetchByUserId(authUid);
-
-      // Resolve country alongside the existing resync so every team-profile
-      // save also keeps "Teams Near You" eligibility up to date — this is
-      // in addition to (not instead of) the background backfill that
-      // covers users who never touch their team profile at all (see
+      // FIXED: previously synced profile.game verbatim -- the same
+      // onboarding-only field the public team profile header used to
+      // show, with the same staleness bug (never updated once the user
+      // builds/switches squads via the Squad screen instead of the team
+      // profile screen). resolveDisplayGameIds() is the same "squads
+      // collection first, onboarding choice as fallback" resolution
+      // used everywhere else this session, so the search index agrees
+      // with what visitors actually see on the profile. Also keeps
+      // "Teams Near You" eligibility up to date via the country resolve
+      // inside _syncSearchIndexGame -- in addition to (not instead of)
+      // the background backfill that covers users who never touch their
+      // team profile at all (see
       // UserSearchRepository.backfillCountryIfMissing(), called from the
       // Profile screen).
-      String? country;
-      try {
-        country = await CountryResolverService.instance.resolveCountryCode();
-      } catch (_) {
-        country = null;
-      }
-
-      unawaited(UserSearchRepository().syncSelfIndex(
-        displayName: account?.displayName ?? '',
-        shareId: account?.effectiveShareId ?? '',
-        game: profile.game,
-        badge: '',
-        avatarUrl: account?.effectivePhotoUrl ?? '',
-        country: country,
+      final displayGameIds = await resolveDisplayGameIds(authUid);
+      unawaited(_syncSearchIndexGame(
+        authUid,
+        displayGameIds.isNotEmpty ? displayGameIds.first : profile.game,
       ));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
@@ -263,9 +259,37 @@ class TeamProfileRepository {
           .doc(squad.gameId)
           .set(squad.toMap(), SetOptions(merge: true))
           .timeout(const Duration(seconds: 15));
+
+      // NEW: previously saving a squad never touched the search index at
+      // all -- user_search/{uid}.game only ever got refreshed as a side
+      // effect of saveTeamProfile (editing the cover/bio), which most
+      // users who only ever use the Squad screen would never trigger.
+      // squad.gameId is exactly what the user just built/edited, so it's
+      // the most accurate "current" signal available -- more direct than
+      // resolveDisplayGameIds's arbitrary-first-squad fallback used
+      // elsewhere for a generic "what should we show" resolution.
+      unawaited(_syncSearchIndexGame(authUid, squad.gameId));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
+  }
+
+  Future<void> _syncSearchIndexGame(String uid, String gameId) async {
+    final account = await UserProfileRepository().fetchByUserId(uid);
+    String? country;
+    try {
+      country = await CountryResolverService.instance.resolveCountryCode();
+    } catch (_) {
+      country = null;
+    }
+    await UserSearchRepository().syncSelfIndex(
+      displayName: account?.displayName ?? '',
+      shareId: account?.effectiveShareId ?? '',
+      game: gameId,
+      badge: '',
+      avatarUrl: account?.effectivePhotoUrl ?? '',
+      country: country,
+    );
   }
 
   /// NEW: updates ONLY the real squad/team photo for [gameId], for the

@@ -2,6 +2,8 @@ import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTran
 import { db } from '@/lib/firebase';
 import { auth } from '@/lib/firebase';
 import { v4 as uuidv4 } from 'uuid';
+import { syncSelfIndexWeb } from '@/lib/search/userSearchRepository';
+import { resolveCountryCodeWeb } from '@/lib/countryResolver';
 
 // ── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -118,6 +120,37 @@ export async function saveSquadWeb(userId: string, squad: SquadData) {
     ...squad,
     updatedAtMs: Date.now()
   }, { merge: true });
+
+  // NEW: previously saving a squad never touched the search index at all --
+  // user_search/{uid}.game only ever got refreshed as a side effect of
+  // editing the cover/bio (updateTeamBannerWeb/updateTeamBioWeb's callers),
+  // which a user who only ever uses the Squad screen would never trigger.
+  // squad.gameId is exactly what was just built/edited, so it's the most
+  // accurate "current" signal available. Mirrors mobile's
+  // TeamProfileRepository.saveSquad, which does the same sync. Best-effort:
+  // never lets a search-index hiccup fail the squad save itself.
+  try {
+    await syncSearchIndexGameWeb(userId, squad.gameId);
+  } catch {
+    // non-fatal, matches syncSelfIndexWeb's own swallow-and-warn behavior
+  }
+}
+
+async function syncSearchIndexGameWeb(userId: string, gameId: string) {
+  const userSnap = await getDoc(doc(db, 'users', userId));
+  const data = userSnap.exists() ? userSnap.data() : undefined;
+  const displayName = (data?.teamName || data?.displayName || '') as string;
+  const shareId = (data?.shareId || '') as string;
+  const avatarUrl = (data?.teamImageUrl || data?.profileImageUrl || data?.photoUrl || '') as string;
+
+  let country: string | undefined;
+  try {
+    country = await resolveCountryCodeWeb();
+  } catch {
+    country = undefined;
+  }
+
+  await syncSelfIndexWeb({ displayName, shareId, game: gameId, avatarUrl, country });
 }
 
 /**

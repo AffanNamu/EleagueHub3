@@ -168,8 +168,10 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
       setPhotoUrl(secureUrl);
       // Mirrors TeamProfileRepository.saveTeamProfile()'s syncSelfIndex call
       // — keeps the user_search doc's avatar in sync so search results and
-      // "Teams Near You" don't show a stale photo.
-      void syncSelfIndexWeb({ displayName, shareId, game: teamProfile?.game, avatarUrl: secureUrl });
+      // "Teams Near You" don't show a stale photo. Uses the already-resolved
+      // displayGameId (squads collection first, onboarding choice as
+      // fallback) rather than the stale teamProfile.game field.
+      void syncSelfIndexWeb({ displayName, shareId, game: displayGameId, avatarUrl: secureUrl });
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Upload failed.');
     } finally {
@@ -199,7 +201,7 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
       await updateDoc(doc(db, 'users', authUser.uid), { teamName: newName.trim(), displayName: newName.trim(), updatedAt: Date.now() });
       await updateProfile(authUser, { displayName: newName.trim() });
       setDisplayName(newName.trim());
-      void syncSelfIndexWeb({ displayName: newName.trim(), shareId, game: teamProfile?.game, avatarUrl: photoUrl });
+      void syncSelfIndexWeb({ displayName: newName.trim(), shareId, game: displayGameId, avatarUrl: photoUrl });
     } catch (error) {
       alert("Failed to update name.");
     }
