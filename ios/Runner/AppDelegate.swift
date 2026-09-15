@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 import Firebase
 import GoogleMobileAds
+import GoogleSignIn
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -24,5 +25,23 @@ import GoogleMobileAds
 
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // google_sign_in: when the Google account picker hands off to the Google
+  // app (if installed) or an external browser instead of staying in-app,
+  // iOS returns control via this URL callback, not a normal completion
+  // handler. Without routing it to GIDSignIn, the plugin's signIn() future
+  // never resolves or rejects -- the user picks an account and the app just
+  // sits on its loading spinner until Dart's own timeout eventually fires,
+  // instead of ever coming back into the app.
+  override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    if GIDSignIn.sharedInstance.handle(url) {
+      return true
+    }
+    return super.application(app, open: url, options: options)
   }
 }
