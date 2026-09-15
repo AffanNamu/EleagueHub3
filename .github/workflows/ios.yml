@@ -403,6 +403,51 @@ jobs:
           echo "✅ GoogleService-Info.plist installed, Info.plist placeholders resolved"
 
       # ─────────────────────────────────────────
+      # 4e. REGISTER GoogleService-Info.plist AS A RUNNER BUNDLE RESOURCE
+      # The Xcode project is regenerated from scratch every run (step 4b),
+      # so it has no idea GoogleService-Info.plist exists -- normally you'd
+      # drag the file into Xcode once, which adds both a PBXFileReference
+      # AND an entry in the Runner target's "Copy Bundle Resources" build
+      # phase. Without that second part the file sits on disk during the
+      # build but is never copied into the shipped .app, so
+      # FirebaseApp.configure() in AppDelegate.swift (backs Firebase Core/
+      # Auth/Firestore/Messaging/Storage) throws immediately on launch with
+      # "Could not locate configuration file: 'GoogleService-Info.plist'" --
+      # a native crash before Flutter's UI ever renders, i.e. exactly
+      # "the app crashes the instant you tap it open" reported from
+      # TestFlight. xcodeproj is already a transitive CocoaPods gem, but
+      # install it defensively in case that ever changes.
+      # ─────────────────────────────────────────
+      - name: Register GoogleService-Info.plist as a Runner bundle resource
+        run: |
+          set -euo pipefail
+          gem list -i xcodeproj >/dev/null 2>&1 || gem install xcodeproj --no-document
+
+          cat > /tmp/add_google_service_plist.rb <<'RUBY'
+          require 'xcodeproj'
+
+          project_path = 'ios/Runner.xcodeproj'
+          project = Xcodeproj::Project.open(project_path)
+
+          target = project.targets.find { |t| t.name == 'Runner' }
+          raise "Runner target not found in #{project_path}" unless target
+
+          runner_group = project.main_group.find_subpath('Runner', true)
+
+          file_ref = runner_group.children.find { |c| c.respond_to?(:path) && c.path == 'GoogleService-Info.plist' } ||
+                     runner_group.new_reference('GoogleService-Info.plist')
+
+          already_included = target.resources_build_phase.files.any? { |bf| bf.file_ref == file_ref }
+          target.add_file_references([file_ref]) unless already_included
+
+          project.save
+          puts "GoogleService-Info.plist registered in Runner's Copy Bundle Resources"
+          RUBY
+
+          ruby /tmp/add_google_service_plist.rb
+          echo "✅ GoogleService-Info.plist is now a Runner bundle resource"
+
+      # ─────────────────────────────────────────
       # 5. LAUNCHER ICON (mirrors android.yml step; reuses assets/icon.png)
       # ─────────────────────────────────────────
       - name: Download launcher icon from Google Drive
