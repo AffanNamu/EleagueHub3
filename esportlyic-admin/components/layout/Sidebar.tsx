@@ -14,6 +14,7 @@ import {
   FileText,
   MessagesSquare,
   Sparkles,
+  ShoppingBag,
   FileWarning,
   FolderSearch,
   MessageCircle,
@@ -63,6 +64,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Leagues', href: '/leagues', icon: Trophy, permission: 'leagues.view' },
       { label: 'Organizers', href: '/organizers', icon: Building2, permission: 'organizers.view' },
+      { label: 'Marketplace', href: '/marketplace', icon: ShoppingBag, permission: 'marketplace.view' },
     ],
   },
   {

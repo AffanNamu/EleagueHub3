@@ -22,6 +22,8 @@ export const PERMISSIONS: PermissionDefinition[] = [
   { id: 'organizers.manage', label: 'Manage Organizers', description: 'Edit organizer workspace details.', category: 'Platform Management' },
   { id: 'leagues.view', label: 'View Leagues', description: 'View league details.', category: 'Platform Management' },
   { id: 'leagues.manage', label: 'Manage Leagues', description: 'Edit or moderate league details.', category: 'Platform Management' },
+  { id: 'marketplace.view', label: 'View Marketplace', description: 'View affiliate product listings.', category: 'Platform Management' },
+  { id: 'marketplace.manage', label: 'Manage Marketplace', description: 'Create, edit, or delete affiliate product listings.', category: 'Platform Management' },
 
   // Content & Engagement
   { id: 'content.view', label: 'View Content', description: 'View public posts and comments.', category: 'Content & Engagement' },

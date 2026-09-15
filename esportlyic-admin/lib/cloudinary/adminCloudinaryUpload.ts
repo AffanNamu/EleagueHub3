@@ -2,11 +2,9 @@
 //
 // Client-side unsigned upload, mirroring web_client's
 // lib/cloudinary/cloudinaryUpload.ts exactly — same Cloudinary account,
-// same unsigned preset, same 'eleaguehub/' folder namespace, so images
-// uploaded here are interchangeable with the rest of the platform. This
-// is the first thing in esportlyic-admin that uploads media at all, but
-// it deliberately reuses the existing account/preset rather than
-// introducing a second storage provider.
+// same unsigned preset, so images uploaded here are interchangeable with
+// the rest of the platform. This deliberately reuses the existing
+// account/preset rather than introducing a second storage provider.
 //
 // Requires NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME / NEXT_PUBLIC_CLOUDINARY_PRESET
 // to be set in this app's own environment (same values as web_client's).
@@ -24,7 +22,8 @@ function assertConfigured(): void {
   }
 }
 
-export async function uploadHomeContentImage(file: File): Promise<string> {
+/** Generic admin image upload. `folder` scopes where it lands in the Cloudinary account, e.g. 'eleaguehub/home_content'. */
+export async function uploadAdminImage(file: File, folder: string): Promise<string> {
   assertConfigured();
 
   if (file.size > MAX_BYTES) {
@@ -37,7 +36,7 @@ export async function uploadHomeContentImage(file: File): Promise<string> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('upload_preset', UPLOAD_PRESET);
-  formData.append('folder', 'eleaguehub/home_content');
+  formData.append('folder', folder);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
@@ -66,4 +65,12 @@ export async function uploadHomeContentImage(file: File): Promise<string> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export function uploadHomeContentImage(file: File): Promise<string> {
+  return uploadAdminImage(file, 'eleaguehub/home_content');
+}
+
+export function uploadMarketplaceProductImage(file: File): Promise<string> {
+  return uploadAdminImage(file, 'eleaguehub/marketplace_products');
 }
