@@ -256,7 +256,11 @@ class _HomeShellState extends ConsumerState<HomeShell>
                   : AppTheme.lightNavBg,
               borderColor: AppTheme.cardBorder(brightness),
               child: SizedBox(
-                height: 68,
+                // A few px taller than a plain nav bar strictly needs, so
+                // the center Discover button (the app's landing tab) has
+                // room to sit visibly larger than the other four without
+                // overflowing.
+                height: 78,
                 child: Row(
                   children: [
                     _NavBarItem(
@@ -273,7 +277,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
                       selected: _index == 1,
                       onTap: () => _onDestinationSelected(1),
                     ),
-                    _NavBarItem(
+                    _CenterNavBarItem(
                       icon: Icons.explore_outlined,
                       selectedIcon: Icons.explore,
                       label: 'Discover',
@@ -379,6 +383,101 @@ class _NavBarItem extends StatelessWidget {
                       fontWeight:
                           selected ? FontWeight.w800 : FontWeight.w600,
                     ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _CenterNavBarItem
+// ---------------------------------------------------------------------------
+
+/// The middle (Discover) destination -- deliberately larger and more
+/// visually prominent than the other four, since Discover is also this
+/// app's landing tab (see homeShellTabIndexNotifier's default). A solid
+/// lime circle with a soft glow when selected, a lighter tinted circle
+/// when not, rather than the other items' plain pill-on-select, so it
+/// reads as the bar's featured destination at a glance.
+class _CenterNavBarItem extends StatelessWidget {
+  const _CenterNavBarItem({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelColor =
+        selected ? AppTheme.limeAccentDark : const Color(0xFF9CA3AF);
+
+    return Expanded(
+      child: Semantics(
+        selected: selected,
+        button: true,
+        label: label,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const StadiumBorder(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: selected
+                        ? AppTheme.limeAccent
+                        : AppTheme.limeAccent.withOpacity(0.16),
+                    boxShadow: selected
+                        ? [
+                            BoxShadow(
+                              color: AppTheme.limeAccent.withOpacity(0.45),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Icon(
+                    selected ? selectedIcon : icon,
+                    color: selected
+                        ? AppTheme.darkText
+                        : AppTheme.limeAccentDark,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 11,
+                    fontWeight:
+                        selected ? FontWeight.w800 : FontWeight.w600,
                   ),
                 ),
               ],
