@@ -34,7 +34,7 @@ export default async function OrganizerDetailPage({ params }: { params: { organi
   return (
     <div className="space-y-4">
       <Breadcrumbs items={[{ label: 'Organizers', href: '/organizers' }, { label: organizer.name || organizer.id }]} />
-      <OrganizerDetailPanel organizer={organizer} />
+      <OrganizerDetailPanel organizer={organizer} canManage={canManageStaff} />
       <MasterLeagueStaffPanel
         organizerId={params.organizerId}
         staff={staff}

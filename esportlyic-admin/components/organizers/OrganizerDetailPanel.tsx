@@ -1,6 +1,10 @@
+'use client';
+
 import Image from 'next/image';
-import { Building2 } from 'lucide-react';
+import Link from 'next/link';
+import { Building2, Pencil, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { useOrganizerDelete } from '@/hooks/useOrganizerActions';
 import { verificationStatusLabel, verificationStatusTone } from '@/lib/models/masterLeagueVerification';
 import { formatRelativeTime } from '@/lib/utils';
 import type { Organizer } from '@/types/organizer';
@@ -14,11 +18,18 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-export function OrganizerDetailPanel({ organizer }: { organizer: Organizer }) {
+export function OrganizerDetailPanel({ organizer, canManage }: { organizer: Organizer; canManage: boolean }) {
   const socialEntries = Object.entries(organizer.socialLinks).filter(([, value]) => Boolean(value));
+  const { remove, deleting, error } = useOrganizerDelete();
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="rounded-sm border border-signal-danger/40 bg-signal-dangerFaint px-3 py-2 text-sm text-signal-danger">
+          {error}
+        </div>
+      )}
+
       <div className="panel p-5">
         <div className="flex items-start gap-4">
           {organizer.logoUrl ? (
@@ -48,6 +59,25 @@ export function OrganizerDetailPanel({ organizer }: { organizer: Organizer }) {
               {organizer.country ? ` · ${organizer.country}` : ''}
             </p>
           </div>
+          {canManage && (
+            <div className="flex items-center gap-1">
+              <Link
+                href={`/organizers/${organizer.id}/edit`}
+                className="rounded-sm p-2 text-ink-secondary hover:bg-base-raised hover:text-ink-primary"
+                aria-label="Edit organizer workspace"
+              >
+                <Pencil size={16} />
+              </Link>
+              <button
+                onClick={() => remove(organizer.id, organizer.name || organizer.id)}
+                disabled={deleting}
+                className="rounded-sm p-2 text-ink-secondary hover:bg-base-raised hover:text-signal-danger disabled:opacity-60"
+                aria-label="Delete organizer workspace"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
