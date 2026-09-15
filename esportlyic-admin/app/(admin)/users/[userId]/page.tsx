@@ -25,6 +25,7 @@ export default async function UserDetailPage({ params }: { params: { userId: str
   const payments = canViewPayments ? await getPaymentsForUser(params.userId) : [];
 
   const canModerate = hasPermission(identity, 'users.moderate');
+  const canSuspend = hasPermission(identity, 'users.suspend');
   const canOverrideEntitlement = identity?.isSuperAdmin === true;
 
   return (
@@ -34,6 +35,7 @@ export default async function UserDetailPage({ params }: { params: { userId: str
         profile={profile}
         payments={payments}
         canModerate={canModerate}
+        canSuspend={canSuspend}
         canOverrideEntitlement={canOverrideEntitlement}
         canViewPayments={canViewPayments}
       />

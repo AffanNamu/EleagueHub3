@@ -53,4 +53,7 @@ export interface AdminUserProfile {
   chatBanned: boolean;
   isGlobalChatAdmin: boolean;
   claims: OrganizerProClaims;
+  suspended: boolean;
+  suspensionReason: string;
+  suspendedAtMs: number;
 }

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/data/user_profile_repository.dart';
+import '../../features/auth/presentation/account_suspended_screen.dart';
 import '../../features/auth/presentation/bootstrap_screen.dart';
 import '../../features/auth/presentation/forgot_password_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
@@ -808,9 +809,17 @@ class AuthRouterRefresh extends ChangeNotifier {
       _retryAttempt = 0;
 
       if (_user == null) {
+        _suspensionSub?.cancel();
+        _suspensionSub = null;
+        _isSuspended = false;
+        _suspensionReason = '';
         _setProfileState(_ProfileState.unknown);
         if (prevUserId != null) notifyListeners();
         return;
+      }
+
+      if (prevUserId != _user!.uid) {
+        _watchSuspension(_user!.uid);
       }
 
       if (needsEmailVerification) {
@@ -841,6 +850,8 @@ class AuthRouterRefresh extends ChangeNotifier {
 
   late final StreamSubscription<User?> _authSub;
   late final StreamSubscription<bool> _connSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _suspensionSub;
 
   User? _user;
   final UserProfileRepository _profiles = UserProfileRepository();
@@ -849,7 +860,48 @@ class AuthRouterRefresh extends ChangeNotifier {
   Timer? _retryTimer;
   int _retryAttempt = 0;
 
+  bool _isSuspended = false;
+  String _suspensionReason = '';
+
   bool get isSignedIn => _user != null;
+
+  // Live-enforced account suspension: a super-admin-only, Admin-SDK-only
+  // write to app/accountStatus/users/{uid} (mirrors the existing
+  // app/chatModeration/users/{uid} shape/rules exactly). Firebase Auth's
+  // own disabled:true only blocks NEW sign-ins/token refreshes -- an
+  // already-signed-in session keeps working client-side until its ID
+  // token naturally expires (up to an hour) unless something live also
+  // watches for this. This listener is that live signal.
+  bool get isSuspended => isSignedIn && _isSuspended;
+
+  String get suspensionReason => _suspensionReason;
+
+  void _watchSuspension(String uid) {
+    _suspensionSub?.cancel();
+    _suspensionSub = FirebaseFirestore.instance
+        .collection('app')
+        .doc('accountStatus')
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((snap) {
+      final data = snap.data() ?? <String, dynamic>{};
+      final suspended = data['suspended'] == true;
+      final reason = data['reason'] is String ? data['reason'] as String : '';
+      if (_isSuspended == suspended && _suspensionReason == reason) return;
+      _isSuspended = suspended;
+      _suspensionReason = reason;
+      notifyListeners();
+    }, onError: (_) {
+      // Fail open on a read error rather than locking someone out
+      // because of a transient permission/connectivity hiccup.
+      if (_isSuspended) {
+        _isSuspended = false;
+        _suspensionReason = '';
+        notifyListeners();
+      }
+    });
+  }
 
   bool get needsEmailVerification {
     final u = _user;
@@ -1012,6 +1064,7 @@ class AuthRouterRefresh extends ChangeNotifier {
     _cancelRetry();
     _authSub.cancel();
     _connSub.cancel();
+    _suspensionSub?.cancel();
     super.dispose();
   }
 }
@@ -1138,6 +1191,11 @@ final appRouter = GoRouter(
       return '/login';
     }
 
+    if (authRouterRefresh.isSuspended) {
+      if (loc == '/account-suspended') return null;
+      return '/account-suspended';
+    }
+
     if (authRouterRefresh.needsEmailVerification) {
       if (inVerifyEmail) return null;
       return '/verify-email';
@@ -1261,6 +1319,10 @@ final appRouter = GoRouter(
         final qp = state.uri.queryParameters;
         return VerifyEmailScreen(initialCode: qp['oobCode']);
       },
+    ),
+    GoRoute(
+      path: '/account-suspended',
+      builder: (context, state) => const AccountSuspendedScreen(),
     ),
     GoRoute(
       path: '/onboarding',

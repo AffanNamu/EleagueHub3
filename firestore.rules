@@ -917,6 +917,26 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Platform-wide account suspension -- distinct from
+    // app/chatModeration above (which only gates chat). The app's live
+    // AuthRouterRefresh listener (lib/core/routing/app_router.dart)
+    // watches this doc for the signed-in user and force-redirects to an
+    // "Account Suspended" screen the instant it flips true, closing the
+    // gap where Firebase Auth's own disabled:true only blocks NEW
+    // sign-ins/token refreshes, not an already-live session. Same
+    // superAdmin-only, Admin-SDK-driven write pattern as chatModeration.
+    match /app/accountStatus/users/{userId} {
+      allow get: if signedIn() && (request.auth.uid == userId || isSuperAdmin());
+      allow list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin()
+        && (request.resource.data.suspended is bool)
+        && (request.resource.data.reason is string)
+        && (request.resource.data.updatedAtMs is int)
+        && (request.resource.data.updatedBy is string)
+        && (request.resource.data.updatedBy == request.auth.uid);
+      allow delete: if false;
+    }
+
     match /users/{userId} {
       allow read: if true;
 

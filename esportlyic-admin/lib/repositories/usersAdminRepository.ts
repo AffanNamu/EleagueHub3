@@ -136,10 +136,11 @@ export async function getFirestoreProfileCount(): Promise<number> {
 export async function getUserDetail(userId: string): Promise<AdminUserProfile | null> {
   const userRef = adminDb.collection('users').doc(userId);
 
-  const [userSnap, chatModSnap, followersCountSnap, followingCountSnap, globalChatAdminUids, authRecord] =
+  const [userSnap, chatModSnap, accountStatusSnap, followersCountSnap, followingCountSnap, globalChatAdminUids, authRecord] =
     await Promise.all([
       userRef.get(),
       adminDb.collection('app').doc('chatModeration').collection('users').doc(userId).get(),
+      adminDb.collection('app').doc('accountStatus').collection('users').doc(userId).get(),
       userRef.collection('followers').count().get(),
       userRef.collection('following').count().get(),
       getGlobalChatAdminUids(),
@@ -192,6 +193,9 @@ export async function getUserDetail(userId: string): Promise<AdminUserProfile | 
     chatMuted: chatModSnap.exists && chatModSnap.data()?.allChatMuted === true,
     chatBanned: chatModSnap.exists && chatModSnap.data()?.allChatBanned === true,
     isGlobalChatAdmin: globalChatAdminUids.has(userId),
+    suspended: accountStatusSnap.exists && accountStatusSnap.data()?.suspended === true,
+    suspensionReason: (accountStatusSnap.data()?.reason as string) ?? '',
+    suspendedAtMs: typeof accountStatusSnap.data()?.updatedAtMs === 'number' ? accountStatusSnap.data()!.updatedAtMs : 0,
     claims: {
       organizerPro: rawClaims.organizerPro === true,
       organizerProPlan: typeof rawClaims.organizerProPlan === 'string' ? rawClaims.organizerProPlan : null,
@@ -258,5 +262,76 @@ export async function setGlobalChatAdmin(params: {
     targetType: 'user',
     targetId: params.userId,
     summary: `${params.isAdmin ? 'Granted' : 'Revoked'} Global Chat moderator status for ${params.userId}`,
+  });
+}
+
+export class AccountSuspensionError extends Error {}
+
+/**
+ * Full platform-wide suspension -- distinct from setChatModeration
+ * above, which only gates chat. Three layers, in order:
+ *  1. adminAuth.updateUser({disabled}) blocks any NEW sign-in or token
+ *     refresh attempt going forward.
+ *  2. adminAuth.revokeRefreshTokens invalidates this user's outstanding
+ *     refresh tokens immediately, so their session can't silently renew.
+ *  3. The app/accountStatus/users/{uid} Firestore write is the LIVE
+ *     signal: the Flutter app's AuthRouterRefresh keeps a standing
+ *     listener on this exact doc (see app_router.dart) and force-
+ *     redirects to an "Account Suspended" screen the instant it flips
+ *     true -- closing the gap where (1)+(2) alone would leave an
+ *     already-open app session working for up to an hour until its
+ *     cached ID token naturally expires.
+ */
+export async function setAccountSuspension(params: {
+  userId: string;
+  suspended: boolean;
+  reason: string;
+  updatedBy: string;
+  updatedByEmail?: string | null;
+}): Promise<void> {
+  const { userId, suspended, updatedBy, updatedByEmail } = params;
+  const reason = params.reason.trim();
+
+  if (suspended && !reason) {
+    throw new AccountSuspensionError('A reason is required to suspend an account.');
+  }
+
+  try {
+    await adminAuth.updateUser(userId, { disabled: suspended });
+  } catch (err) {
+    throw new AccountSuspensionError(
+      err instanceof Error ? `Could not update the Firebase Auth account: ${err.message}` : 'No Firebase Auth account found for this user.',
+    );
+  }
+
+  if (suspended) {
+    await adminAuth.revokeRefreshTokens(userId);
+  }
+
+  const nowMs = Date.now();
+  await adminDb
+    .collection('app')
+    .doc('accountStatus')
+    .collection('users')
+    .doc(userId)
+    .set(
+      {
+        suspended,
+        reason,
+        updatedAtMs: nowMs,
+        updatedBy,
+      },
+      { merge: true },
+    );
+
+  await recordAuditLog({
+    actorUid: updatedBy,
+    actorEmail: updatedByEmail,
+    action: suspended ? 'user.suspend' : 'user.unsuspend',
+    targetType: 'user',
+    targetId: userId,
+    summary: suspended
+      ? `Suspended account ${userId}. Reason: ${reason}`
+      : `Reinstated account ${userId}`,
   });
 }

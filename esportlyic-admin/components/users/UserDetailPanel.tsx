@@ -3,6 +3,7 @@ import { Users as UsersIcon, BadgeCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { UserPlanBadge } from '@/components/users/UserPlanBadge';
 import { UserModerationPanel } from '@/components/users/UserModerationPanel';
+import { UserSuspensionPanel } from '@/components/users/UserSuspensionPanel';
 import { EntitlementOverridePanel } from '@/components/users/EntitlementOverridePanel';
 import { UserPaymentHistory } from '@/components/users/UserPaymentHistory';
 import { formatRelativeTime, formatNumber } from '@/lib/utils';
@@ -23,12 +24,14 @@ export function UserDetailPanel({
   profile,
   payments,
   canModerate,
+  canSuspend,
   canOverrideEntitlement,
   canViewPayments,
 }: {
   profile: AdminUserProfile;
   payments: Payment[];
   canModerate: boolean;
+  canSuspend: boolean;
   canOverrideEntitlement: boolean;
   canViewPayments: boolean;
 }) {
@@ -119,6 +122,7 @@ export function UserDetailPanel({
       </div>
 
       <div className="space-y-4">
+        {canSuspend && <UserSuspensionPanel profile={profile} />}
         {canModerate && <UserModerationPanel profile={profile} />}
         {canOverrideEntitlement && <EntitlementOverridePanel profile={profile} />}
       </div>

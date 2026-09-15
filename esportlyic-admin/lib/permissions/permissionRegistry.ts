@@ -12,6 +12,7 @@ export const PERMISSIONS: PermissionDefinition[] = [
   // User Management
   { id: 'users.view', label: 'View Users', description: 'View user profiles and account details.', category: 'User Management' },
   { id: 'users.moderate', label: 'Moderate Users', description: 'Mute or ban a user from chat, and manage Global Chat moderator status.', category: 'User Management' },
+  { id: 'users.suspend', label: 'Suspend Accounts', description: 'Suspend or reinstate a user\'s account platform-wide — blocks sign-in and force-signs them out of any active session. Reserved for the Super Admin.', category: 'User Management', superAdminOnly: true },
   { id: 'admins.manage', label: 'Manage Admins', description: 'Add, remove, or change which admins have access and what roles they hold.', category: 'User Management', superAdminOnly: true },
   { id: 'roles.manage', label: 'Manage Roles', description: 'Create, edit, or delete admin roles and their permissions.', category: 'User Management', superAdminOnly: true },
   { id: 'verification.view', label: 'View Verification Requests', description: 'View organizer verification submissions.', category: 'User Management' },
