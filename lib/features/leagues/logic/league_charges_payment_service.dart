@@ -111,16 +111,20 @@ class FlutterwaveLeagueChargesPaymentService
   final Uuid _uuid = const Uuid();
 
   @override
-  String get providerName =>
-      PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
-          ? 'google_play_billing'
-          : 'flutterwave';
+  String get providerName {
+    if (PaymentPlatformConfig.routeIOSPaymentsToStoreKit) return 'app_store';
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      return 'google_play_billing';
+    }
+    return 'flutterwave';
+  }
 
   LeagueChargesPaymentResult _playBillingNotReady(String flowLabel) {
     return LeagueChargesPaymentResult.failed(
       provider: providerName,
-      errorMessage:
-          PaymentPlatformConfig.pendingGooglePlayBillingMessage(flowLabel),
+      errorMessage: PaymentPlatformConfig.routeIOSPaymentsToStoreKit
+          ? PaymentPlatformConfig.pendingStoreKitMessage(flowLabel)
+          : PaymentPlatformConfig.pendingGooglePlayBillingMessage(flowLabel),
     );
   }
 
@@ -196,7 +200,12 @@ class FlutterwaveLeagueChargesPaymentService
     int? couponDiscountPercent,
     String? currencyOverride,
   }) async {
-    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+    // No native (StoreKit/Play Billing) purchase implementation exists yet
+    // for this flow. Block it on native-store platforms rather than
+    // falling through to Flutterwave — Guideline 3.1.1 requires StoreKit
+    // for any digital purchase on iOS, so this must never silently leak
+    // to a third-party processor there.
+    if (PaymentPlatformConfig.useNativeInAppPurchase) {
       return _playBillingNotReady('League access charge payment');
     }
 

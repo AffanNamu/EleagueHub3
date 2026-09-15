@@ -234,8 +234,6 @@ jobs:
           	<string>eSportlyic saves media you create or download to your photo library when you choose to.</string>
           	<key>NSLocalNetworkUsageDescription</key>
           	<string>eSportlyic uses your local network to establish low-latency audio/video connections during live league sessions.</string>
-          	<key>NSUserTrackingUsageDescription</key>
-          	<string>This identifier will be used to deliver personalized ads to you.</string>
           	<key>GADApplicationIdentifier</key>
           	<string>${IOS_ADMOB_APP_ID}</string>
           	<key>SKAdNetworkItems</key>

@@ -33,6 +33,8 @@ import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../legal/privacy_policy_screen.dart';
+import '../../legal/terms_of_service_screen.dart';
 import '../../master_leagues/domain/master_league_plan.dart';
 import '../../master_leagues/logic/master_league_pricing_service.dart';
 import '../../master_leagues/logic/master_leagues_providers.dart';
@@ -561,6 +563,12 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                             accent: accent,
                             onSelect: _selectDuration,
                           ),
+                          const SizedBox(height: 16),
+                          _SubscriptionDisclosure(
+                            useNativeIAP: _useNativeIAP,
+                            isIOS: _isIOS,
+                            brightness: brightness,
+                          ),
                         ],
 
                         if ((_error ?? '').trim().isNotEmpty) ...[
@@ -710,6 +718,89 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Subscription disclosure ──────────────────────────────────────────────
+//
+// Apple guideline 3.1.2 requires, in the vicinity of the purchase button:
+// title/length/price of the subscription (already shown above this widget)
+// plus auto-renewal terms and functional links to Privacy Policy + Terms
+// of Use. Google Play expects equivalent renewal disclosure too, so this
+// shows for both native-IAP platforms; the storefront name in the renewal
+// line is platform-specific.
+
+class _SubscriptionDisclosure extends StatelessWidget {
+  const _SubscriptionDisclosure({
+    required this.useNativeIAP,
+    required this.isIOS,
+    required this.brightness,
+  });
+
+  final bool useNativeIAP;
+  final bool isIOS;
+  final Brightness brightness;
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = AppTheme.secondaryText(brightness);
+    final linkColor = AppTheme.limeAccentDark;
+    final linkStyle = TextStyle(
+      color: linkColor,
+      fontWeight: FontWeight.w800,
+      fontSize: 11.5,
+      decoration: TextDecoration.underline,
+    );
+    final bodyStyle = TextStyle(
+      color: textColor,
+      fontWeight: FontWeight.w600,
+      fontSize: 11.5,
+      height: 1.4,
+    );
+
+    final String storeName = !useNativeIAP
+        ? ''
+        : (isIOS ? 'Apple ID' : 'Google Play');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (useNativeIAP)
+          Text(
+            'Payment will be charged to your $storeName account at '
+            'confirmation of purchase. Subscriptions automatically renew '
+            'for the same duration and price unless auto-renew is turned '
+            'off at least 24 hours before the end of the current period. '
+            'Manage or cancel any time in your $storeName account settings.',
+            style: bodyStyle,
+          ),
+        if (useNativeIAP) const SizedBox(height: 8),
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text('By subscribing you agree to our ', style: bodyStyle),
+            GestureDetector(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const TermsOfServiceScreen(),
+                ),
+              ),
+              child: Text('Terms of Service', style: linkStyle),
+            ),
+            Text(' and ', style: bodyStyle),
+            GestureDetector(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const PrivacyPolicyScreen(),
+                ),
+              ),
+              child: Text('Privacy Policy', style: linkStyle),
+            ),
+            Text('.', style: bodyStyle),
+          ],
+        ),
+      ],
     );
   }
 }

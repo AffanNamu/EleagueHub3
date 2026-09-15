@@ -227,19 +227,14 @@ class _LeaguesListScreenState
     );
   }
 
+  // Both the Google Play and Flutterwave paths used to be separate
+  // methods here, but both ever did the same thing: open
+  // LeaguePremiumUpgradeHelper.openUpgradeFlow(), which already routes
+  // to UpgradePlanScreen — the single screen that picks StoreKit /
+  // Google Play Billing / Flutterwave per-platform via
+  // PaymentPlatformConfig.useNativeInAppPurchase. Collapsed into one
+  // method so there's only one place this logic can drift.
   Future<void> _openInlinePlanChooser() async {
-    if (_planUpgradeInProgress) return;
-
-    if (PaymentPlatformConfig
-        .routeAndroidPaymentsToGooglePlayBilling) {
-      await _openGooglePlayPlanUpgrade();
-      return;
-    }
-
-    await _openFlutterwavePlanUpgrade();
-  }
-
-  Future<void> _openGooglePlayPlanUpgrade() async {
     if (_planUpgradeInProgress) return;
 
     setState(() => _planUpgradeInProgress = true);
@@ -260,38 +255,6 @@ class _LeaguesListScreenState
       if (!mounted) return;
 
       if (success) {
-        _snack('Plan purchase completed. Refreshing access...');
-        await _refreshLeagues();
-        return;
-      }
-
-      _snack('Plan upgrade cancelled.');
-    } catch (e) {
-      if (!mounted) return;
-      _snack(UserFriendlyError.toMessage(
-          e is Object ? e : Exception('unknown')));
-    } finally {
-      if (mounted) {
-        setState(() => _planUpgradeInProgress = false);
-      }
-    }
-  }
-
-  Future<void> _openFlutterwavePlanUpgrade() async {
-    if (_planUpgradeInProgress) return;
-
-    setState(() => _planUpgradeInProgress = true);
-
-    try {
-      final ok =
-          await LeaguePremiumUpgradeHelper.openUpgradeFlow(
-        context,
-        leagueName: 'Organizer Plan',
-      );
-
-      if (!mounted) return;
-
-      if (ok) {
         _snack('Plan purchase completed. Refreshing access...');
         await _refreshLeagues();
         return;

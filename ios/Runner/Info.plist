@@ -88,15 +88,16 @@
 	<string>eSportlyic uses your local network to establish low-latency audio/video connections during live league sessions.</string>
 
 	<!-- ══════════════════════════════════════════════════════════
-	     APP TRACKING TRANSPARENCY — only required if google_mobile_ads
-	     is actually configured for personalized/attributed ads (i.e.
-	     it reads the IDFA). If your AdMob setup only serves
-	     non-personalized/contextual ads, remove this key entirely —
-	     Apple flags apps that declare NSUserTrackingUsageDescription
-	     without an actual ATT prompt path in code.
+	     APP TRACKING TRANSPARENCY — deliberately NOT declared.
+	     No app_tracking_transparency package / requestTrackingAuthorization
+	     call exists anywhere in this codebase, so declaring
+	     NSUserTrackingUsageDescription without ever showing the actual
+	     ATT prompt is exactly the inconsistency Apple flags in review.
+	     AdMob (rewarded ads) works fine without it — it automatically
+	     serves non-personalized/contextual ads when IDFA access isn't
+	     requested. Only add this key back if app_tracking_transparency
+	     is wired up first.
 	     ══════════════════════════════════════════════════════════ -->
-	<key>NSUserTrackingUsageDescription</key>
-	<string>This identifier will be used to deliver personalized ads to you.</string>
 
 	<!-- ══════════════════════════════════════════════════════════
 	     ADMOB — iOS app entry, separate from the Android AdMob App ID

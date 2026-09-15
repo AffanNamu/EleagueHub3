@@ -135,10 +135,13 @@ class FlutterwaveMasterLeaguePaymentService
   final Uuid _uuid = const Uuid();
 
   @override
-  String get providerName =>
-      PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling
-          ? 'google_play_billing'
-          : 'flutterwave';
+  String get providerName {
+    if (PaymentPlatformConfig.routeIOSPaymentsToStoreKit) return 'app_store';
+    if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      return 'google_play_billing';
+    }
+    return 'flutterwave';
+  }
 
   // ── Shared helpers ────────────────────────────────────────────────────────
 
@@ -958,13 +961,14 @@ class FlutterwaveMasterLeaguePaymentService
     required MasterLeaguePlan plan,
     required PlanDuration duration,
   }) async {
-    // ── Android → Google Play Billing ─────────────────────────────────────
-    if (PaymentPlatformConfig
-        .routeAndroidPaymentsToGooglePlayBilling) {
+    // ── Android/iOS → native in-app purchase ────────────────────────────────
+    // Guideline 3.1.1 requires StoreKit for any digital plan purchase on
+    // iOS — this must never fall through to Flutterwave there.
+    if (PaymentPlatformConfig.useNativeInAppPurchase) {
       if (kDebugMode) {
         debugPrint(
           '[MasterLeaguePayment] payForPlanSubscription '
-          '→ Google Play Billing',
+          '→ ${PaymentPlatformConfig.routeIOSPaymentsToStoreKit ? "App Store" : "Google Play Billing"}',
         );
       }
       return _purchasePlanViaGooglePlay(
@@ -1076,13 +1080,12 @@ class FlutterwaveMasterLeaguePaymentService
     required String masterLeagueId,
     required String masterLeagueName,
   }) async {
-    // ── Android → Google Play Billing ─────────────────────────────────────
-    if (PaymentPlatformConfig
-        .routeAndroidPaymentsToGooglePlayBilling) {
+    // ── Android/iOS → native in-app purchase ────────────────────────────────
+    if (PaymentPlatformConfig.useNativeInAppPurchase) {
       if (kDebugMode) {
         debugPrint(
           '[MasterLeaguePayment] payForOrganizerVerification '
-          '→ Google Play Billing',
+          '→ ${PaymentPlatformConfig.routeIOSPaymentsToStoreKit ? "App Store" : "Google Play Billing"}',
         );
       }
       return _purchaseVerificationViaGooglePlay(
@@ -1201,13 +1204,12 @@ class FlutterwaveMasterLeaguePaymentService
     required String masterLeagueId,
     required String masterLeagueName,
   }) async {
-    // ── Android → Google Play Billing ─────────────────────────────────────
-    if (PaymentPlatformConfig
-        .routeAndroidPaymentsToGooglePlayBilling) {
+    // ── Android/iOS → native in-app purchase ────────────────────────────────
+    if (PaymentPlatformConfig.useNativeInAppPurchase) {
       if (kDebugMode) {
         debugPrint(
           '[MasterLeaguePayment] payForOrganizerVerificationRenewal '
-          '→ Google Play Billing',
+          '→ ${PaymentPlatformConfig.routeIOSPaymentsToStoreKit ? "App Store" : "Google Play Billing"}',
         );
       }
       return _purchaseVerificationRenewalViaGooglePlay(
