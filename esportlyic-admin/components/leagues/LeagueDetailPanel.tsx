@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Trophy, Lock, Globe, ScrollText, Ticket, ChevronRight, Pencil, Trash2 } from 'lucide-react';
+import { Trophy, Lock, Globe, ScrollText, Ticket, Shield, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { useLeagueDelete } from '@/hooks/useLeagueActions';
 import { leagueFormatLabel } from '@/types/league';
@@ -81,6 +81,20 @@ export function LeagueDetailPanel({ league, canManage }: { league: League; canMa
         <div className="flex-1">
           <p className="text-sm font-medium text-ink-primary">Competition Rules</p>
           <p className="text-xs text-ink-secondary">Scheduling, match settings, disputes, and more</p>
+        </div>
+        <ChevronRight size={16} className="text-ink-muted" />
+      </Link>
+
+      <Link
+        href={`/leagues/${league.id}/rosters`}
+        className="panel flex items-center gap-3 p-4 transition-colors hover:border-brand/40"
+      >
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-brand-faint text-brand">
+          <Shield size={17} />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-ink-primary">Teams & Rosters</p>
+          <p className="text-xs text-ink-secondary">View and manage teams and their rosters</p>
         </div>
         <ChevronRight size={16} className="text-ink-muted" />
       </Link>
