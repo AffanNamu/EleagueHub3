@@ -1,7 +1,12 @@
 import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { OrganizerDetailPanel } from '@/components/organizers/OrganizerDetailPanel';
+import { MasterLeagueStaffPanel } from '@/components/organizers/MasterLeagueStaffPanel';
 import { getOrganizer } from '@/lib/repositories/organizersAdminRepository';
+import {
+  listMasterLeagueStaff,
+  listMasterLeagueStaffAuditLog,
+} from '@/lib/repositories/masterLeagueStaffAdminRepository';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
 
@@ -17,13 +22,25 @@ export default async function OrganizerDetailPage({ params }: { params: { organi
     );
   }
 
-  const organizer = await getOrganizer(params.organizerId);
+  const [organizer, staff, auditLog] = await Promise.all([
+    getOrganizer(params.organizerId),
+    listMasterLeagueStaff(params.organizerId),
+    listMasterLeagueStaffAuditLog(params.organizerId),
+  ]);
   if (!organizer) notFound();
+
+  const canManageStaff = hasPermission(identity, 'organizers.manage');
 
   return (
     <div className="space-y-4">
       <Breadcrumbs items={[{ label: 'Organizers', href: '/organizers' }, { label: organizer.name || organizer.id }]} />
       <OrganizerDetailPanel organizer={organizer} />
+      <MasterLeagueStaffPanel
+        organizerId={params.organizerId}
+        staff={staff}
+        auditLog={auditLog}
+        canManage={canManageStaff}
+      />
     </div>
   );
 }
