@@ -23,6 +23,7 @@ import {
   Tags,
   ScrollText,
   Settings,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -111,7 +112,15 @@ function canSeeItem(item: NavItem, identity: AdminIdentity): boolean {
   return hasPermission(identity, item.permission);
 }
 
-export function Sidebar({ identity }: { identity: AdminIdentity }) {
+export function Sidebar({
+  identity,
+  mobileOpen,
+  onClose,
+}: {
+  identity: AdminIdentity;
+  mobileOpen: boolean;
+  onClose: () => void;
+}) {
   const pathname = usePathname();
 
   const visibleSections = NAV_SECTIONS.map((section) => ({
@@ -120,55 +129,81 @@ export function Sidebar({ identity }: { identity: AdminIdentity }) {
   })).filter((section) => section.items.length > 0);
 
   return (
-    <aside className="flex h-screen w-60 flex-shrink-0 flex-col border-r border-base-border bg-base-panel">
-      <div className="flex h-14 items-center gap-2.5 border-b border-base-border px-4">
-        <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-brand text-xs font-semibold text-base">
-          N
-        </div>
-        <div className="leading-tight">
-          <p className="font-display text-sm font-semibold text-ink-primary">Nomad Ops</p>
-          <p className="text-[11px] text-ink-muted">eSports Platform</p>
-        </div>
-      </div>
+    <>
+      {/* Mobile-only backdrop, tapping it closes the drawer */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
-        {visibleSections.map((section) => (
-          <div key={section.title} className="mb-5">
-            <p className="mb-1.5 px-2 text-[11px] font-medium text-ink-muted">{section.title}</p>
-            <ul className="space-y-0.5">
-              {section.items.map((item) => {
-                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                const Icon = item.icon;
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      className={cn(
-                        'flex items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-sm transition-colors',
-                        isActive
-                          ? 'bg-brand-faint text-brand'
-                          : 'text-ink-secondary hover:bg-base-raised hover:text-ink-primary',
-                      )}
-                    >
-                      <Icon size={16} strokeWidth={2} />
-                      {item.label}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-
-        {!identity.isSuperAdmin && !identity.isLegacyFullAccess && (
-          <div className="mt-2 rounded-sm bg-base-raised px-3 py-2.5">
-            <p className="text-xs text-ink-muted">Signed in as</p>
-            <p className="text-xs font-medium text-ink-primary">
-              {identity.roleNames.join(', ') || 'No roles assigned'}
-            </p>
-          </div>
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 flex h-screen w-64 max-w-[85vw] flex-shrink-0 flex-col border-r border-base-border bg-base-panel transition-transform duration-200 ease-out',
+          'md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
-      </nav>
-    </aside>
+      >
+        <div className="flex h-14 flex-shrink-0 items-center justify-between gap-2.5 border-b border-base-border px-4">
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-sm bg-brand text-xs font-semibold text-base">
+              N
+            </div>
+            <div className="min-w-0 leading-tight">
+              <p className="truncate font-display text-sm font-semibold text-ink-primary">Nomad Ops</p>
+              <p className="truncate text-[11px] text-ink-muted">eSports Platform</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex-shrink-0 rounded-sm p-1.5 text-ink-secondary hover:bg-base-raised md:hidden"
+            aria-label="Close navigation"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 py-4">
+          {visibleSections.map((section) => (
+            <div key={section.title} className="mb-5">
+              <p className="mb-1.5 px-2 text-[11px] font-medium text-ink-muted">{section.title}</p>
+              <ul className="space-y-0.5">
+                {section.items.map((item) => {
+                  const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  const Icon = item.icon;
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={cn(
+                          'flex items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-sm transition-colors',
+                          isActive
+                            ? 'bg-brand-faint text-brand'
+                            : 'text-ink-secondary hover:bg-base-raised hover:text-ink-primary',
+                        )}
+                      >
+                        <Icon size={16} strokeWidth={2} className="flex-shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+
+          {!identity.isSuperAdmin && !identity.isLegacyFullAccess && (
+            <div className="mt-2 rounded-sm bg-base-raised px-3 py-2.5">
+              <p className="text-xs text-ink-muted">Signed in as</p>
+              <p className="truncate text-xs font-medium text-ink-primary">
+                {identity.roleNames.join(', ') || 'No roles assigned'}
+              </p>
+            </div>
+          )}
+        </nav>
+      </aside>
+    </>
   );
 }
