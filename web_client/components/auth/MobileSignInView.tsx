@@ -12,6 +12,8 @@ import {
   User
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+import { useTheme } from '@/components/providers/ClientThemeProvider';
+import { cn } from '@/lib/utils';
 import { Loader2, Mail, Lock, Gamepad2, Eye, EyeOff, QrCode, ArrowRight, LogOut } from 'lucide-react';
 
 export interface MobileSignInViewProps {
@@ -20,6 +22,18 @@ export interface MobileSignInViewProps {
 
 export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps) {
   const router = useRouter();
+  // FIXED: this view was hardcoded to light-mode-only Tailwind classes
+  // (bg-white/bg-slate-* /text-slate-900 everywhere) with no dark:
+  // handling at all, and — unlike its desktop counterpart
+  // (DesktopPairingView, reached via the same login page but wrapped in
+  // the app's themed GlassScaffold) — it's rendered bare, outside
+  // GlassScaffold entirely. Since this is the mobile-only branch of the
+  // login page (page.tsx's device-mode gate) and the app defaults to
+  // dark mode, every phone user landed on a permanently light screen
+  // regardless of the dark-by-default theme. Now theme-aware like the
+  // rest of the app.
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -29,7 +43,7 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
   const [obscureConfirm, setObscureConfirm] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
   const [loggedInUser, setLoggedInUser] = useState<User | null>(null);
 
   useEffect(() => {
@@ -68,9 +82,9 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
       await signInWithRedirect(auth, provider);
       // Browser navigates away to Google; getRedirectResult (above) and
       // onAuthStateChanged pick up the result when it comes back.
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setError(err.message || 'Google sign-in failed.');
+      setError(err instanceof Error ? err.message : 'Google sign-in failed.');
       setLoading(false);
     }
   };
@@ -94,9 +108,9 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setError(err.message || 'Invalid email or password.');
+      setError(err instanceof Error ? err.message : 'Invalid email or password.');
       setLoading(false);
     }
   };
@@ -109,7 +123,7 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
       // Nuke the cookie using all possible flags to ensure it dies
       document.cookie = 'session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; Secure; SameSite=Lax';
       document.cookie = 'session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-      
+
       // Force a hard browser reload to the homepage to completely clear Next.js memory!
       window.location.href = '/';
     } catch (err) {
@@ -120,38 +134,61 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
 
   if (loading && !loggedInUser) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+      <div className={cn(
+        'min-h-screen flex flex-col items-center justify-center p-6',
+        isDarkMode ? 'bg-[#070B14]' : 'bg-slate-50'
+      )}>
         <Loader2 className="w-8 h-8 text-brand-lime animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
+    <div className={cn(
+      'min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans',
+      isDarkMode ? 'bg-[#070B14]' : 'bg-slate-50'
+    )}>
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
         <div className="absolute -top-40 -left-40 w-[600px] h-[600px] bg-brand-lime opacity-10 rounded-full blur-[120px]" />
         <div className="absolute top-1/2 right-0 w-[500px] h-[500px] bg-sky-400 opacity-10 rounded-full blur-[120px] transform translate-x-1/3" />
       </div>
 
       <div className="w-full max-w-md z-10">
-        <div className="bg-white rounded-3xl p-8 md:p-10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 flex flex-col items-center">
+        <div className={cn(
+          'rounded-3xl p-8 md:p-10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col items-center border',
+          isDarkMode ? 'bg-[#0B1221] border-[#1E293B]' : 'bg-white border-slate-100'
+        )}>
           <div className="w-16 h-16 bg-brand-lime rounded-[24px] flex items-center justify-center shadow-[0_10px_25px_rgba(163,230,53,0.35)] mb-6">
             <Gamepad2 className="w-8 h-8 text-slate-900" />
           </div>
 
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight mb-1">eSportlyic</h1>
-          
+          <h1 className={cn(
+            'text-3xl font-black tracking-tight mb-1',
+            isDarkMode ? 'text-white' : 'text-slate-900'
+          )}>eSportlyic</h1>
+
           {loggedInUser ? (
             <div className="w-full mt-4 flex flex-col items-center text-center">
-              <p className="text-slate-500 font-semibold mb-6">You are already signed in.</p>
-              
-              <div className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl mb-8 flex items-center gap-3">
+              <p className={cn('font-semibold mb-6', isDarkMode ? 'text-gray-400' : 'text-slate-500')}>
+                You are already signed in.
+              </p>
+
+              <div className={cn(
+                'w-full p-4 rounded-2xl mb-8 flex items-center gap-3 border',
+                isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'
+              )}>
                 <div className="w-10 h-10 rounded-full bg-brand-lime/20 flex items-center justify-center shrink-0">
-                  <span className="font-bold text-slate-700">{loggedInUser.email?.charAt(0).toUpperCase() || 'U'}</span>
+                  <span className={cn('font-bold', isDarkMode ? 'text-slate-100' : 'text-slate-700')}>
+                    {loggedInUser.email?.charAt(0).toUpperCase() || 'U'}
+                  </span>
                 </div>
                 <div className="text-left overflow-hidden">
-                  <p className="text-sm font-bold text-slate-900 truncate">{loggedInUser.displayName || 'Gamer'}</p>
-                  <p className="text-xs text-slate-500 truncate">{loggedInUser.email}</p>
+                  <p className={cn('text-sm font-bold truncate', isDarkMode ? 'text-white' : 'text-slate-900')}>
+                    {loggedInUser.displayName || 'Gamer'}
+                  </p>
+                  <p className={cn('text-xs truncate', isDarkMode ? 'text-gray-400' : 'text-slate-500')}>
+                    {loggedInUser.email}
+                  </p>
                 </div>
               </div>
 
@@ -176,19 +213,29 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
               <button
                 onClick={handleSignOut}
                 disabled={loading}
-                className="w-full py-4 bg-white border border-slate-200 text-slate-600 font-bold rounded-2xl hover:bg-slate-50 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className={cn(
+                  'w-full py-4 border font-bold rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50',
+                  isDarkMode
+                    ? 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                )}
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><LogOut className="w-4 h-4" /> Sign out</>}
               </button>
             </div>
           ) : (
             <>
-              <p className="text-slate-400 text-sm font-semibold mb-8">
+              <p className={cn('text-sm font-semibold mb-8', isDarkMode ? 'text-gray-400' : 'text-slate-400')}>
                 {isSignUp ? 'Create your account' : 'Sign in to continue.'}
               </p>
 
               {error && (
-                <div className="w-full bg-red-50 text-red-500 border border-red-100 text-xs font-bold py-3 px-4 rounded-xl mb-4 text-center">
+                <div className={cn(
+                  'w-full text-xs font-bold py-3 px-4 rounded-xl mb-4 text-center border',
+                  isDarkMode
+                    ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                    : 'bg-red-50 text-red-500 border-red-100'
+                )}>
                   {error}
                 </div>
               )}
@@ -196,9 +243,16 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
               <button
                 onClick={handleGoogleSignIn}
                 disabled={loading}
-                className="w-full py-3.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-2xl transition-all flex items-center justify-center gap-3 text-sm disabled:opacity-50"
+                className={cn(
+                  'w-full py-3.5 border font-bold rounded-2xl transition-all flex items-center justify-center gap-3 text-sm disabled:opacity-50',
+                  isDarkMode
+                    ? 'bg-white/5 hover:bg-white/10 border-white/10 text-gray-200'
+                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                )}
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin text-slate-400" /> : (
+                {loading ? (
+                  <Loader2 className={cn('w-5 h-5 animate-spin', isDarkMode ? 'text-gray-500' : 'text-slate-400')} />
+                ) : (
                   <>
                     <svg width="20" height="20" style={{ minWidth: '20px', minHeight: '20px', maxWidth: '20px' }} viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v3.92h6.69c-.29 1.5-.14 2.08-1.42 2.93v2.42h2.29c2.37-2.18 3.73-5.39 3.73-9.2z" />
@@ -211,52 +265,81 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
                 )}
               </button>
 
-              <div className="flex items-center w-full gap-4 text-slate-300 my-6">
-                <div className="h-px bg-slate-200 flex-1" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">OR</span>
-                <div className="h-px bg-slate-200 flex-1" />
+              <div className={cn('flex items-center w-full gap-4 my-6', isDarkMode ? 'text-gray-500' : 'text-slate-300')}>
+                <div className={cn('h-px flex-1', isDarkMode ? 'bg-white/10' : 'bg-slate-200')} />
+                <span className={cn('text-[10px] font-black uppercase tracking-widest', isDarkMode ? 'text-gray-500' : 'text-slate-400')}>OR</span>
+                <div className={cn('h-px flex-1', isDarkMode ? 'bg-white/10' : 'bg-slate-200')} />
               </div>
 
               <form onSubmit={handleSubmit} className="w-full space-y-4">
                 <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <Mail className={cn('absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5', isDarkMode ? 'text-gray-500' : 'text-slate-400')} />
                   <input
                     type="email"
                     placeholder="Email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={loading}
-                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200/80 focus:border-brand-lime rounded-2xl text-slate-900 placeholder:text-slate-400 font-medium text-sm focus:outline-none transition-all focus:bg-white"
+                    className={cn(
+                      'w-full pl-12 pr-4 py-3.5 border rounded-2xl font-medium text-sm focus:outline-none transition-all',
+                      isDarkMode
+                        ? 'bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-brand-lime focus:bg-white/10'
+                        : 'bg-slate-50 border-slate-200/80 text-slate-900 placeholder:text-slate-400 focus:border-brand-lime focus:bg-white'
+                    )}
                   />
                 </div>
 
                 <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <Lock className={cn('absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5', isDarkMode ? 'text-gray-500' : 'text-slate-400')} />
                   <input
                     type={obscurePassword ? 'password' : 'text'}
                     placeholder="Password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={loading}
-                    className="w-full pl-12 pr-11 py-3.5 bg-slate-50 border border-slate-200/80 focus:border-brand-lime rounded-2xl text-slate-900 placeholder:text-slate-400 font-medium text-sm focus:outline-none transition-all focus:bg-white"
+                    className={cn(
+                      'w-full pl-12 pr-11 py-3.5 border rounded-2xl font-medium text-sm focus:outline-none transition-all',
+                      isDarkMode
+                        ? 'bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-brand-lime focus:bg-white/10'
+                        : 'bg-slate-50 border-slate-200/80 text-slate-900 placeholder:text-slate-400 focus:border-brand-lime focus:bg-white'
+                    )}
                   />
-                  <button type="button" onClick={() => setObscurePassword((v) => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <button
+                    type="button"
+                    onClick={() => setObscurePassword((v) => !v)}
+                    className={cn(
+                      'absolute right-4 top-1/2 -translate-y-1/2',
+                      isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-slate-400 hover:text-slate-600'
+                    )}
+                  >
                     {obscurePassword ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
                   </button>
                 </div>
 
                 {isSignUp && (
                   <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <Lock className={cn('absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5', isDarkMode ? 'text-gray-500' : 'text-slate-400')} />
                     <input
                       type={obscureConfirm ? 'password' : 'text'}
                       placeholder="Confirm password"
                       value={confirm}
                       onChange={(e) => setConfirm(e.target.value)}
                       disabled={loading}
-                      className="w-full pl-12 pr-11 py-3.5 bg-slate-50 border border-slate-200/80 focus:border-brand-lime rounded-2xl text-slate-900 placeholder:text-slate-400 font-medium text-sm focus:outline-none transition-all focus:bg-white"
+                      className={cn(
+                        'w-full pl-12 pr-11 py-3.5 border rounded-2xl font-medium text-sm focus:outline-none transition-all',
+                        isDarkMode
+                          ? 'bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-brand-lime focus:bg-white/10'
+                          : 'bg-slate-50 border-slate-200/80 text-slate-900 placeholder:text-slate-400 focus:border-brand-lime focus:bg-white'
+                      )}
                     />
-                    <button type="button" onClick={() => setObscureConfirm((v) => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setObscureConfirm((v) => !v)}
+                      className={cn(
+                        'absolute right-4 top-1/2 -translate-y-1/2',
+                        isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-slate-400 hover:text-slate-600'
+                      )}
+                    >
                       {obscureConfirm ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
                     </button>
                   </div>
@@ -275,7 +358,7 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
                 </button>
               </form>
 
-              <div className="mt-8 text-xs font-semibold text-slate-500">
+              <div className={cn('mt-8 text-xs font-semibold', isDarkMode ? 'text-gray-400' : 'text-slate-500')}>
                 {isSignUp ? 'Already have an account?' : 'No account?'}{' '}
                 <button
                   onClick={() => {
@@ -289,7 +372,15 @@ export function MobileSignInView({ onUsePairingInstead }: MobileSignInViewProps)
               </div>
 
               {onUsePairingInstead && (
-                <button onClick={onUsePairingInstead} className="mt-6 flex items-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold rounded-full transition-all">
+                <button
+                  onClick={onUsePairingInstead}
+                  className={cn(
+                    'mt-6 flex items-center gap-2 px-4 py-2 border text-xs font-bold rounded-full transition-all',
+                    isDarkMode
+                      ? 'bg-white/5 hover:bg-white/10 border-white/10 text-gray-300'
+                      : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                  )}
+                >
                   <QrCode className="w-4 h-4 text-brand-lime" />
                   Sign in with QR pairing instead
                 </button>
