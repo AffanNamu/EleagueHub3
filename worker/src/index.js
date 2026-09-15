@@ -991,6 +991,196 @@ async function _activateOrganizerProGooglePlay(env, uid, requestedPlan, requeste
   };
 }
 
+// ── App Store (iOS) subscription verification ──────────────────────────────
+//
+// The Flutter client's in_app_purchase_storekit plugin sends the base64
+// App Store receipt as `purchaseToken` (PurchaseDetails.verificationData
+// .serverVerificationData — this plugin still uses the classic StoreKit1
+// Payment Queue transaction model, not StoreKit2, so this is the whole
+// receipt blob, not a signed JWS transaction). That's why this uses
+// Apple's verifyReceipt endpoint (App-Specific Shared Secret) rather than
+// the newer App Store Server API (which takes a transaction ID + ES256 JWT
+// signed with an In-App Purchase API key) — matches what's actually being
+// sent. If a future plugin upgrade switches to StoreKit2/JWS transactions,
+// this needs to change to the transaction-ID + JWT approach instead.
+//
+// Requires env.APPLE_SHARED_SECRET — App Store Connect → your app →
+// Subscriptions → "App-Specific Shared Secret".
+
+const APPLE_PRODUCT_TO_PLAN = {
+  pro_1mo: { plan: "pro", duration: "1mo" },
+  pro_3mo: { plan: "pro", duration: "3mo" },
+  pro_6mo: { plan: "pro", duration: "6mo" },
+  pro_yearly: { plan: "pro", duration: "yearly" },
+  elite_1mo: { plan: "elite", duration: "1mo" },
+  elite_3mo: { plan: "elite", duration: "3mo" },
+  elite_6mo: { plan: "elite", duration: "6mo" },
+  elite_yearly: { plan: "elite", duration: "yearly" },
+};
+
+async function _callAppleVerifyReceipt(url, receiptBase64, sharedSecret) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      "receipt-data": receiptBase64,
+      password: sharedSecret,
+      "exclude-old-transactions": true,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Apple verifyReceipt HTTP error (${res.status})`);
+  }
+  return res.json();
+}
+
+// Verifies a base64 App Store receipt against Apple's verifyReceipt
+// endpoint (production first, falling back to sandbox on status 21007 —
+// "this receipt is from the test environment" — Apple's own documented
+// pattern for handling TestFlight/sandbox receipts sent to production).
+// Returns the single most recent purchase entry across the receipt's
+// subscription renewal history (or in-app purchase list as a fallback).
+async function _verifyAppStoreReceipt(env, receiptBase64) {
+  const sharedSecret = _requireEnvString(env, "APPLE_SHARED_SECRET");
+  const receipt = String(receiptBase64 || "").trim();
+  if (!receipt) throw new Error("Missing App Store receipt data");
+
+  let json = await _callAppleVerifyReceipt(
+    "https://buy.itunes.apple.com/verifyReceipt",
+    receipt,
+    sharedSecret
+  );
+
+  if (Number(json.status) === 21007) {
+    json = await _callAppleVerifyReceipt(
+      "https://sandbox.itunes.apple.com/verifyReceipt",
+      receipt,
+      sharedSecret
+    );
+  }
+
+  if (Number(json.status) !== 0) {
+    throw new Error(`Apple verifyReceipt rejected the receipt (status=${json.status})`);
+  }
+
+  // latest_receipt_info is authoritative for auto-renewable subscriptions
+  // (full renewal history); receipt.in_app is the fallback for older/non-
+  // subscription receipt shapes. Either way, take the entry with the
+  // latest expires_date_ms — that's the current subscription period.
+  const entries = Array.isArray(json.latest_receipt_info) && json.latest_receipt_info.length > 0
+    ? json.latest_receipt_info
+    : (Array.isArray(json.receipt && json.receipt.in_app) ? json.receipt.in_app : []);
+
+  if (entries.length === 0) {
+    throw new Error("Apple receipt contains no purchase entries.");
+  }
+
+  entries.sort((a, b) => Number(a.expires_date_ms || 0) - Number(b.expires_date_ms || 0));
+  const latest = entries[entries.length - 1];
+
+  return {
+    productId: String(latest.product_id || "").trim(),
+    transactionId: String(latest.transaction_id || "").trim(),
+    expiresMs: Number(latest.expires_date_ms || 0),
+    // Present only if Apple/App Store support revoked or refunded this
+    // specific transaction -- must never be treated as active if set.
+    cancelledMs: latest.cancellation_date_ms ? Number(latest.cancellation_date_ms) : 0,
+  };
+}
+
+async function _activateOrganizerProAppStore(env, uid, requestedPlan, requestedDuration, receiptBase64) {
+  let purchase;
+  try {
+    purchase = await _verifyAppStoreReceipt(env, receiptBase64);
+  } catch (e) {
+    return {
+      ok: false,
+      status: 502,
+      error: "Could not verify App Store purchase: " + (e.message || String(e)),
+    };
+  }
+
+  if (purchase.cancelledMs > 0) {
+    return { ok: false, status: 403, error: "This App Store purchase was refunded or revoked." };
+  }
+
+  const resolved = APPLE_PRODUCT_TO_PLAN[purchase.productId];
+  if (!resolved) {
+    return {
+      ok: false,
+      status: 403,
+      error: `Unrecognized App Store product "${purchase.productId}". This purchase could not be matched to a known plan.`,
+    };
+  }
+
+  // Apple's verified purchase is authoritative -- NOT the client's claimed
+  // plan/duration. Mirrors the same check on the Google Play branch above.
+  if (resolved.plan !== requestedPlan || resolved.duration !== requestedDuration) {
+    return {
+      ok: false,
+      status: 409,
+      error:
+        `This purchase is for ${resolved.plan} (${resolved.duration}), ` +
+        `not the requested ${requestedPlan} (${requestedDuration}).`,
+    };
+  }
+
+  if (!(purchase.expiresMs > Date.now())) {
+    return { ok: false, status: 403, error: "App Store subscription has no valid future expiry." };
+  }
+
+  const nowMs = Date.now();
+  const currentClaims = await _lookupExistingCustomClaims(env, uid);
+  const nextClaims = {
+    ...currentClaims,
+    organizerPro: true,
+    organizerProPlan: resolved.plan,
+    organizerProDuration: resolved.duration,
+    organizerProExpiryMs: purchase.expiresMs,
+  };
+
+  await _setFirebaseCustomClaims(env, uid, nextClaims);
+
+  await _firestorePatchDoc(env, `users/${uid}`, {
+    activePlanId: resolved.plan,
+    activePlanDurationId: resolved.duration,
+    planPurchasedAtMs: nowMs,
+    planExpiresAtMs: purchase.expiresMs,
+    planReceiptId: purchase.transactionId,
+    planProvider: "app_store",
+    updatedAt: nowMs,
+  });
+
+  await _firestorePatchDoc(env, `users/${uid}/entitlements/master_league`, {
+    active: true,
+    plan: resolved.plan,
+    duration: resolved.duration,
+    provider: "app_store",
+    receiptId: purchase.transactionId,
+    transactionId: purchase.transactionId,
+    currency: "",
+    amount: 0,
+    activatedAtMs: nowMs,
+    expiresAtMs: purchase.expiresMs,
+    updatedAtMs: nowMs,
+  });
+
+  return {
+    ok: true,
+    status: 200,
+    success: true,
+    uid,
+    plan: resolved.plan,
+    duration: resolved.duration,
+    expiryMs: purchase.expiresMs,
+    provider: "app_store",
+    receiptId: purchase.transactionId,
+    transactionId: purchase.transactionId,
+    currency: "",
+    amount: 0,
+  };
+}
+
 async function _readPricingConfig(env) {
   const defaults = {
     ngn: {
@@ -1417,10 +1607,11 @@ async function _activateOrganizerPro(env, verified, body) {
   const duration = String(body.duration || "").trim().toLowerCase();
   const provider = String(body.provider || "").trim().toLowerCase();
   const receiptId = String(body.receiptId || "").trim();
-  // NEW: the Google Play purchase token, required to verify with the
-  // Play Developer API.
+  // NEW: the Google Play purchase token OR (NEW) the base64 App Store
+  // receipt, required to verify with the relevant store's server API.
   const purchaseToken = String(body.purchaseToken || "").trim();
   const isGooglePlay = provider === "google_play_billing" || provider === "google_play";
+  const isAppStore = provider === "app_store" || provider === "apple";
 
   if (!uid) return { ok: false, status: 401, error: "Unauthenticated." };
   if (!["basic", "pro", "elite"].includes(plan)) {
@@ -1432,16 +1623,22 @@ async function _activateOrganizerPro(env, verified, body) {
   // FIXED: this previously only accepted "flutterwave" or "free" here,
   // which meant ANY Google Play activation attempt through this
   // endpoint was rejected outright with "Unsupported provider." Now
-  // that Google Play is a first-class supported provider (see
-  // _activateOrganizerProGooglePlay below), both variants are accepted.
-  if (!["flutterwave", "free", "google_play_billing", "google_play"].includes(provider)) {
+  // that Google Play AND App Store are first-class supported providers
+  // (see _activateOrganizerProGooglePlay / _activateOrganizerProAppStore
+  // below), all variants are accepted. Guideline 3.1.1 requires iOS
+  // purchases go through StoreKit -- this must never fall back to
+  // Flutterwave for an "app_store" provider.
+  if (!["flutterwave", "free", "google_play_billing", "google_play", "app_store", "apple"].includes(provider)) {
     return { ok: false, status: 400, error: "Unsupported provider." };
   }
-  if (plan !== "basic" && !isGooglePlay && !receiptId) {
+  if (plan !== "basic" && !isGooglePlay && !isAppStore && !receiptId) {
     return { ok: false, status: 400, error: "receiptId is required." };
   }
   if (plan !== "basic" && isGooglePlay && !purchaseToken) {
     return { ok: false, status: 400, error: "purchaseToken is required." };
+  }
+  if (plan !== "basic" && isAppStore && !purchaseToken) {
+    return { ok: false, status: 400, error: "purchaseToken (App Store receipt) is required." };
   }
 
   if (plan === "basic") {
@@ -1501,6 +1698,12 @@ async function _activateOrganizerPro(env, verified, body) {
   // Developer API and grants the SAME custom claims Flutterwave does.
   if (isGooglePlay) {
     return await _activateOrganizerProGooglePlay(env, uid, plan, duration, purchaseToken);
+  }
+
+  // ── NEW: App Store branch — verifies with Apple's verifyReceipt and
+  // grants the SAME custom claims the other two providers do.
+  if (isAppStore) {
+    return await _activateOrganizerProAppStore(env, uid, plan, duration, purchaseToken);
   }
 
   // ── Flutterwave branch (unchanged) ────────────────────────────────────
