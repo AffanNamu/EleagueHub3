@@ -45,6 +45,7 @@ export const PERMISSIONS: PermissionDefinition[] = [
   // Monetization
   { id: 'payments.view', label: 'View Payments', description: 'View payment history and revenue summaries.', category: 'Monetization' },
   { id: 'payments.override_entitlement', label: 'Override Entitlements', description: 'Manually grant or revoke a Pro/Elite plan — bypasses payment verification entirely. Reserved for the Super Admin.', category: 'Monetization', superAdminOnly: true },
+  { id: 'payments.refund', label: 'Refund Payments', description: 'Mark a payment as refunded and optionally revoke the access it granted. Does not trigger a real payment-processor refund — that still has to be issued in Flutterwave/App Store/Play Console separately. Reserved for the Super Admin.', category: 'Monetization', superAdminOnly: true },
   { id: 'pricing.view', label: 'View Pricing', description: 'View the platform pricing configuration.', category: 'Monetization' },
   { id: 'pricing.edit', label: 'Edit Pricing', description: 'Edit the platform pricing configuration.', category: 'Monetization' },
 

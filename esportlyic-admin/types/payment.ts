@@ -39,7 +39,29 @@ export interface Payment {
   fulfilledVerificationRequestId: string;
   fulfilledAtMs: number;
   purchaseToken: string;
+  refundedAtMs: number;
+  refundedByUid: string;
+  refundedByEmail: string | null;
+  refundReason: string;
 }
+
+/**
+ * productType values that this admin panel can automatically reverse the
+ * granted access for, beyond just marking the payment refunded. Sourced
+ * from every payments-collection write site in lib/ (see
+ * master_league_payment_service.dart, google_play_billing_service.dart).
+ * Every other productType (league_creation, league_access,
+ * coupon_redemption, coupon_pack, premium_subscription, league_upgrade)
+ * is refund-markable but not auto-revocable here -- reversing those
+ * safely means restoring a specific league's paid-access record or a
+ * consumed coupon credit, which needs its own targeted tooling rather
+ * than a generic "revoke" checkbox.
+ */
+export const AUTO_REVOKABLE_PRODUCT_TYPES = [
+  'plan_subscription',
+  'organizer_verification',
+  'organizer_verification_renewal',
+] as const;
 
 export interface PaymentAttempt {
   attemptId: string;

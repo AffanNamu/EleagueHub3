@@ -21,6 +21,7 @@ export function PaymentsTable({ payments }: { payments: Payment[] }) {
             <th className="px-4 py-3 font-medium">Product</th>
             <th className="px-4 py-3 font-medium">Provider</th>
             <th className="px-4 py-3 font-medium">Amount</th>
+            <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3 font-medium">Date</th>
           </tr>
         </thead>
@@ -45,6 +46,9 @@ export function PaymentsTable({ payments }: { payments: Payment[] }) {
               <td className="px-4 py-3 text-ink-secondary">
                 {CURRENCY_SYMBOL[payment.currency] ?? ''}
                 {payment.amountStr || payment.amount}
+              </td>
+              <td className="px-4 py-3">
+                {payment.refundedAtMs ? <Badge tone="warning">Refunded</Badge> : <Badge tone="success">Success</Badge>}
               </td>
               <td className="px-4 py-3 text-ink-secondary">
                 {payment.createdAtMs ? formatRelativeTime(payment.createdAtMs) : '—'}

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
+import { PaymentRefundPanel } from '@/components/payments/PaymentRefundPanel';
 import { getPayment, getPaymentAttempt } from '@/lib/repositories/paymentsAdminRepository';
 import { formatRelativeTime } from '@/lib/utils';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
@@ -30,6 +31,7 @@ export default async function PaymentDetailPage({ params }: { params: { paymentI
   if (!payment) notFound();
 
   const attempt = await getPaymentAttempt(payment.attemptId);
+  const canRefund = hasPermission(identity, 'payments.refund');
 
   return (
     <div className="space-y-4">
@@ -77,6 +79,8 @@ export default async function PaymentDetailPage({ params }: { params: { paymentI
           </div>
         </div>
       )}
+
+      <PaymentRefundPanel payment={payment} canRefund={canRefund} />
     </div>
   );
 }

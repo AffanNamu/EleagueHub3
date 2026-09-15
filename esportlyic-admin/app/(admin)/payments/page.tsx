@@ -30,7 +30,8 @@ export default async function PaymentsPage() {
       <div>
         <h1 className="font-display text-xl font-semibold text-ink-primary">Payments</h1>
         <p className="mt-1 text-sm text-ink-secondary">
-          Read-only payment history. Every row here is a successful, immutable-status transaction.
+          Every row here is a successful, immutable-status transaction — status here reflects
+          whether it's since been marked refunded, not the original transaction outcome.
         </p>
       </div>
       <ProviderBreakdownCard counts={providerCounts} />

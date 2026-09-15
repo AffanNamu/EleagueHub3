@@ -32,6 +32,10 @@ function toPayment(id: string, data: FirebaseFirestore.DocumentData): Payment {
     fulfilledVerificationRequestId: data.fulfilledVerificationRequestId ?? '',
     fulfilledAtMs: typeof data.fulfilledAtMs === 'number' ? data.fulfilledAtMs : 0,
     purchaseToken: data.purchaseToken ?? '',
+    refundedAtMs: typeof data.refundedAtMs === 'number' ? data.refundedAtMs : 0,
+    refundedByUid: data.refundedByUid ?? '',
+    refundedByEmail: data.refundedByEmail ?? null,
+    refundReason: data.refundReason ?? '',
   };
 }
 
