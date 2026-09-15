@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'firestore.rules'
+      - 'firestore.indexes.json'
       - 'firebase.json'
       - '.github/workflows/deploy_firestore_rules.yml'
   workflow_dispatch:
@@ -42,12 +43,12 @@ jobs:
             '{type: $type, project_id: $project_id, client_email: $client_email, private_key: $private_key}' \
             > "${{ runner.temp }}/firebase-sa.json"
 
-      - name: Deploy Firestore rules
+      - name: Deploy Firestore rules and indexes
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
         run: |
           npx --yes firebase-tools deploy \
-            --only firestore:rules \
+            --only firestore:rules,firestore:indexes \
             --project esportlyic \
             --non-interactive
 
