@@ -1,10 +1,13 @@
 // lib/features/master_leagues/presentation/master_league_list_screen.dart
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/services/plan_status_service.dart';
+import '../../../core/services/rewarded_ad_manager.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
@@ -49,6 +52,14 @@ class _MasterLeaguesListScreenState
 
   bool _checkingCreateAccess = false;
 
+  // Free users must watch a rewarded ad before the workspace list opens.
+  // Starts true on mobile so nothing renders until the gate has actually
+  // resolved (paid users resolve it near-instantly; free users see the
+  // ad). Starts false on web, where ads never show — computed here
+  // rather than via setState in _runOpenAdGate so nothing calls
+  // setState synchronously from initState (Flutter forbids that).
+  bool _rewardGateInProgress = !kIsWeb;
+
   // ── lifecycle ──────────────────────────────────────────────────────────────
 
   @override
@@ -58,6 +69,61 @@ class _MasterLeaguesListScreenState
     // Trigger badge sync for existing users on screen open.
     // Errors are caught inside syncBadgesForCurrentUser — never throws.
     _syncBadgesQuietly();
+    _runOpenAdGate();
+  }
+
+  // ── open-workspace ad gate ─────────────────────────────────────────────────
+  //
+  // Mirrors the rewarded-ad gate used to open League Details: paid/elite
+  // users and web never see an ad. Free users on mobile must watch one
+  // before the Master Leagues workspace list is shown at all.
+
+  Future<void> _runOpenAdGate() async {
+    if (kIsWeb) return; // _rewardGateInProgress already false on web.
+
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    bool isPaid = false;
+    if (uid.isNotEmpty) {
+      try {
+        isPaid = await PlanStatusService.instance
+            .isPaidPlanActive(uid, forceRefreshToken: true);
+      } catch (_) {
+        isPaid = false;
+      }
+    }
+
+    if (!mounted) return;
+
+    if (isPaid) {
+      setState(() => _rewardGateInProgress = false);
+      return;
+    }
+
+    bool earned = false;
+    try {
+      earned = await RewardedAdManager.instance.showRewardedGate(
+        placement: 'master_leagues_workspace',
+      );
+    } finally {
+      if (mounted) setState(() => _rewardGateInProgress = false);
+    }
+
+    if (!mounted || earned) return;
+
+    // Ad actively closed/skipped before the reward was earned — don't
+    // drop the user into the workspace list; send them back out.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Watch the full ad to open Organizer Workspace. '
+          'Please try again.',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    if (GoRouter.of(context).canPop()) {
+      GoRouter.of(context).pop();
+    }
   }
 
   // ── badge sync ─────────────────────────────────────────────────────────────
@@ -250,6 +316,29 @@ class _MasterLeaguesListScreenState
   Widget build(BuildContext context) {
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
+
+    if (_rewardGateInProgress) {
+      return GlassScaffold(
+        body: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading...',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.secondaryText(brightness),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     // Watch providers — these auto-refresh when Firestore data changes,
     // which covers the Google Play post-purchase state update.
