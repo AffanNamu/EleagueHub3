@@ -6,7 +6,7 @@ import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, updateProfile, User as FirebaseUser } from 'firebase/auth';
 import { uploadImageFile } from '@/lib/cloudinary/cloudinaryUpload';
-import { updateTeamBannerWeb, updateTeamBioWeb, toggleFollowWeb, toggleBlockWeb, checkRelationshipStatusWeb, resolveVerificationBadges, gameIdLabel, ResolvedVerificationBadges } from '@/lib/profile/teamProfileRepository';
+import { updateTeamBannerWeb, updateTeamBioWeb, toggleFollowWeb, toggleBlockWeb, checkRelationshipStatusWeb, resolveVerificationBadges, gameIdLabel, resolveDisplayGameIdsWeb, ResolvedVerificationBadges } from '@/lib/profile/teamProfileRepository';
 import { checkChatAccessWeb, startOrGetThreadWeb, getThreadId } from '@/lib/chat/privateChatRepository';
 import { syncSelfIndexWeb, backfillCountryIfMissingWeb } from '@/lib/search/userSearchRepository';
 import { useTeamProfile } from '@/hooks/useTeamProfile';
@@ -51,6 +51,25 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
   const isOwner = authUser?.uid === targetUid;
 
   const { profile: teamProfile, stats, trophies, recentMatches, loading: profileLoading } = useTeamProfile(targetUid || null);
+
+  // FIXED: teamProfile.game is written once at onboarding and never
+  // updated when the user later builds/switches squads via the Squad
+  // screen, so it went stale the moment someone played a category other
+  // than whatever onboarding set (or defaulted to Local Football).
+  // Resolved separately from the squads collection instead, mirroring
+  // mobile's resolveDisplayGameIds() — same source the squad preview
+  // below already uses, so both agree on which category is shown.
+  const [displayGameId, setDisplayGameId] = useState('');
+  useEffect(() => {
+    if (!targetUid) return;
+    let cancelled = false;
+    resolveDisplayGameIdsWeb(targetUid).then((ids) => {
+      if (!cancelled) setDisplayGameId(ids[0] || '');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetUid]);
 
   // Target Display State
   const [displayName, setDisplayName] = useState('');
@@ -339,7 +358,7 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
                 </div>
                 <div className="flex items-center gap-1.5 text-gray-500 text-sm font-medium">
                   <Gamepad2 className="w-3.5 h-3.5"/>
-                  {gameIdLabel(teamProfile?.game || 'local_football')}
+                  {displayGameId ? gameIdLabel(displayGameId) : ''}
                 </div>
                 <div className="text-gray-500 text-sm font-mono flex items-center gap-2">
                   #{shareId}
@@ -404,7 +423,7 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
               {isOwner && <button onClick={() => router.push(`/profile/${targetUid}/squad`)} className="text-xs font-bold text-[#38BDF8] hover:underline">Edit</button>}
             </div>
             <div className="relative w-full aspect-[2/3] bg-[#070B14] rounded-2xl border border-white/10 overflow-hidden cursor-pointer group" onClick={() => isOwner ? router.push(`/profile/${targetUid}/squad`) : null}>
-               <SquadPitchView gameId={teamProfile?.game || 'local_football'} userId={targetUid} isPreview />
+               <SquadPitchView gameId={displayGameId || 'local_football'} userId={targetUid} isPreview />
                {isOwner && (
                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-[2px]">
                    <span className="text-white font-black bg-[#38BDF8] px-4 py-2 rounded-xl">Manage Squad</span>

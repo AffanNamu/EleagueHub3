@@ -223,6 +223,42 @@ export function gameIdLabel(id: string): string {
   return GAME_ID_LABELS[id] || GAME_ID_LABELS.local_football;
 }
 
+// ── DISPLAY GAME ID RESOLUTION ────────────────────────────────────────────────
+// Mirrors TeamProfileRepository.resolveDisplayGameIds() on mobile
+// (lib/features/profile/data/team_profile_repository.dart). team_profile's
+// own `game` field is written once at onboarding and never updated when the
+// user later builds/switches squads via the Squad screen, so it goes stale
+// the moment someone plays a category other than whatever onboarding set —
+// this resolves the category actually being shown from the squads
+// collection instead, exactly like the squad preview already does.
+
+const KNOWN_GAME_IDS = new Set(Object.keys(GAME_ID_LABELS));
+const DEFAULT_GAME_ID = 'local_football';
+
+async function fetchSquadGameIdsWeb(userId: string): Promise<string[]> {
+  const snap = await getDocs(collection(db, 'users', userId, 'squads'));
+  return snap.docs.map((d) => d.id);
+}
+
+/** The game the user actually chose during onboarding (users/{uid}.preferredGameId). */
+async function fetchPreferredGameIdWeb(userId: string): Promise<string> {
+  const snap = await getDoc(doc(db, 'users', userId));
+  const raw = (snap.exists() ? (snap.data().preferredGameId as string | undefined) : undefined)?.trim() ?? '';
+  return KNOWN_GAME_IDS.has(raw) ? raw : DEFAULT_GAME_ID;
+}
+
+/**
+ * The game IDs to actually display for this user: their built squads if any
+ * exist, otherwise a single-item list with their onboarding choice — never
+ * a hardcoded Local Football unless that's genuinely what they picked or
+ * nothing was ever recorded.
+ */
+export async function resolveDisplayGameIdsWeb(userId: string): Promise<string[]> {
+  const ids = await fetchSquadGameIdsWeb(userId);
+  if (ids.length > 0) return ids;
+  return [await fetchPreferredGameIdWeb(userId)];
+}
+
 // ── VERIFICATION BADGES ───────────────────────────────────────────────────────
 // Mirrors lib/features/verification/domain/badge_model.dart's VerificationBadges
 // (isGreenActive/isOrganizerActive/isStaffActive — expiry-aware) plus the

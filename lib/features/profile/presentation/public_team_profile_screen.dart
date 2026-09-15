@@ -634,6 +634,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                             hasActiveStatus: hasActiveStatus,
                             eligibleForStatus: eligibleForStatus,
                           ),
+                          repo: _teamRepo,
                         ),
                         const SizedBox(height: 16),
                         if (!_isOwner)
@@ -728,6 +729,7 @@ class _CoverAndHeader extends StatelessWidget {
     required this.hasActiveStatus,
     required this.eligibleForStatus,
     required this.onAvatarTap,
+    required this.repo,
   });
 
   final TeamProfile teamProfile;
@@ -740,6 +742,7 @@ class _CoverAndHeader extends StatelessWidget {
   final bool hasActiveStatus;
   final bool eligibleForStatus;
   final VoidCallback onAvatarTap;
+  final TeamProfileRepository repo;
 
   @override
   Widget build(BuildContext context) {
@@ -879,13 +882,29 @@ class _CoverAndHeader extends StatelessWidget {
                 children: [
                   Icon(Icons.sports_soccer_rounded, size: 13, color: AppTheme.secondaryText(brightness)),
                   const SizedBox(width: 4),
-                  Text(
-                    GameId.label(teamProfile.game),
-                    style: TextStyle(
-                      color: AppTheme.secondaryText(brightness),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
-                    ),
+                  // FIXED: previously read teamProfile.game directly, a field
+                  // only ever written once at onboarding and never updated
+                  // when the user later builds/switches squads via the Squad
+                  // screen -- so this label went stale the moment someone
+                  // played a category other than whatever onboarding set (or
+                  // defaulted to). resolveDisplayGameIds() is the same
+                  // "squads collection first, onboarding choice as fallback"
+                  // resolution the squad preview below already uses, so both
+                  // now agree on which category is actually being shown.
+                  FutureBuilder<List<String>>(
+                    future: repo.resolveDisplayGameIds(teamProfile.userId),
+                    builder: (context, gameIdsSnap) {
+                      final ids = gameIdsSnap.data;
+                      final displayGameId = (ids != null && ids.isNotEmpty) ? ids.first : null;
+                      return Text(
+                        displayGameId != null ? GameId.label(displayGameId) : '',
+                        style: TextStyle(
+                          color: AppTheme.secondaryText(brightness),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(width: 10),
                   GestureDetector(
