@@ -1,5 +1,5 @@
 import { Users, Trophy, Building2, BadgeCheck, FileWarning, MessageCircle, ShieldCheck } from 'lucide-react';
-import { getDashboardStats, getRecentEvents } from '@/lib/repositories/dashboardRepository';
+import { getDashboardStats, getRecentEvents, getSystemHealthAlerts } from '@/lib/repositories/dashboardRepository';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { SystemAlerts } from '@/components/dashboard/SystemAlerts';
@@ -7,7 +7,11 @@ import { SystemAlerts } from '@/components/dashboard/SystemAlerts';
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
-  const [stats, recentEvents] = await Promise.all([getDashboardStats(), getRecentEvents()]);
+  const [stats, recentEvents, alerts] = await Promise.all([
+    getDashboardStats(),
+    getRecentEvents(),
+    getSystemHealthAlerts(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -47,7 +51,7 @@ export default async function DashboardPage() {
         <div className="lg:col-span-2">
           <RecentActivity events={recentEvents} />
         </div>
-        <SystemAlerts />
+        <SystemAlerts alerts={alerts} />
       </div>
     </div>
   );
