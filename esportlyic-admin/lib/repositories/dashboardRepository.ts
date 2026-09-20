@@ -142,27 +142,42 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * listReports/listVerificationRequests/listGlobalChatRequests already
  * use elsewhere in this codebase, so it needs no new Firestore index.
  */
+/**
+ * Runs one oldest-pending-item lookup and swallows the error instead of
+ * letting it propagate. These queries need a composite index (equality +
+ * ascending orderBy on a different field); if that index isn't live yet
+ * in production, this must not take the whole Dashboard page down with
+ * it -- the other stats/alerts should still render.
+ */
+async function safeOldestPending(
+  collection: string,
+  orderField: string,
+): Promise<FirebaseFirestore.QueryDocumentSnapshot | undefined> {
+  try {
+    const snap = await adminDb
+      .collection(collection)
+      .where('status', '==', 'pending')
+      .orderBy(orderField, 'asc')
+      .limit(1)
+      .get();
+    return snap.docs[0];
+  } catch (err) {
+    console.error(`getSystemHealthAlerts: failed querying "${collection}" (missing index?)`, err);
+    return undefined;
+  }
+}
+
 export async function getSystemHealthAlerts(): Promise<SystemHealthAlert[]> {
   const nowMs = Date.now();
   const alerts: SystemHealthAlert[] = [];
 
-  const [oldestReport, oldestVerification, oldestChatRequest] = await Promise.all([
-    adminDb.collection('reports').where('status', '==', 'pending').orderBy('createdAtMs', 'asc').limit(1).get(),
-    adminDb
-      .collection('master_league_verification_requests')
-      .where('status', '==', 'pending')
-      .orderBy('submittedAtMs', 'asc')
-      .limit(1)
-      .get(),
-    adminDb
-      .collection('globalChatRequests')
-      .where('status', '==', 'pending')
-      .orderBy('createdAtMs', 'asc')
-      .limit(1)
-      .get(),
+  const [oldestReportDoc, oldestVerificationDoc, oldestChatRequestDoc] = await Promise.all([
+    safeOldestPending('reports', 'createdAtMs'),
+    safeOldestPending('master_league_verification_requests', 'submittedAtMs'),
+    safeOldestPending('globalChatRequests', 'createdAtMs'),
   ]);
 
-  const reportAgeMs = oldestReport.docs[0] ? nowMs - (oldestReport.docs[0].data().createdAtMs ?? nowMs) : 0;
+  const reportAgeMs = oldestReportDoc ? nowMs - (oldestReportDoc.data().createdAtMs ?? nowMs) : 0;
   if (reportAgeMs > 2 * DAY_MS) {
     alerts.push({
       id: 'reports-backlog',
@@ -172,8 +187,8 @@ export async function getSystemHealthAlerts(): Promise<SystemHealthAlert[]> {
     });
   }
 
-  const verificationAgeMs = oldestVerification.docs[0]
-    ? nowMs - (oldestVerification.docs[0].data().submittedAtMs ?? nowMs)
+  const verificationAgeMs = oldestVerificationDoc
+    ? nowMs - (oldestVerificationDoc.data().submittedAtMs ?? nowMs)
     : 0;
   if (verificationAgeMs > 7 * DAY_MS) {
     alerts.push({
@@ -184,8 +199,8 @@ export async function getSystemHealthAlerts(): Promise<SystemHealthAlert[]> {
     });
   }
 
-  const chatRequestAgeMs = oldestChatRequest.docs[0]
-    ? nowMs - (oldestChatRequest.docs[0].data().createdAtMs ?? nowMs)
+  const chatRequestAgeMs = oldestChatRequestDoc
+    ? nowMs - (oldestChatRequestDoc.data().createdAtMs ?? nowMs)
     : 0;
   if (chatRequestAgeMs > 2 * DAY_MS) {
     alerts.push({

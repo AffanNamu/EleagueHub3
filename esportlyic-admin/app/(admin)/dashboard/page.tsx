@@ -6,12 +6,36 @@ import { SystemAlerts } from '@/components/dashboard/SystemAlerts';
 
 export const dynamic = 'force-dynamic';
 
+const EMPTY_STATS = {
+  totalUsers: 0,
+  totalLeagues: 0,
+  totalMasterLeagues: 0,
+  pendingVerifications: 0,
+  pendingReports: 0,
+  pendingGlobalChatRequests: 0,
+  platformAdminCount: 0,
+};
+
 export default async function DashboardPage() {
-  const [stats, recentEvents, alerts] = await Promise.all([
+  const [statsResult, recentEventsResult, alertsResult] = await Promise.allSettled([
     getDashboardStats(),
     getRecentEvents(),
     getSystemHealthAlerts(),
   ]);
+
+  if (statsResult.status === 'rejected') {
+    console.error('DashboardPage: getDashboardStats failed', statsResult.reason);
+  }
+  if (recentEventsResult.status === 'rejected') {
+    console.error('DashboardPage: getRecentEvents failed', recentEventsResult.reason);
+  }
+  if (alertsResult.status === 'rejected') {
+    console.error('DashboardPage: getSystemHealthAlerts failed', alertsResult.reason);
+  }
+
+  const stats = statsResult.status === 'fulfilled' ? statsResult.value : EMPTY_STATS;
+  const recentEvents = recentEventsResult.status === 'fulfilled' ? recentEventsResult.value : [];
+  const alerts = alertsResult.status === 'fulfilled' ? alertsResult.value : [];
 
   return (
     <div className="space-y-6">
