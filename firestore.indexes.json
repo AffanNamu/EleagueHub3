@@ -48,6 +48,20 @@
       ]
     },
     {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAtMs",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "moderation_cases",
       "queryScope": "COLLECTION",
       "fields": [
@@ -76,6 +90,20 @@
       ]
     },
     {
+      "collectionGroup": "globalChatRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAtMs",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "master_league_verification_requests",
       "queryScope": "COLLECTION",
       "fields": [
@@ -86,6 +114,20 @@
         {
           "fieldPath": "submittedAtMs",
           "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "master_league_verification_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "submittedAtMs",
+          "order": "ASCENDING"
         }
       ]
     }
