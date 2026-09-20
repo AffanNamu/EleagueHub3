@@ -38,8 +38,10 @@ function toLeague(id: string, data: FirebaseFirestore.DocumentData): League {
     season: typeof data.season === 'string' ? data.season : '',
     leagueImageUrl: typeof data.leagueImageUrl === 'string' ? data.leagueImageUrl : '',
     sponsorImageUrl: typeof data.sponsorImageUrl === 'string' ? data.sponsorImageUrl : '',
-    createdAtMs:
-      data.createdAt && typeof data.createdAt.toMillis === 'function' ? data.createdAt.toMillis() : 0,
+    // League documents never get a real "created" timestamp -- the app
+    // only ever writes updatedAtMs (set once at creation, bumped on
+    // edits) -- so that's the closest available value.
+    createdAtMs: typeof data.updatedAtMs === 'number' ? data.updatedAtMs : 0,
   };
 }
 
@@ -60,7 +62,11 @@ export async function listLeagues(params: { search?: string; limit?: number } = 
   if (term) {
     query = query.orderBy('name').startAt(term).endAt(`${term}\uf8ff`).limit(limit);
   } else {
-    query = query.orderBy('createdAt', 'desc').limit(limit);
+    // No league document has a "createdAt" field -- Firestore excludes
+    // documents missing the orderBy field entirely, so that always
+    // returned zero rows. updatedAtMs is the only timestamp every
+    // league document actually has (set at creation, bumped on edits).
+    query = query.orderBy('updatedAtMs', 'desc').limit(limit);
   }
 
   const snap = await query.get();
