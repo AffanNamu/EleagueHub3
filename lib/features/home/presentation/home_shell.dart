@@ -17,6 +17,7 @@ import '../../master_leagues/domain/organizer_feed_event.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../social/ui/widgets/notification_bell_button.dart';
 import 'widgets/home_content_widgets.dart';
+import 'widgets/top_bar_profile_avatar_button.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
   final v = l10n.tr(key);
@@ -218,7 +219,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
-          actions: const [NotificationBellButton()],
+          actions: const [
+            TopBarProfileAvatarButton(),
+            NotificationBellButton(),
+          ],
         ),
         body: SafeArea(
           bottom: false,

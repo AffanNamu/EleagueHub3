@@ -1579,18 +1579,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             children: [
                               Expanded(
                                 child: _ProfileActionChip(
-                                  icon: Icons.person_search_rounded,
-                                  label: l10n.tr('profile_action_public_view_label'),
-                                  onTap: () {
-                                    if (uid.isEmpty) return;
-                                    HapticFeedback.selectionClick();
-                                    context.push('/profile/$uid');
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: _ProfileActionChip(
                                   icon: Icons.groups_rounded,
                                   label: l10n.tr('profile_action_my_squad_label'),
                                   onTap: () {
