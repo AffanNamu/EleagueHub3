@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
@@ -91,7 +92,7 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
     final uploadPreset =
         const String.fromEnvironment('CLOUDINARY_UNSIGNED_UPLOAD_PRESET').trim();
     if (cloudName.isEmpty || uploadPreset.isEmpty) {
-      throw StateError('Cloudinary is not configured.');
+      throw StateError(context.l10n.tr('squad_screen_cloudinary_not_configured_error'));
     }
 
     final uploadUrl = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
@@ -106,7 +107,7 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
     } else if (path.isNotEmpty) {
       filePart = await http.MultipartFile.fromPath('file', path, filename: picked.name);
     } else {
-      throw StateError('Selected image is not accessible.');
+      throw StateError(context.l10n.tr('squad_screen_image_not_accessible_error'));
     }
 
     final req = http.MultipartRequest('POST', uploadUrl)
@@ -122,22 +123,28 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
       final resp = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 45));
 
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
-        String message = 'Upload failed (HTTP ${resp.statusCode}).';
+        final l10n = context.l10n;
+        String message =
+            '${l10n.tr('squad_screen_upload_failed_http_prefix')}${resp.statusCode}${l10n.tr('squad_screen_upload_failed_http_suffix')}';
         try {
           final decoded = jsonDecode(resp.body);
           final err = (decoded is Map<String, dynamic>) ? decoded['error'] : null;
           final msg = (err is Map<String, dynamic>) ? (err['message']?.toString() ?? '') : '';
-          if (msg.trim().isNotEmpty) message = 'Upload failed: ${msg.trim()}';
+          if (msg.trim().isNotEmpty) {
+            message = '${l10n.tr('squad_screen_upload_failed_prefix')}${msg.trim()}';
+          }
         } catch (_) {}
         throw StateError(message);
       }
 
       final decoded = jsonDecode(resp.body);
       if (decoded is! Map<String, dynamic>) {
-        throw StateError('Upload failed: invalid response.');
+        throw StateError(context.l10n.tr('squad_screen_upload_failed_invalid_response'));
       }
       final secureUrl = (decoded['secure_url']?.toString() ?? '').trim();
-      if (secureUrl.isEmpty) throw StateError('Upload failed: secure_url missing.');
+      if (secureUrl.isEmpty) {
+        throw StateError(context.l10n.tr('squad_screen_upload_failed_missing_url'));
+      }
       return secureUrl;
     } finally {
       client.close();
@@ -155,13 +162,13 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
       final pickResult = await SafeImagePicker.pickImage();
       if (pickResult.wasCancelled) return;
       if (!pickResult.isSuccess) {
-        _snack(pickResult.errorMessage ?? 'Could not pick image.');
+        _snack(pickResult.errorMessage ?? context.l10n.tr('squad_screen_pick_image_failed_fallback'));
         return;
       }
 
       final picked = pickResult.file!;
       if (picked.size > _maxSquadPhotoBytes) {
-        _snack('Image too large. Please select an image under 5 MB.');
+        _snack(context.l10n.tr('squad_screen_image_too_large_message'));
         return;
       }
 
@@ -169,7 +176,7 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
       await _repo.updateSquadPhoto(gameId: _selectedGame, squadPhotoUrl: secureUrl);
 
       if (!mounted) return;
-      _snack('Squad photo updated.');
+      _snack(context.l10n.tr('squad_screen_photo_updated_snackbar'));
     } catch (e) {
       _snack(e.toString());
     } finally {
@@ -178,14 +185,15 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
   }
 
   Future<void> _confirmRemoveSquadPhoto() async {
+    final l10n = context.l10n;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove squad photo?'),
-        content: const Text('Visitors will no longer see your squad photo.'),
+        title: Text(l10n.tr('squad_screen_remove_photo_confirm_title')),
+        content: Text(l10n.tr('squad_screen_remove_photo_confirm_message')),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remove')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(l10n.tr('common_cancel'))),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(l10n.tr('profile_remove_button'))),
         ],
       ),
     );
@@ -195,7 +203,7 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
     try {
       await _repo.updateSquadPhoto(gameId: _selectedGame, squadPhotoUrl: '');
       if (!mounted) return;
-      _snack('Squad photo removed.');
+      _snack(l10n.tr('squad_screen_photo_removed_snackbar'));
     } catch (e) {
       _snack(e.toString());
     } finally {
@@ -204,6 +212,7 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
   }
 
   void _showSquadPhotoSheet({required bool hasPhoto}) {
+    final l10n = context.l10n;
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -212,7 +221,9 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.photo_camera_back_rounded),
-              title: Text(hasPhoto ? 'Change squad photo' : 'Upload squad photo'),
+              title: Text(hasPhoto
+                  ? l10n.tr('squad_screen_change_photo_label')
+                  : l10n.tr('squad_screen_upload_photo_label')),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _pickAndUploadSquadPhoto();
@@ -221,7 +232,7 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
             if (hasPhoto)
               ListTile(
                 leading: const Icon(Icons.delete_outline_rounded),
-                title: const Text('Remove squad photo'),
+                title: Text(l10n.tr('squad_screen_remove_photo_label')),
                 onTap: () {
                   Navigator.of(ctx).pop();
                   _confirmRemoveSquadPhoto();
@@ -316,16 +327,19 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final l10n = context.l10n;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Squad'),
+        title: Text(l10n.tr('public_profile_section_squad')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
           if (widget.isOwner)
             IconButton(
-              tooltip: _editMode ? 'Done editing' : 'Edit squad',
+              tooltip: _editMode
+                  ? l10n.tr('squad_screen_done_editing_tooltip')
+                  : l10n.tr('squad_screen_edit_squad_tooltip'),
               icon: Icon(_editMode ? Icons.check_rounded : Icons.edit_rounded),
               onPressed: () => setState(() => _editMode = !_editMode),
             ),
@@ -351,13 +365,12 @@ class _SquadScreenState extends ConsumerState<SquadScreen> {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (!mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
+                            SnackBar(
                               behavior: SnackBarBehavior.floating,
                               content: Text(
-                                'Pick a formation and add at least one player, '
-                                'then it will be saved to your profile.',
+                                l10n.tr('squad_screen_new_game_hint_snackbar'),
                               ),
-                              duration: Duration(seconds: 4),
+                              duration: const Duration(seconds: 4),
                             ),
                           );
                         });
@@ -482,7 +495,7 @@ class _SquadPhotoCard extends StatelessWidget {
                     Icon(Icons.groups_rounded, color: AppTheme.secondaryText(brightness)),
                     const SizedBox(height: 4),
                     Text(
-                      'Add a photo of your squad',
+                      context.l10n.tr('squad_screen_add_photo_placeholder'),
                       style: TextStyle(
                         color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w700,
@@ -556,7 +569,7 @@ class _GameSwitcher extends StatelessWidget {
           if (allowAddGame && addable.isNotEmpty)
             ActionChip(
               avatar: const Icon(Icons.add_rounded, size: 16),
-              label: const Text('Add game'),
+              label: Text(context.l10n.tr('squad_screen_add_game_label')),
               onPressed: () async {
                 final choice = await showModalBottomSheet<String>(
                   context: context,

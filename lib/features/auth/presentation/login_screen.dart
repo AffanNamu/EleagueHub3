@@ -65,12 +65,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
         surfaceTintColor: Colors.transparent,
-        title: const Text('Exit app?'),
-        content: const Text('Are you sure you want to close the app?'),
+        title: Text(context.l10n.tr('auth_login_exit_app_title')),
+        content: Text(context.l10n.tr('auth_login_exit_app_message')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.tr('common_cancel')),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -78,7 +78,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               foregroundColor: AppTheme.darkText,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Exit'),
+            child: Text(context.l10n.tr('auth_login_exit_confirm')),
           ),
         ],
       ),
@@ -266,7 +266,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ),
                             onPressed: _submitting ? null : _signInApple,
                             icon: const Icon(Icons.apple),
-                            label: const Text('Continue with Apple'),
+                            label: Text(l10n.tr('auth_login_continue_with_apple')),
                           ),
                         ),
                       ],
@@ -289,7 +289,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         controller: _email,
                         keyboardType: TextInputType.emailAddress,
                         label: l10n.authLoginEmailLabel,
-                        hint: 'name@example.com',
+                        hint: l10n.tr('auth_login_email_hint'),
                         enabled: !_submitting,
                         prefixIcon: const Icon(Icons.email_outlined),
                         textInputAction: TextInputAction.next,
@@ -306,7 +306,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             _isRegister ? TextInputAction.next : TextInputAction.done,
                         autofillHints: const [AutofillHints.password],
                         suffixIcon: IconButton(
-                          tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                          tooltip: _obscurePassword
+                              ? l10n.tr('auth_login_show_password')
+                              : l10n.tr('auth_login_hide_password'),
                           onPressed: _submitting
                               ? null
                               : () => setState(() => _obscurePassword = !_obscurePassword),
@@ -329,7 +331,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           textInputAction: TextInputAction.done,
                           autofillHints: const [AutofillHints.newPassword],
                           suffixIcon: IconButton(
-                            tooltip: _obscureConfirm ? 'Show password' : 'Hide password',
+                            tooltip: _obscureConfirm
+                                ? l10n.tr('auth_login_show_password')
+                                : l10n.tr('auth_login_hide_password'),
                             onPressed: _submitting
                                 ? null
                                 : () => setState(() => _obscureConfirm = !_obscureConfirm),
@@ -349,7 +353,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           child: TextButton(
                             onPressed: _submitting ? null : () => context.go('/forgot-password'),
                             child: Text(
-                              'Forgot password?',
+                              l10n.tr('auth_login_forgot_password'),
                               style: TextStyle(color: AppTheme.limeAccentDark),
                             ),
                           ),

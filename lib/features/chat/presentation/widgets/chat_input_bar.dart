@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/widgets/glass.dart';
 
 class ChatInputBar extends StatelessWidget {
@@ -68,7 +69,9 @@ class ChatInputBar extends StatelessWidget {
         final trailingBg = trailingEnabled ? cs.primary : cs.onSurface.withOpacity(0.14);
         final trailingFg = trailingEnabled ? cs.onPrimary : cs.onSurface.withOpacity(0.45);
 
-        final hint = codeMode ? 'Paste code…' : 'Message…';
+        final hint = codeMode
+            ? context.l10n.tr('chat_input_paste_code_hint')
+            : context.l10n.tr('chat_input_message_hint');
 
         return SafeArea(
           top: false,
@@ -102,7 +105,7 @@ class ChatInputBar extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Replying to ${((replySenderName ?? '').trim().isEmpty ? 'message' : replySenderName!.trim())}',
+                                "${context.l10n.tr('chat_input_replying_to_prefix')}${((replySenderName ?? '').trim().isEmpty ? context.l10n.tr('chat_input_reply_fallback_name') : replySenderName!.trim())}",
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -128,7 +131,7 @@ class ChatInputBar extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         IconButton(
-                          tooltip: 'Cancel reply',
+                          tooltip: context.l10n.tr('chat_input_cancel_reply_tooltip'),
                           onPressed: onCancelReply,
                           icon: Icon(Icons.close_rounded, color: cs.onSurface.withOpacity(0.65)),
                         ),
@@ -145,7 +148,7 @@ class ChatInputBar extends StatelessWidget {
                         child: Row(
                           children: [
                             IconButton(
-                              tooltip: 'Image',
+                              tooltip: context.l10n.tr('chat_input_image_tooltip'),
                               onPressed: (!enabled || isSending) ? null : onPickImage,
                               icon: Icon(Icons.image_outlined, color: cs.primary),
                             ),
@@ -181,8 +184,10 @@ class ChatInputBar extends StatelessWidget {
                     const SizedBox(width: 8),
                     Tooltip(
                       message: trailingIsSend
-                          ? 'Send'
-                          : ((voiceTooltip ?? '').trim().isNotEmpty ? voiceTooltip!.trim() : 'Record voice'),
+                          ? context.l10n.tr('chat_input_send_tooltip')
+                          : ((voiceTooltip ?? '').trim().isNotEmpty
+                              ? voiceTooltip!.trim()
+                              : context.l10n.tr('chat_input_record_voice_tooltip')),
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(

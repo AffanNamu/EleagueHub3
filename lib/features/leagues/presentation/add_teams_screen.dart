@@ -372,9 +372,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       case LeagueFormat.uclSwiss:
         return l10n.tr('add_teams_format_ucl_swiss');
       case LeagueFormat.worldCup:
-        return 'World Cup';
+        return l10n.tr('add_teams_format_world_cup');
       case LeagueFormat.directKnockout:
-        return 'Direct Knockout';
+        return l10n.tr('add_teams_format_direct_knockout');
     }
   }
 
@@ -386,12 +386,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         return l10n.tr('add_teams_unlock_swiss');
       case LeagueFormat.worldCup:
         final teams = _maxTeamsForFormat;
-        return 'Add exactly $teams teams. '
-            'Groups and fixtures will be generated automatically.';
+        return '${l10n.tr('add_teams_unlock_world_cup_prefix')} $teams '
+            '${l10n.tr('add_teams_unlock_world_cup_suffix')}';
       case LeagueFormat.directKnockout:
         final teams = _maxTeamsForFormat;
-        return 'Add exactly $teams teams, then generate the bracket '
-            'from the competition page.';
+        return '${l10n.tr('add_teams_unlock_direct_knockout_prefix')} $teams '
+            '${l10n.tr('add_teams_unlock_direct_knockout_suffix')}';
       case LeagueFormat.classic:
       default:
         return l10n.tr('add_teams_unlock_classic');
@@ -1454,7 +1454,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     if (_busy) return;
 
     if (_existingTeams.isEmpty && _tempTeams.isEmpty) {
-      if (!silent) _snackWarn('No teams to save.');
+      if (!silent) _snackWarn(l10n.tr('add_teams_no_teams_to_save'));
       return;
     }
 
@@ -1541,7 +1541,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           );
         } else if (widget.format == LeagueFormat.worldCup) {
           _snackErr(
-              'Cannot generate World Cup fixtures with $total teams.');
+            '${l10n.tr('add_teams_cannot_generate_world_cup_prefix')} $total.',
+          );
         } else {
           _snackErr(
             '${l10n.tr('add_teams_cannot_generate_classic_prefix')} $total.',
@@ -1742,8 +1743,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             teams: _existingTeams,
           );
           if (!stillValid) {
-            _snackErr(
-                'Failed to assign World Cup groups. Please try again.');
+            _snackErr(l10n.tr('add_teams_world_cup_group_assign_failed'));
             return;
           }
         }
@@ -1814,7 +1814,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       }
 
       if (total < 2) {
-        _snackErr('You need at least 2 teams to use Spin Wheel draw.');
+        _snackErr(l10n.tr('add_teams_spin_wheel_min_teams'));
         return;
       }
 
@@ -2035,7 +2035,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Sign in required',
+                        l10n.tr('add_teams_sign_in_required_title'),
                         style: theme.textTheme.titleMedium
                             ?.copyWith(
                           fontWeight: FontWeight.w900,
@@ -2045,7 +2045,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Please sign in to manage teams.',
+                        l10n.tr('add_teams_sign_in_required_body'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium
                             ?.copyWith(
@@ -2247,7 +2247,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                   // FIX: Was curly apostrophe. Now uses double-quoted
                   // string with straight apostrophe to avoid parse error.
                   Text(
-                    "Couldn't load teams",
+                    context.l10n.tr('add_teams_load_error_title'),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: AppTheme.primaryText(brightness),
@@ -2271,7 +2271,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => context.pop(),
-                          child: const Text('Back'),
+                          child: Text(context.l10n.tr('common_back')),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -2283,7 +2283,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                             foregroundColor: AppTheme.darkText,
                           ),
                           onPressed: _loadExistingTeams,
-                          child: const Text('Retry'),
+                          child: Text(context.l10n.tr('common_retry')),
                         ),
                       ),
                     ],
@@ -2929,7 +2929,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'UserId (short): $short',
+                                        "${context.l10n.tr('add_teams_user_id_short_prefix')} $short",
                                         style: const TextStyle(
                                           color: AppTheme
                                               .limeAccentDark,
@@ -3264,7 +3264,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'UserId (short): $short',
+                                        "${context.l10n.tr('add_teams_user_id_short_prefix')} $short",
                                         style: const TextStyle(
                                           color: AppTheme
                                               .limeAccentDark,

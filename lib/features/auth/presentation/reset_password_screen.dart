@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/glass.dart';
@@ -82,7 +83,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       return;
     }
     if (newPass != confirm) {
-      _showSnack('Passwords do not match.');
+      _showSnack(context.l10n.errorPasswordsDoNotMatch);
       return;
     }
 
@@ -94,7 +95,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       await _auth.confirmPasswordReset(code: code, newPassword: newPass);
 
       if (!mounted) return;
-      _showSnack('Password updated. You can sign in now.');
+      _showSnack(context.l10n.tr('reset_password_success'));
       context.go('/login');
     } catch (e) {
       _showSnack('$e');
@@ -105,12 +106,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Set new password'),
+        title: Text(l10n.tr('reset_password_app_bar_title')),
       ),
       body: Center(
         child: ConstrainedBox(
@@ -133,7 +135,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'Enter the code/link from your email',
+                      l10n.tr('reset_password_title'),
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: AppTheme.primaryText(brightness),
@@ -143,8 +145,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     const SizedBox(height: 6),
                     Text(
                       widget.emailHint == null
-                          ? 'Paste the password reset link (or code) you received from Firebase.'
-                          : 'We sent a reset email to ${widget.emailHint}. Paste the reset link (or code) here.',
+                          ? l10n.tr('reset_password_subtitle_no_email')
+                          : '${l10n.tr('reset_password_subtitle_with_email_prefix')}${widget.emailHint}${l10n.tr('reset_password_subtitle_with_email_suffix')}',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: AppTheme.secondaryText(brightness),
                         height: 1.35,
@@ -154,12 +156,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     const SizedBox(height: 14),
                     AppTextField(
                       controller: _codeOrLink,
-                      label: 'Reset code or link',
-                      hint: 'Paste here (contains oobCode=...)',
+                      label: l10n.tr('reset_password_code_label'),
+                      hint: l10n.tr('reset_password_code_hint'),
                       enabled: !_submitting,
                       prefixIcon: const Icon(Icons.vpn_key_outlined),
                       suffixIcon: IconButton(
-                        tooltip: 'Paste',
+                        tooltip: l10n.tr('reset_password_paste_tooltip'),
                         onPressed: _submitting ? null : _paste,
                         icon: const Icon(Icons.content_paste),
                       ),
@@ -168,13 +170,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     const SizedBox(height: 10),
                     AppTextField(
                       controller: _newPassword,
-                      label: 'New password',
+                      label: l10n.tr('reset_password_new_password_label'),
                       enabled: !_submitting,
                       obscureText: _obscureNew,
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
-                        tooltip:
-                            _obscureNew ? 'Show password' : 'Hide password',
+                        tooltip: _obscureNew
+                            ? l10n.tr('reset_password_show_password')
+                            : l10n.tr('reset_password_hide_password'),
                         onPressed: _submitting
                             ? null
                             : () => setState(() => _obscureNew = !_obscureNew),
@@ -190,13 +193,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     const SizedBox(height: 10),
                     AppTextField(
                       controller: _confirm,
-                      label: 'Confirm new password',
+                      label: l10n.tr('reset_password_confirm_password_label'),
                       enabled: !_submitting,
                       obscureText: _obscureConfirm,
                       prefixIcon: const Icon(Icons.lock_reset),
                       suffixIcon: IconButton(
-                        tooltip:
-                            _obscureConfirm ? 'Show password' : 'Hide password',
+                        tooltip: _obscureConfirm
+                            ? l10n.tr('reset_password_show_password')
+                            : l10n.tr('reset_password_hide_password'),
                         onPressed: _submitting
                             ? null
                             : () => setState(
@@ -229,14 +233,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                                   color: AppTheme.darkText,
                                 ),
                               )
-                            : const Text('Update password'),
+                            : Text(l10n.tr('reset_password_update_button')),
                       ),
                     ),
                     const SizedBox(height: 8),
                     TextButton(
                       onPressed:
                           _submitting ? null : () => context.go('/forgot-password'),
-                      child: const Text('Resend reset email'),
+                      child: Text(l10n.tr('reset_password_resend_button')),
                     ),
                   ],
                 ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/player_photo_service.dart';
 import '../../models/squad.dart';
@@ -207,6 +208,7 @@ class _PlayerEditSheetState extends State<_PlayerEditSheet> {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final l10n = context.l10n;
     final hasExisting = widget.existing != null && widget.existing!.name.trim().isNotEmpty;
 
     return Padding(
@@ -219,7 +221,7 @@ class _PlayerEditSheetState extends State<_PlayerEditSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${widget.slotLabel} — ${widget.isStarting ? "Starting XI" : "Bench"}',
+                '${widget.slotLabel} — ${widget.isStarting ? l10n.tr('player_edit_starting_xi_label') : l10n.tr('player_edit_bench_label')}',
                 style: TextStyle(
                   fontWeight: FontWeight.w900,
                   fontSize: 16,
@@ -233,7 +235,7 @@ class _PlayerEditSheetState extends State<_PlayerEditSheet> {
                 controller: _nameController,
                 autofocus: true,
                 textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(labelText: 'Player name'),
+                decoration: InputDecoration(labelText: l10n.tr('player_edit_name_field_label')),
               ),
               if (_searching)
                 const Padding(
@@ -313,7 +315,7 @@ class _PlayerEditSheetState extends State<_PlayerEditSheet> {
               TextField(
                 controller: _numberController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Shirt number (optional)'),
+                decoration: InputDecoration(labelText: l10n.tr('player_edit_shirt_number_field_label')),
               ),
               const SizedBox(height: 20),
               Row(
@@ -325,7 +327,7 @@ class _PlayerEditSheetState extends State<_PlayerEditSheet> {
                         onPressed: () => Navigator.of(context)
                             .pop(const PlayerEditResult.delete()),
                         icon: const Icon(Icons.delete_outline_rounded),
-                        label: const Text('Remove'),
+                        label: Text(l10n.tr('profile_remove_button')),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -333,7 +335,7 @@ class _PlayerEditSheetState extends State<_PlayerEditSheet> {
                   Expanded(
                     child: FilledButton(
                       onPressed: _save,
-                      child: const Text('Save'),
+                      child: Text(l10n.tr('common_save')),
                     ),
                   ),
                 ],

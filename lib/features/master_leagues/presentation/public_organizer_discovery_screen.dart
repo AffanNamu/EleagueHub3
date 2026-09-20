@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/country/country_resolver_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -154,13 +155,16 @@ class _PublicOrganizerDiscoveryScreenState
       setState(() {
         _searchResult = result;
         _searching = false;
-        _searchError = result == null ? 'No organizer found for that username.' : null;
+        _searchError = result == null
+            ? context.l10n.tr('public_organizer_discovery_search_not_found')
+            : null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _searching = false;
-        _searchError = 'Something went wrong. Please try again.';
+        _searchError =
+            context.l10n.tr('public_organizer_discovery_search_generic_error');
       });
     }
   }
@@ -172,10 +176,11 @@ class _PublicOrganizerDiscoveryScreenState
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final l10n = context.l10n;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Organizer Discovery'),
+        title: Text(l10n.tr('public_organizer_discovery_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -190,7 +195,7 @@ class _PublicOrganizerDiscoveryScreenState
                 controller: _searchController,
                 onChanged: _onSearchChanged,
                 decoration: InputDecoration(
-                  hintText: 'Search organizer by @username…',
+                  hintText: l10n.tr('public_organizer_discovery_search_hint'),
                   prefixIcon: const Icon(Icons.alternate_email_rounded),
                   suffixIcon: _searchController.text.isEmpty
                       ? null
@@ -229,13 +234,15 @@ class _PublicOrganizerDiscoveryScreenState
               const SizedBox(height: 16),
               _SectionHeader(
                 icon: Icons.public_rounded,
-                title: _nearbyCountry.isEmpty ? 'Organizers Near You' : 'Organizers in $_nearbyCountry',
+                title: _nearbyCountry.isEmpty
+                    ? l10n.tr('public_organizer_discovery_nearby_title')
+                    : '${l10n.tr('public_organizer_discovery_nearby_in_prefix')} $_nearbyCountry',
               ),
               const SizedBox(height: 10),
               if (_loadingNearby)
                 const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
               else if (_nearby.isEmpty)
-                _EmptyHint(text: 'No organizers found in your region yet.')
+                _EmptyHint(text: l10n.tr('public_organizer_discovery_nearby_empty'))
               else
                 Column(
                   children: [
@@ -247,12 +254,12 @@ class _PublicOrganizerDiscoveryScreenState
                 ),
 
               const SizedBox(height: 22),
-              _SectionHeader(icon: Icons.star_rounded, title: 'Featured Organizers'),
+              _SectionHeader(icon: Icons.star_rounded, title: l10n.tr('public_organizer_discovery_featured_title')),
               const SizedBox(height: 10),
               if (_loadingFeatured)
                 const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
               else if (_featured.isEmpty)
-                _EmptyHint(text: 'No featured organizers right now.')
+                _EmptyHint(text: l10n.tr('public_organizer_discovery_featured_empty'))
               else
                 Column(
                   children: [
@@ -264,12 +271,12 @@ class _PublicOrganizerDiscoveryScreenState
                 ),
 
               const SizedBox(height: 22),
-              _SectionHeader(icon: Icons.verified_rounded, title: 'Verified Organizers'),
+              _SectionHeader(icon: Icons.verified_rounded, title: l10n.tr('public_organizer_discovery_verified_title')),
               const SizedBox(height: 10),
               if (_loadingVerified)
                 const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
               else if (_verified.isEmpty)
-                _EmptyHint(text: 'No verified organizers yet.')
+                _EmptyHint(text: l10n.tr('public_organizer_discovery_verified_empty'))
               else
                 Column(
                   children: [
@@ -281,12 +288,12 @@ class _PublicOrganizerDiscoveryScreenState
                 ),
 
               const SizedBox(height: 22),
-              _SectionHeader(icon: Icons.bolt_rounded, title: 'Recently Active'),
+              _SectionHeader(icon: Icons.bolt_rounded, title: l10n.tr('public_organizer_discovery_recent_title')),
               const SizedBox(height: 10),
               if (_loadingRecent)
                 const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
               else if (_recent.isEmpty)
-                _EmptyHint(text: 'No active organizers yet.')
+                _EmptyHint(text: l10n.tr('public_organizer_discovery_recent_empty'))
               else
                 Column(
                   children: [

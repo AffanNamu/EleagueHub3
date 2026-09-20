@@ -131,7 +131,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         _hasLeagueAccess = false;
         _isPaidPlanUser = false;
         _currentLeagueCardCount = 0;
-        _activePlanLabel = 'Basic';
+        _activePlanLabel = context.l10n.tr('league_create_basic_plan_label');
       });
       return;
     }
@@ -150,8 +150,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         _hasLeagueAccess = true;
         _isPaidPlanUser = isPaid;
         _currentLeagueCardCount = count;
-        _activePlanLabel =
-            isPaid ? (activePlan?.displayName ?? 'Paid Plan') : 'Basic';
+        _activePlanLabel = isPaid
+            ? (activePlan?.displayName ??
+                context.l10n.tr('league_create_paid_plan_fallback'))
+            : context.l10n.tr('league_create_basic_plan_label');
         _checkingAccess = false;
       });
 
@@ -168,7 +170,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         _hasLeagueAccess = true;
         _isPaidPlanUser = false;
         _currentLeagueCardCount = 0;
-        _activePlanLabel = 'Basic';
+        _activePlanLabel = context.l10n.tr('league_create_basic_plan_label');
       });
 
       final placement =
@@ -192,25 +194,25 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       _currentLeagueCardCount >= _freeLeagueListLimit;
 
   String get _basicLimitText =>
-      'Basic users can create up to $_freeLeagueListLimit '
-      'leagues/competitions total. This total is shared across normal '
-      'leagues and competitions created inside Organizer or Master League '
-      'workspace. Upgrade to Pro or Elite to create more.';
+      '${context.l10n.tr('league_create_basic_users_limit_prefix')} $_freeLeagueListLimit '
+      '${context.l10n.tr('league_create_basic_users_limit_suffix')}';
 
   Future<void> _openPlanUpgradeFlow() async {
     if (_submitting || _rewardGateInProgress) return;
     final success = await LeaguePremiumUpgradeHelper.openUpgradeFlow(
       context,
-      leagueName:
-          _name.text.trim().isEmpty ? 'Organizer Plan' : _name.text.trim(),
+      leagueName: _name.text.trim().isEmpty
+          ? context.l10n.tr('league_create_organizer_plan_fallback')
+          : _name.text.trim(),
     );
     if (!mounted) return;
     if (success) {
-      _showSnack('Plan purchase completed. Refreshing access...');
+      _showSnack(
+          context.l10n.tr('league_create_plan_purchase_completed_refreshing'));
       await _loadAccessState();
       return;
     }
-    _showSnack('Plan purchase cancelled.');
+    _showSnack(context.l10n.tr('league_create_plan_purchase_cancelled'));
   }
 
   @override
@@ -277,7 +279,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   Future<void> _uploadImage({required LeagueMediaKind kind}) async {
     if (_submitting || _rewardGateInProgress) return;
     if (!_hasLeagueAccess) {
-      _showSnack('You need to sign in to create leagues.');
+      _showSnack(context.l10n.tr('league_create_need_sign_in_to_create'));
       return;
     }
     if (_basicLimitReachedForNewLeague) {
@@ -301,7 +303,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
       if (!mounted) return;
       if (url == null || url.trim().isEmpty) {
-        _showSnack('Image not selected or upload failed. Please try again.');
+        _showSnack(
+            context.l10n.tr('league_create_image_upload_failed_retry'));
         return;
       }
       setState(() {
@@ -345,7 +348,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       if (snap.docs.isEmpty) return code;
     }
     throw StateError(
-      "We couldn't create a league code right now. Please try again.",
+      context.l10n.tr('league_create_league_code_generation_failed'),
     );
   }
 
@@ -355,11 +358,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     final l10n = context.l10n;
 
     if (_checkingAccess) {
-      _showSnack('Checking your access. Please wait.');
+      _showSnack(l10n.tr('league_create_checking_access_snack'));
       return false;
     }
     if (!_hasLeagueAccess) {
-      _showSnack('You need to sign in to create leagues.');
+      _showSnack(l10n.tr('league_create_need_sign_in_to_create'));
       return false;
     }
     if (_basicLimitReachedForNewLeague) {
@@ -445,7 +448,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                           color: AppTheme.limeAccentDark, size: 44),
                       const SizedBox(height: 10),
                       Text(
-                        'Sign in required',
+                        l10n.tr('league_creation_payment_sign_in_required'),
                         style: theme.textTheme.titleMedium?.copyWith(
                           color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w900,
@@ -453,7 +456,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Please sign in to create a league.',
+                        l10n.tr('league_create_please_sign_in_to_create_league'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: AppTheme.secondaryText(brightness),
@@ -468,7 +471,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                           foregroundColor: AppTheme.darkText,
                         ),
                         onPressed: _safePop,
-                        child: const Text('Close'),
+                        child: Text(context.l10n.tr('league_admin_close_button')),
                       ),
                     ],
                   ),
@@ -489,7 +492,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
     return GlassScaffold(
       appBar: AppBar(
         title: Text(
-          _inMasterLeagueMode ? 'Create Competition' : l10n.tr('league_create_appbar_title'),
+          _inMasterLeagueMode
+              ? l10n.tr('league_create_create_competition_title')
+              : l10n.tr('league_create_appbar_title'),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -610,7 +615,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                             if (_inMasterLeagueMode) ...[
                               const SizedBox(height: 10),
                               Text(
-                                'This competition was created inside your Master League.',
+                                l10n.tr(
+                                    'league_create_competition_created_inside_master_league_notice'),
                                 textAlign: TextAlign.center,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: AppTheme.limeAccentDark,
@@ -675,9 +681,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                                   );
                                 },
                                 icon: const Icon(Icons.card_giftcard_outlined),
-                                label: const Text(
-                                  'Manage Rewards',
-                                  style: TextStyle(fontWeight: FontWeight.w900),
+                                label: Text(
+                                  l10n.tr('league_create_manage_rewards_button'),
+                                  style: const TextStyle(fontWeight: FontWeight.w900),
                                 ),
                               ),
                             ],
@@ -715,7 +721,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           // ── Access / plan banner ─────────────────────────────────────────
           if (_checkingAccess)
             _limitStatusBanner(
-              text: 'Checking your access...',
+              text: context.l10n.tr('league_create_checking_access_title'),
               color: AppTheme.limeAccentDark,
               icon: Icons.hourglass_top_rounded,
             )
@@ -728,14 +734,14 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           else if (_isPaidPlanUser)
             _limitStatusBanner(
               text:
-                  '$_activePlanLabel plan active. You can create more than $_freeLeagueListLimit leagues/competitions.',
+                  '$_activePlanLabel ${context.l10n.tr('league_create_wizard_plan_active_middle')} $_freeLeagueListLimit ${context.l10n.tr('league_create_wizard_plan_active_suffix')}',
               color: AppTheme.limeAccentDark,
               icon: Icons.verified_rounded,
             )
           else
             _limitStatusBanner(
               text:
-                  'Basic/free access: $_currentLeagueCardCount / $_freeLeagueListLimit league/competition slots used.',
+                  '${context.l10n.tr('league_create_wizard_basic_free_access_prefix')} $_currentLeagueCardCount / $_freeLeagueListLimit ${context.l10n.tr('league_create_wizard_basic_free_access_suffix')}',
               color: AppTheme.secondaryText(brightness),
               icon: Icons.info_outline_rounded,
             ),
@@ -849,10 +855,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           const SizedBox(height: 12),
           row(
             _isPaidPlanUser ? Icons.verified_rounded : Icons.layers_outlined,
-            'Access',
+            l10n.tr('league_create_summary_access_label'),
             _isPaidPlanUser
                 ? _activePlanLabel
-                : 'Basic • $_currentLeagueCardCount / $_freeLeagueListLimit used',
+                : '${l10n.tr('league_create_basic_plan_label')} • $_currentLeagueCardCount / $_freeLeagueListLimit ${l10n.tr('league_create_used_word')}',
             color: _isPaidPlanUser
                 ? AppTheme.limeAccentDark
                 : (_basicLimitReachedForNewLeague
@@ -860,14 +866,16 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                     : AppTheme.primaryText(brightness)),
           ),
           if (_basicLimitReachedForNewLeague)
-            row(Icons.lock_rounded, 'Limit', 'Reached', color: _premiumAmber),
+            row(Icons.lock_rounded, l10n.tr('league_create_summary_limit_label'),
+                l10n.tr('league_create_reached'), color: _premiumAmber),
           if (_inMasterLeagueMode)
-            row(Icons.hub_rounded, 'Master', 'Inside Master League', color: AppTheme.limeAccentDark),
+            row(Icons.hub_rounded, l10n.tr('league_create_wizard_master_label'),
+                l10n.tr('league_create_inside_master_league'), color: AppTheme.limeAccentDark),
           row(Icons.auto_awesome, l10n.tr('league_create_summary_type_label'), _format.displayName),
           if (_format == LeagueFormat.worldCup)
             row(
               Icons.public_rounded,
-              'WC Format',
+              l10n.tr('league_create_summary_wc_format_label'),
               _worldCupFormat.displayName,
               color: _premiumAmber,
             ),
@@ -885,22 +893,26 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           if (_supportsHomeAwayMatches)
             row(
               Icons.swap_horiz,
-              'Home/Away',
-              _homeAwayEnabled ? 'Enabled' : 'Disabled',
+              l10n.tr('league_create_wizard_home_away_label'),
+              _homeAwayEnabled
+                  ? l10n.tr('league_create_enabled')
+                  : l10n.tr('league_create_disabled'),
               color: _homeAwayEnabled ? AppTheme.limeAccentDark : AppTheme.secondaryText(brightness),
             ),
           row(
             Icons.card_giftcard_outlined,
-            'Rewards',
-            _containsRewards ? 'Yes' : 'No',
+            l10n.tr('league_create_summary_rewards_label'),
+            _containsRewards ? l10n.tr('common_yes') : l10n.tr('common_no'),
             color: _containsRewards ? AppTheme.limeAccentDark : AppTheme.secondaryText(brightness),
           ),
           row(
             Icons.verified,
             l10n.tr('league_create_summary_creation_fee_label'),
             _basicLimitReachedForNewLeague
-                ? 'Upgrade required'
-                : (_isPaidPlanUser ? 'Included in paid plan' : 'Included in Basic allowance'),
+                ? l10n.tr('league_create_upgrade_required')
+                : (_isPaidPlanUser
+                    ? l10n.tr('league_create_included_in_paid_plan')
+                    : l10n.tr('league_create_included_in_basic_allowance')),
             color: _basicLimitReachedForNewLeague ? _premiumAmber : AppTheme.limeAccentDark,
           ),
           const SizedBox(height: 10),
@@ -908,8 +920,8 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             _basicLimitReachedForNewLeague
                 ? _basicLimitText
                 : (_inMasterLeagueMode
-                    ? 'This competition uses the same shared Basic creation allowance as normal leagues.'
-                    : 'Normal leagues and Organizer/Master League competitions share the same Basic allowance.'),
+                    ? l10n.tr('league_create_wizard_competition_shares_basic_allowance')
+                    : l10n.tr('league_create_wizard_leagues_share_basic_allowance')),
             style: theme.textTheme.bodySmall?.copyWith(
               color: _basicLimitReachedForNewLeague ? _premiumAmber : AppTheme.secondaryText(brightness),
               height: 1.35,
@@ -928,9 +940,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 ),
                 onPressed: (_submitting || _rewardGateInProgress) ? null : _openPlanUpgradeFlow,
                 icon: const Icon(Icons.workspace_premium_rounded),
-                label: const Text(
-                  'Upgrade Plan',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                label: Text(
+                  l10n.tr('league_create_upgrade_plan_button'),
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
             ),
@@ -957,7 +969,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          _inMasterLeagueMode ? 'Create Competition' : l10n.tr('league_create_header_title'),
+          _inMasterLeagueMode
+              ? l10n.tr('league_create_create_competition_title')
+              : l10n.tr('league_create_header_title'),
           style: theme.textTheme.titleLarge?.copyWith(
             color: AppTheme.primaryText(brightness),
             fontWeight: FontWeight.w900,
@@ -1203,14 +1217,16 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _sectionTitle('Basics', Icons.edit_note),
+        _sectionTitle(
+            context.l10n.tr('league_create_wizard_basics_section_title'),
+            Icons.edit_note),
         const SizedBox(height: 10),
         TextField(
           controller: _name,
           enabled: !locked,
-          decoration: const InputDecoration(
-            labelText: 'League name (required)',
-            prefixIcon: Icon(Icons.edit_outlined),
+          decoration: InputDecoration(
+            labelText: context.l10n.tr('league_create_league_name_required_label'),
+            prefixIcon: const Icon(Icons.edit_outlined),
           ),
           style: TextStyle(
             color: AppTheme.primaryText(brightness),
@@ -1224,9 +1240,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           enabled: !locked,
           minLines: 3,
           maxLines: 7,
-          decoration: const InputDecoration(
-            labelText: 'Description (optional)',
-            prefixIcon: Icon(Icons.subject_outlined),
+          decoration: InputDecoration(
+            labelText:
+                context.l10n.tr('league_create_wizard_description_optional_label'),
+            prefixIcon: const Icon(Icons.subject_outlined),
             alignLabelWithHint: true,
           ),
           style: TextStyle(
@@ -1235,24 +1252,32 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
           ),
         ),
         const SizedBox(height: 12),
-        _sectionTitle('Format', Icons.auto_awesome),
+        _sectionTitle(
+            context.l10n.tr('league_create_wizard_format_section_title'),
+            Icons.auto_awesome),
         const SizedBox(height: 10),
         Wrap(
           spacing: 10,
           runSpacing: 10,
           children: [
-            formatChip(LeagueFormat.classic, 'Classic'),
-            formatChip(LeagueFormat.uclGroup, 'Group'),
-            formatChip(LeagueFormat.uclSwiss, 'Series'),
+            formatChip(LeagueFormat.classic,
+                context.l10n.tr('league_create_wizard_format_classic')),
+            formatChip(LeagueFormat.uclGroup,
+                context.l10n.tr('league_create_wizard_format_group')),
+            formatChip(LeagueFormat.uclSwiss,
+                context.l10n.tr('league_create_wizard_format_series')),
             // NEW: World Cup (kept consistent as a chip in this wizard)
-            formatChip(LeagueFormat.worldCup, 'World Cup'),
+            formatChip(LeagueFormat.worldCup,
+                context.l10n.tr('league_create_wizard_format_world_cup')),
           ],
         ),
 
         // NEW: World Cup format selector (32 vs 48)
         if (_format == LeagueFormat.worldCup) ...[
           const SizedBox(height: 12),
-          _sectionTitle('World Cup Format', Icons.public_rounded),
+          _sectionTitle(
+              context.l10n.tr('league_create_world_cup_format_title'),
+              Icons.public_rounded),
           const SizedBox(height: 10),
           worldCupFormatCard(WorldCupFormat.fifa2022),
           const SizedBox(height: 10),
@@ -1260,11 +1285,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         ],
 
         const SizedBox(height: 12),
-        _sectionTitle('Images (optional)', Icons.image_outlined),
+        _sectionTitle(
+            context.l10n.tr('league_create_images_section_title'),
+            Icons.image_outlined),
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _leagueImageUrl,
-          label: 'League image (optional)',
+          label: context.l10n.tr('league_create_league_image_optional_label'),
           uploading: _uploadingLeagueImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.leagueImage),
           onClear: locked ? () {} : () => setState(() => _leagueImageUrl.text = ''),
@@ -1272,7 +1299,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _sponsorImageUrl,
-          label: 'Sponsor image (optional)',
+          label: context.l10n.tr('league_create_sponsor_image_optional_label'),
           uploading: _uploadingSponsorImage,
           onUpload: () => _uploadImage(kind: LeagueMediaKind.sponsorImage),
           onClear: locked ? () {} : () => setState(() => _sponsorImageUrl.text = ''),
@@ -1295,7 +1322,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _sectionTitle('Rules & Access', Icons.rule),
+        _sectionTitle(
+            context.l10n.tr('league_create_wizard_rules_access_section_title'),
+            Icons.rule),
         const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1318,7 +1347,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 activeColor: AppTheme.limeAccentDark,
                 contentPadding: EdgeInsets.zero,
                 title: Text(
-                  'Private league',
+                  context.l10n.tr('league_create_wizard_private_league_title'),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w900,
@@ -1326,8 +1355,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 ),
                 subtitle: Text(
                   _privacy == LeaguePrivacy.private
-                      ? 'Only members can view and join.'
-                      : 'Anyone can view, join with code.',
+                      ? context.l10n
+                          .tr('league_create_wizard_private_league_subtitle')
+                      : context.l10n
+                          .tr('league_create_wizard_public_league_subtitle'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: AppTheme.secondaryText(brightness),
                     fontSize: 12,
@@ -1354,7 +1385,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   activeColor: AppTheme.limeAccentDark,
                   checkColor: Colors.white,
                   title: Text(
-                    'Home and Away Matches',
+                    context.l10n.tr('league_create_home_away_matches_title'),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w900,
@@ -1362,8 +1393,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   ),
                   subtitle: Text(
                     _homeAwayEnabled
-                        ? 'Each team plays twice (home + away).'
-                        : 'Each team plays once.',
+                        ? context.l10n
+                            .tr('league_create_home_away_twice_subtitle')
+                        : context.l10n
+                            .tr('league_create_home_away_once_subtitle'),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: AppTheme.secondaryText(brightness),
                       fontSize: 12,
@@ -1380,7 +1413,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 activeColor: AppTheme.limeAccentDark,
                 contentPadding: EdgeInsets.zero,
                 title: Text(
-                  'Does this league contain rewards?',
+                  context.l10n.tr('league_create_wizard_contains_rewards_title'),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w900,
@@ -1388,8 +1421,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 ),
                 subtitle: Text(
                   _containsRewards
-                      ? 'Yes — you will be prompted to add rewards after creation.'
-                      : 'No — you can add rewards later from League Admin.',
+                      ? context.l10n.tr(
+                          'league_create_wizard_contains_rewards_yes_subtitle')
+                      : context.l10n.tr(
+                          'league_create_wizard_contains_rewards_no_subtitle'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: AppTheme.secondaryText(brightness),
                     fontSize: 12,
@@ -1417,13 +1452,17 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         _hasLeagueAccess &&
         !_basicLimitReachedForNewLeague;
 
-    final wcSuffix = _format == LeagueFormat.worldCup ? ' • ${_worldCupFormat.teamCount} teams' : '';
+    final wcSuffix = _format == LeagueFormat.worldCup
+        ? ' • ${_worldCupFormat.teamCount} ${l10n.tr('league_create_wizard_teams_word_lower')}'
+        : '';
 
     return Column(
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _sectionTitle('Review', Icons.check_circle_outline),
+        _sectionTitle(
+            l10n.tr('league_create_wizard_review_section_title'),
+            Icons.check_circle_outline),
         const SizedBox(height: 10),
         _infoBanner(
           icon: Icons.emoji_events_outlined,
@@ -1431,36 +1470,38 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               ? l10n.tr('league_create_league_name_not_set')
               : _name.text.trim(),
           subtitle:
-              '${_format.displayName}$wcSuffix • $_maxTeams teams • ${_privacy == LeaguePrivacy.private ? 'Private' : 'Public'}',
+              '${_format.displayName}$wcSuffix • $_maxTeams ${l10n.tr('league_create_wizard_teams_word_lower')} • ${_privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public')}',
         ),
         const SizedBox(height: 10),
         if (_inMasterLeagueMode)
           _confirmRow(
             Icons.hub_rounded,
-            'Master League',
-            'This competition will be inside your Master League',
+            l10n.tr('league_create_summary_master_label'),
+            l10n.tr('league_create_wizard_competition_inside_master_league_value'),
             valueColor: AppTheme.limeAccentDark,
           ),
         if (_format == LeagueFormat.worldCup)
           _confirmRow(
             Icons.public_rounded,
-            'WC Format',
+            l10n.tr('league_create_summary_wc_format_label'),
             _worldCupFormat.displayName,
             valueColor: _premiumAmber,
           ),
         if (_supportsHomeAwayMatches)
           _confirmRow(
             Icons.swap_horiz,
-            'Home & away matches',
-            _homeAwayEnabled ? 'Enabled' : 'Disabled',
+            l10n.tr('league_create_wizard_confirm_home_away_label'),
+            _homeAwayEnabled
+                ? l10n.tr('league_create_enabled')
+                : l10n.tr('league_create_disabled'),
             valueColor: _homeAwayEnabled
                 ? AppTheme.limeAccentDark
                 : AppTheme.secondaryText(brightness),
           ),
         _confirmRow(
           Icons.card_giftcard_outlined,
-          'Rewards',
-          _containsRewards ? 'Yes' : 'No',
+          l10n.tr('league_create_summary_rewards_label'),
+          _containsRewards ? l10n.tr('common_yes') : l10n.tr('common_no'),
           valueColor: _containsRewards
               ? AppTheme.limeAccentDark
               : AppTheme.secondaryText(brightness),
@@ -1469,7 +1510,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         if (_basicLimitReachedForNewLeague)
           _infoBanner(
             icon: Icons.workspace_premium_rounded,
-            title: 'Upgrade required',
+            title: l10n.tr('league_create_upgrade_required'),
             subtitle: _basicLimitText,
             accent: _premiumAmber,
           )
@@ -1478,14 +1519,16 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             icon: Icons.verified_rounded,
             title: _inMasterLeagueMode
                 ? (_isPaidPlanUser
-                    ? 'Included in Master League / paid plan'
-                    : 'Included in Master League / Basic allowance')
+                    ? l10n.tr(
+                        'league_create_wizard_included_master_league_paid_plan')
+                    : l10n.tr(
+                        'league_create_wizard_included_master_league_basic_allowance'))
                 : (_isPaidPlanUser
-                    ? 'Included in your paid plan'
-                    : 'Included in your Basic allowance'),
+                    ? l10n.tr('league_create_included_paid_plan_title')
+                    : l10n.tr('league_create_included_basic_allowance_title')),
             subtitle: _inMasterLeagueMode
-                ? 'This competition uses the same shared creation allowance as normal leagues.'
-                : 'You can create this league now.',
+                ? l10n.tr('league_create_master_league_shared_allowance_notice')
+                : l10n.tr('league_create_can_create_now_notice'),
             accent: AppTheme.limeAccentDark,
           ),
         const SizedBox(height: 12),
@@ -1505,8 +1548,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'A short rewarded video ad will play before your league is created. '
-                    'Watch it fully to unlock creation.',
+                    l10n.tr('league_create_wizard_rewarded_ad_notice'),
                     style: TextStyle(
                       color: Colors.amber.shade700,
                       fontSize: 12,
@@ -1529,9 +1571,9 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             ),
             onPressed: (_submitting || _rewardGateInProgress) ? null : _openPlanUpgradeFlow,
             icon: const Icon(Icons.workspace_premium_rounded),
-            label: const Text(
-              'Upgrade Plan',
-              style: TextStyle(fontWeight: FontWeight.w900),
+            label: Text(
+              l10n.tr('league_create_upgrade_plan_button'),
+              style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           )
         else
@@ -1555,7 +1597,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
                   )
                 : Text(
                     _format == LeagueFormat.worldCup
-                        ? 'CREATE WORLD CUP'
+                        ? l10n.tr('league_create_create_world_cup_upper')
                         : l10n.tr('league_create_create_league_button_upper'),
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
@@ -1744,11 +1786,11 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
     if (_submitting || _rewardGateInProgress) return;
     if (_checkingAccess) {
-      _showSnack('Checking your access. Please wait.');
+      _showSnack(l10n.tr('league_create_checking_access_snack'));
       return;
     }
     if (!_hasLeagueAccess) {
-      _showSnack('You need to sign in to create leagues.');
+      _showSnack(context.l10n.tr('league_create_need_sign_in_to_create'));
       return;
     }
     if (_basicLimitReachedForNewLeague) {
@@ -1774,7 +1816,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
 
         if (!earned) {
           _showSnack(
-            'You need to watch the full ad to create a league. Please try again.',
+            l10n.tr('league_create_wizard_ad_incomplete_snack'),
           );
           return;
         }
@@ -1939,8 +1981,11 @@ class _OptionalImageField extends StatelessWidget {
           ),
         );
 
-        final String statusText =
-            uploading ? 'Uploading...' : (hasImage ? 'Uploaded' : 'No image selected');
+        final String statusText = uploading
+            ? context.l10n.tr('league_create_image_status_uploading')
+            : (hasImage
+                ? context.l10n.tr('league_create_image_status_uploaded')
+                : context.l10n.tr('league_create_image_status_none_selected'));
 
         final IconData tickIcon =
             hasImage ? Icons.check_box : Icons.check_box_outline_blank;
@@ -2006,7 +2051,8 @@ class _OptionalImageField extends StatelessWidget {
                           ),
                         )
                       : IconButton(
-                          tooltip: 'Upload',
+                          tooltip: context.l10n
+                              .tr('league_create_image_upload_tooltip'),
                           onPressed: onUpload,
                           icon: const Icon(Icons.cloud_upload_outlined),
                         ),
@@ -2015,7 +2061,10 @@ class _OptionalImageField extends StatelessWidget {
                   width: 40,
                   height: 40,
                   child: IconButton(
-                    tooltip: hasImage ? 'Clear' : 'Clear (disabled)',
+                    tooltip: hasImage
+                        ? context.l10n.tr('league_create_image_clear_tooltip')
+                        : context.l10n.tr(
+                            'league_create_image_clear_disabled_tooltip'),
                     onPressed: (!uploading && hasImage) ? onClear : null,
                     icon: const Icon(Icons.clear),
                   ),

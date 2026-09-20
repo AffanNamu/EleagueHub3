@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/locale/app_localizations.dart';
+
 class AffiliateDisclosureScreen extends StatelessWidget {
   const AffiliateDisclosureScreen({super.key});
 
@@ -11,10 +13,11 @@ class AffiliateDisclosureScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l10n = context.l10n;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Affiliate Disclosure'),
+        title: Text(l10n.tr('affiliate_appbar_title')),
       ),
       backgroundColor: cs.background,
       body: SafeArea(
@@ -24,36 +27,25 @@ class AffiliateDisclosureScreen extends StatelessWidget {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 920),
               child: _LegalDoc(
-                title: 'Affiliate Disclosure',
-                subtitle: 'Effective date: $_effectiveDate',
-                children: const [
+                title: l10n.tr('affiliate_appbar_title'),
+                subtitle: '${l10n.tr('affiliate_subtitle_prefix')}$_effectiveDate',
+                children: [
                   _P(
-                    '$_appName participates in affiliate marketing programs. This means some links shown in the App may be “affiliate links.” '
-                    'If you click an affiliate link and make a purchase from a third-party store, we may earn a commission or referral fee.',
+                    '$_appName${l10n.tr('affiliate_intro_suffix')}',
                   ),
-                  _H('What this means for you'),
-                  _B(
-                    'You pay no extra cost. Affiliate commissions are paid by the third-party store, not by you.',
-                  ),
-                  _B(
-                    'Prices and availability are determined by external partner stores and may change at any time.',
-                  ),
-                  _B(
-                    'Transactions happen on external partner sites/apps. The partner store processes payments, shipping, refunds, warranties, and customer service.',
-                  ),
-                  _H('Partner store responsibility'),
+                  _H(l10n.tr('affiliate_h_what_this_means')),
+                  _B(l10n.tr('affiliate_b_no_extra_cost')),
+                  _B(l10n.tr('affiliate_b_prices_availability')),
+                  _B(l10n.tr('affiliate_b_transactions')),
+                  _H(l10n.tr('affiliate_h_partner_responsibility')),
                   _P(
-                    'Because purchases are completed on third-party platforms, $_appName is not responsible for issues related to orders, payments, shipping, returns, refunds, or product quality. '
-                    'Any dispute or request regarding a purchase must be addressed directly with the partner store or merchant.',
+                    '${l10n.tr('affiliate_partner_responsibility_prefix')}$_appName${l10n.tr('affiliate_partner_responsibility_suffix')}',
                   ),
-                  _H('Editorial independence'),
+                  _H(l10n.tr('affiliate_h_editorial_independence')),
+                  _P(l10n.tr('affiliate_editorial_independence_body')),
+                  _H(l10n.tr('affiliate_h_questions')),
                   _P(
-                    'Where marketplace content is shown, we aim to present products and links that may be useful to users. '
-                    'Any affiliate relationship does not guarantee that all products are reviewed, endorsed, or recommended by us, and you should always conduct your own research before purchasing.',
-                  ),
-                  _H('Questions'),
-                  _P(
-                    'If you have questions about this Affiliate Disclosure, contact us at: $_supportEmail',
+                    '${l10n.tr('affiliate_questions_prefix')}$_supportEmail',
                   ),
                 ],
               ),

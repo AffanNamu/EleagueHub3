@@ -6,6 +6,7 @@ import 'app_localizations_10.dart';
 import 'app_localizations_11.dart';
 import 'app_localizations_12.dart';
 import 'app_localizations_13.dart';
+import 'app_localizations_14.dart';
 import 'app_localizations_2.dart';
 import 'app_localizations_3.dart';
 import 'app_localizations_4.dart';
@@ -67,6 +68,7 @@ class AppLocalizations {
     mergePart(appLocalizationsPart11);
     mergePart(appLocalizationsPart12);
     mergePart(appLocalizationsPart13);
+    mergePart(appLocalizationsPart14);
 
     final frozen = <String, Map<String, String>>{};
     for (final entry in result.entries) {

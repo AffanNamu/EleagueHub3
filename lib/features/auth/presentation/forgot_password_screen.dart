@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/glass.dart';
@@ -45,7 +46,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       await _auth.sendPasswordResetEmail(email: email);
 
       if (!mounted) return;
-      _showSnack('Password reset email sent. Check your inbox (and spam).');
+      _showSnack(context.l10n.tr('forgot_password_email_sent'));
 
       context.go('/reset-password?email=${Uri.encodeComponent(email)}');
     } catch (e) {
@@ -57,12 +58,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Reset password'),
+        title: Text(l10n.tr('forgot_password_app_bar_title')),
       ),
       body: Center(
         child: ConstrainedBox(
@@ -85,7 +87,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'Forgot your password?',
+                      l10n.tr('forgot_password_title'),
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: AppTheme.primaryText(brightness),
@@ -94,7 +96,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Enter your email and we’ll send a one-time reset link using Firebase Authentication’s built-in email system.',
+                      l10n.tr('forgot_password_subtitle'),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: AppTheme.secondaryText(brightness),
                         height: 1.35,
@@ -104,8 +106,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     const SizedBox(height: 14),
                     AppTextField(
                       controller: _email,
-                      label: 'Email',
-                      hint: 'name@example.com',
+                      label: l10n.tr('forgot_password_email_label'),
+                      hint: l10n.tr('forgot_password_email_hint'),
                       keyboardType: TextInputType.emailAddress,
                       enabled: !_submitting,
                       prefixIcon: const Icon(Icons.email_outlined),
@@ -131,13 +133,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                   color: AppTheme.darkText,
                                 ),
                               )
-                            : const Text('Send reset email'),
+                            : Text(l10n.tr('forgot_password_send_button')),
                       ),
                     ),
                     const SizedBox(height: 8),
                     TextButton(
                       onPressed: _submitting ? null : () => context.go('/login'),
-                      child: const Text('Back to sign in'),
+                      child: Text(l10n.tr('forgot_password_back_to_sign_in')),
                     ),
                   ],
                 ),

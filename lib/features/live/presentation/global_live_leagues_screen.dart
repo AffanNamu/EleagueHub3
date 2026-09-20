@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/glass_search_bar.dart';
@@ -24,8 +25,8 @@ import '../../leagues/models/league_format.dart';
 import '../../leagues/utils/current_user.dart';
 
 /// Safely read organizerName from a GlobalPublicLeague or its league.
-/// Falls back to 'Organizer' if the field doesn't exist on either object.
-String _safeOrganizerName(GlobalPublicLeague item) {
+/// Falls back to [fallback] if the field doesn't exist on either object.
+String _safeOrganizerName(GlobalPublicLeague item, String fallback) {
   try {
     final dyn = item as dynamic;
     final v = (dyn.organizerName as String?) ?? '';
@@ -36,7 +37,7 @@ String _safeOrganizerName(GlobalPublicLeague item) {
     final v = (dyn.organizerName as String?) ?? '';
     if (v.trim().isNotEmpty) return v.trim();
   } catch (_) {}
-  return 'Organizer';
+  return fallback;
 }
 
 class GlobalLiveLeaguesScreen extends ConsumerStatefulWidget {
@@ -109,9 +110,10 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
   }
 
   String _statusLabel(GlobalPublicLeague item) {
-    if (item.isFinished) return 'FINISHED';
-    if (item.isFullComputed) return 'FULL';
-    return 'OPEN';
+    final l10n = context.l10n;
+    if (item.isFinished) return l10n.tr('global_live_leagues_status_finished');
+    if (item.isFullComputed) return l10n.tr('global_live_leagues_status_full');
+    return l10n.tr('global_live_leagues_status_open');
   }
 
   Color _statusColor(GlobalPublicLeague item, ColorScheme cs) {
@@ -142,7 +144,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
   ) async {
     final authUid = _authUidOrEmpty();
     if (authUid.isEmpty) {
-      _snack('Please sign in and try again.');
+      _snack(context.l10n.tr('global_live_leagues_sign_in_and_try_again'));
       return false;
     }
 
@@ -222,7 +224,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                 busy = false;
                 error = res.errorMessage?.trim().isNotEmpty == true
                     ? res.errorMessage
-                    : 'Payment not successful.';
+                    : ctx.l10n.tr('global_live_leagues_payment_not_successful');
               });
               return;
             }
@@ -261,7 +263,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
           if (busy) return;
           final code = _normalizeCoupon(ctrl.text);
           if (code.length < 6) {
-            setSheetState(() => error = 'Enter a valid coupon code.');
+            setSheetState(
+              () => error = ctx.l10n.tr('global_live_leagues_enter_valid_coupon_code'),
+            );
             return;
           }
 
@@ -284,7 +288,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                 busy = false;
                 error = res.errorMessage?.trim().isNotEmpty == true
                     ? res.errorMessage
-                    : 'Coupon redemption failed.';
+                    : ctx.l10n.tr('global_live_leagues_coupon_redemption_failed');
               });
               return;
             }
@@ -354,7 +358,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              'Unlock access',
+                              ctx.l10n.tr('global_live_leagues_unlock_access'),
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 18,
@@ -385,9 +389,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                           color: cs.onPrimary,
                                         ),
                                       )
-                                    : const Text(
-                                        'Pay to unlock',
-                                        style: TextStyle(fontWeight: FontWeight.w900),
+                                    : Text(
+                                        ctx.l10n.tr('global_live_leagues_pay_to_unlock'),
+                                        style: const TextStyle(fontWeight: FontWeight.w900),
                                       ),
                               ),
                             ),
@@ -395,7 +399,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                             Align(
                               alignment: AlignmentDirectional.centerStart,
                               child: Text(
-                                'Or redeem a coupon',
+                                ctx.l10n.tr('global_live_leagues_or_redeem_coupon'),
                                 style: TextStyle(
                                   color: on.withOpacity(0.75),
                                   fontWeight: FontWeight.w900,
@@ -412,7 +416,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                 prefixIcon: const Icon(
                                   Icons.confirmation_number_outlined,
                                 ),
-                                hintText: 'Enter coupon code',
+                                hintText: ctx.l10n.tr('global_live_leagues_enter_coupon_code_hint'),
                                 filled: true,
                                 fillColor: on.withOpacity(0.06),
                                 border: OutlineInputBorder(
@@ -438,9 +442,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                               child: OutlinedButton.icon(
                                 onPressed: busy ? null : () => doCoupon(setSheetState),
                                 icon: const Icon(Icons.verified_outlined),
-                                label: const Text(
-                                  'Apply coupon',
-                                  style: TextStyle(fontWeight: FontWeight.w900),
+                                label: Text(
+                                  ctx.l10n.tr('global_live_leagues_apply_coupon'),
+                                  style: const TextStyle(fontWeight: FontWeight.w900),
                                 ),
                               ),
                             ),
@@ -473,7 +477,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                 style: TextButton.styleFrom(
                                   foregroundColor: on.withOpacity(0.70),
                                 ),
-                                child: const Text('Cancel'),
+                                child: Text(ctx.l10n.tr('global_live_leagues_cancel')),
                               ),
                             ),
                           ],
@@ -495,7 +499,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
 
   Future<void> _showJoinModeSheet(GlobalPublicLeague item) async {
     if (item.isFinished) {
-      _snack('This league is finished.');
+      _snack(context.l10n.tr('global_live_leagues_league_is_finished'));
       return;
     }
 
@@ -554,7 +558,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Join League',
+                          ctx.l10n.tr('global_live_leagues_join_league'),
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             fontSize: 18,
@@ -573,11 +577,13 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                         const SizedBox(height: 18),
                         _JoinModeTile(
                           icon: Icons.sports_soccer,
-                          title: 'Join as Participant',
+                          title: ctx.l10n.tr('global_live_leagues_join_as_participant'),
                           subtitle: item.isFullComputed
-                              ? 'League is currently full. You can still join as a viewer.'
-                              : 'Counts towards league capacity and lets you participate.',
-                          badge: item.isFullComputed ? 'FULL' : null,
+                              ? ctx.l10n.tr('global_live_leagues_full_still_join_as_viewer')
+                              : ctx.l10n.tr('global_live_leagues_counts_towards_capacity'),
+                          badge: item.isFullComputed
+                              ? ctx.l10n.tr('global_live_leagues_status_full')
+                              : null,
                           badgeColor: item.isFullComputed ? cs.error : cs.primary,
                           onTap: () =>
                               Navigator.of(ctx).pop(LeagueJoinMode.participant),
@@ -585,9 +591,9 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                         const SizedBox(height: 10),
                         _JoinModeTile(
                           icon: Icons.visibility_outlined,
-                          title: 'Join as Viewer',
+                          title: ctx.l10n.tr('global_live_leagues_join_as_viewer_title'),
                           subtitle:
-                              'View league content without taking a participant slot.',
+                              ctx.l10n.tr('global_live_leagues_view_without_slot'),
                           onTap: () => Navigator.of(ctx).pop(LeagueJoinMode.viewer),
                         ),
                         const SizedBox(height: 14),
@@ -598,7 +604,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                             style: TextButton.styleFrom(
                               foregroundColor: on.withOpacity(0.65),
                             ),
-                            child: const Text('Cancel'),
+                            child: Text(ctx.l10n.tr('global_live_leagues_cancel')),
                           ),
                         ),
                       ],
@@ -639,12 +645,12 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
       if (!mounted) return;
 
       if (result.status == GlobalPublicLeagueJoinStatus.finished) {
-        _snack('This league is finished.');
+        _snack(context.l10n.tr('global_live_leagues_league_is_finished'));
         return;
       }
 
       if (result.status == GlobalPublicLeagueJoinStatus.privateLeague) {
-        _snack('This league is private.');
+        _snack(context.l10n.tr('global_live_leagues_league_is_private'));
         return;
       }
 
@@ -662,18 +668,18 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
 
               return AlertDialog(
                 backgroundColor: dialogBg,
-                title: const Text('League is full'),
-                content: const Text(
-                  'No participant slots left. Do you want to join as a viewer instead?',
+                title: Text(ctx.l10n.tr('global_live_leagues_league_is_full_title')),
+                content: Text(
+                  ctx.l10n.tr('global_live_leagues_no_participant_slots_left'),
                 ),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.of(ctx).pop(false),
-                    child: const Text('Cancel'),
+                    child: Text(ctx.l10n.tr('global_live_leagues_cancel')),
                   ),
                   FilledButton(
                     onPressed: () => Navigator.of(ctx).pop(true),
-                    child: const Text('Join as viewer'),
+                    child: Text(ctx.l10n.tr('global_live_leagues_join_as_viewer_button')),
                   ),
                 ],
               );
@@ -689,7 +695,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
             await _join(item, LeagueJoinMode.viewer);
           }
         } else {
-          _snack('League is full.');
+          _snack(context.l10n.tr('global_live_leagues_league_is_full_snack'));
         }
         return;
       }
@@ -701,7 +707,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
     } catch (e) {
       if (!mounted) return;
       _snack(
-        'Join failed: ${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}',
+        '${context.l10n.tr('global_live_leagues_join_failed_prefix')}${UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'))}',
       );
     } finally {
       if (mounted) setState(() => _joiningLeagueId = null);
@@ -714,6 +720,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final on = cs.onSurface;
+    final l10n = context.l10n;
 
     return GlassScaffold(
       appBar: AppBar(
@@ -776,7 +783,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Global Leagues',
+                                    l10n.tr('global_live_leagues_header_title'),
                                     style: theme.textTheme.titleLarge?.copyWith(
                                       fontWeight: FontWeight.w900,
                                       fontSize: 22,
@@ -786,7 +793,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                   const SizedBox(height: 2),
                                   asyncLeagues.when(
                                     data: (items) => Text(
-                                      '${items.length} active league${items.length == 1 ? '' : 's'}',
+                                      '${items.length}${items.length == 1 ? l10n.tr('global_live_leagues_active_league_singular_suffix') : l10n.tr('global_live_leagues_active_league_plural_suffix')}',
                                       style: TextStyle(
                                         color: on.withOpacity(0.55),
                                         fontWeight: FontWeight.w600,
@@ -794,7 +801,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                       ),
                                     ),
                                     loading: () => Text(
-                                      'Loading...',
+                                      l10n.tr('global_live_leagues_loading'),
                                       style: TextStyle(
                                         color: on.withOpacity(0.45),
                                         fontWeight: FontWeight.w600,
@@ -802,7 +809,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                       ),
                                     ),
                                     error: (_, __) => Text(
-                                      'Error loading',
+                                      l10n.tr('global_live_leagues_error_loading'),
                                       style: TextStyle(
                                         color: cs.error.withOpacity(0.85),
                                         fontWeight: FontWeight.w600,
@@ -836,7 +843,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                           CircularProgressIndicator(color: cs.primary),
                           const SizedBox(height: 16),
                           Text(
-                            'Discovering leagues...',
+                            l10n.tr('global_live_leagues_discovering_leagues'),
                             style: TextStyle(
                               color: on.withOpacity(0.55),
                               fontWeight: FontWeight.w600,
@@ -868,7 +875,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                             ),
                             const SizedBox(height: 14),
                             Text(
-                              'Failed to load leagues',
+                              l10n.tr('global_live_leagues_failed_to_load'),
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w900,
                               ),
@@ -921,7 +928,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
-                                  'No Public Leagues',
+                                  l10n.tr('global_live_leagues_no_public_leagues'),
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.w900,
                                     fontSize: 18,
@@ -929,7 +936,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'Discover public leagues from the\nglobal community.',
+                                  l10n.tr('global_live_leagues_discover_public_leagues'),
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     color: on.withOpacity(0.55),
@@ -959,7 +966,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
-                                  'No leagues match your search',
+                                  l10n.tr('global_live_leagues_no_search_matches'),
                                   style: TextStyle(
                                     color: on.withOpacity(0.60),
                                     fontWeight: FontWeight.w700,
@@ -1116,13 +1123,17 @@ class _LeagueCardState extends State<_LeagueCard>
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final on = cs.onSurface;
+    final l10n = context.l10n;
 
     final item = widget.item;
     final joining = widget.joining;
 
     final desc = item.league.description.trim();
     final isLive = !item.isFinished && !item.isFullComputed;
-    final organizerDisplay = _safeOrganizerName(item);
+    final organizerDisplay = _safeOrganizerName(
+      item,
+      l10n.tr('global_live_leagues_organizer_fallback'),
+    );
 
     final participantText = item.registeredCount == null
         ? '${item.league.maxTeams}'
@@ -1221,7 +1232,7 @@ class _LeagueCardState extends State<_LeagueCard>
                     icon: Icons.public_rounded,
                     label: item.league.region.isNotEmpty
                         ? item.league.region
-                        : 'Global',
+                        : l10n.tr('global_live_leagues_region_fallback'),
                   ),
                   if (item.league.viewerCapacity > 0)
                     _InfoChip(
@@ -1459,7 +1470,7 @@ class _PremiumJoinButton extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        'Join League',
+                        context.l10n.tr('global_live_leagues_join_league'),
                         style: TextStyle(
                           color: disabled ? on.withOpacity(0.35) : cs.onPrimary,
                           fontWeight: FontWeight.w800,

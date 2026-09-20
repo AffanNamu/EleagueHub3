@@ -19,6 +19,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../social/data/home_content_repository.dart';
@@ -446,9 +447,9 @@ class _AnnouncementSheetContent extends StatelessWidget {
                     foregroundColor: AppTheme.darkText,
                   ),
                   onPressed: onDismiss,
-                  child: const Text(
-                    'Got it',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                  child: Text(
+                    context.l10n.tr('home_announcement_sheet_dismiss'),
+                    style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
               ),

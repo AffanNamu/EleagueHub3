@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/account_deletion_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -45,6 +46,7 @@ Future<bool?> _showWarningDialog(BuildContext context) {
   final theme = Theme.of(context);
   final cs = theme.colorScheme;
   final brightness = theme.brightness;
+  final l10n = context.l10n;
 
   return showDialog<bool>(
     context: context,
@@ -85,7 +87,7 @@ Future<bool?> _showWarningDialog(BuildContext context) {
 
                 // ── Title ────────────────────────────────────────────────────
                 Text(
-                  'Close Account',
+                  l10n.tr('delete_account_close_account_label'),
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w900,
                     fontSize: 22,
@@ -109,21 +111,21 @@ Future<bool?> _showWarningDialog(BuildContext context) {
                     children: [
                       _warningRow(
                         Icons.warning_amber_rounded,
-                        'This action is permanent and cannot be undone.',
+                        l10n.tr('delete_account_warning_permanent'),
                         theme,
                         brightness,
                       ),
                       const SizedBox(height: 10),
                       _warningRow(
                         Icons.cloud_off_rounded,
-                        'All your personal data, matches, and stats will be wiped.',
+                        l10n.tr('delete_account_warning_data_wiped'),
                         theme,
                         brightness,
                       ),
                       const SizedBox(height: 10),
                       _warningRow(
                         Icons.emoji_events_outlined,
-                        'Your leagues and tournament access will be lost.',
+                        l10n.tr('delete_account_warning_leagues_lost'),
                         theme,
                         brightness,
                       ),
@@ -147,9 +149,9 @@ Future<bool?> _showWarningDialog(BuildContext context) {
                       ),
                       foregroundColor: AppTheme.primaryText(brightness),
                     ),
-                    child: const Text(
-                      'Cancel — Keep My Account',
-                      style: TextStyle(
+                    child: Text(
+                      l10n.tr('delete_account_cancel_keep_button'),
+                      style: const TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 14,
                       ),
@@ -169,9 +171,9 @@ Future<bool?> _showWarningDialog(BuildContext context) {
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: const Text(
-                      'Yes, Close My Account',
-                      style: TextStyle(
+                    child: Text(
+                      l10n.tr('delete_account_confirm_button'),
+                      style: const TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 14,
                       ),
@@ -218,6 +220,10 @@ class _FeedbackResult {
   final String? text;
 }
 
+// NOTE: these English strings are also the canonical values stored/sent as
+// the deletion `feedbackReason` (see _selectedReasons below), so they must
+// stay as-is. `_feedbackOptionKeys` below maps each one to the l10n key used
+// only for the on-screen label.
 const List<String> _feedbackOptions = [
   'I don\'t understand how to use the app',
   'I have privacy concerns',
@@ -226,6 +232,17 @@ const List<String> _feedbackOptions = [
   'I receive too many notifications',
   'Other',
 ];
+
+const Map<String, String> _feedbackOptionKeys = {
+  'I don\'t understand how to use the app':
+      'delete_account_feedback_option_confusing',
+  'I have privacy concerns': 'delete_account_feedback_option_privacy',
+  'The app is too buggy or slow': 'delete_account_feedback_option_buggy',
+  'I found a better alternative': 'delete_account_feedback_option_alternative',
+  'I receive too many notifications':
+      'delete_account_feedback_option_notifications',
+  'Other': 'delete_account_feedback_option_other',
+};
 
 Future<_FeedbackResult?> _showFeedbackDialog(BuildContext context) {
   return showDialog<_FeedbackResult>(
@@ -265,6 +282,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final onSurface = theme.colorScheme.onSurface;
+    final l10n = context.l10n;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -303,7 +321,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'We\'re sad to see you go',
+                          l10n.tr('delete_account_feedback_title'),
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             fontSize: 18,
@@ -312,7 +330,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Please tell us why so we can improve.',
+                          l10n.tr('delete_account_feedback_subtitle'),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w600,
@@ -338,7 +356,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Select all that apply:',
+                        l10n.tr('delete_account_feedback_select_label'),
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 14,
@@ -382,7 +400,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                                   const SizedBox(width: 14),
                                   Expanded(
                                     child: Text(
-                                      option,
+                                      l10n.tr(_feedbackOptionKeys[option]!),
                                       style: TextStyle(
                                         color: isSelected
                                             ? AppTheme.primaryText(brightness)
@@ -401,7 +419,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
 
                       const SizedBox(height: 12),
                       Text(
-                        'Tell us more (Optional):',
+                        l10n.tr('delete_account_feedback_more_label'),
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 14,
@@ -419,7 +437,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                           fontSize: 13,
                         ),
                         decoration: InputDecoration(
-                          hintText: 'Any additional feedback...',
+                          hintText: l10n.tr('delete_account_feedback_hint'),
                           hintStyle: TextStyle(
                             color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w600,
@@ -471,9 +489,9 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      child: const Text(
-                        'Skip',
-                        style: TextStyle(
+                      child: Text(
+                        l10n.tr('delete_account_feedback_skip_button'),
+                        style: const TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 14,
                         ),
@@ -501,9 +519,9 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      child: const Text(
-                        'Close Account',
-                        style: TextStyle(
+                      child: Text(
+                        l10n.tr('delete_account_close_account_label'),
+                        style: const TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 14,
                         ),
@@ -529,6 +547,7 @@ Future<bool> _performDeletion(
   String? feedbackReason,
   String? feedbackText,
 }) async {
+  final l10n = context.l10n;
   // Show a non-dismissible loading dialog
   showDialog(
     context: context,
@@ -556,10 +575,10 @@ Future<bool> _performDeletion(
   if (result.success) {
     // Show brief success snack before router redirect takes over
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Account Closed successfully.'),
+      SnackBar(
+        content: Text(l10n.tr('delete_account_success_snackbar')),
         behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
+        duration: const Duration(seconds: 2),
       ),
     );
     return true;
@@ -582,14 +601,14 @@ Future<bool> _performDeletion(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Sign In Required',
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+                Text(
+                  l10n.tr('delete_account_reauth_title'),
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
                 ),
                 const SizedBox(height: 12),
                 Text(
                   result.errorMessage ??
-                      'Please sign in again before deleting your account to verify your identity.',
+                      l10n.tr('delete_account_reauth_message'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
@@ -606,9 +625,9 @@ Future<bool> _performDeletion(
                       backgroundColor: AppTheme.limeAccent,
                       foregroundColor: AppTheme.darkText,
                     ),
-                    child: const Text(
-                      'OK',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                    child: Text(
+                      l10n.tr('delete_account_reauth_ok_button'),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
                 ),
@@ -626,7 +645,7 @@ Future<bool> _performDeletion(
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          result.errorMessage ?? 'Account closing failed. Please try again.',
+          result.errorMessage ?? l10n.tr('delete_account_generic_error_message'),
         ),
         behavior: SnackBarBehavior.floating,
         backgroundColor: Theme.of(context).colorScheme.error,
@@ -647,6 +666,7 @@ class _DeletionLoadingDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n = context.l10n;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -670,7 +690,7 @@ class _DeletionLoadingDialog extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               Text(
-                'Closing Account',
+                l10n.tr('delete_account_loading_title'),
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w900,
                   fontSize: 18,
@@ -679,7 +699,7 @@ class _DeletionLoadingDialog extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Removing your data permanently.\nPlease wait…',
+                l10n.tr('delete_account_loading_message'),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: AppTheme.secondaryText(brightness),

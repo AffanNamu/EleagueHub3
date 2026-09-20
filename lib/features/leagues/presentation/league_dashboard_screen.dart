@@ -5,6 +5,7 @@ import '../models/team_stats.dart';
 import '../logic/standings_engine.dart';
 import '../presentation/knockout_bracket_screen.dart';
 import '../data/leagues_repository_mock.dart'; // import repo
+import '../../../core/locale/app_localizations.dart';
 
 class LeagueDashboardScreen extends StatefulWidget {
   final String leagueId;
@@ -44,6 +45,7 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final sortedTeams = StandingsEngine.compute(_teams, _matches);
     final standings = List<TeamStatsWithExtras>.generate(
       sortedTeams.length,
@@ -52,7 +54,7 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
         return TeamStatsWithExtras(
           base: t,
           position: index + 1,
-          teamName: _lookupTeamName(t.teamId),
+          teamName: _lookupTeamName(t.teamId, l10n),
         );
       },
     );
@@ -60,7 +62,7 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF4FC3F7),
       appBar: AppBar(
-        title: const Text('League Dashboard'),
+        title: Text(l10n.tr('league_dashboard_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
@@ -82,8 +84,8 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
                 ),
                 Expanded(
                   child: isTablet
-                      ? _buildTabletView(standings)
-                      : _buildMobileView(standings),
+                      ? _buildTabletView(standings, l10n)
+                      : _buildMobileView(standings, l10n),
                 ),
               ],
             );
@@ -94,12 +96,14 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
   }
 
   /// ---------------- HELPERS ----------------
-  String _lookupTeamName(String teamId) {
+  String _lookupTeamName(String teamId, AppLocalizations l10n) {
     final team = _teams.firstWhere(
       (t) => t.teamId == teamId,
       orElse: () => TeamStats.empty(teamId: teamId, leagueId: widget.leagueId),
     );
-    return team.teamName.isNotEmpty ? team.teamName : "Team $teamId";
+    return team.teamName.isNotEmpty
+        ? team.teamName
+        : "${l10n.tr('league_dashboard_team_fallback_prefix')} $teamId";
   }
 
   void _openKnockoutIfUCL() {
@@ -118,23 +122,23 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
   }
 
   /// ---------------- MOBILE ----------------
-  Widget _buildMobileView(List<TeamStatsWithExtras> standings) {
+  Widget _buildMobileView(List<TeamStatsWithExtras> standings, AppLocalizations l10n) {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _sectionTitle("STANDINGS"),
+        _sectionTitle(l10n.tr('league_dashboard_standings_title')),
         const SizedBox(height: 10),
-        _buildStandingsList(standings),
+        _buildStandingsList(standings, l10n),
         const SizedBox(height: 30),
-        _sectionTitle("UPCOMING FIXTURES"),
+        _sectionTitle(l10n.tr('league_dashboard_upcoming_fixtures_title')),
         const SizedBox(height: 10),
-        _buildFixturesList(),
+        _buildFixturesList(l10n),
       ],
     );
   }
 
   /// ---------------- TABLET ----------------
-  Widget _buildTabletView(List<TeamStatsWithExtras> standings) {
+  Widget _buildTabletView(List<TeamStatsWithExtras> standings, AppLocalizations l10n) {
     return Row(
       children: [
         Expanded(
@@ -144,9 +148,9 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _sectionTitle("STANDINGS"),
+                _sectionTitle(l10n.tr('league_dashboard_standings_title')),
                 const SizedBox(height: 10),
-                _buildStandingsList(standings),
+                _buildStandingsList(standings, l10n),
               ],
             ),
           ),
@@ -159,9 +163,9 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _sectionTitle("FIXTURES"),
+                _sectionTitle(l10n.tr('league_dashboard_fixtures_title')),
                 const SizedBox(height: 10),
-                _buildFixturesList(),
+                _buildFixturesList(l10n),
               ],
             ),
           ),
@@ -182,8 +186,8 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
     );
   }
 
-  Widget _buildStandingsList(List<TeamStatsWithExtras> standings) {
-    if (standings.isEmpty) return _emptyBox("No standings yet");
+  Widget _buildStandingsList(List<TeamStatsWithExtras> standings, AppLocalizations l10n) {
+    if (standings.isEmpty) return _emptyBox(l10n.tr('league_dashboard_no_standings_yet'));
 
     return Column(
       children: standings.map((team) {
@@ -197,16 +201,16 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
     );
   }
 
-  Widget _buildFixturesList() {
+  Widget _buildFixturesList(AppLocalizations l10n) {
     final fixtures = filterByMe ? _matches.where((m) => m.isMyMatch).toList() : _matches;
 
-    if (fixtures.isEmpty) return _emptyBox("No fixtures available");
+    if (fixtures.isEmpty) return _emptyBox(l10n.tr('league_dashboard_no_fixtures_available'));
 
     return Column(
       children: fixtures.map((match) {
         return ListTile(
           title: Text("${match.homeTeamName} vs ${match.awayTeamName}", style: const TextStyle(color: Colors.white)),
-          subtitle: Text(match.isPlayed ? "Finished" : "Upcoming", style: const TextStyle(color: Colors.white70)),
+          subtitle: Text(match.isPlayed ? l10n.tr('league_dashboard_match_finished') : l10n.tr('league_dashboard_match_upcoming'), style: const TextStyle(color: Colors.white70)),
           trailing: match.isPlayed
               ? Text("${match.homeScore} - ${match.awayScore}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
               : const Icon(Icons.chevron_right, color: Colors.white54),

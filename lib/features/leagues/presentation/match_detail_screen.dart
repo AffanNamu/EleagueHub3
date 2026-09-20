@@ -222,7 +222,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   Future<bool> _ensureSignedInAndOnline() async {
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
-      _showSnack('Please sign in and try again.');
+      _showSnack(context.l10n.tr('match_detail_sign_in_and_retry'));
       if (mounted) context.go('/login');
       return false;
     }
@@ -345,7 +345,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   Future<void> _openHighlightUrl(String url) async {
     final u = Uri.tryParse(url.trim());
     if (u == null) {
-      _showSnack('Invalid video URL.');
+      _showSnack(context.l10n.tr('match_detail_invalid_video_url'));
       return;
     }
 
@@ -355,7 +355,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     );
 
     if (!ok) {
-      _showSnack('Could not open video.');
+      _showSnack(context.l10n.tr('match_detail_could_not_open_video'));
     }
   }
 
@@ -481,7 +481,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Match Poster',
+                  context.l10n.tr('match_detail_match_poster_title'),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: cs.onSurface,
@@ -489,7 +489,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Generate a shareable poster for this match',
+                  context.l10n.tr('match_detail_match_poster_subtitle'),
                   style: TextStyle(
                     color: cs.onSurface.withOpacity(0.60),
                     fontSize: 12,
@@ -502,9 +502,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           FilledButton.icon(
             onPressed: (_match == null) ? null : _openMatchPoster,
             icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-            label: const Text(
-              'Generate',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+            label: Text(
+              context.l10n.tr('match_detail_generate'),
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
             ),
           ),
         ],
@@ -683,23 +683,24 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         uploadState.stage == HighlightUploadStage.finishing;
 
     String stageLabel() {
+      final l10n = context.l10n;
       switch (uploadState.stage) {
         case HighlightUploadStage.compressing:
-          return 'Compressing…';
+          return l10n.tr('match_detail_stage_compressing');
         case HighlightUploadStage.uploading:
-          return 'Uploading…';
+          return l10n.tr('match_detail_stage_uploading');
         case HighlightUploadStage.preparingDoc:
-          return 'Preparing…';
+          return l10n.tr('match_detail_stage_preparing');
         case HighlightUploadStage.probing:
-          return 'Checking…';
+          return l10n.tr('match_detail_stage_checking');
         case HighlightUploadStage.picking:
-          return 'Selecting…';
+          return l10n.tr('match_detail_stage_selecting');
         case HighlightUploadStage.finishing:
-          return 'Finalizing…';
+          return l10n.tr('match_detail_stage_finalizing');
         case HighlightUploadStage.done:
-          return 'Uploaded';
+          return l10n.tr('match_detail_stage_uploaded');
         case HighlightUploadStage.failed:
-          return 'Upload failed';
+          return l10n.tr('match_detail_stage_upload_failed');
         case HighlightUploadStage.idle:
         default:
           return '';
@@ -720,7 +721,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Highlights',
+                  context.l10n.tr('match_detail_highlights_title'),
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: cs.onSurface,
                     fontWeight: FontWeight.w900,
@@ -738,9 +739,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary),
                         )
                       : const Icon(Icons.upload, size: 18),
-                  label: const Text(
-                    'Upload',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                  label: Text(
+                    context.l10n.tr('match_detail_upload'),
+                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                   ),
                 ),
             ],
@@ -757,7 +758,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                 border: Border.all(color: cs.onSurface.withOpacity(0.12)),
               ),
               child: Text(
-                'Highlights can be uploaded after the match is completed.',
+                context.l10n.tr('match_detail_highlights_after_completion'),
                 style: TextStyle(
                   color: cs.onSurface.withOpacity(0.70),
                   fontWeight: FontWeight.w700,
@@ -778,7 +779,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
               child: Text(
                 (eligibilityMsg != null && eligibilityMsg.isNotEmpty)
                     ? eligibilityMsg
-                    : 'Only home/away team members can upload highlights.',
+                    : context.l10n
+                        .tr('match_detail_home_away_only_upload'),
                 style: TextStyle(
                   color: cs.onSurface.withOpacity(0.70),
                   fontWeight: FontWeight.w700,
@@ -902,7 +904,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                     border: Border.all(color: cs.onSurface.withOpacity(0.12)),
                   ),
                   child: Text(
-                    'No highlights yet.',
+                    context.l10n.tr('match_detail_no_highlights_yet'),
                     style: TextStyle(
                       color: cs.onSurface.withOpacity(0.70),
                       fontWeight: FontWeight.w700,
@@ -918,7 +920,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                   for (final h in items) ...[
                     _HighlightCard(
                       highlight: h,
-                      teamName: _teamsById[h.teamId]?.name ?? 'Team',
+                      teamName: _teamsById[h.teamId]?.name ??
+                          context.l10n.tr('match_detail_team_fallback'),
                       isMine: (h.uploadedBy.trim().isNotEmpty) &&
                           (h.uploadedBy.trim() == (FirebaseAuth.instance.currentUser?.uid ?? '').trim()),
                       onOpen: h.secureUrl.trim().isEmpty ? null : () => onOpenUrl(h.secureUrl),
@@ -963,9 +966,14 @@ class _HighlightCard extends StatelessWidget {
     }
 
     String statusLabel() {
-      if (status == MatchHighlight.statusApproved) return 'APPROVED';
-      if (status == MatchHighlight.statusProcessing) return 'PROCESSING';
-      return 'UPLOADING';
+      final l10n = context.l10n;
+      if (status == MatchHighlight.statusApproved) {
+        return l10n.tr('match_detail_status_approved');
+      }
+      if (status == MatchHighlight.statusProcessing) {
+        return l10n.tr('match_detail_status_processing');
+      }
+      return l10n.tr('match_detail_status_uploading');
     }
 
     return InkWell(
@@ -1018,7 +1026,7 @@ class _HighlightCard extends StatelessWidget {
                       if (isMine) ...[
                         const SizedBox(width: 8),
                         Text(
-                          'Yours',
+                          context.l10n.tr('match_detail_yours_label'),
                           style: TextStyle(
                             color: cs.onSurface.withOpacity(0.55),
                             fontWeight: FontWeight.w800,
@@ -1031,7 +1039,7 @@ class _HighlightCard extends StatelessWidget {
                   if (hasUrl) ...[
                     const SizedBox(height: 6),
                     Text(
-                      'Tap to play',
+                      context.l10n.tr('match_detail_tap_to_play'),
                       style: TextStyle(
                         color: cs.primary,
                         fontWeight: FontWeight.w900,
@@ -1041,7 +1049,8 @@ class _HighlightCard extends StatelessWidget {
                   ] else ...[
                     const SizedBox(height: 6),
                     Text(
-                      'Video will appear when upload finishes.',
+                      context.l10n
+                          .tr('match_detail_video_appears_when_done'),
                       style: TextStyle(
                         color: cs.onSurface.withOpacity(0.55),
                         fontWeight: FontWeight.w700,

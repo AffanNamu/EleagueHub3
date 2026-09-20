@@ -19,6 +19,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -39,18 +40,27 @@ class _CompetitionRulesGateScreenState
     extends State<CompetitionRulesGateScreen> {
   final LeaguesRepositoryFirebase _repo = LeaguesRepositoryFirebase();
 
-  static const Map<String, String> _fairPlayLabels = {
-    'fair_play_respect': 'Fair play & respect are mandatory',
-    'no_harassment': 'No harassment',
-    'no_abusive_language': 'No abusive language',
-    'no_discrimination': 'No discrimination',
-    'no_cheating': 'No cheating',
-    'no_match_fixing': 'No match fixing',
-    'no_collusion': 'No collusion',
-    'no_impersonation': 'No impersonation',
-    'no_account_sharing': 'No account sharing',
-    'no_deliberate_exploitation': 'No deliberate exploitation of glitches',
-  };
+  Map<String, String> _fairPlayLabels(BuildContext context) {
+    final l10n = context.l10n;
+    return {
+      'fair_play_respect':
+          l10n.tr('competition_rules_gate_fair_play_respect'),
+      'no_harassment': l10n.tr('competition_rules_gate_no_harassment'),
+      'no_abusive_language':
+          l10n.tr('competition_rules_gate_no_abusive_language'),
+      'no_discrimination':
+          l10n.tr('competition_rules_gate_no_discrimination'),
+      'no_cheating': l10n.tr('competition_rules_gate_no_cheating'),
+      'no_match_fixing': l10n.tr('competition_rules_gate_no_match_fixing'),
+      'no_collusion': l10n.tr('competition_rules_gate_no_collusion'),
+      'no_impersonation':
+          l10n.tr('competition_rules_gate_no_impersonation'),
+      'no_account_sharing':
+          l10n.tr('competition_rules_gate_no_account_sharing'),
+      'no_deliberate_exploitation':
+          l10n.tr('competition_rules_gate_no_deliberate_exploitation'),
+    };
+  }
 
   bool _loading = true;
   String? _error;
@@ -91,8 +101,12 @@ class _CompetitionRulesGateScreenState
     context.pushReplacement('/leagues/${widget.leagueId}');
   }
 
-  String _durationLabel(int hours) =>
-      hours == 1 ? '1 hour' : '$hours hours';
+  String _durationLabel(int hours) {
+    final l10n = context.l10n;
+    return hours == 1
+        ? l10n.tr('competition_rules_gate_duration_one_hour')
+        : '$hours${l10n.tr('competition_rules_gate_duration_hours_suffix')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -101,7 +115,7 @@ class _CompetitionRulesGateScreenState
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Competition Rules'),
+        title: Text(context.l10n.tr('competition_rules_gate_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         automaticallyImplyLeading: false,
@@ -134,9 +148,10 @@ class _CompetitionRulesGateScreenState
                                   borderRadius: BorderRadius.circular(12)),
                             ),
                             icon: const Icon(Icons.check_circle_rounded),
-                            label: const Text(
-                              'Continue to League',
-                              style: TextStyle(fontWeight: FontWeight.w900),
+                            label: Text(
+                              context.l10n
+                                  .tr('competition_rules_gate_continue_button'),
+                              style: const TextStyle(fontWeight: FontWeight.w900),
                             ),
                             onPressed: _continue,
                           ),
@@ -247,7 +262,7 @@ class _CompetitionRulesGateScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '📜 Match Rules',
+              '📜 ${context.l10n.tr('competition_rules_gate_header_title')}',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w900,
                 color: AppTheme.primaryText(brightness),
@@ -255,7 +270,7 @@ class _CompetitionRulesGateScreenState
             ),
             const SizedBox(height: 6),
             Text(
-              'Please review this competition\'s rules before continuing.',
+              context.l10n.tr('competition_rules_gate_header_subtitle'),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w600,
@@ -272,35 +287,39 @@ class _CompetitionRulesGateScreenState
     final s = r.scheduling;
     final lines = <Widget>[];
 
+    final l10n = context.l10n;
+
     switch (s.method) {
       case SchedulingMethod.fixedWindow:
         if (s.matchDeadlineHours > 0) {
           lines.add(_line(theme, brightness,
-              '⏰ Match deadline: ${_durationLabel(s.matchDeadlineHours)}'));
+              '⏰ ${l10n.tr('competition_rules_gate_sched_deadline_prefix')}${_durationLabel(s.matchDeadlineHours)}'));
         }
         break;
       case SchedulingMethod.organizerScheduled:
-        lines.add(_line(
-            theme, brightness, '📅 Matches are scheduled by the organizer.'));
+        lines.add(_line(theme, brightness,
+            '📅 ${l10n.tr('competition_rules_gate_sched_organizer_scheduled')}'));
         break;
       case SchedulingMethod.participantAgreed:
         lines.add(_line(theme, brightness,
-            '🤝 Teams agree on a match time between themselves.'));
+            '🤝 ${l10n.tr('competition_rules_gate_sched_participant_agreed')}'));
         break;
     }
 
     if (s.venue.trim().isNotEmpty) {
-      lines.add(_line(theme, brightness, '📍 Venue: ${s.venue.trim()}'));
+      lines.add(_line(theme, brightness,
+          '📍 ${l10n.tr('competition_rules_gate_sched_venue_prefix')}${s.venue.trim()}'));
     }
     if (s.timezone.trim().isNotEmpty) {
-      lines.add(_line(theme, brightness, '🌐 Timezone: ${s.timezone.trim()}'));
+      lines.add(_line(theme, brightness,
+          '🌐 ${l10n.tr('competition_rules_gate_sched_timezone_prefix')}${s.timezone.trim()}'));
     }
     lines.add(_line(
       theme,
       brightness,
       s.allowRescheduling
-          ? '🔄 Rescheduling is allowed.'
-          : '🚫 Rescheduling is not allowed.',
+          ? '🔄 ${l10n.tr('competition_rules_gate_sched_reschedule_allowed')}'
+          : '🚫 ${l10n.tr('competition_rules_gate_sched_reschedule_not_allowed')}',
     ));
     if (s.notes.trim().isNotEmpty) {
       lines.add(_line(theme, brightness, s.notes.trim()));
@@ -308,30 +327,44 @@ class _CompetitionRulesGateScreenState
 
     if (lines.isEmpty) return null;
     return _card(brightness, theme,
-        emoji: '⏱️', title: 'Scheduling', lines: lines);
+        emoji: '⏱️',
+        title: l10n.tr('competition_rules_gate_section_scheduling'),
+        lines: lines);
   }
 
   Widget? _matchSettingsSection(
       ThemeData theme, Brightness brightness, CompetitionRules r) {
     final m = r.matchSettings;
     final lines = <Widget>[];
+    final l10n = context.l10n;
 
     if (m.matchDurationMinutes > 0) {
-      lines.add(_line(
-          theme, brightness, '⏱️ Match duration: ${m.matchDurationMinutes} minutes'));
+      lines.add(_line(theme, brightness,
+          '⏱️ ${l10n.tr('competition_rules_gate_match_duration_prefix')}${m.matchDurationMinutes}${l10n.tr('competition_rules_gate_unit_minutes_suffix')}'));
     }
     if (m.legs > 1) {
-      lines.add(_line(theme, brightness, '🏟️ Legs: ${m.legs} (home & away)'));
+      lines.add(_line(theme, brightness,
+          '🏟️ ${l10n.tr('competition_rules_gate_legs_prefix')}${m.legs}${l10n.tr('competition_rules_gate_legs_suffix')}'));
     }
-    lines.add(_line(theme, brightness,
-        m.extraTimeEnabled ? '➕ Extra time: Enabled' : '🚫 Extra time: Disabled'));
-    lines.add(_line(theme, brightness,
-        m.penaltiesEnabled ? '🎯 Penalties: Enabled' : '🚫 Penalties: Disabled'));
+    lines.add(_line(
+        theme,
+        brightness,
+        m.extraTimeEnabled
+            ? '➕ ${l10n.tr('competition_rules_gate_extra_time_enabled')}'
+            : '🚫 ${l10n.tr('competition_rules_gate_extra_time_disabled')}'));
+    lines.add(_line(
+        theme,
+        brightness,
+        m.penaltiesEnabled
+            ? '🎯 ${l10n.tr('competition_rules_gate_penalties_enabled')}'
+            : '🚫 ${l10n.tr('competition_rules_gate_penalties_disabled')}'));
     if (m.condition.trim().isNotEmpty) {
-      lines.add(_line(theme, brightness, '⚙️ Condition: ${m.condition.trim()}'));
+      lines.add(_line(theme, brightness,
+          '⚙️ ${l10n.tr('competition_rules_gate_condition_prefix')}${m.condition.trim()}'));
     }
     if (m.substitutions >= 0) {
-      lines.add(_line(theme, brightness, '🔄 Substitutions: ${m.substitutions}'));
+      lines.add(_line(theme, brightness,
+          '🔄 ${l10n.tr('competition_rules_gate_substitutions_prefix')}${m.substitutions}'));
     }
     if (m.notes.trim().isNotEmpty) {
       lines.add(_line(theme, brightness, m.notes.trim()));
@@ -339,7 +372,9 @@ class _CompetitionRulesGateScreenState
 
     if (lines.isEmpty) return null;
     return _card(brightness, theme,
-        emoji: '⚙️', title: 'Match Settings', lines: lines);
+        emoji: '⚙️',
+        title: l10n.tr('competition_rules_gate_section_match_settings'),
+        lines: lines);
   }
 
   Widget? _gameplaySection(
@@ -359,7 +394,9 @@ class _CompetitionRulesGateScreenState
 
     if (lines.isEmpty) return null;
     return _card(brightness, theme,
-        emoji: '🎮', title: 'Gameplay Rules', lines: lines);
+        emoji: '🎮',
+        title: context.l10n.tr('competition_rules_gate_section_gameplay'),
+        lines: lines);
   }
 
   Widget? _connectionSection(
@@ -368,110 +405,134 @@ class _CompetitionRulesGateScreenState
     if (!c.enabled) return null;
 
     final lines = <Widget>[];
+    final l10n = context.l10n;
     if (c.reconnectWindowMinutes > 0) {
       lines.add(_line(theme, brightness,
-          '🔌 Reconnection window: ${c.reconnectWindowMinutes} minutes'));
+          '🔌 ${l10n.tr('competition_rules_gate_reconnect_window_prefix')}${c.reconnectWindowMinutes}${l10n.tr('competition_rules_gate_unit_minutes_suffix')}'));
     }
-    lines.add(_line(theme, brightness,
-        c.replayAllowed ? '🔁 Replays are allowed.' : '🚫 Replays are not allowed.'));
+    lines.add(_line(
+        theme,
+        brightness,
+        c.replayAllowed
+            ? '🔁 ${l10n.tr('competition_rules_gate_replays_allowed')}'
+            : '🚫 ${l10n.tr('competition_rules_gate_replays_not_allowed')}'));
     if (c.evidenceRequired) {
-      lines.add(_line(theme, brightness, '📸 Evidence is required.'));
+      lines.add(_line(theme, brightness,
+          '📸 ${l10n.tr('competition_rules_gate_evidence_required')}'));
     }
     if (c.decidedBy.trim().isNotEmpty) {
-      lines.add(
-          _line(theme, brightness, '⚖️ Outcome decided by: ${c.decidedBy.trim()}'));
+      lines.add(_line(theme, brightness,
+          '⚖️ ${l10n.tr('competition_rules_gate_outcome_decided_by_prefix')}${c.decidedBy.trim()}'));
     }
     if (c.repeatedDisconnectionConsequence.trim().isNotEmpty) {
       lines.add(_line(theme, brightness,
-          '⚠️ Repeated disconnections: ${c.repeatedDisconnectionConsequence.trim()}'));
+          '⚠️ ${l10n.tr('competition_rules_gate_repeated_disconnections_prefix')}${c.repeatedDisconnectionConsequence.trim()}'));
     }
 
     if (lines.isEmpty) return null;
     return _card(brightness, theme,
-        emoji: '🔌', title: 'Connection & Disconnection', lines: lines);
+        emoji: '🔌',
+        title: l10n.tr('competition_rules_gate_section_connection'),
+        lines: lines);
   }
 
   Widget? _noShowSection(
       ThemeData theme, Brightness brightness, CompetitionRules r) {
     final n = r.noShow;
     final lines = <Widget>[];
+    final l10n = context.l10n;
 
     if (n.waitingPeriodMinutes > 0) {
       lines.add(_line(theme, brightness,
-          '⏳ Waiting period before forfeit: ${n.waitingPeriodMinutes} minutes'));
+          '⏳ ${l10n.tr('competition_rules_gate_waiting_period_prefix')}${n.waitingPeriodMinutes}${l10n.tr('competition_rules_gate_unit_minutes_suffix')}'));
     }
     if (n.warningBeforeForfeit) {
-      lines.add(_line(theme, brightness, '⚠️ A warning is given before forfeit.'));
+      lines.add(_line(theme, brightness,
+          '⚠️ ${l10n.tr('competition_rules_gate_warning_before_forfeit')}'));
     }
     if (n.autoForfeit) {
-      lines.add(_line(theme, brightness, '🚫 Automatic forfeit applies.'));
+      lines.add(_line(theme, brightness,
+          '🚫 ${l10n.tr('competition_rules_gate_automatic_forfeit')}'));
     }
     if (n.forfeitScore.trim().isNotEmpty) {
-      lines.add(_line(theme, brightness, '📉 Forfeit score: ${n.forfeitScore.trim()}'));
+      lines.add(_line(theme, brightness,
+          '📉 ${l10n.tr('competition_rules_gate_forfeit_score_prefix')}${n.forfeitScore.trim()}'));
     }
     if (n.missedMatchesAllowed > 0) {
       lines.add(_line(theme, brightness,
-          '🔁 Missed matches allowed: ${n.missedMatchesAllowed}'));
+          '🔁 ${l10n.tr('competition_rules_gate_missed_matches_allowed_prefix')}${n.missedMatchesAllowed}'));
     }
     if (n.disqualificationThreshold > 0) {
       lines.add(_line(theme, brightness,
-          '❌ Disqualification after: ${n.disqualificationThreshold} missed matches'));
+          '❌ ${l10n.tr('competition_rules_gate_disqualification_after_prefix')}${n.disqualificationThreshold}${l10n.tr('competition_rules_gate_missed_matches_suffix')}'));
     }
 
     if (lines.isEmpty) return null;
     return _card(brightness, theme,
-        emoji: '⚖️', title: 'No-Show & Forfeit', lines: lines);
+        emoji: '⚖️',
+        title: l10n.tr('competition_rules_gate_section_no_show'),
+        lines: lines);
   }
 
   Widget? _resultsSection(
       ThemeData theme, Brightness brightness, CompetitionRules r) {
     final res = r.resultSubmission;
+    final l10n = context.l10n;
     final lines = <Widget>[
-      _line(theme, brightness, '📝 Result submission: ${res.mode.displayName}'),
+      _line(theme, brightness,
+          '📝 ${l10n.tr('competition_rules_gate_result_submission_prefix')}${res.mode.displayName}'),
     ];
 
     if (res.screenshotRequired) {
-      lines.add(_line(theme, brightness, '📸 Screenshot required.'));
+      lines.add(_line(theme, brightness,
+          '📸 ${l10n.tr('competition_rules_gate_screenshot_required')}'));
     }
     if (res.videoRequired) {
-      lines.add(_line(theme, brightness, '🎥 Video evidence required.'));
+      lines.add(_line(theme, brightness,
+          '🎥 ${l10n.tr('competition_rules_gate_video_evidence_required')}'));
     }
     if (res.submissionDeadlineHours > 0) {
       lines.add(_line(theme, brightness,
-          '⏰ Submission deadline: ${_durationLabel(res.submissionDeadlineHours)}'));
+          '⏰ ${l10n.tr('competition_rules_gate_submission_deadline_prefix')}${_durationLabel(res.submissionDeadlineHours)}'));
     }
     if (res.disputeWindowHours > 0) {
       lines.add(_line(theme, brightness,
-          '⏳ Dispute window: ${_durationLabel(res.disputeWindowHours)}'));
+          '⏳ ${l10n.tr('competition_rules_gate_dispute_window_prefix')}${_durationLabel(res.disputeWindowHours)}'));
     }
     if (r.evidence.acceptedTypes.isNotEmpty) {
       final types = r.evidence.acceptedTypes
           .map((t) => t.replaceAll('_', ' '))
           .join(', ');
-      lines.add(_line(theme, brightness, '📂 Accepted evidence: $types'));
+      lines.add(_line(theme, brightness,
+          '📂 ${l10n.tr('competition_rules_gate_accepted_evidence_prefix')}$types'));
     }
 
     return _card(brightness, theme,
-        emoji: '📋', title: 'Results & Evidence', lines: lines);
+        emoji: '📋',
+        title: l10n.tr('competition_rules_gate_section_results'),
+        lines: lines);
   }
 
   Widget? _eligibilitySection(
       ThemeData theme, Brightness brightness, CompetitionRules r) {
     final e = r.eligibility;
     final lines = <Widget>[];
+    final l10n = context.l10n;
 
     if (e.ageRestriction.trim().isNotEmpty) {
-      lines.add(_line(theme, brightness, '🔞 Age restriction: ${e.ageRestriction.trim()}'));
+      lines.add(_line(theme, brightness,
+          '🔞 ${l10n.tr('competition_rules_gate_age_restriction_prefix')}${e.ageRestriction.trim()}'));
     }
     if (e.rosterNotes.trim().isNotEmpty) {
       lines.add(_line(theme, brightness, '📋 ${e.rosterNotes.trim()}'));
     }
     if (!e.duplicateTeamsAllowed) {
-      lines.add(_line(theme, brightness, '🚫 Duplicate teams are not allowed.'));
+      lines.add(_line(theme, brightness,
+          '🚫 ${l10n.tr('competition_rules_gate_duplicate_teams_not_allowed')}'));
     }
     if (e.registrationDeadline.trim().isNotEmpty) {
       lines.add(_line(theme, brightness,
-          '📅 Registration deadline: ${e.registrationDeadline.trim()}'));
+          '📅 ${l10n.tr('competition_rules_gate_registration_deadline_prefix')}${e.registrationDeadline.trim()}'));
     }
     if (e.notes.trim().isNotEmpty) {
       lines.add(_line(theme, brightness, e.notes.trim()));
@@ -479,16 +540,20 @@ class _CompetitionRulesGateScreenState
 
     if (lines.isEmpty) return null;
     return _card(brightness, theme,
-        emoji: '🧑\u200d🤝\u200d🧑', title: 'Eligibility', lines: lines);
+        emoji: '🧑\u200d🤝\u200d🧑',
+        title: l10n.tr('competition_rules_gate_section_eligibility'),
+        lines: lines);
   }
 
   Widget? _fairPlaySection(
       ThemeData theme, Brightness brightness, CompetitionRules r) {
     final f = r.fairPlay;
     final lines = <Widget>[];
+    final l10n = context.l10n;
+    final fairPlayLabels = _fairPlayLabels(context);
 
     for (final key in f.enabledStandardRuleKeys) {
-      final label = _fairPlayLabels[key];
+      final label = fairPlayLabels[key];
       if (label != null) lines.add(_line(theme, brightness, '✔️ $label'));
     }
     for (final custom in f.customRules) {
@@ -497,31 +562,38 @@ class _CompetitionRulesGateScreenState
 
     if (lines.isEmpty) return null;
     return _card(brightness, theme,
-        emoji: '🤝', title: 'Fair Play & Conduct', lines: lines);
+        emoji: '🤝',
+        title: l10n.tr('competition_rules_gate_section_fair_play'),
+        lines: lines);
   }
 
   Widget? _disputesSection(
       ThemeData theme, Brightness brightness, CompetitionRules r) {
     final d = r.disputes;
     final lines = <Widget>[];
+    final l10n = context.l10n;
 
     if (d.disputeWindowHours > 0) {
       lines.add(_line(theme, brightness,
-          '⏳ Dispute window: ${_durationLabel(d.disputeWindowHours)}'));
+          '⏳ ${l10n.tr('competition_rules_gate_dispute_window_prefix')}${_durationLabel(d.disputeWindowHours)}'));
     }
     if (d.whoCanSubmit.trim().isNotEmpty) {
-      lines.add(_line(theme, brightness, '🙋 Who can dispute: ${d.whoCanSubmit.trim()}'));
+      lines.add(_line(theme, brightness,
+          '🙋 ${l10n.tr('competition_rules_gate_who_can_dispute_prefix')}${d.whoCanSubmit.trim()}'));
     }
     if (d.evidenceRequired) {
-      lines.add(_line(theme, brightness, '📸 Evidence required for disputes.'));
+      lines.add(_line(theme, brightness,
+          '📸 ${l10n.tr('competition_rules_gate_evidence_required_for_disputes')}'));
     }
     if (d.finalDecisionAuthority.trim().isNotEmpty) {
       lines.add(_line(theme, brightness,
-          '⚖️ Final decision: ${d.finalDecisionAuthority.trim()}'));
+          '⚖️ ${l10n.tr('competition_rules_gate_final_decision_prefix')}${d.finalDecisionAuthority.trim()}'));
     }
 
     if (lines.isEmpty) return null;
     return _card(brightness, theme,
-        emoji: '📢', title: 'Disputes & Appeals', lines: lines);
+        emoji: '📢',
+        title: l10n.tr('competition_rules_gate_section_disputes'),
+        lines: lines);
   }
 }

@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
@@ -50,20 +51,20 @@ extension OrganizerDisciplineActionTypeX
     }
   }
 
-  String get label {
+  String label(AppLocalizations l10n) {
     switch (this) {
       case OrganizerDisciplineActionType.warning:
-        return 'Warning';
+        return l10n.tr('organizer_discipline_action_warning');
       case OrganizerDisciplineActionType.pointsDeduction:
-        return 'Deduct Points';
+        return l10n.tr('organizer_discipline_action_deduct_points');
       case OrganizerDisciplineActionType.organizerChatMute:
-        return 'Mute Organizer Chat';
+        return l10n.tr('organizer_discipline_action_mute_chat');
       case OrganizerDisciplineActionType.organizerChatBan:
-        return 'Ban Organizer Chat';
+        return l10n.tr('organizer_discipline_action_ban_chat');
       case OrganizerDisciplineActionType.organizerChatUnmute:
-        return 'Unmute Organizer Chat';
+        return l10n.tr('organizer_discipline_action_unmute_chat');
       case OrganizerDisciplineActionType.organizerChatUnban:
-        return 'Unban Organizer Chat';
+        return l10n.tr('organizer_discipline_action_unban_chat');
     }
   }
 
@@ -113,7 +114,7 @@ class _OrganizerDisciplineScreenState
   bool   _loadingMaster = true;
   bool   _submitting    = false;
 
-  String      _masterLeagueName = 'Organizer Discipline';
+  String      _masterLeagueName = '';
   String      _ownerId          = '';
   final Set<String> _adminIds     = <String>{};
   final Set<String> _moderatorIds = <String>{};
@@ -266,7 +267,7 @@ class _OrganizerDisciplineScreenState
       setState(() {
         _masterLeagueName =
             (data['name'] as String? ?? '').trim().isEmpty
-                ? 'Organizer Discipline'
+                ? context.l10n.tr('organizer_discipline_default_workspace_name')
                 : (data['name'] as String).trim();
         _ownerId = ownerId;
         _adminIds
@@ -330,18 +331,18 @@ class _OrganizerDisciplineScreenState
 
     if (targetUserId.isEmpty) {
       setState(() =>
-          _errorText = 'Target user id is required.');
+          _errorText = context.l10n.tr('organizer_discipline_error_target_required'));
       return;
     }
     if (reason.isEmpty) {
-      setState(() => _errorText = 'Reason is required.');
+      setState(() => _errorText = context.l10n.tr('organizer_discipline_error_reason_required'));
       return;
     }
     if (_actionType ==
             OrganizerDisciplineActionType.pointsDeduction &&
         points <= 0) {
       setState(() =>
-          _errorText = 'Points must be greater than 0.');
+          _errorText = context.l10n.tr('organizer_discipline_error_points_positive'));
       return;
     }
 
@@ -447,7 +448,7 @@ class _OrganizerDisciplineScreenState
         _submitting = false;
       });
 
-      _snack('Discipline action applied.');
+      _snack(context.l10n.tr('organizer_discipline_applied_message'));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -467,14 +468,14 @@ class _OrganizerDisciplineScreenState
     final reversedAtMs  =
         (data['reversedAtMs'] as num?)?.toInt() ?? 0;
     if (reversedAtMs > 0) {
-      _snack('This action has already been reversed.');
+      _snack(context.l10n.tr('organizer_discipline_already_reversed_message'));
       return;
     }
 
     final targetUserId =
         (data['targetUserId'] as String? ?? '').trim();
     if (targetUserId.isEmpty) {
-      _snack('Target user missing.', error: true);
+      _snack(context.l10n.tr('organizer_discipline_target_missing_message'), error: true);
       return;
     }
 
@@ -486,6 +487,7 @@ class _OrganizerDisciplineScreenState
         (data['pointsDelta'] as num?)?.toInt() ?? 0;
 
     final reasonCtrl = TextEditingController();
+    final l10n = context.l10n;
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -493,23 +495,21 @@ class _OrganizerDisciplineScreenState
         backgroundColor:  AppTheme.cardColor(
             Theme.of(ctx).brightness),
         surfaceTintColor: Colors.transparent,
-        title: const Text('Reverse Discipline Action'),
+        title: Text(l10n.tr('organizer_discipline_reverse_dialog_title')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'Provide a reversal reason. This will update '
-              'the moderation summary and mark this action '
-              'as reversed.',
+            Text(
+              l10n.tr('organizer_discipline_reverse_dialog_body'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: reasonCtrl,
               maxLines:   4,
-              decoration: const InputDecoration(
-                labelText:        'Reversal reason',
+              decoration: InputDecoration(
+                labelText:        l10n.tr('organizer_discipline_reversal_reason_label'),
                 alignLabelWithHint: true,
-                prefixIcon:       Icon(Icons.undo_rounded),
+                prefixIcon:       const Icon(Icons.undo_rounded),
               ),
             ),
           ],
@@ -518,7 +518,7 @@ class _OrganizerDisciplineScreenState
           TextButton(
             onPressed: () =>
                 Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.tr('common_cancel')),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -526,7 +526,7 @@ class _OrganizerDisciplineScreenState
               foregroundColor: AppTheme.darkText,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Reverse'),
+            child: Text(l10n.tr('organizer_discipline_reverse_button')),
           ),
         ],
       ),
@@ -541,7 +541,7 @@ class _OrganizerDisciplineScreenState
     reasonCtrl.dispose();
 
     if (reversalReason.isEmpty) {
-      _snack('Reversal reason is required.', error: true);
+      _snack(l10n.tr('organizer_discipline_reversal_reason_required_message'), error: true);
       return;
     }
 
@@ -610,7 +610,7 @@ class _OrganizerDisciplineScreenState
       );
 
       await batch.commit();
-      _snack('Discipline action reversed.');
+      _snack(l10n.tr('organizer_discipline_reversed_message'));
     } catch (e) {
       _snack('$e', error: true);
     }
@@ -622,22 +622,23 @@ class _OrganizerDisciplineScreenState
   Widget build(BuildContext context) {
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n       = context.l10n;
 
     return GlassScaffold(
       appBar: AppBar(
-        title:           const Text('Organizer Discipline'),
+        title:           Text(l10n.tr('organizer_discipline_title')),
         backgroundColor: Colors.transparent,
         elevation:       0,
         // Explicit leading — prevents shell navigator from
         // intercepting back on web
         leading: IconButton(
           icon:     const Icon(Icons.arrow_back),
-          tooltip:  'Back',
+          tooltip:  l10n.tr('common_back'),
           onPressed: _safePop,
         ),
         actions: [
           IconButton(
-            tooltip:  'Refresh',
+            tooltip:  l10n.tr('common_refresh'),
             onPressed: _loadMasterLeague,
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -700,12 +701,10 @@ class _OrganizerDisciplineScreenState
                     _buildHeaderCard(theme, brightness),
                     if (!_canManageDiscipline()) ...[
                       const SizedBox(height: 16),
-                      const EmptyState(
-                        title:   'No access',
+                      EmptyState(
+                        title:   context.l10n.tr('organizer_discipline_no_access_title'),
                         message:
-                            'Only the master league owner, '
-                            'admins, or moderators can manage '
-                            'organizer discipline.',
+                            context.l10n.tr('organizer_discipline_no_access_message'),
                         icon: Icons.lock_outline_rounded,
                       ),
                     ] else ...[
@@ -748,11 +747,10 @@ class _OrganizerDisciplineScreenState
         _buildHeaderCard(theme, brightness),
         const SizedBox(height: 16),
         if (!_canManageDiscipline())
-          const EmptyState(
-            title:   'No access',
+          EmptyState(
+            title:   context.l10n.tr('organizer_discipline_no_access_title'),
             message:
-                'Only the master league owner, admins, or '
-                'moderators can manage organizer discipline.',
+                context.l10n.tr('organizer_discipline_no_access_message'),
             icon: Icons.lock_outline_rounded,
           )
         else ...[
@@ -787,9 +785,7 @@ class _OrganizerDisciplineScreenState
           ),
           const SizedBox(height: 8),
           Text(
-            'Apply warnings, point deductions, and organizer '
-            'chat restrictions with a required reason and '
-            'audit trail.',
+            context.l10n.tr('organizer_discipline_header_subtitle'),
             style: theme.textTheme.bodySmall?.copyWith(
               color:      AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
@@ -824,7 +820,7 @@ class _OrganizerDisciplineScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Apply Discipline Action',
+            context.l10n.tr('organizer_discipline_apply_action_title'),
             style: theme.textTheme.titleSmall?.copyWith(
               color:      AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w900,
@@ -837,10 +833,10 @@ class _OrganizerDisciplineScreenState
                 child: TextField(
                   controller: _targetUserIdCtrl,
                   enabled:    !_submitting,
-                  decoration: const InputDecoration(
-                    labelText:  'Target user id',
+                  decoration: InputDecoration(
+                    labelText:  context.l10n.tr('organizer_discipline_target_user_id_label'),
                     prefixIcon:
-                        Icon(Icons.person_outline_rounded),
+                        const Icon(Icons.person_outline_rounded),
                   ),
                   onChanged: (_) {
                     if (_errorText != null) {
@@ -854,10 +850,10 @@ class _OrganizerDisciplineScreenState
                 onPressed:
                     _submitting ? null : _openUserPicker,
                 icon: const Icon(Icons.search_rounded),
-                label: const Text(
-                  'Pick',
+                label: Text(
+                  context.l10n.tr('organizer_discipline_pick_button'),
                   style:
-                      TextStyle(fontWeight: FontWeight.w900),
+                      const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
             ],
@@ -866,9 +862,9 @@ class _OrganizerDisciplineScreenState
           TextField(
             controller: _targetNameCtrl,
             enabled:    !_submitting,
-            decoration: const InputDecoration(
-              labelText:  'Target display name (optional)',
-              prefixIcon: Icon(Icons.badge_outlined),
+            decoration: InputDecoration(
+              labelText:  context.l10n.tr('organizer_discipline_target_display_name_label'),
+              prefixIcon: const Icon(Icons.badge_outlined),
             ),
           ),
           const SizedBox(height: 12),
@@ -881,10 +877,10 @@ class _OrganizerDisciplineScreenState
               controller:  _pointsCtrl,
               enabled:     !_submitting,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText:  'Points to deduct',
+              decoration: InputDecoration(
+                labelText:  context.l10n.tr('organizer_discipline_points_to_deduct_label'),
                 prefixIcon:
-                    Icon(Icons.exposure_neg_1_rounded),
+                    const Icon(Icons.exposure_neg_1_rounded),
               ),
             ),
           ],
@@ -893,10 +889,10 @@ class _OrganizerDisciplineScreenState
             controller: _reasonCtrl,
             enabled:    !_submitting,
             maxLines:   4,
-            decoration: const InputDecoration(
-              labelText:        'Reason (required)',
+            decoration: InputDecoration(
+              labelText:        context.l10n.tr('organizer_discipline_reason_required_label'),
               alignLabelWithHint: true,
-              prefixIcon:       Icon(Icons.notes_outlined),
+              prefixIcon:       const Icon(Icons.notes_outlined),
             ),
           ),
           const SizedBox(height: 14),
@@ -921,8 +917,8 @@ class _OrganizerDisciplineScreenState
                   : const Icon(Icons.gavel_rounded),
               label: Text(
                 _submitting
-                    ? 'Applying...'
-                    : 'Apply Discipline Action',
+                    ? context.l10n.tr('organizer_discipline_applying_label')
+                    : context.l10n.tr('organizer_discipline_apply_action_title'),
                 style: const TextStyle(
                     fontWeight: FontWeight.w900),
               ),
@@ -939,12 +935,13 @@ class _OrganizerDisciplineScreenState
   Widget _buildActionTypeSelector() {
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n       = context.l10n;
 
     Widget chip(OrganizerDisciplineActionType type) {
       final selected = _actionType == type;
       return ChoiceChip(
         label: Text(
-          type.label,
+          type.label(l10n),
           style: const TextStyle(fontWeight: FontWeight.w900),
         ),
         selected:        selected,
@@ -1051,6 +1048,7 @@ class _OrganizerDisciplineScreenState
   Widget _buildModerationSummary() {
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n       = context.l10n;
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _moderationCol
@@ -1081,7 +1079,7 @@ class _OrganizerDisciplineScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Current Moderation Status',
+                l10n.tr('organizer_discipline_moderation_status_title'),
                 style: theme.textTheme.titleSmall?.copyWith(
                   color:      AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w900,
@@ -1103,16 +1101,16 @@ class _OrganizerDisciplineScreenState
 
                 final title = displayName.isNotEmpty
                     ? '$displayName '
-                        '(${userId.isEmpty ? 'unknown' : userId})'
+                        '(${userId.isEmpty ? l10n.tr('organizer_discipline_unknown_id_placeholder') : userId})'
                     : (userId.isEmpty
-                        ? 'Unknown user'
+                        ? l10n.tr('organizer_discipline_unknown_user_label')
                         : userId);
 
                 final subtitle = [
-                  'Points: $points',
-                  'Warnings: $warnings',
-                  if (muted) 'Muted',
-                  if (banned) 'Banned',
+                  '${l10n.tr('organizer_discipline_points_colon_prefix')} $points',
+                  '${l10n.tr('organizer_discipline_warnings_colon_prefix')} $warnings',
+                  if (muted) l10n.tr('organizer_discipline_muted_label'),
+                  if (banned) l10n.tr('organizer_discipline_banned_label'),
                 ].join(' • ');
 
                 final tint = banned
@@ -1157,7 +1155,7 @@ class _OrganizerDisciplineScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Discipline History',
+            context.l10n.tr('organizer_discipline_history_title'),
             style: theme.textTheme.titleSmall?.copyWith(
               color:      AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w900,
@@ -1173,6 +1171,7 @@ class _OrganizerDisciplineScreenState
   Widget _buildHistoryList() {
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n       = context.l10n;
 
     final query = _actionsCol
         .orderBy('createdAtMs', descending: true)
@@ -1194,11 +1193,9 @@ class _OrganizerDisciplineScreenState
         }
 
         if (docs.isEmpty) {
-          return const EmptyState(
-            title:   'No discipline actions yet',
-            message:
-                'Warnings, point deductions, and chat '
-                'sanctions will appear here.',
+          return EmptyState(
+            title:   l10n.tr('organizer_discipline_history_empty_title'),
+            message: l10n.tr('organizer_discipline_history_empty_message'),
             icon: Icons.gavel_rounded,
           );
         }
@@ -1237,19 +1234,19 @@ class _OrganizerDisciplineScreenState
                     .toString()
                     .split('.')
                     .first
-                : 'Unknown time';
+                : l10n.tr('organizer_discipline_unknown_time_label');
 
             final title = targetName.isNotEmpty
-                ? '$targetName • ${actionType.label}'
-                : '${targetUserId.isEmpty ? 'Unknown user' : targetUserId}'
-                    ' • ${actionType.label}';
+                ? '$targetName • ${actionType.label(l10n)}'
+                : '${targetUserId.isEmpty ? l10n.tr('organizer_discipline_unknown_user_label') : targetUserId}'
+                    ' • ${actionType.label(l10n)}';
 
             final subtitleParts = <String>[
-              if (pointsDelta != 0) 'Points $pointsDelta',
+              if (pointsDelta != 0) '${l10n.tr('organizer_discipline_points_delta_prefix')} $pointsDelta',
               if (reason.isNotEmpty) reason,
-              if (createdBy.isNotEmpty) 'By $createdBy',
+              if (createdBy.isNotEmpty) '${l10n.tr('organizer_discipline_by_prefix')} $createdBy',
               when,
-              if (reversedAtMs > 0) 'Reversed',
+              if (reversedAtMs > 0) l10n.tr('organizer_discipline_reversed_label'),
             ];
 
             final tint = switch (actionType) {
@@ -1347,7 +1344,7 @@ class _OrganizerDisciplineScreenState
                                   .isNotEmpty) ...[
                                 const SizedBox(height: 6),
                                 Text(
-                                  'Reversal reason: '
+                                  '${l10n.tr('organizer_discipline_reversal_reason_prefix')} '
                                   '$reversalReason',
                                   style: theme.textTheme
                                       .bodySmall
@@ -1376,9 +1373,9 @@ class _OrganizerDisciplineScreenState
                           icon: const Icon(
                               Icons.undo_rounded,
                               size: 18),
-                          label: const Text(
-                            'Reverse',
-                            style: TextStyle(
+                          label: Text(
+                            l10n.tr('organizer_discipline_reverse_button'),
+                            style: const TextStyle(
                                 fontWeight:
                                     FontWeight.w900),
                           ),
@@ -1567,6 +1564,7 @@ class _OrganizerMemberPickerSheetState
   Widget build(BuildContext context) {
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n       = context.l10n;
     final filtered   = _filteredUsers();
 
     return SafeArea(
@@ -1595,7 +1593,7 @@ class _OrganizerMemberPickerSheetState
                       CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Pick User',
+                      l10n.tr('organizer_discipline_picker_title'),
                       style: theme.textTheme.titleMedium
                           ?.copyWith(
                         color: AppTheme.primaryText(
@@ -1606,12 +1604,11 @@ class _OrganizerMemberPickerSheetState
                     const SizedBox(height: 10),
                     TextField(
                       controller: _searchCtrl,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText:
-                            'Search by name, user id, '
-                            'or role...',
+                            l10n.tr('organizer_discipline_picker_search_hint'),
                         prefixIcon:
-                            Icon(Icons.search_rounded),
+                            const Icon(Icons.search_rounded),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -1621,12 +1618,10 @@ class _OrganizerMemberPickerSheetState
                               child:
                                   CircularProgressIndicator())
                           : filtered.isEmpty
-                              ? const EmptyState(
-                                  title: 'No users found',
+                              ? EmptyState(
+                                  title: l10n.tr('organizer_discipline_picker_empty_title'),
                                   message:
-                                      'Try another search '
-                                      'term or refresh the '
-                                      'workspace members.',
+                                      l10n.tr('organizer_discipline_picker_empty_message'),
                                   icon: Icons
                                       .person_search_rounded,
                                 )

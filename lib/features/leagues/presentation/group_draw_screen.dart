@@ -202,12 +202,14 @@ class _GroupDrawScreenState extends ConsumerState<GroupDrawScreen> {
       case 'Group H':
         return l10n.tr('add_teams_group_h');
 
-      // World Cup 2026 adds I–L (no localization keys yet).
       case 'Group I':
+        return l10n.tr('add_teams_group_i');
       case 'Group J':
+        return l10n.tr('add_teams_group_j');
       case 'Group K':
+        return l10n.tr('add_teams_group_k');
       case 'Group L':
-        return groupId;
+        return l10n.tr('add_teams_group_l');
 
       default:
         return groupId;

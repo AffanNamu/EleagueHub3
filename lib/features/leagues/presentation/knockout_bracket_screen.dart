@@ -285,10 +285,10 @@ class _KnockoutBracketScreenState
         return l10n.tr('admin_knockout_round_playoff');
       case 'Round of 64':
         // Direct Knockout 64-participant bracket.
-        return 'Round of 64';
+        return l10n.tr('admin_knockout_round_r64');
       case 'Round of 32':
         // World Cup 48-team format.
-        return 'Round of 32';
+        return l10n.tr('admin_knockout_round_r32');
       case 'Round of 16':
         return l10n.tr('admin_knockout_round_r16');
       case 'Quarter Finals':
@@ -597,8 +597,8 @@ class _KnockoutBracketScreenState
         actions: [
           IconButton(
             tooltip: _showTree
-                ? 'Round-by-round view'
-                : 'Full bracket view',
+                ? l10n.tr('knockout_bracket_round_by_round_view_tooltip')
+                : l10n.tr('knockout_bracket_full_bracket_view_tooltip'),
             onPressed: _isLoading
                 ? null
                 : () => setState(() => _showTree = !_showTree),
@@ -652,10 +652,8 @@ class _KnockoutBracketScreenState
                   Icon(Icons.cloud_off_rounded,
                       color: cs.primary, size: 44),
                   const SizedBox(height: 10),
-                  // FIX: Was curly apostrophe 'Couldn\u2019t'.
-                  // Replaced with straight apostrophe 'Couldn\'t'.
                   Text(
-                    "Couldn't load bracket",
+                    context.l10n.tr('knockout_bracket_load_error_title'),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: cs.onSurface,
@@ -678,14 +676,14 @@ class _KnockoutBracketScreenState
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => context.pop(),
-                          child: const Text('Back'),
+                          child: Text(context.l10n.tr('common_back')),
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: FilledButton(
                           onPressed: _loadData,
-                          child: const Text('Retry'),
+                          child: Text(context.l10n.tr('common_retry')),
                         ),
                       ),
                     ],
@@ -742,7 +740,7 @@ class _KnockoutBracketScreenState
                 size: 40, color: cs.onSurface.withOpacity(0.25)),
             const SizedBox(height: 12),
             Text(
-              'No matches yet for this round.',
+              context.l10n.tr('knockout_bracket_no_matches_for_round'),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: cs.onSurface.withOpacity(0.6),
@@ -796,7 +794,9 @@ class _KnockoutBracketScreenState
         itemBuilder: (context, i) {
           final r = tabs[i];
           final isSelected = r == selected;
-          final label = r == 'Final' ? 'Final' : _roundDisplayName(r);
+          final label = r == 'Final'
+              ? context.l10n.tr('admin_knockout_round_final')
+              : _roundDisplayName(r);
 
           return InkWell(
             borderRadius: BorderRadius.circular(999),
@@ -837,7 +837,9 @@ class _KnockoutBracketScreenState
 
   Widget _buildRoundSummaryHeader(String round, int count) {
     final cs = Theme.of(context).colorScheme;
-    final title = round == 'Final' ? 'Final' : _roundDisplayName(round);
+    final title = round == 'Final'
+        ? context.l10n.tr('admin_knockout_round_final')
+        : _roundDisplayName(round);
 
     return Row(
       children: [
@@ -996,7 +998,7 @@ class _KnockoutBracketScreenState
           border: Border.all(color: onSurface.withOpacity(0.08)),
         ),
         child: Text(
-          'TBD',
+          l10n.tr('fixtures_tbd'),
           textAlign: TextAlign.center,
           style: TextStyle(
             color: onSurface.withOpacity(0.4),
@@ -1134,7 +1136,7 @@ class _KnockoutBracketScreenState
                       ),
                       child: Text(
                         info.isTBD
-                            ? 'TBD'
+                            ? l10n.tr('fixtures_tbd')
                             : (info.isFinished
                                 ? l10n.tr(
                                     'admin_knockout_status_completed')
@@ -1368,7 +1370,7 @@ class _KnockoutBracketScreenState
                   Text(
                     championName != null
                         ? championName.toUpperCase()
-                        : 'CHAMPION',
+                        : l10n.tr('knockout_bracket_champion_label'),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: onSurface.withOpacity(0.85),
@@ -1395,10 +1397,10 @@ class _KnockoutBracketScreenState
           const SizedBox(height: 14),
           Text(
             finished
-                ? '${championName ?? ''} wins the Final'
+                ? '${championName ?? ''} ${l10n.tr('knockout_bracket_wins_the_final_suffix')}'
                 : ((info?.isTBD ?? true)
-                    ? 'Awaiting finalists'
-                    : 'Final • Not yet played'),
+                    ? l10n.tr('knockout_bracket_awaiting_finalists')
+                    : l10n.tr('knockout_bracket_final_not_yet_played')),
             style: theme.textTheme.titleSmall?.copyWith(
               color: onSurface.withOpacity(0.75),
               fontWeight: FontWeight.w800,
@@ -1482,9 +1484,9 @@ class _KnockoutBracketScreenState
               const Icon(Icons.workspace_premium_rounded,
                   size: 16, color: bronze),
               const SizedBox(width: 6),
-              const Text(
-                '3RD PLACE MATCH',
-                style: TextStyle(
+              Text(
+                l10n.tr('knockout_bracket_third_place_match_label'),
+                style: const TextStyle(
                   color: bronze,
                   fontWeight: FontWeight.w900,
                   fontSize: 11,

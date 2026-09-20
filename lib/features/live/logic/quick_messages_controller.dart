@@ -31,14 +31,23 @@ final customQuickMessagesProvider = StreamProvider<List<String>>((ref) {
   return repo.watchQuickMessagesCustom(uid);
 });
 
-/// Overlay list (English defaults + premium custom). This is the list we push to Android overlay.
-final overlayQuickMessagesProvider = Provider<List<String>>((ref) {
+/// Overlay list (localized defaults + premium custom). This is the list we
+/// push to the Android overlay (a native surface with no BuildContext of its
+/// own), so the caller must supply the already-localized default messages —
+/// see `_localizedDefaultQuickMessages` in call_room_screen.dart, which
+/// reuses the same translation keys as the in-app quick message picker.
+/// Falls back to [QuickMessagePolicy.defaultFallback] (English) if the
+/// caller passes an empty list.
+final overlayQuickMessagesProvider =
+    Provider.family<List<String>, List<String>>((ref, defaultMessages) {
   final premium = ref.watch(isPremiumProvider).value ?? false;
   final custom = ref.watch(customQuickMessagesProvider).value ?? const <String>[];
 
   final effectiveCustom = premium ? QuickMessagePolicy.sanitizeList(custom) : const <String>[];
   final combined = <String>[
-    ...QuickMessagePolicy.defaultFallback,
+    ...(defaultMessages.isNotEmpty
+        ? defaultMessages
+        : QuickMessagePolicy.defaultFallback),
     ...effectiveCustom,
   ];
 
@@ -65,6 +74,14 @@ final quickMessagesControllerProvider = Provider<QuickMessagesController>((ref) 
   return QuickMessagesController(ref);
 });
 
+// NOTE (i18n): Exception messages thrown below ('Missing user id',
+// 'Premium required', 'Max N messages', and QuickMessagePolicy's
+// validation errors) are surfaced verbatim by
+// lib/features/profile/presentation/settings_screen.dart (outside this
+// localization pass's file list) via `e.toString()`. Localizing them
+// properly requires that caller to map an error code to translated text,
+// which is a larger cross-file refactor than this pass covers, so they
+// are left as English for now.
 class QuickMessagesController {
   QuickMessagesController(this._ref);
 

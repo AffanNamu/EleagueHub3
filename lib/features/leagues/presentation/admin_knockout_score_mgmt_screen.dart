@@ -588,9 +588,10 @@ class _AdminKnockoutScoreMgmtScreenState
                       ),
                       child: Column(
                         children: [
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            child: SectionHeader('Knockout Score Management'),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: SectionHeader(
+                                l10n.tr('admin_knockout_section_title')),
                           ),
                           const SizedBox(height: 4),
                           Padding(
@@ -653,7 +654,7 @@ class _AdminKnockoutScoreMgmtScreenState
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Couldn’t load matches',
+                    context.l10n.tr('admin_knockout_load_error_title'),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: AppTheme.primaryText(brightness),
@@ -676,7 +677,7 @@ class _AdminKnockoutScoreMgmtScreenState
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => context.pop(),
-                          child: const Text('Back'),
+                          child: Text(context.l10n.tr('common_back')),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -687,7 +688,7 @@ class _AdminKnockoutScoreMgmtScreenState
                             foregroundColor: AppTheme.darkText,
                           ),
                           onPressed: _loadData,
-                          child: const Text('Retry'),
+                          child: Text(context.l10n.tr('common_retry')),
                         ),
                       ),
                     ],

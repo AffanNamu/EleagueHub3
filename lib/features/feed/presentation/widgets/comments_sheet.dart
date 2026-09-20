@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/errors/user_friendly_error.dart';
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../data/public_feed_repository.dart';
@@ -20,6 +21,7 @@ Future<void> showCommentsSheet(
 }) {
   final repo = PublicFeedRepository();
   final textController = TextEditingController();
+  final l10n = context.l10n;
 
   return showModalBottomSheet<void>(
     context: context,
@@ -79,7 +81,7 @@ Future<void> showCommentsSheet(
                       child: Row(
                         children: [
                           Text(
-                            'Comments',
+                            l10n.tr('comments_sheet_title'),
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 18,
@@ -118,7 +120,7 @@ Future<void> showCommentsSheet(
                             return Padding(
                               padding: const EdgeInsets.all(24),
                               child: Text(
-                                'No comments yet. Be the first to say something.',
+                                l10n.tr('comments_sheet_empty'),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: AppTheme.secondaryText(brightness),
@@ -169,7 +171,7 @@ Future<void> showCommentsSheet(
                               ),
                               decoration: InputDecoration(
                                 counterText: '',
-                                hintText: 'Add a comment…',
+                                hintText: l10n.tr('comments_sheet_hint'),
                                 hintStyle: TextStyle(color: AppTheme.secondaryText(brightness)),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(16),
@@ -233,16 +235,17 @@ class _CommentTile extends StatelessWidget {
   const _CommentTile({required this.comment});
   final PublicPostComment comment;
 
-  String _timeAgo(int ms) {
+  String _timeAgo(AppLocalizations l10n, int ms) {
     final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
-    if (diff.inMinutes < 1) return 'now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    return '${diff.inDays}d';
+    if (diff.inMinutes < 1) return l10n.tr('comments_sheet_time_now');
+    if (diff.inMinutes < 60) return '${diff.inMinutes}${l10n.tr('comments_sheet_time_minutes_suffix')}';
+    if (diff.inHours < 24) return '${diff.inHours}${l10n.tr('comments_sheet_time_hours_suffix')}';
+    return '${diff.inDays}${l10n.tr('comments_sheet_time_days_suffix')}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
     return Row(
@@ -272,7 +275,7 @@ class _CommentTile extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        comment.authorDisplayName.isEmpty ? 'User' : comment.authorDisplayName,
+                        comment.authorDisplayName.isEmpty ? l10n.tr('comments_sheet_author_fallback') : comment.authorDisplayName,
                         style: TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 12.5,
@@ -282,7 +285,7 @@ class _CommentTile extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      _timeAgo(comment.createdAtMs),
+                      _timeAgo(l10n, comment.createdAtMs),
                       style: TextStyle(
                         color: AppTheme.secondaryText(brightness),
                         fontSize: 11,

@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/route_resolver.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
@@ -136,11 +137,14 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
       fallbackUserId: widget.userId,
     );
     if (!mounted) return;
+    final l10n = context.l10n;
     await showShareSheet(
       context,
       entity: entity,
       title: displayName,
-      description: 'Check out $displayName\'s profile on eSportlyic.',
+      description:
+          '${l10n.tr('public_profile_share_description_prefix')}$displayName'
+          '${l10n.tr('public_profile_share_description_suffix')}',
     );
   }
 
@@ -149,32 +153,38 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
     final link = LinkGenerator.forEntity(entity);
     await Clipboard.setData(ClipboardData(text: link.toString()));
     if (!mounted) return;
-    _snack('Profile link copied.');
+    _snack(context.l10n.tr('public_profile_link_copied_snackbar'));
   }
 
   Future<void> _copyTeamId(String shareId) async {
     if (shareId.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: shareId));
-    _snack('Copied: $shareId');
+    if (!mounted) return;
+    _snack('${context.l10n.tr('public_profile_copied_id_prefix')}$shareId');
   }
 
   Future<void> _confirmBlock() async {
     final brightness = Theme.of(context).brightness;
+    final l10n = context.l10n;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.cardColor(brightness),
-        title: Text(_blocked ? 'Unblock user?' : 'Block user?'),
+        title: Text(_blocked
+            ? l10n.tr('public_profile_unblock_confirm_title')
+            : l10n.tr('public_profile_block_confirm_title')),
         content: Text(
           _blocked
-              ? 'They will be able to see your profile and interact with you again.'
-              : 'You will no longer see their content, and they will not be able to message you.',
+              ? l10n.tr('public_profile_unblock_confirm_message')
+              : l10n.tr('public_profile_block_confirm_message'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(l10n.tr('common_cancel'))),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(_blocked ? 'Unblock' : 'Block'),
+            child: Text(_blocked
+                ? l10n.tr('public_profile_unblock_button')
+                : l10n.tr('public_profile_block_button')),
           ),
         ],
       ),
@@ -189,7 +199,9 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
       }
       if (!mounted) return;
       setState(() => _blocked = !_blocked);
-      _snack(_blocked ? 'User blocked.' : 'User unblocked.');
+      _snack(_blocked
+          ? l10n.tr('public_profile_user_blocked_snackbar')
+          : l10n.tr('public_profile_user_unblocked_snackbar'));
     } catch (e) {
       _snack(e.toString());
     }
@@ -206,6 +218,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
       UserReportReason.other,
     ];
 
+    final l10n = context.l10n;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -225,7 +238,8 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Report user', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                      Text(l10n.tr('public_profile_report_sheet_title'),
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                       const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
@@ -243,7 +257,8 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                         controller: detailsController,
                         maxLines: 3,
                         maxLength: 500,
-                        decoration: const InputDecoration(hintText: 'Additional details (optional)'),
+                        decoration: InputDecoration(
+                            hintText: l10n.tr('public_profile_report_details_hint')),
                       ),
                       const SizedBox(height: 8),
                       SizedBox(
@@ -261,7 +276,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                                     );
                                     if (!ctx.mounted) return;
                                     Navigator.of(ctx).pop();
-                                    _snack('Report submitted. Thank you.');
+                                    _snack(l10n.tr('public_profile_report_submitted_snackbar'));
                                   } catch (e) {
                                     setSheetState(() => submitting = false);
                                     if (!ctx.mounted) return;
@@ -270,7 +285,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                                 },
                           child: submitting
                               ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Text('Submit Report'),
+                              : Text(l10n.tr('public_profile_submit_report_button')),
                         ),
                       ),
                     ],
@@ -286,6 +301,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
 
   // --- SECTION: More Actions Sheet ---
   void _showMoreActions() {
+    final l10n = context.l10n;
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -294,7 +310,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.ios_share_rounded),
-              title: const Text('Share profile'),
+              title: Text(l10n.tr('public_profile_share_profile_label')),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _openShareSheet();
@@ -302,7 +318,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.link_rounded),
-              title: const Text('Copy profile link'),
+              title: Text(l10n.tr('public_profile_copy_link_label')),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _copyProfileLink();
@@ -310,7 +326,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.flag_outlined),
-              title: const Text('Report'),
+              title: Text(l10n.tr('public_profile_report_label')),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _showReportSheet();
@@ -318,7 +334,9 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
             ),
             ListTile(
               leading: Icon(_blocked ? Icons.lock_open_rounded : Icons.block_rounded),
-              title: Text(_blocked ? 'Unblock' : 'Block'),
+              title: Text(_blocked
+                  ? l10n.tr('public_profile_unblock_button')
+                  : l10n.tr('public_profile_block_button')),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _confirmBlock();
@@ -446,13 +464,13 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
       if (pickResult.wasCancelled) return;
 
       if (!pickResult.isSuccess) {
-        _snack(pickResult.errorMessage ?? 'Could not pick image.');
+        _snack(pickResult.errorMessage ?? context.l10n.tr('public_profile_pick_image_failed_fallback'));
         return;
       }
 
       final picked = pickResult.file!;
       if (picked.size > _maxBannerBytes) {
-        _snack('Image too large. Please select an image under 5 MB.');
+        _snack(context.l10n.tr('public_profile_image_too_large_message'));
         return;
       }
 
@@ -460,7 +478,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
       await _teamRepo.updateBannerImage(bannerImageUrl: secureUrl);
 
       if (!mounted) return;
-      _snack('Cover photo updated.');
+      _snack(context.l10n.tr('public_profile_cover_updated_snackbar'));
     } catch (e) {
       _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     } finally {
@@ -470,15 +488,16 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
 
   Future<void> _confirmRemoveBanner() async {
     final brightness = Theme.of(context).brightness;
+    final l10n = context.l10n;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.cardColor(brightness),
-        title: const Text('Remove cover photo?'),
-        content: const Text('Your profile will show the default background instead.'),
+        title: Text(l10n.tr('public_profile_remove_cover_confirm_title')),
+        content: Text(l10n.tr('public_profile_remove_cover_confirm_message')),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Remove')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(l10n.tr('common_cancel'))),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(l10n.tr('public_profile_remove_button'))),
         ],
       ),
     );
@@ -489,7 +508,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 6));
       await _teamRepo.updateBannerImage(bannerImageUrl: '');
       if (!mounted) return;
-      _snack('Cover photo removed.');
+      _snack(l10n.tr('public_profile_cover_removed_snackbar'));
     } catch (e) {
       _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     } finally {
@@ -498,6 +517,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
   }
 
   void _showBannerEditSheet() {
+    final l10n = context.l10n;
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -506,7 +526,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.photo_camera_back_rounded),
-              title: const Text('Change cover photo'),
+              title: Text(l10n.tr('public_profile_change_cover_label')),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _pickAndUploadBanner();
@@ -514,7 +534,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.delete_outline_rounded),
-              title: const Text('Remove cover photo'),
+              title: Text(l10n.tr('public_profile_remove_cover_label')),
               onTap: () {
                 Navigator.of(ctx).pop();
                 _confirmRemoveBanner();
@@ -544,6 +564,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
   // --- SECTION: Build Method ---
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return GlassScaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -569,7 +590,7 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                   )
                 : IconButton(
                     icon: const Icon(Icons.edit_rounded),
-                    tooltip: 'Edit cover photo',
+                    tooltip: l10n.tr('public_profile_edit_cover_tooltip'),
                     onPressed: _showBannerEditSheet,
                   ),
           // FIXED: the Follow/Following icon used to live here, in the
@@ -582,12 +603,12 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
           // elsewhere. See the Row built in the body below.
           IconButton(
             icon: const Icon(Icons.ios_share_rounded),
-            tooltip: 'Share profile',
+            tooltip: l10n.tr('public_profile_share_profile_label'),
             onPressed: _openShareSheet,
           ),
           IconButton(
             icon: const Icon(Icons.more_vert_rounded),
-            tooltip: 'More',
+            tooltip: l10n.tr('public_profile_more_tooltip'),
             onPressed: _showMoreActions,
           ),
         ],
@@ -664,18 +685,18 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
                         const SizedBox(height: 20),
                         _StatsSection(userId: widget.userId, repo: _teamRepo),
                         const SizedBox(height: 20),
-                        _SectionLabel('Squad'),
+                        _SectionLabel(l10n.tr('public_profile_section_squad')),
                         const SizedBox(height: 10),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: _SquadPreview(userId: widget.userId, repo: _teamRepo),
                         ),
                         const SizedBox(height: 20),
-                        _SectionLabel('Trophy Cabinet'),
+                        _SectionLabel(l10n.tr('public_profile_section_trophy_cabinet')),
                         const SizedBox(height: 10),
                         _TrophyShelf(userId: widget.userId, repo: _teamRepo),
                         const SizedBox(height: 20),
-                        _SectionLabel('Recent Matches'),
+                        _SectionLabel(l10n.tr('public_profile_section_recent_matches')),
                         const SizedBox(height: 10),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -959,19 +980,20 @@ class _StatsSection extends StatelessWidget {
     return StreamBuilder<UserStats>(
       stream: repo.watchStats(userId),
       builder: (context, snap) {
+        final l10n = context.l10n;
         final stats = snap.data ?? UserStats.empty();
         final cards = <(String, String)>[
-          ('Followers', '${stats.followersCount}'),
-          ('Following', '${stats.followingCount}'),
-          ('Competitions', '${stats.competitionsJoined}'),
-          ('Trophies', '${stats.trophies}'),
-          ('Matches', '${stats.matchesPlayed}'),
-          ('Wins', '${stats.wins}'),
-          ('Draws', '${stats.draws}'),
-          ('Losses', '${stats.losses}'),
-          ('Goals', '${stats.goalsScored}'),
-          ('Conceded', '${stats.goalsConceded}'),
-          ('Win %', '${stats.winPercentage.toStringAsFixed(0)}%'),
+          (l10n.tr('public_profile_stat_followers'), '${stats.followersCount}'),
+          (l10n.tr('public_profile_stat_following'), '${stats.followingCount}'),
+          (l10n.tr('public_profile_stat_competitions'), '${stats.competitionsJoined}'),
+          (l10n.tr('public_profile_stat_trophies'), '${stats.trophies}'),
+          (l10n.tr('public_profile_stat_matches'), '${stats.matchesPlayed}'),
+          (l10n.tr('public_profile_stat_wins'), '${stats.wins}'),
+          (l10n.tr('public_profile_stat_draws'), '${stats.draws}'),
+          (l10n.tr('public_profile_stat_losses'), '${stats.losses}'),
+          (l10n.tr('public_profile_stat_goals'), '${stats.goalsScored}'),
+          (l10n.tr('public_profile_stat_conceded'), '${stats.goalsConceded}'),
+          (l10n.tr('public_profile_stat_win_percent'), '${stats.winPercentage.toStringAsFixed(0)}%'),
         ];
 
         return SizedBox(
@@ -1054,7 +1076,8 @@ class _FollowActionButton extends StatelessWidget {
         icon: busy
             ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
             : const Icon(Icons.check_rounded, size: 18),
-        label: const Text('Following', style: TextStyle(fontWeight: FontWeight.w900)),
+        label: Text(context.l10n.tr('public_profile_follow_button_following'),
+            style: const TextStyle(fontWeight: FontWeight.w900)),
         style: OutlinedButton.styleFrom(
           foregroundColor: AppTheme.primaryText(brightness),
           side: BorderSide(color: AppTheme.cardBorder(brightness)),
@@ -1073,7 +1096,8 @@ class _FollowActionButton extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkText),
             )
           : const Icon(Icons.person_add_alt_1_rounded, size: 18),
-      label: const Text('Follow', style: TextStyle(fontWeight: FontWeight.w900)),
+      label: Text(context.l10n.tr('public_profile_follow_button_follow'),
+          style: const TextStyle(fontWeight: FontWeight.w900)),
       style: FilledButton.styleFrom(
         backgroundColor: AppTheme.limeAccent,
         foregroundColor: AppTheme.darkText,
@@ -1160,7 +1184,7 @@ class _TrophyShelf extends StatelessWidget {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(
-              'No trophies yet.',
+              context.l10n.tr('public_profile_no_trophies_message'),
               style: TextStyle(color: AppTheme.secondaryText(brightness), fontWeight: FontWeight.w600),
             ),
           );
@@ -1203,7 +1227,9 @@ class _TrophyShelf extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        isWinner ? 'Champion' : '#${t.position} place',
+                        isWinner
+                            ? context.l10n.tr('public_profile_trophy_champion_label')
+                            : '${context.l10n.tr('public_profile_trophy_place_prefix')}${t.position}${context.l10n.tr('public_profile_trophy_place_suffix')}',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 11,
@@ -1238,7 +1264,7 @@ class _RecentMatchesList extends StatelessWidget {
         final matches = snap.data ?? const [];
         if (matches.isEmpty) {
           return Text(
-            'No matches played yet.',
+            context.l10n.tr('public_profile_no_matches_message'),
             style: TextStyle(color: AppTheme.secondaryText(brightness), fontWeight: FontWeight.w600),
           );
         }
@@ -1261,7 +1287,7 @@ class _RecentMatchesList extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'vs ${m.opponentName}',
+                                  '${context.l10n.tr('public_profile_vs_prefix')}${m.opponentName}',
                                   style: TextStyle(
                                     fontWeight: FontWeight.w900,
                                     fontSize: 13,

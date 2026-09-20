@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../../core/errors/user_friendly_error.dart';
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/services/connectivity_service.dart';
 import '../../../../core/services/safe_image_picker.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -79,6 +80,7 @@ Future<bool?> showCreatePostSheet(
   final textController = TextEditingController();
   PlatformFile? pickedImage;
   PlatformFile? pickedAudio;
+  final l10n = context.l10n;
 
   return showModalBottomSheet<bool>(
     context: context,
@@ -95,7 +97,7 @@ Future<bool?> showCreatePostSheet(
             final result = await SafeImagePicker.pickImage();
             if (result.wasCancelled) return;
             if (!result.isSuccess) {
-              setSheetState(() => error = result.errorMessage ?? 'Could not pick image.');
+              setSheetState(() => error = result.errorMessage ?? l10n.tr('create_post_pick_image_failed'));
               return;
             }
             setSheetState(() {
@@ -114,7 +116,7 @@ Future<bool?> showCreatePostSheet(
                 // Ensure file size is reasonable for audio (e.g., max 10MB)
                 final file = result.files.first;
                 if (file.size > 10 * 1024 * 1024) {
-                   setSheetState(() => error = 'Audio file is too large. Max 10MB.');
+                   setSheetState(() => error = l10n.tr('create_post_audio_too_large'));
                    return;
                 }
                 setSheetState(() {
@@ -123,14 +125,14 @@ Future<bool?> showCreatePostSheet(
                 });
               }
             } catch (e) {
-              setSheetState(() => error = 'Could not pick audio file.');
+              setSheetState(() => error = l10n.tr('create_post_pick_audio_failed'));
             }
           }
 
           Future<void> submit() async {
             final text = textController.text.trim();
             if (text.isEmpty && pickedImage == null && pickedAudio == null) {
-              setSheetState(() => error = 'Please add some text, an image, or sound.');
+              setSheetState(() => error = l10n.tr('create_post_empty_error'));
               return;
             }
 
@@ -186,7 +188,7 @@ Future<bool?> showCreatePostSheet(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Create Post',
+                      l10n.tr('create_post_title'),
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 18,
@@ -195,7 +197,7 @@ Future<bool?> showCreatePostSheet(
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Visible to the whole eSportlyic community.',
+                      l10n.tr('create_post_subtitle'),
                       style: TextStyle(
                         color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w600,
@@ -213,7 +215,7 @@ Future<bool?> showCreatePostSheet(
                         fontWeight: FontWeight.w600,
                       ),
                       decoration: InputDecoration(
-                        hintText: "What's happening in your competitive scene?",
+                        hintText: l10n.tr('create_post_hint'),
                         hintStyle: TextStyle(color: AppTheme.secondaryText(brightness)),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
@@ -289,7 +291,7 @@ Future<bool?> showCreatePostSheet(
                           child: OutlinedButton.icon(
                             onPressed: busy ? null : pickImage,
                             icon: const Icon(Icons.image_outlined),
-                            label: const Text('Image'),
+                            label: Text(l10n.tr('create_post_image_button')),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -301,7 +303,7 @@ Future<bool?> showCreatePostSheet(
                           child: OutlinedButton.icon(
                             onPressed: busy ? null : pickAudio,
                             icon: const Icon(Icons.audiotrack_outlined),
-                            label: const Text('Sound'),
+                            label: Text(l10n.tr('create_post_sound_button')),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -340,7 +342,7 @@ Future<bool?> showCreatePostSheet(
                                 height: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.darkText),
                               )
-                            : const Text('Post to Feed', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                            : Text(l10n.tr('create_post_submit_button'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                       ),
                     ),
                   ],

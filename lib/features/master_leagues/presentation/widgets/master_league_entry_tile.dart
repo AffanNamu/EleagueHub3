@@ -1,6 +1,7 @@
 //presentationa/widgets/MasterLeagueEntryTile
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 
@@ -36,24 +37,21 @@ class MasterLeagueEntryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n       = context.l10n;
 
     // ── Derived display values ─────────────────────────────────────────────
 
     final String subtitle;
     if (!isSignedIn) {
-      subtitle = 'Sign in to create and manage '
-          'Master Leagues.';
+      subtitle = l10n.tr('master_league_entry_tile_signin_subtitle');
     } else if (loading) {
-      subtitle = 'Checking your access...';
+      subtitle = l10n.tr('master_league_entry_tile_checking_access');
     } else if (unlocked) {
-      subtitle = 'Open your Master Leagues, view '
-          'created and joined leagues.';
+      subtitle = l10n.tr('master_league_entry_tile_unlocked_subtitle');
     } else {
       subtitle = priceText.isEmpty
-          ? 'Open Master Leagues and proceed to '
-              'payment during creation.'
-          : 'Open Master Leagues • current plan '
-              'price: $priceText';
+          ? l10n.tr('master_league_entry_tile_locked_subtitle')
+          : '${l10n.tr('master_league_entry_tile_locked_price_prefix')} $priceText';
     }
 
     final Color badgeColor;
@@ -67,15 +65,15 @@ class MasterLeagueEntryTile extends StatelessWidget {
 
     final String badgeLabel;
     if (!isSignedIn) {
-      badgeLabel = 'SIGN IN';
+      badgeLabel = l10n.tr('master_league_entry_tile_badge_sign_in');
     } else if (unlocked) {
-      badgeLabel = 'READY';
+      badgeLabel = l10n.tr('master_league_entry_tile_badge_ready');
     } else {
-      badgeLabel = 'PAY AS YOU CREATE';
+      badgeLabel = l10n.tr('master_league_entry_tile_badge_pay_as_you_create');
     }
 
     final String actionLabel =
-        !isSignedIn ? 'Sign in' : 'Open';
+        !isSignedIn ? l10n.tr('auth_login_sign_in') : l10n.tr('common_open');
 
     final VoidCallback action =
         !isSignedIn ? onSignIn : onOpen;
@@ -128,7 +126,7 @@ class MasterLeagueEntryTile extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          'Master League',
+                          l10n.tr('master_league_entry_tile_title'),
                           maxLines:  1,
                           overflow:
                               TextOverflow.ellipsis,

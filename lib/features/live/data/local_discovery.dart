@@ -44,6 +44,14 @@ String liveHostSideToWire(LiveHostSide side) {
   }
 }
 
+// NOTE (i18n): LocalLiveDiscoveryBroadcaster/Listener (LAN host discovery)
+// are not currently constructed by any presentation-layer screen — only
+// this file's LiveHostSide enum and parseLiveHostSide/liveHostSideToWire
+// helpers are used by the active (LiveKit-based) live flow. So the
+// UserFriendlyException strings thrown below are not actually shown to end
+// users today. This is a top-level function with no BuildContext, and
+// reviving/wiring a caller for the legacy discovery path is a larger
+// refactor than this pass covers, so these strings are left as English.
 Future<void> _requireSignedInAndOnline() async {
   final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
   if (uid.isEmpty) {

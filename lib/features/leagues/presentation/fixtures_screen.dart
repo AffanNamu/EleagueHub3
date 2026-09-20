@@ -183,10 +183,10 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
     if (g == 'Group G') return l10n.tr('add_teams_group_g');
     if (g == 'Group H') return l10n.tr('add_teams_group_h');
 
-    // World Cup (48-team) additional groups (no l10n keys yet).
-    if (g == 'Group I' || g == 'Group J' || g == 'Group K' || g == 'Group L') {
-      return g;
-    }
+    if (g == 'Group I') return l10n.tr('add_teams_group_i');
+    if (g == 'Group J') return l10n.tr('add_teams_group_j');
+    if (g == 'Group K') return l10n.tr('add_teams_group_k');
+    if (g == 'Group L') return l10n.tr('add_teams_group_l');
 
     return g;
   }
@@ -775,7 +775,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
     if (dn.isNotEmpty) return dn;
     final email = (user.email ?? '').trim();
     if (email.isNotEmpty) return email.split('@').first;
-    return 'Admin';
+    return context.l10n.tr('fixtures_share_default_sender_name');
   }
 
   String _fallbackSenderPhoto(User user) => (user.photoURL ?? '').trim();
@@ -884,7 +884,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Share to…',
+                    context.l10n.tr('fixtures_share_to_title'),
                     style: TextStyle(
                       color: AppTheme.primaryText(brightness),
                       fontWeight: FontWeight.w900,
@@ -897,8 +897,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                       Icons.groups_2_rounded,
                       color: AppTheme.limeAccentDark,
                     ),
-                    title: const Text('League Chat'),
-                    subtitle: const Text('Share inside this league'),
+                    title: Text(context.l10n.tr('fixtures_share_league_chat_title')),
+                    subtitle: Text(
+                        context.l10n.tr('fixtures_share_league_chat_subtitle')),
                     onTap: () =>
                         Navigator.of(ctx).pop(_ShareTarget.leagueChat),
                   ),
@@ -907,8 +908,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                       Icons.public_rounded,
                       color: AppTheme.limeAccentDark,
                     ),
-                    title: const Text('Global Chat'),
-                    subtitle: const Text('Share to global public chat'),
+                    title: Text(context.l10n.tr('fixtures_share_global_chat_title')),
+                    subtitle: Text(
+                        context.l10n.tr('fixtures_share_global_chat_subtitle')),
                     onTap: () =>
                         Navigator.of(ctx).pop(_ShareTarget.globalChat),
                   ),
@@ -965,7 +967,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
       final selectedMatches =
           _allMatches.where((m) => selectedIds.contains(m.id)).toList();
       if (selectedMatches.isEmpty) {
-        _snack('No fixtures selected');
+        _snack(context.l10n.tr('fixtures_no_fixtures_selected'));
         _clearSelection();
         return;
       }
@@ -991,8 +993,9 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
         setState(() {
           _sharePayload = _ShareCardPayload(
             leagueId: widget.leagueId,
-            leagueName:
-                _leagueName.trim().isEmpty ? 'League' : _leagueName.trim(),
+            leagueName: _leagueName.trim().isEmpty
+                ? context.l10n.tr('fixtures_share_default_league_name')
+                : _leagueName.trim(),
             leagueLogoBytes: _leagueLogoBytes,
             leagueFormat: _format,
             selectedGroup: _selectedGroup,
@@ -1064,8 +1067,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
 
       _snack(
         target == _ShareTarget.globalChat
-            ? 'Shared to global chat'
-            : 'Shared to league chat',
+            ? context.l10n.tr('fixtures_shared_to_global_chat')
+            : context.l10n.tr('fixtures_shared_to_league_chat'),
       );
       _clearSelection();
     } catch (e, st) {
@@ -1075,7 +1078,8 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
         setState(() => _sharePayload = null);
       }
 
-      _snack('Could not share fixtures ($step). Please try again.');
+      _snack(
+          '${context.l10n.tr('fixtures_share_failed_prefix')}$step${context.l10n.tr('fixtures_share_failed_suffix')}');
     } finally {
       if (mounted) setState(() => _isSharingFixtures = false);
     }
@@ -1130,16 +1134,17 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
 
           return AppBar(
             leading: IconButton(
-              tooltip: 'Cancel',
+              tooltip: l10n.tr('common_cancel'),
               onPressed: _clearSelection,
               icon: const Icon(Icons.close_rounded),
             ),
-            title: Text('${selected.length} selected'),
+            title: Text(
+                '${selected.length}${l10n.tr('fixtures_selected_count_suffix')}'),
             elevation: 0,
             backgroundColor: Colors.transparent,
             actions: [
               IconButton(
-                tooltip: 'Share',
+                tooltip: l10n.tr('fixtures_share_tooltip'),
                 onPressed: (!_canAdminSelectFixtures || _isSharingFixtures)
                     ? null
                     : _shareSelectedFixturesToLeagueChat,
@@ -1268,7 +1273,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Couldn’t load fixtures',
+                    context.l10n.tr('fixtures_load_error_title'),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: AppTheme.primaryText(brightness),
@@ -1291,7 +1296,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => context.pop(),
-                          child: const Text('Back'),
+                          child: Text(context.l10n.tr('fixtures_back')),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1302,7 +1307,7 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
                             foregroundColor: AppTheme.darkText,
                           ),
                           onPressed: _loadInitialData,
-                          child: const Text('Retry'),
+                          child: Text(context.l10n.tr('common_retry')),
                         ),
                       ),
                     ],
@@ -1836,7 +1841,7 @@ class _ShareCaptureOverlay extends StatelessWidget {
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          'Preparing share…',
+                          context.l10n.tr('fixtures_preparing_share'),
                           style: TextStyle(
                             color: cs.onSurface.withOpacity(0.90),
                             fontWeight: FontWeight.w800,
@@ -1897,8 +1902,9 @@ class _FixturesShareCard extends StatelessWidget {
         ? (payload.selectedGroup ?? '').trim()
         : '';
 
-    final safeLeagueName =
-        payload.leagueName.trim().isEmpty ? 'League' : payload.leagueName.trim();
+    final safeLeagueName = payload.leagueName.trim().isEmpty
+        ? context.l10n.tr('fixtures_share_default_league_name')
+        : payload.leagueName.trim();
     final logoBytes = payload.leagueLogoBytes;
 
     return Material(
@@ -1971,7 +1977,7 @@ class _FixturesShareCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Fixtures',
+                          context.l10n.tr('fixtures_share_card_title'),
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                             color: theme.brightness == Brightness.dark
@@ -2005,7 +2011,7 @@ class _FixturesShareCard extends StatelessWidget {
                       border: Border.all(color: cs.onSurface.withOpacity(0.18)),
                     ),
                     child: Text(
-                      '${payload.matches.length} selected',
+                      '${payload.matches.length}${context.l10n.tr('fixtures_selected_count_suffix')}',
                       style: TextStyle(
                         color: (theme.brightness == Brightness.dark
                                 ? Colors.white
@@ -2026,8 +2032,12 @@ class _FixturesShareCard extends StatelessWidget {
                   base: base,
                   round: m.roundNumber,
                   groupLabel: (m.groupId ?? '').trim(),
-                  homeName: (payload.teamNames[m.homeTeamId] ?? 'TBD').trim(),
-                  awayName: (payload.teamNames[m.awayTeamId] ?? 'TBD').trim(),
+                  homeName: (payload.teamNames[m.homeTeamId] ??
+                          context.l10n.tr('fixtures_tbd'))
+                      .trim(),
+                  awayName: (payload.teamNames[m.awayTeamId] ??
+                          context.l10n.tr('fixtures_tbd'))
+                      .trim(),
                   homeScore: m.homeScore,
                   awayScore: m.awayScore,
                 ),
@@ -2036,7 +2046,7 @@ class _FixturesShareCard extends StatelessWidget {
               if (extra > 0) ...[
                 const SizedBox(height: 2),
                 Text(
-                  '+$extra more',
+                  '+$extra${context.l10n.tr('fixtures_share_more_suffix')}',
                   style: TextStyle(
                     color: (theme.brightness == Brightness.dark
                             ? Colors.white
@@ -2057,7 +2067,7 @@ class _FixturesShareCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Shared from fixtures',
+                      context.l10n.tr('fixtures_shared_from_fixtures_label'),
                       style: TextStyle(
                         color: (theme.brightness == Brightness.dark
                                 ? Colors.white
@@ -2069,7 +2079,7 @@ class _FixturesShareCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'eSportlyic league',
+                    context.l10n.tr('fixtures_share_brand_label'),
                     style: TextStyle(
                       color: cs.primary.withOpacity(0.95),
                       fontWeight: FontWeight.w900,
@@ -2118,8 +2128,11 @@ class _FixturesShareRow extends StatelessWidget {
     final fg = isDark ? Colors.white : const Color(0xFF0B1220);
 
     final group = groupLabel.trim();
-    final roundChip = 'R$round';
-    final scoreText = _hasScore ? '$homeScore  -  $awayScore' : 'vs';
+    final roundChip =
+        '${context.l10n.tr('fixtures_share_round_prefix')}$round';
+    final scoreText = _hasScore
+        ? '$homeScore  -  $awayScore'
+        : context.l10n.tr('league_details_vs');
 
     final rowBg = Color.alphaBlend(
       cs.onSurface.withOpacity(isDark ? 0.10 : 0.04),

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -96,7 +97,7 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError = 'Could not load match details. Please try again.';
+        _loadError = context.l10n.tr('match_poster_load_error');
         _loading = false;
       });
     }
@@ -156,11 +157,11 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
       if (file == null) return;
       await _exportService.shareFile(
         file,
-        text: 'Match poster from eSportlyic',
+        text: context.l10n.tr('match_poster_share_text'),
       );
     } catch (e) {
       _snack(
-        e is MatchPosterExportException ? e.message : 'Could not export the poster.',
+        e is MatchPosterExportException ? e.message : context.l10n.tr('match_poster_export_failed'),
         error: true,
       );
     } finally {
@@ -175,7 +176,7 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Match Poster'),
+        title: Text(context.l10n.tr('match_poster_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -204,7 +205,7 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
                       ),
                       const SizedBox(height: 20),
                       Text(
-                        'Template',
+                        context.l10n.tr('match_poster_template_label'),
                         style: TextStyle(
                           color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w900,
@@ -214,13 +215,13 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
                       const SizedBox(height: 8),
                       Wrap(
                         spacing: 8,
-                        children: const [
-                          _StaticChoiceChip(label: 'Classic', selected: true),
+                        children: [
+                          _StaticChoiceChip(label: context.l10n.tr('match_poster_template_classic'), selected: true),
                         ],
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'Format',
+                        context.l10n.tr('match_poster_format_label'),
                         style: TextStyle(
                           color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w900,
@@ -241,7 +242,7 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'Details (optional)',
+                        context.l10n.tr('match_poster_details_optional'),
                         style: TextStyle(
                           color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w900,
@@ -300,16 +301,15 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
                                   child: CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Icon(Icons.ios_share_rounded),
-                          label: const Text(
-                            'Share Poster',
+                          label: Text(
+                            context.l10n.tr('match_poster_share_poster_button'),
                             style: TextStyle(fontWeight: FontWeight.w900),
                           ),
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'The share sheet also lets you save the image to your '
-                        'device.',
+                        context.l10n.tr('match_poster_share_sheet_hint'),
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: AppTheme.secondaryText(brightness),
@@ -366,7 +366,7 @@ class _ErrorState extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: onRetry,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
+                  label: Text(context.l10n.tr('common_retry')),
                 ),
               ),
             ],

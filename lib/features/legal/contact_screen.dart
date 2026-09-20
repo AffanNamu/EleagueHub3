@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/locale/app_localizations.dart';
+
 class ContactScreen extends StatelessWidget {
   const ContactScreen({super.key});
 
@@ -9,14 +11,14 @@ class ContactScreen extends StatelessWidget {
 
   Future<void> _launchSupportEmail(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
+    final l10n = context.l10n;
 
     final uri = Uri(
       scheme: 'mailto',
       path: supportEmail,
       queryParameters: <String, String>{
         'subject': 'esportlyic Support Request',
-        'body':
-            'Hello Support,\n\nPlease describe your issue and include:\n- What you were trying to do\n- Any error message you saw\n- Your device model and OS version\n\nThanks,\n',
+        'body': l10n.tr('contact_support_email_body'),
       },
     );
 
@@ -25,10 +27,10 @@ class ContactScreen extends StatelessWidget {
       if (!ok) {
         messenger.clearSnackBars();
         messenger.showSnackBar(
-          const SnackBar(
+          SnackBar(
             behavior: SnackBarBehavior.floating,
-            margin: EdgeInsets.all(12),
-            content: Text('No email app found to send this message.'),
+            margin: const EdgeInsets.all(12),
+            content: Text(l10n.tr('contact_no_email_app_found')),
           ),
         );
         return;
@@ -42,20 +44,20 @@ class ContactScreen extends StatelessWidget {
       if (!launched) {
         messenger.clearSnackBars();
         messenger.showSnackBar(
-          const SnackBar(
+          SnackBar(
             behavior: SnackBarBehavior.floating,
-            margin: EdgeInsets.all(12),
-            content: Text('Could not open your email app.'),
+            margin: const EdgeInsets.all(12),
+            content: Text(l10n.tr('contact_could_not_open_email_app')),
           ),
         );
       }
     } catch (_) {
       messenger.clearSnackBars();
       messenger.showSnackBar(
-        const SnackBar(
+        SnackBar(
           behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.all(12),
-          content: Text('Could not open your email app.'),
+          margin: const EdgeInsets.all(12),
+          content: Text(l10n.tr('contact_could_not_open_email_app')),
         ),
       );
     }
@@ -65,10 +67,11 @@ class ContactScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l10n = context.l10n;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Contact'),
+        title: Text(l10n.tr('contact_appbar_title')),
       ),
       backgroundColor: cs.background,
       body: SafeArea(
@@ -81,7 +84,7 @@ class ContactScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Support',
+                    l10n.tr('contact_heading'),
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: cs.onBackground,
@@ -89,7 +92,7 @@ class ContactScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'If you need help with your account, leagues, payments, or marketplace links, contact us and we’ll respond as soon as possible.',
+                    l10n.tr('contact_intro_body'),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: cs.onBackground.withOpacity(0.85),
                       height: 1.35,
@@ -110,7 +113,7 @@ class ContactScreen extends StatelessWidget {
                         children: [
                           _InfoRow(
                             icon: Icons.email_outlined,
-                            title: 'Email',
+                            title: l10n.tr('contact_email_label'),
                             value: supportEmail,
                             onCopy: () async {
                               await Clipboard.setData(
@@ -119,10 +122,10 @@ class ContactScreen extends StatelessWidget {
                               if (!context.mounted) return;
                               ScaffoldMessenger.of(context).clearSnackBars();
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
+                                SnackBar(
                                   behavior: SnackBarBehavior.floating,
-                                  margin: EdgeInsets.all(12),
-                                  content: Text('Support email copied.'),
+                                  margin: const EdgeInsets.all(12),
+                                  content: Text(l10n.tr('contact_email_copied')),
                                 ),
                               );
                             },
@@ -130,9 +133,9 @@ class ContactScreen extends StatelessWidget {
                           const SizedBox(height: 10),
                           const Divider(height: 1),
                           const SizedBox(height: 10),
-                          const _InfoRow(
+                          _InfoRow(
                             icon: Icons.phone_outlined,
-                            title: 'WhatsApp Phone No',
+                            title: l10n.tr('contact_whatsapp_label'),
                             value: '+2347066900063',
                             onCopy: null,
                           ),
@@ -144,7 +147,7 @@ class ContactScreen extends StatelessWidget {
                   FilledButton.icon(
                     onPressed: () => _launchSupportEmail(context),
                     icon: const Icon(Icons.support_agent),
-                    label: const Text('Contact Support'),
+                    label: Text(l10n.tr('contact_support_button')),
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -154,7 +157,7 @@ class ContactScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Tip: For faster support, include screenshots and the steps to reproduce the issue.',
+                    l10n.tr('contact_tip'),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onBackground.withOpacity(0.70),
                       fontWeight: FontWeight.w600,
@@ -217,7 +220,7 @@ class _InfoRow extends StatelessWidget {
         ),
         if (onCopy != null)
           IconButton(
-            tooltip: 'Copy',
+            tooltip: context.l10n.tr('contact_copy_tooltip'),
             onPressed: onCopy,
             icon: Icon(Icons.copy, color: cs.onSurface.withOpacity(0.70)),
           ),

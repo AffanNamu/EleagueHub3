@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/errors/user_friendly_error.dart';
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
@@ -37,26 +38,27 @@ class _DiscussionsListScreenState extends State<DiscussionsListScreen> {
     );
     if (result == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(behavior: SnackBarBehavior.floating, content: Text('Discussion posted.')),
+        SnackBar(behavior: SnackBarBehavior.floating, content: Text(context.l10n.tr('discussions_list_posted'))),
       );
     }
   }
 
-  String _timeAgo(int ms) {
+  String _timeAgo(AppLocalizations l10n, int ms) {
     final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
-    if (diff.inMinutes < 1) return 'now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    return '${diff.inDays}d';
+    if (diff.inMinutes < 1) return l10n.tr('discussions_list_time_now');
+    if (diff.inMinutes < 60) return '${diff.inMinutes}${l10n.tr('discussions_list_time_minutes_suffix')}';
+    if (diff.inHours < 24) return '${diff.inHours}${l10n.tr('discussions_list_time_hours_suffix')}';
+    return '${diff.inDays}${l10n.tr('discussions_list_time_days_suffix')}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Discussions'),
+        title: Text(l10n.tr('discussions_list_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -87,7 +89,7 @@ class _DiscussionsListScreenState extends State<DiscussionsListScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text(
-                    'No discussions yet. Start the first one.',
+                    l10n.tr('discussions_list_empty'),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppTheme.secondaryText(brightness), fontWeight: FontWeight.w600),
                   ),
@@ -123,7 +125,7 @@ class _DiscussionsListScreenState extends State<DiscussionsListScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                thread.authorDisplayName.isEmpty ? 'User' : thread.authorDisplayName,
+                                thread.authorDisplayName.isEmpty ? l10n.tr('discussions_list_author_fallback') : thread.authorDisplayName,
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 12,
@@ -132,7 +134,7 @@ class _DiscussionsListScreenState extends State<DiscussionsListScreen> {
                               ),
                             ),
                             Text(
-                              _timeAgo(thread.lastReplyAtMs),
+                              _timeAgo(l10n, thread.lastReplyAtMs),
                               style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 11),
                             ),
                           ],
@@ -154,7 +156,7 @@ class _DiscussionsListScreenState extends State<DiscussionsListScreen> {
                             Icon(Icons.chat_bubble_outline_rounded, size: 14, color: AppTheme.secondaryText(brightness)),
                             const SizedBox(width: 4),
                             Text(
-                              '${thread.replyCount} ${thread.replyCount == 1 ? "reply" : "replies"}',
+                              '${thread.replyCount} ${thread.replyCount == 1 ? l10n.tr('discussions_list_reply_singular') : l10n.tr('discussions_list_reply_plural')}',
                               style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 12, fontWeight: FontWeight.w700),
                             ),
                           ],

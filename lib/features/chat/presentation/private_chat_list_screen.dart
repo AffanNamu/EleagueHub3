@@ -20,6 +20,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -226,13 +227,17 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
       setState(() {
         watch.name = name.isNotEmpty
             ? name
-            : (watch.kind == _RoomKind.league ? 'League' : 'Organizer');
+            : (watch.kind == _RoomKind.league
+                ? context.l10n.tr('private_chat_list_default_league_name')
+                : context.l10n.tr('private_chat_list_default_organizer_name'));
         watch.nameResolved = true;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        watch.name = watch.kind == _RoomKind.league ? 'League' : 'Organizer';
+        watch.name = watch.kind == _RoomKind.league
+            ? context.l10n.tr('private_chat_list_default_league_name')
+            : context.l10n.tr('private_chat_list_default_organizer_name');
         watch.nameResolved = true;
       });
     }
@@ -254,7 +259,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
 
       if (snap.docs.isEmpty) {
         setState(() {
-          watch.preview = 'No messages yet';
+          watch.preview = context.l10n.tr('private_chat_list_no_messages');
           watch.lastActivityMs = 0;
         });
         return;
@@ -269,17 +274,19 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
 
       String body;
       if (deleted) {
-        body = 'Message deleted';
+        body = context.l10n.tr('private_chat_list_message_deleted');
       } else {
         switch (type) {
           case 'image':
-            body = '📷 Photo';
+            body = context.l10n.tr('private_chat_list_preview_photo');
             break;
           case 'voice':
-            body = '🎤 Voice message';
+            body = context.l10n.tr('private_chat_list_preview_voice_message');
             break;
           default:
-            body = text.isNotEmpty ? text : 'New message';
+            body = text.isNotEmpty
+                ? text
+                : context.l10n.tr('private_chat_list_preview_new_message');
         }
       }
 
@@ -302,7 +309,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
         _InboxItem.room(
           kind: _RoomKind.league,
           id: w.id,
-          title: w.nameResolved ? w.name : 'League',
+          title: w.nameResolved ? w.name : context.l10n.tr('private_chat_list_default_league_name'),
           subtitle: w.preview,
           lastActivityMs: w.lastActivityMs,
         ),
@@ -310,7 +317,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
         _InboxItem.room(
           kind: _RoomKind.organizer,
           id: w.id,
-          title: w.nameResolved ? w.name : 'Organizer',
+          title: w.nameResolved ? w.name : context.l10n.tr('private_chat_list_default_organizer_name'),
           subtitle: w.preview,
           lastActivityMs: w.lastActivityMs,
         ),
@@ -338,7 +345,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Messages'),
+        title: Text(context.l10n.tr('private_chat_list_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -359,7 +366,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      "We couldn't load your messages.",
+                      context.l10n.tr('private_chat_list_load_error'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: AppTheme.primaryText(brightness),
@@ -370,7 +377,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
                     OutlinedButton.icon(
                       onPressed: () => setState(() {}),
                       icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('Try Again'),
+                      label: Text(context.l10n.tr('private_chat_list_try_again')),
                     ),
                   ],
                 ),
@@ -394,9 +401,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      'No conversations yet.\nMessages from your leagues, '
-                      'organizer workspaces, and direct chats will show up '
-                      'here.',
+                      context.l10n.tr('private_chat_list_empty_state'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: AppTheme.secondaryText(brightness),
@@ -411,8 +416,8 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
                       ),
                       onPressed: () => context.push('/search'),
                       icon: const Icon(Icons.person_search_rounded),
-                      label: const Text(
-                        'Find People to Chat',
+                      label: Text(
+                        context.l10n.tr('private_chat_list_find_people'),
                         style: TextStyle(fontWeight: FontWeight.w900),
                       ),
                     ),
@@ -503,7 +508,9 @@ class _PrivateRow extends StatelessWidget {
               ],
             ),
             subtitle: Text(
-              thread.lastMessage.isEmpty ? 'Say hello 👋' : thread.lastMessage,
+              thread.lastMessage.isEmpty
+                  ? context.l10n.tr('private_chat_empty_state')
+                  : thread.lastMessage,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: AppTheme.secondaryText(brightness)),

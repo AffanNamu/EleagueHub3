@@ -6,6 +6,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../data/platform_announcements_repository.dart';
 
 class NotificationsListScreen extends StatefulWidget {
@@ -49,19 +50,24 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
     }
   }
 
-  String _relativeTime(int ms) {
+  String _relativeTime(AppLocalizations l10n, int ms) {
     if (ms <= 0) return '';
     final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
+    if (diff.inMinutes < 1) return l10n.tr('notifications_list_time_just_now');
+    if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}${l10n.tr('notifications_list_time_minutes_ago_suffix')}';
+    }
+    if (diff.inHours < 24) {
+      return '${diff.inHours}${l10n.tr('notifications_list_time_hours_ago_suffix')}';
+    }
+    return '${diff.inDays}${l10n.tr('notifications_list_time_days_ago_suffix')}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
-      appBar: AppBar(title: const Text('Notifications')),
+      appBar: AppBar(title: Text(l10n.tr('notifications_list_appbar_title'))),
       body: StreamBuilder<List<PlatformAnnouncement>>(
         stream: _repo.watchRecent(),
         builder: (context, snapshot) {
@@ -73,12 +79,12 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
           }
 
           if (items.isEmpty) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: const EdgeInsets.all(24),
                 child: Text(
-                  'No notifications yet.',
-                  style: TextStyle(color: Colors.grey),
+                  l10n.tr('notifications_list_empty'),
+                  style: const TextStyle(color: Colors.grey),
                 ),
               ),
             );
@@ -122,7 +128,7 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            _relativeTime(item.createdAtMs),
+                            _relativeTime(l10n, item.createdAtMs),
                             style: const TextStyle(
                               fontSize: 11,
                               color: Colors.grey,

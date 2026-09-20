@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
@@ -177,7 +178,7 @@ class _OrganizerProfileScreenState
         ownerProfile.displayName.trim().isNotEmpty) {
       return ownerProfile.displayName.trim();
     }
-    return 'Organizer';
+    return context.l10n.tr('organizer_profile_organizer_fallback');
   }
 
   // ── Cloudinary ─────────────────────────────────────────────────────────────
@@ -401,13 +402,13 @@ class _OrganizerProfileScreenState
   }
 
   String? _validateProfile(OrganizerProfile p) {
-    if (p.bannerUrl.length > 2000) return 'Banner URL is too long.';
-    if (p.logoUrl.length  > 2000) return 'Logo URL is too long.';
-    if (p.bio.length      > 2000) return 'Bio is too long.';
-    if (p.badge.length    > 80)   return 'Badge is too long.';
+    if (p.bannerUrl.length > 2000) return context.l10n.tr('organizer_profile_banner_url_too_long');
+    if (p.logoUrl.length  > 2000) return context.l10n.tr('organizer_profile_logo_url_too_long');
+    if (p.bio.length      > 2000) return context.l10n.tr('organizer_profile_bio_too_long');
+    if (p.badge.length    > 80)   return context.l10n.tr('organizer_profile_badge_too_long');
     for (final e in p.socialLinks.entries) {
-      if (e.key.length   > 30)   return 'Invalid social link key.';
-      if (e.value.length > 2000) return 'A social link is too long.';
+      if (e.key.length   > 30)   return context.l10n.tr('organizer_profile_invalid_social_key');
+      if (e.value.length > 2000) return context.l10n.tr('organizer_profile_social_link_too_long');
     }
     return null;
   }
@@ -419,7 +420,7 @@ class _OrganizerProfileScreenState
 
     if (!ml.isOwner(_uid)) {
       _snack(
-        'Only the Master League owner can edit the organizer profile.',
+        context.l10n.tr('organizer_profile_owner_only_edit'),
         error: true,
       );
       return;
@@ -442,7 +443,7 @@ class _OrganizerProfileScreenState
       ref.invalidate(
           masterLeagueByIdProvider(widget.masterLeagueId));
       ref.invalidate(myMasterLeaguesProvider);
-      _snack('Organizer profile updated');
+      _snack(context.l10n.tr('organizer_profile_updated_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -457,7 +458,7 @@ class _OrganizerProfileScreenState
     required bool banner,
   }) async {
     if (!ml.isOwner(_uid)) {
-      _snack('Only the owner can update organizer images.',
+      _snack(context.l10n.tr('organizer_profile_owner_only_images'),
           error: true);
       return;
     }
@@ -481,7 +482,7 @@ class _OrganizerProfileScreenState
 
       if (!pickResult.isSuccess) {
         _snack(
-          pickResult.errorMessage ?? 'Could not pick image.',
+          pickResult.errorMessage ?? context.l10n.tr('organizer_profile_could_not_pick_image'),
           error: true,
         );
         return;
@@ -490,7 +491,7 @@ class _OrganizerProfileScreenState
       final picked = pickResult.file!;
       if (picked.size > _maxBytes) {
         _snack(
-          'Image too large. Please select an image under 5 MB.',
+          context.l10n.tr('organizer_profile_image_too_large'),
           error: true,
         );
         return;
@@ -536,13 +537,13 @@ class _OrganizerProfileScreenState
       MasterLeague ml, bool isFollowing) async {
     if (_followBusy) return;
     if (_uid.isEmpty) {
-      _snack('Please sign in to follow this organizer.',
+      _snack(context.l10n.tr('organizer_profile_follow_sign_in_required'),
           error: true);
       return;
     }
     if (ml.ownerId.trim() == _uid) {
       _snack(
-        'You cannot follow your own organizer workspace.',
+        context.l10n.tr('organizer_profile_cannot_follow_self'),
         error: true,
       );
       return;
@@ -553,10 +554,10 @@ class _OrganizerProfileScreenState
       final repo = ref.read(masterLeaguesRepositoryProvider);
       if (isFollowing) {
         await repo.unfollowWorkspace(ml.id);
-        _snack('Unfollowed organizer workspace.');
+        _snack(context.l10n.tr('organizer_profile_unfollowed_message'));
       } else {
         await repo.followWorkspace(ml.id);
-        _snack('Now following organizer workspace.');
+        _snack(context.l10n.tr('organizer_profile_now_following_message'));
       }
     } catch (e) {
       _snack('$e', error: true);
@@ -569,17 +570,17 @@ class _OrganizerProfileScreenState
 
   Future<void> _renewVerification(MasterLeague ml) async {
     if (_uid.isEmpty) {
-      _snack('Please sign in to continue.', error: true);
+      _snack(context.l10n.tr('organizer_profile_sign_in_continue'), error: true);
       return;
     }
     if (ml.ownerId.trim() != _uid) {
-      _snack('Only the owner can renew verification.',
+      _snack(context.l10n.tr('organizer_profile_owner_only_renew'),
           error: true);
       return;
     }
     if (!ml.canRenewVerification) {
       _snack(
-        'This organizer cannot renew verification right now.',
+        context.l10n.tr('organizer_profile_cannot_renew_now'),
         error: true,
       );
       return;
@@ -587,7 +588,7 @@ class _OrganizerProfileScreenState
     if (ml.isVerificationPending &&
         ml.verificationRequestType.trim().toLowerCase() ==
             'renewal') {
-      _snack('A renewal request is already pending review.',
+      _snack(context.l10n.tr('organizer_profile_renewal_already_pending'),
           error: true);
       return;
     }
@@ -600,25 +601,22 @@ class _OrganizerProfileScreenState
         return AlertDialog(
           backgroundColor:  AppTheme.cardColor(brightness),
           surfaceTintColor: Colors.transparent,
-          title: const Text('Renew Verification'),
+          title: Text(context.l10n.tr('organizer_profile_renew_verification_title')),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'A paid renewal request will be submitted '
-                'for re-review. Approval is required before '
-                'expiry is extended.',
+              Text(
+                context.l10n.tr('organizer_profile_renew_dialog_body'),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: noteCtrl,
                 maxLines:   4,
-                decoration: const InputDecoration(
-                  labelText:
-                      'Renewal note for admin (optional)',
+                decoration: InputDecoration(
+                  labelText: context.l10n.tr('organizer_profile_renewal_note_label'),
                   alignLabelWithHint: true,
                   prefixIcon:
-                      Icon(Icons.refresh_rounded),
+                      const Icon(Icons.refresh_rounded),
                 ),
               ),
               const SizedBox(height: 12),
@@ -639,8 +637,7 @@ class _OrganizerProfileScreenState
                   ),
                 ),
                 child: Text(
-                  'Renewals keep organizer trust current '
-                  'and require another review cycle.',
+                  context.l10n.tr('organizer_profile_renew_dialog_hint'),
                   style: TextStyle(
                     color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w700,
@@ -653,7 +650,7 @@ class _OrganizerProfileScreenState
             TextButton(
               onPressed: () =>
                   Navigator.of(ctx).pop(false),
-              child: const Text('Cancel'),
+              child: Text(context.l10n.tr('common_cancel')),
             ),
             FilledButton(
               style: FilledButton.styleFrom(
@@ -662,7 +659,7 @@ class _OrganizerProfileScreenState
               ),
               onPressed: () =>
                   Navigator.of(ctx).pop(true),
-              child: const Text('Proceed to Payment'),
+              child: Text(context.l10n.tr('organizer_profile_proceed_to_payment_button')),
             ),
           ],
         );
@@ -697,7 +694,7 @@ class _OrganizerProfileScreenState
       if (!payment.success) {
         _snack(
           payment.errorMessage ??
-              'Verification renewal payment failed.',
+              context.l10n.tr('organizer_profile_renewal_payment_failed'),
           error: true,
         );
         return;
@@ -713,7 +710,7 @@ class _OrganizerProfileScreenState
 
       if (!mounted) return;
       _snack(
-          'Verification renewal request submitted for review.');
+          context.l10n.tr('organizer_profile_renewal_submitted_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -725,22 +722,22 @@ class _OrganizerProfileScreenState
   Future<void> _startInitialVerification(
       MasterLeague ml) async {
     if (_uid.isEmpty) {
-      _snack('Please sign in to continue.', error: true);
+      _snack(context.l10n.tr('organizer_profile_sign_in_continue'), error: true);
       return;
     }
     if (ml.ownerId.trim() != _uid) {
-      _snack('Only the owner can request verification.',
+      _snack(context.l10n.tr('organizer_profile_owner_only_request_verification'),
           error: true);
       return;
     }
     if (ml.isVerifiedOrganizer) {
-      _snack('This organizer is already verified.',
+      _snack(context.l10n.tr('organizer_profile_already_verified'),
           error: true);
       return;
     }
     if (ml.isVerificationPending) {
       _snack(
-        'A verification request is already pending review.',
+        context.l10n.tr('organizer_profile_verification_already_pending'),
         error: true,
       );
       return;
@@ -754,24 +751,22 @@ class _OrganizerProfileScreenState
         return AlertDialog(
           backgroundColor:  AppTheme.cardColor(brightness),
           surfaceTintColor: Colors.transparent,
-          title: const Text('Get Verified'),
+          title: Text(context.l10n.tr('organizer_profile_get_verified_title')),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'A paid verification request will be '
-                'submitted for manual review. Approval is '
-                'required before the verified badge appears.',
+              Text(
+                context.l10n.tr('organizer_profile_get_verified_dialog_body'),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: noteCtrl,
                 maxLines:   4,
-                decoration: const InputDecoration(
-                  labelText: 'Note for admin (optional)',
+                decoration: InputDecoration(
+                  labelText: context.l10n.tr('organizer_profile_note_admin_label'),
                   alignLabelWithHint: true,
                   prefixIcon:
-                      Icon(Icons.verified_user_outlined),
+                      const Icon(Icons.verified_user_outlined),
                 ),
               ),
               const SizedBox(height: 12),
@@ -792,9 +787,7 @@ class _OrganizerProfileScreenState
                   ),
                 ),
                 child: Text(
-                  'Verification is different from your '
-                  'organizer plan. It is a trust review badge '
-                  'for participants.',
+                  context.l10n.tr('organizer_profile_get_verified_dialog_hint'),
                   style: TextStyle(
                     color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w700,
@@ -807,7 +800,7 @@ class _OrganizerProfileScreenState
             TextButton(
               onPressed: () =>
                   Navigator.of(ctx).pop(false),
-              child: const Text('Cancel'),
+              child: Text(context.l10n.tr('common_cancel')),
             ),
             FilledButton(
               style: FilledButton.styleFrom(
@@ -816,7 +809,7 @@ class _OrganizerProfileScreenState
               ),
               onPressed: () =>
                   Navigator.of(ctx).pop(true),
-              child: const Text('Proceed to Payment'),
+              child: Text(context.l10n.tr('organizer_profile_proceed_to_payment_button')),
             ),
           ],
         );
@@ -851,7 +844,7 @@ class _OrganizerProfileScreenState
       if (!payment.success) {
         _snack(
           payment.errorMessage ??
-              'Verification payment failed.',
+              context.l10n.tr('organizer_profile_verification_payment_failed'),
           error: true,
         );
         return;
@@ -866,7 +859,7 @@ class _OrganizerProfileScreenState
       );
 
       if (!mounted) return;
-      _snack('Verification request submitted for review.');
+      _snack(context.l10n.tr('organizer_profile_verification_submitted_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -894,12 +887,12 @@ class _OrganizerProfileScreenState
   Future<void> _openVerificationApplicationScreen(
       MasterLeague ml) async {
     if (_uid.isEmpty) {
-      _snack('Please sign in to continue.', error: true);
+      _snack(context.l10n.tr('organizer_profile_sign_in_continue'), error: true);
       return;
     }
     if (ml.ownerId.trim() != _uid) {
       _snack(
-        'Only the owner can manage organizer verification.',
+        context.l10n.tr('organizer_profile_owner_only_manage_verification'),
         error: true,
       );
       return;
@@ -925,17 +918,15 @@ class _OrganizerProfileScreenState
       final actorName =
           (profile?.displayName.trim().isNotEmpty == true)
               ? profile!.displayName.trim()
-              : 'Organizer';
+              : context.l10n.tr('organizer_profile_organizer_fallback');
 
       await _organizerFeed.addEvent(
         OrganizerFeedEvent(
           id:             '',
           masterLeagueId: ml.id,
           type:           'announcement',
-          title:          'Organizer profile updated',
-          message:
-              'Brand profile, links, or organizer identity '
-              'details were updated.',
+          title:          context.l10n.tr('organizer_profile_feed_event_title'),
+          message:        context.l10n.tr('organizer_profile_feed_event_message'),
           createdAtMs: DateTime.now().millisecondsSinceEpoch,
           actorId:     _uid,
           actorName:   actorName,
@@ -980,7 +971,7 @@ class _OrganizerProfileScreenState
         child: fallback ??
             Center(
               child: Text(
-                'No image',
+                context.l10n.tr('organizer_profile_no_image_label'),
                 style: TextStyle(
                   color:      AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w800,
@@ -1020,7 +1011,7 @@ class _OrganizerProfileScreenState
             ),
             child: Center(
               child: Text(
-                'Image failed to load',
+                context.l10n.tr('organizer_profile_image_failed_to_load'),
                 style: TextStyle(
                   color:      Theme.of(context).colorScheme.error,
                   fontWeight: FontWeight.w900,
@@ -1144,10 +1135,10 @@ class _OrganizerProfileScreenState
   }
 
   Widget _accessDenied() {
-    return const Center(
+    return Center(
       child: EmptyState(
-        title:   'Sign in required',
-        message: 'Please sign in to view organizer profiles.',
+        title:   context.l10n.tr('organizer_profile_sign_in_required_title'),
+        message: context.l10n.tr('organizer_profile_sign_in_required_message'),
         icon:    Icons.lock_outline_rounded,
       ),
     );
@@ -1158,41 +1149,41 @@ class _OrganizerProfileScreenState
       children: [
         TextField(
           controller: _facebookCtrl,
-          decoration: const InputDecoration(
-            labelText:  'Facebook link (optional)',
-            prefixIcon: Icon(Icons.link),
+          decoration: InputDecoration(
+            labelText:  context.l10n.tr('organizer_profile_facebook_label'),
+            prefixIcon: const Icon(Icons.link),
           ),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _instagramCtrl,
-          decoration: const InputDecoration(
-            labelText:  'Instagram link (optional)',
-            prefixIcon: Icon(Icons.link),
+          decoration: InputDecoration(
+            labelText:  context.l10n.tr('organizer_profile_instagram_label'),
+            prefixIcon: const Icon(Icons.link),
           ),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _xCtrl,
-          decoration: const InputDecoration(
-            labelText:  'X / Twitter link (optional)',
-            prefixIcon: Icon(Icons.link),
+          decoration: InputDecoration(
+            labelText:  context.l10n.tr('organizer_profile_x_twitter_label'),
+            prefixIcon: const Icon(Icons.link),
           ),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _youtubeCtrl,
-          decoration: const InputDecoration(
-            labelText:  'YouTube link (optional)',
-            prefixIcon: Icon(Icons.link),
+          decoration: InputDecoration(
+            labelText:  context.l10n.tr('organizer_profile_youtube_label'),
+            prefixIcon: const Icon(Icons.link),
           ),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _tiktokCtrl,
-          decoration: const InputDecoration(
-            labelText:  'TikTok link (optional)',
-            prefixIcon: Icon(Icons.link),
+          decoration: InputDecoration(
+            labelText:  context.l10n.tr('organizer_profile_tiktok_label'),
+            prefixIcon: const Icon(Icons.link),
           ),
         ),
       ],
@@ -1220,7 +1211,7 @@ class _OrganizerProfileScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SectionHeader(
-                'Official Organizer Notice',
+                context.l10n.tr('organizer_profile_pinned_notice_title'),
                 padding: EdgeInsets.zero,
                 trailing: Icon(
                   Icons.push_pin_rounded,
@@ -1253,7 +1244,7 @@ class _OrganizerProfileScreenState
                     brightness,
                     icon: Icons.person_outline_rounded,
                     label: pinned.authorName.trim().isEmpty
-                        ? 'Organizer'
+                        ? context.l10n.tr('organizer_profile_organizer_fallback')
                         : pinned.authorName.trim(),
                   ),
                   _metaChip(
@@ -1268,7 +1259,7 @@ class _OrganizerProfileScreenState
                             .toString()
                             .split('.')
                             .first
-                        : 'Pinned',
+                        : context.l10n.tr('organizer_profile_pinned_label'),
                   ),
                 ],
               ),
@@ -1291,42 +1282,31 @@ class _OrganizerProfileScreenState
 
     if (ml.isVerifiedOrganizer) {
       statusColor = const Color(0xFF1D9BF0);
-      statusTitle = 'Verified Organizer';
-      statusBody  =
-          'This organizer has been manually reviewed and '
-          'approved. This badge helps participants identify '
-          'authentic organizers and avoid scams.';
+      statusTitle = context.l10n.tr('organizer_profile_status_verified_title');
+      statusBody  = context.l10n.tr('organizer_profile_status_verified_body');
     } else if (ml.isVerificationPending) {
       statusColor = const Color(0xFFF59E0B);
       statusTitle = ml.lastVerificationWasRenewal
-          ? 'Renewal Pending Review'
-          : 'Verification Pending';
+          ? context.l10n.tr('organizer_profile_status_renewal_pending_title')
+          : context.l10n.tr('organizer_profile_status_verification_pending_title');
       statusBody = ml.lastVerificationWasRenewal
-          ? 'A paid renewal request has been submitted '
-              'and is waiting for admin review.'
-          : 'A paid verification request has been submitted '
-              'and is waiting for admin review.';
+          ? context.l10n.tr('organizer_profile_status_renewal_pending_body')
+          : context.l10n.tr('organizer_profile_status_verification_pending_body');
     } else if (ml.isVerificationRejected) {
       statusColor = Theme.of(context).colorScheme.error;
-      statusTitle = 'Verification Rejected';
-      statusBody  =
-          'The verification request was reviewed and rejected. '
-          'Please contact support or submit again later.';
+      statusTitle = context.l10n.tr('organizer_profile_status_rejected_title');
+      statusBody  = context.l10n.tr('organizer_profile_status_rejected_body');
     } else if (ml.verificationExpired) {
       statusColor = const Color(0xFFF59E0B);
-      statusTitle = 'Verification Expired';
-      statusBody  =
-          'This organizer was previously verified, but the '
-          'verification period has expired and should be renewed.';
+      statusTitle = context.l10n.tr('organizer_profile_status_expired_title');
+      statusBody  = context.l10n.tr('organizer_profile_status_expired_body');
     } else {
       statusColor = AppTheme.secondaryText(brightness);
-      statusTitle = 'Not Verified';
-      statusBody  =
-          'This organizer is not yet verified. Verified badges '
-          'help participants identify trusted organizer identities.';
+      statusTitle = context.l10n.tr('organizer_profile_status_not_verified_title');
+      statusBody  = context.l10n.tr('organizer_profile_status_not_verified_body');
     }
 
-    String expiryLabel = 'No expiry';
+    String expiryLabel = context.l10n.tr('organizer_profile_no_expiry_label');
     if (ml.verificationExpiresAtMs > 0) {
       expiryLabel = DateTime.fromMillisecondsSinceEpoch(
         ml.verificationExpiresAtMs,
@@ -1351,7 +1331,7 @@ class _OrganizerProfileScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
-            'Trust & Verification',
+            context.l10n.tr('organizer_profile_trust_verification_title'),
             padding: EdgeInsets.zero,
             trailing: Icon(
               Icons.verified_user_outlined,
@@ -1377,13 +1357,13 @@ class _OrganizerProfileScreenState
           ),
           const SizedBox(height: 10),
           _metricRow(
-            label: 'Verification expires',
+            label: context.l10n.tr('organizer_profile_verification_expires_label'),
             value: expiryLabel,
           ),
           if (ml.verificationNote.trim().isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
-              'Review note: ${ml.verificationNote.trim()}',
+              '${context.l10n.tr('organizer_profile_review_note_prefix')}${ml.verificationNote.trim()}',
               style: theme.textTheme.bodySmall?.copyWith(
                 color:      AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
@@ -1409,8 +1389,8 @@ class _OrganizerProfileScreenState
                     ),
                     label: Text(
                       ownerCanStartInitial
-                          ? 'Get Verified'
-                          : 'Renew Verification',
+                          ? context.l10n.tr('organizer_profile_get_verified_title')
+                          : context.l10n.tr('organizer_profile_renew_verification_title'),
                       style: const TextStyle(
                           fontWeight: FontWeight.w900),
                     ),
@@ -1420,9 +1400,7 @@ class _OrganizerProfileScreenState
             ),
             const SizedBox(height: 8),
             Text(
-              'Verification purchase is separate from your '
-              'organizer plan. Plan controls capacity; '
-              'verification adds trust review.',
+              context.l10n.tr('organizer_profile_verification_purchase_hint'),
               style: theme.textTheme.bodySmall?.copyWith(
                 color:      AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
@@ -1452,7 +1430,7 @@ class _OrganizerProfileScreenState
             ? const Color(0xFF22C55E)
             : AppTheme.limeAccentDark);
 
-    final planLabel     = 'Plan: ${ml.plan.displayName}';
+    final planLabel     = '${context.l10n.tr('organizer_profile_plan_prefix')}${ml.plan.displayName}';
     final canFollow     =
         _uid.isNotEmpty && ml.ownerId.trim() != _uid;
     final ownerCanEdit  = ml.isOwner(_uid);
@@ -1659,7 +1637,7 @@ class _OrganizerProfileScreenState
                   Flexible(
                     child: Text(
                       ml.name.trim().isEmpty
-                          ? 'Organizer'
+                          ? context.l10n.tr('organizer_profile_organizer_fallback')
                           : ml.name.trim(),
                       style: theme.textTheme.titleLarge
                           ?.copyWith(
@@ -1699,7 +1677,7 @@ class _OrganizerProfileScreenState
                 ),
               _pill(
                 text: '$followersCount '
-                    'follower${followersCount == 1 ? '' : 's'}',
+                    '${followersCount == 1 ? context.l10n.tr('organizer_profile_follower_singular') : context.l10n.tr('organizer_profile_follower_plural')}',
                 color: const Color(0xFF22C55E),
                 icon:  Icons.favorite_border_rounded,
               ),
@@ -1707,9 +1685,7 @@ class _OrganizerProfileScreenState
           ),
           const SizedBox(height: 8),
           Text(
-            ownerName.isNotEmpty
-                ? 'Managed by $ownerName'
-                : 'Managed by Organizer',
+            '${context.l10n.tr('organizer_profile_managed_by_prefix')}${ownerName.isNotEmpty ? ownerName : context.l10n.tr('organizer_profile_organizer_fallback')}',
             style: theme.textTheme.bodyMedium?.copyWith(
               color:      AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
@@ -1718,7 +1694,7 @@ class _OrganizerProfileScreenState
           const SizedBox(height: 8),
           Text(
             ml.organizerProfile.bio.trim().isEmpty
-                ? 'No organizer bio yet.'
+                ? context.l10n.tr('organizer_profile_no_bio_message')
                 : ml.organizerProfile.bio.trim(),
             maxLines: 4,
             overflow: TextOverflow.ellipsis,
@@ -1760,8 +1736,8 @@ class _OrganizerProfileScreenState
                           ),
                     label: Text(
                       isFollowing
-                          ? 'Following'
-                          : 'Follow Organizer',
+                          ? context.l10n.tr('organizer_profile_following_label')
+                          : context.l10n.tr('organizer_profile_follow_organizer_label'),
                       style: const TextStyle(
                           fontWeight: FontWeight.w900),
                     ),
@@ -1803,7 +1779,7 @@ class _OrganizerProfileScreenState
     final cards = <_TrustMetric>[
       _TrustMetric(
         icon:  Icons.workspace_premium_rounded,
-        label: 'Organizer Plan',
+        label: context.l10n.tr('organizer_profile_metric_organizer_plan'),
         value: ml.plan.displayName,
         tint: ml.plan == MasterLeaguePlan.elite
             ? const Color(0xFF8B5CF6)
@@ -1813,14 +1789,14 @@ class _OrganizerProfileScreenState
       ),
       _TrustMetric(
         icon:  Icons.verified_user_outlined,
-        label: 'Trust Status',
+        label: context.l10n.tr('organizer_profile_metric_trust_status'),
         value: ml.isVerifiedOrganizer
-            ? 'Verified'
+            ? context.l10n.tr('organizer_profile_trust_status_verified')
             : (ml.isVerificationPending
-                ? 'Pending'
+                ? context.l10n.tr('organizer_profile_trust_status_pending')
                 : (ml.verificationExpired
-                    ? 'Expired'
-                    : 'Unverified')),
+                    ? context.l10n.tr('organizer_profile_trust_status_expired')
+                    : context.l10n.tr('organizer_profile_trust_status_unverified'))),
         tint: ml.isVerifiedOrganizer
             ? const Color(0xFF1D9BF0)
             : (ml.isVerificationPending
@@ -1829,25 +1805,25 @@ class _OrganizerProfileScreenState
       ),
       _TrustMetric(
         icon:  Icons.emoji_events_outlined,
-        label: 'Competitions Hosted',
+        label: context.l10n.tr('organizer_profile_metric_competitions_hosted'),
         value: '${ml.analytics.totalTournamentsCreated}',
         tint:  AppTheme.limeAccentDark,
       ),
       _TrustMetric(
         icon:  Icons.groups_rounded,
-        label: 'Teams Hosted',
+        label: context.l10n.tr('organizer_profile_metric_teams_hosted'),
         value: '${ml.analytics.totalParticipantsTeams}',
         tint:  const Color(0xFF22C55E),
       ),
       _TrustMetric(
         icon:  Icons.sports_score_rounded,
-        label: 'Matches Managed',
+        label: context.l10n.tr('organizer_profile_metric_matches_managed'),
         value: '${ml.analytics.totalMatches}',
         tint:  const Color(0xFF8B5CF6),
       ),
       _TrustMetric(
         icon:  Icons.favorite_border_rounded,
-        label: 'Followers',
+        label: context.l10n.tr('organizer_profile_metric_followers'),
         value: '$followersCount',
         tint:  const Color(0xFFEF4444),
       ),
@@ -1982,7 +1958,7 @@ class _OrganizerProfileScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
-            'Official Links',
+            context.l10n.tr('organizer_profile_official_links_title'),
             padding: EdgeInsets.zero,
             trailing: Icon(Icons.public_rounded,
                 color: AppTheme.limeAccentDark),
@@ -1990,7 +1966,7 @@ class _OrganizerProfileScreenState
           const SizedBox(height: 10),
           if (links.isEmpty)
             Text(
-              'No official links published yet.',
+              context.l10n.tr('organizer_profile_no_links_message'),
               style: theme.textTheme.bodySmall?.copyWith(
                 color:      AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
@@ -2027,7 +2003,7 @@ class _OrganizerProfileScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
-            'About Organizer',
+            context.l10n.tr('organizer_profile_about_title'),
             padding: EdgeInsets.zero,
             trailing: Icon(
               Icons.subject_outlined,
@@ -2037,7 +2013,7 @@ class _OrganizerProfileScreenState
           const SizedBox(height: 10),
           Text(
             ml.organizerProfile.bio.trim().isEmpty
-                ? 'No bio yet.'
+                ? context.l10n.tr('organizer_profile_no_bio_yet_short')
                 : ml.organizerProfile.bio.trim(),
             style: theme.textTheme.bodyMedium?.copyWith(
               color:      AppTheme.secondaryText(brightness),
@@ -2050,9 +2026,9 @@ class _OrganizerProfileScreenState
             TextField(
               controller: _bioCtrl,
               maxLines:   5,
-              decoration: const InputDecoration(
-                labelText:        'Organizer bio',
-                prefixIcon:       Icon(Icons.subject_outlined),
+              decoration: InputDecoration(
+                labelText:        context.l10n.tr('organizer_profile_bio_field_label'),
+                prefixIcon:       const Icon(Icons.subject_outlined),
                 alignLabelWithHint: true,
               ),
             ),
@@ -2077,7 +2053,7 @@ class _OrganizerProfileScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
-            'Competition History',
+            context.l10n.tr('organizer_profile_history_title'),
             padding: EdgeInsets.zero,
             trailing: Icon(Icons.history_rounded,
                 color: AppTheme.limeAccentDark),
@@ -2100,7 +2076,7 @@ class _OrganizerProfileScreenState
 
               if (leagues.isEmpty) {
                 return Text(
-                  'No competitions yet.',
+                  context.l10n.tr('organizer_profile_no_competitions_message'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color:      AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
@@ -2193,7 +2169,7 @@ class _OrganizerProfileScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
-            'Owner Actions',
+            context.l10n.tr('organizer_profile_owner_actions_title'),
             padding: EdgeInsets.zero,
             trailing: Icon(
               Icons.settings_suggest_outlined,
@@ -2226,9 +2202,9 @@ class _OrganizerProfileScreenState
                           ),
                         )
                       : const Icon(Icons.save_outlined),
-                  label: const Text(
-                    'Save Profile',
-                    style: TextStyle(
+                  label: Text(
+                    context.l10n.tr('organizer_profile_save_profile_button'),
+                    style: const TextStyle(
                         fontWeight: FontWeight.w900),
                   ),
                 ),
@@ -2251,9 +2227,9 @@ class _OrganizerProfileScreenState
                   },
                   icon: const Icon(
                       Icons.dashboard_customize_outlined),
-                  label: const Text(
-                    'Back to Workspace',
-                    style: TextStyle(
+                  label: Text(
+                    context.l10n.tr('organizer_profile_back_to_workspace_button'),
+                    style: const TextStyle(
                         fontWeight: FontWeight.w900),
                   ),
                 ),
@@ -2279,7 +2255,7 @@ class _OrganizerProfileScreenState
             ml == null) {
           return GlassScaffold(
             appBar: AppBar(
-              title:           const Text('Organizer Trust Page'),
+              title:           Text(context.l10n.tr('organizer_profile_appbar_title')),
               backgroundColor: Colors.transparent,
               elevation:       0,
               leading: IconButton(
@@ -2296,7 +2272,7 @@ class _OrganizerProfileScreenState
         if (ml == null) {
           return GlassScaffold(
             appBar: AppBar(
-              title:           const Text('Organizer Trust Page'),
+              title:           Text(context.l10n.tr('organizer_profile_appbar_title')),
               backgroundColor: Colors.transparent,
               elevation:       0,
               leading: IconButton(
@@ -2304,11 +2280,10 @@ class _OrganizerProfileScreenState
                 onPressed: _smartPop,
               ),
             ),
-            body: const Center(
+            body: Center(
               child: EmptyState(
-                title:   'Not found',
-                message:
-                    'This Master League may have been deleted.',
+                title:   context.l10n.tr('organizer_profile_not_found_title'),
+                message: context.l10n.tr('organizer_profile_not_found_message'),
                 icon: Icons.badge_outlined,
               ),
             ),
@@ -2319,7 +2294,7 @@ class _OrganizerProfileScreenState
         if (_uid.isEmpty) {
           return GlassScaffold(
             appBar: AppBar(
-              title:           const Text('Organizer Trust Page'),
+              title:           Text(context.l10n.tr('organizer_profile_appbar_title')),
               backgroundColor: Colors.transparent,
               elevation:       0,
               leading: IconButton(
@@ -2350,7 +2325,7 @@ class _OrganizerProfileScreenState
 
             return GlassScaffold(
               appBar: AppBar(
-                title: const Text('Organizer Trust Page'),
+                title: Text(context.l10n.tr('organizer_profile_appbar_title')),
                 backgroundColor: Colors.transparent,
                 elevation:       0,
                 leading: IconButton(
@@ -2368,7 +2343,7 @@ class _OrganizerProfileScreenState
                                   ml);
                             },
                       child: Text(
-                        _saving ? 'Saving...' : 'Save',
+                        _saving ? context.l10n.tr('organizer_profile_saving_label') : context.l10n.tr('common_save'),
                         style: TextStyle(
                           color: _saving
                               ? AppTheme.secondaryText(

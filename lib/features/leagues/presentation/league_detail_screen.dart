@@ -387,7 +387,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final uid =
         FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
-      _toastErr('Please sign in and try again.');
+      _toastErr(context.l10n.tr('league_details_sign_in_and_try_again'));
       return;
     }
     if (_joining) return;
@@ -395,7 +395,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final selectedMode = await showJoinLeagueModeSheet(
       context,
       league: league,
-      title: 'Join League',
+      title: context.l10n.tr('league_details_join_league_title'),
     );
 
     if (selectedMode == null) return;
@@ -410,8 +410,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       if (!mounted) return;
       _toastOk(
         selectedMode == LeagueJoinMode.viewer
-            ? 'League added to your list as viewer.'
-            : 'Successfully joined league.',
+            ? context.l10n.tr('league_details_joined_as_viewer_message')
+            : context.l10n.tr('league_details_joined_successfully_message'),
       );
       _reloadScreen();
     } catch (e) {
@@ -570,7 +570,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       League league, String currentUserId) async {
     try {
       if (currentUserId.trim().isEmpty) {
-        _toastErr('Please sign in and try again.');
+        _toastErr(context.l10n.tr('league_details_sign_in_and_try_again'));
         return;
       }
 
@@ -918,7 +918,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                         highlightsStream: _leagueHighlightsStream,
                         matchesById: matchesById,
                         teamsById: teamsById,
-                        limitLabel: 'Latest highlights',
+                        limitLabel:
+                            context.l10n.tr('league_details_latest_highlights_label'),
                       ),
                       const SizedBox(height: 16),
                       _upcomingMatchesCard(
@@ -959,7 +960,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Join This League',
+                  context.l10n.tr('league_details_join_this_league_title'),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: AppTheme.primaryText(brightness),
@@ -972,8 +973,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           const SizedBox(height: 8),
           Text(
             league.isInsideMasterLeague
-                ? 'This competition belongs to a master league workspace. You can join directly from here as participant or viewer.'
-                : 'You have not joined this league yet. Join now as participant or add it to your list as viewer.',
+                ? context.l10n
+                    .tr('league_details_join_card_master_league_subtitle')
+                : context.l10n.tr('league_details_join_card_default_subtitle'),
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
@@ -1002,7 +1004,9 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                     )
                   : const Icon(Icons.login_rounded),
               label: Text(
-                _joining ? 'Joining...' : 'Join League',
+                _joining
+                    ? context.l10n.tr('league_details_joining_label')
+                    : context.l10n.tr('league_details_join_league_title'),
                 style:
                     const TextStyle(fontWeight: FontWeight.w900),
               ),
@@ -1017,10 +1021,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 onPressed: () => context.push(
                     '/master-leagues/${league.masterLeagueId}'),
                 icon: const Icon(Icons.hub_rounded),
-                label: const Text(
-                  'Open Workspace',
+                label: Text(
+                  context.l10n.tr('league_details_open_workspace_button'),
                   style:
-                      TextStyle(fontWeight: FontWeight.w900),
+                      const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
             ),
@@ -1089,8 +1093,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       rulePills.add(
         _pill(
           wc == WorldCupFormat.fifa2026
-              ? 'FIFA 2026 • 48 Teams'
-              : 'FIFA 2022 • 32 Teams',
+              ? context.l10n.tr('league_details_world_cup_fifa2026_pill')
+              : context.l10n.tr('league_details_world_cup_fifa2022_pill'),
           _premiumAmber,
         ),
       );
@@ -1161,14 +1165,14 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               runSpacing: 8,
               children: [
                 _pill(
-                    'Master League Competition', _premiumAmber),
+                    context.l10n.tr('league_details_master_league_competition_pill'), _premiumAmber),
                 OutlinedButton.icon(
                   onPressed: () => context.push(
                       '/master-leagues/${league.masterLeagueId}'),
                   icon:
                       const Icon(Icons.hub_rounded, size: 16),
-                  label: const Text(
-                    'Open Workspace',
+                  label: Text(
+                    context.l10n.tr('league_details_open_workspace'),
                     style: TextStyle(
                         fontWeight: FontWeight.w900),
                   ),
@@ -1299,7 +1303,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Rewards',
+                  context.l10n.tr('league_details_rewards_title'),
                   style:
                       theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
@@ -1310,8 +1314,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
               TextButton(
                 onPressed: _openRewardsViewer,
-                child: const Text(
-                  'View all',
+                child: Text(
+                  context.l10n.tr('league_details_view_all'),
                   style: TextStyle(
                     color: AppTheme.limeAccentDark,
                     fontWeight: FontWeight.w900,
@@ -1325,8 +1329,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   onPressed: _openRewardsManager,
                   icon: const Icon(Icons.edit_outlined,
                       size: 18),
-                  label: const Text(
-                    'Manage',
+                  label: Text(
+                    context.l10n.tr('league_details_manage'),
                     style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 12),
@@ -1380,7 +1384,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                               ),
                             ),
                             child: Text(
-                              'No rewards available',
+                              context.l10n.tr('league_details_no_rewards_available'),
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: AppTheme
@@ -1417,7 +1421,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                                     ),
                                   ),
                                   child: Text(
-                                    'Failed to load rewards',
+                                    context.l10n.tr('league_details_failed_load_rewards'),
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       color: Theme.of(context)
@@ -1557,8 +1561,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 onPressed: () =>
                     _onOpenLeagueChatroom(league),
                 icon: const Icon(Icons.forum_outlined),
-                label: const Text(
-                  'League Chatroom',
+                label: Text(
+                  context.l10n.tr('league_details_league_chatroom'),
                   style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 12),
@@ -1741,8 +1745,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                           BorderRadius.circular(12)),
                 ),
                 icon: const Icon(Icons.rule_rounded),
-                label: const Text(
-                  'Competition Rules',
+                label: Text(
+                  context.l10n.tr('league_details_competition_rules'),
                   style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 12),
@@ -1826,8 +1830,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                             BorderRadius.circular(12)),
                   ),
                   icon: const Icon(Icons.public_rounded),
-                  label: const Text(
-                    'Generate World Cup Knockouts',
+                  label: Text(
+                    context.l10n.tr('league_details_generate_world_cup_knockouts'),
                     style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 12),
@@ -1855,8 +1859,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                             BorderRadius.circular(12)),
                   ),
                   icon: const Icon(Icons.bolt_rounded),
-                  label: const Text(
-                    'Generate Bracket',
+                  label: Text(
+                    context.l10n.tr('league_details_generate_bracket'),
                     style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 12),
@@ -1959,8 +1963,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               onPressed: () => _onOpenSpace(league),
               icon: const Icon(Icons.spatial_audio_off,
                   size: 18),
-              label: const Text(
-                'Space',
+              label: Text(
+                context.l10n.tr('league_details_space_label'),
                 style: TextStyle(
                     fontWeight: FontWeight.w900, fontSize: 12),
               ),
@@ -2137,8 +2141,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 if (!mounted) return;
                 _reloadScreen();
               },
-              child: const Text(
-                'View all fixtures',
+              child: Text(
+                context.l10n.tr('league_details_view_all_fixtures'),
                 style: TextStyle(
                   color: AppTheme.limeAccentDark,
                   fontSize: 12,
@@ -2632,7 +2636,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   ) async {
     try {
       if (league.format != LeagueFormat.worldCup) {
-        _toastWarn('This action is only available for World Cup competitions.');
+        _toastWarn(context.l10n.tr('league_details_action_world_cup_only'));
         return;
       }
 
@@ -2662,7 +2666,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       final groupMatches =
           matches.where((m) => m.groupId != null).toList();
       if (groupMatches.isEmpty) {
-        _toastErr('No World Cup group stage matches found yet.');
+        _toastErr(context.l10n.tr('league_details_no_world_cup_group_matches'));
         return;
       }
 
@@ -2670,7 +2674,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       final anyUnplayedGroup =
           groupMatches.any((m) => !m.isPlayed);
       if (anyUnplayedGroup) {
-        _toastWarn('Finish all group stage matches first before generating knockouts.');
+        _toastWarn(context.l10n.tr('league_details_finish_group_matches_first'));
         return;
       }
 
@@ -2719,14 +2723,14 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           fifaGroupTieBreakers: true, // Enable FIFA H2H for World Cup
         );
         if (rows.length != 4) {
-          _toastErr('Invalid standings output for group $groupId.');
+          _toastErr("${context.l10n.tr('league_details_invalid_standings_prefix')} $groupId.");
           return;
         }
         groupStandings[groupId] = rows;
       }
 
       if (groupStandings.length != expectedGroupCount) {
-        _toastErr('Incomplete group standings: expected $expectedGroupCount groups.');
+        _toastErr("${context.l10n.tr('league_details_incomplete_standings_prefix')} $expectedGroupCount ${context.l10n.tr('league_details_incomplete_standings_suffix')}");
         return;
       }
 
@@ -2742,7 +2746,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             );
 
       if (koMatches.isEmpty) {
-        _toastErr('Failed to seed World Cup knockout bracket.');
+        _toastErr(context.l10n.tr('league_details_failed_seed_world_cup_bracket'));
         return;
       }
 
@@ -2750,8 +2754,8 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
       _toastOk(
         wcFormat == WorldCupFormat.fifa2026
-            ? 'World Cup knockouts generated (Round of 32).'
-            : 'World Cup knockouts generated (Round of 16).',
+            ? context.l10n.tr('league_details_world_cup_knockouts_generated_r32')
+            : context.l10n.tr('league_details_world_cup_knockouts_generated_r16'),
       );
 
       if (mounted) _reloadScreen();
@@ -2781,7 +2785,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     try {
       if (league.format != LeagueFormat.directKnockout) {
         _toastWarn(
-            'This action is only available for Direct Knockout competitions.');
+            context.l10n.tr('league_details_action_direct_knockout_only'));
         return;
       }
 
@@ -2811,7 +2815,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
       );
 
       if (koMatches.isEmpty) {
-        _toastErr('Failed to seed Direct Knockout bracket.');
+        _toastErr(context.l10n.tr('league_details_failed_seed_direct_knockout_bracket'));
         return;
       }
 

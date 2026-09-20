@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../data/leagues_repository_local.dart';
@@ -8,10 +9,12 @@ import '../../models/league.dart';
 Future<LeagueJoinMode?> showJoinLeagueModeSheet(
   BuildContext context, {
   required League league,
-  String title = 'Join Competition',
+  String? title,
 }) {
   final theme = Theme.of(context);
   final brightness = theme.brightness;
+  final l10n = context.l10n;
+  final resolvedTitle = title ?? l10n.tr('join_league_mode_default_title');
 
   Widget tile({
     required IconData icon,
@@ -99,7 +102,7 @@ Future<LeagueJoinMode?> showJoinLeagueModeSheet(
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        title,
+                        resolvedTitle,
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
                           color: AppTheme.primaryText(brightness),
@@ -139,17 +142,17 @@ Future<LeagueJoinMode?> showJoinLeagueModeSheet(
               const SizedBox(height: 12),
               tile(
                 icon: Icons.sports_soccer_rounded,
-                itemTitle: 'Join as Participant',
+                itemTitle: l10n.tr('join_league_mode_participant_title'),
                 subtitle:
-                    'Register as an active participant inside this league.',
+                    l10n.tr('join_league_mode_participant_subtitle'),
                 mode: LeagueJoinMode.participant,
                 tint: AppTheme.limeAccentDark,
               ),
               tile(
                 icon: Icons.visibility_rounded,
-                itemTitle: 'Join as Viewer',
+                itemTitle: l10n.tr('join_league_mode_viewer_title'),
                 subtitle:
-                    'Add this league to your list without participant membership.',
+                    l10n.tr('join_league_mode_viewer_subtitle'),
                 mode: LeagueJoinMode.viewer,
                 tint: const Color(0xFF8B5CF6),
               ),

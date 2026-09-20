@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
@@ -121,6 +122,7 @@ class _MasterLeagueStaffScreenState
 
   Future<void> _showAddStaffDialog(MasterLeague master) async {
     final brightness = Theme.of(context).brightness;
+    final l10n = context.l10n;
     final ctrl = TextEditingController();
     var selectedRole = MasterLeagueStaffRole.competitionManager;
 
@@ -141,7 +143,7 @@ class _MasterLeagueStaffScreenState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Add Staff',
+                  l10n.tr('master_league_staff_add_dialog_title'),
                   style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: AppTheme.primaryText(brightness),
@@ -149,7 +151,7 @@ class _MasterLeagueStaffScreenState
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Enter the user short id (share id). Example: eS44e35f',
+                  l10n.tr('master_league_staff_add_dialog_subtitle'),
                   style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w700,
@@ -160,14 +162,14 @@ class _MasterLeagueStaffScreenState
                   controller: ctrl,
                   autofocus: true,
                   textInputAction: TextInputAction.done,
-                  decoration: const InputDecoration(
-                    labelText: 'Short ID',
-                    prefixIcon: Icon(Icons.person_search_rounded),
+                  decoration: InputDecoration(
+                    labelText: l10n.tr('master_league_staff_short_id_label'),
+                    prefixIcon: const Icon(Icons.person_search_rounded),
                   ),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Role',
+                  l10n.tr('master_league_staff_role_label'),
                   style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
                         color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w900,
@@ -216,9 +218,9 @@ class _MasterLeagueStaffScreenState
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () => Navigator.of(ctx).pop(null),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                        child: Text(
+                          l10n.tr('common_cancel'),
+                          style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
                     ),
@@ -233,9 +235,9 @@ class _MasterLeagueStaffScreenState
                           'shortId': ctrl.text.trim(),
                           'role': selectedRole.storageValue,
                         }),
-                        child: const Text(
-                          'Add',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                        child: Text(
+                          l10n.tr('common_add'),
+                          style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
                     ),
@@ -259,28 +261,31 @@ class _MasterLeagueStaffScreenState
             shortId: shortId,
             role: role,
           );
-      _snack('Staff member added.');
+      _snack(context.l10n.tr('master_league_staff_added_message'));
     } catch (e) {
       _snack('$e', error: true);
     }
   }
 
   Future<void> _confirmRemoveStaff(_StaffRow row) async {
+    final l10n = context.l10n;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
         surfaceTintColor: Colors.transparent,
-        title: const Text('Remove Staff Member'),
+        title: Text(l10n.tr('master_league_staff_remove_dialog_title')),
         content: Text(
-          'Remove ${row.displayName.isNotEmpty ? row.displayName : row.userId} '
-          'as ${row.role.displayName}? They will lose their staff access '
-          'immediately.',
+          '${l10n.tr('master_league_staff_remove_confirm_prefix')} '
+          '${row.displayName.isNotEmpty ? row.displayName : row.userId} '
+          '${l10n.tr('master_league_staff_remove_confirm_middle')} '
+          '${row.role.displayName}'
+          '${l10n.tr('master_league_staff_remove_confirm_suffix')}',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.tr('common_cancel')),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -288,7 +293,7 @@ class _MasterLeagueStaffScreenState
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Remove'),
+            child: Text(l10n.tr('master_league_staff_remove_action')),
           ),
         ],
       ),
@@ -301,7 +306,7 @@ class _MasterLeagueStaffScreenState
             masterLeagueId: widget.masterLeagueId,
             targetUid: row.userId,
           );
-      _snack('Staff member removed.');
+      _snack(context.l10n.tr('master_league_staff_removed_message'));
     } catch (e) {
       _snack('$e', error: true);
     }
@@ -311,15 +316,16 @@ class _MasterLeagueStaffScreenState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n = context.l10n;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Manage Staff'),
+        title: Text(l10n.tr('master_league_staff_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
+          tooltip: l10n.tr('common_back'),
           onPressed: _safePop,
         ),
       ),
@@ -333,19 +339,19 @@ class _MasterLeagueStaffScreenState
               return const Center(child: CircularProgressIndicator());
             }
             if (master == null) {
-              return const EmptyState(
-                title: "We couldn't find that workspace",
-                message: 'It may have been deleted or renamed.',
+              return EmptyState(
+                title: l10n.tr('master_league_staff_not_found_title'),
+                message: l10n.tr('master_league_staff_not_found_message'),
                 icon: Icons.error_outline_rounded,
               );
             }
 
             final isOwner = master.isOwner(_currentUid);
             if (!isOwner) {
-              return const EmptyState(
-                title: 'Owner only',
+              return EmptyState(
+                title: l10n.tr('master_league_staff_owner_only_title'),
                 message:
-                    'Only the workspace owner can view and manage staff.',
+                    l10n.tr('master_league_staff_owner_only_message'),
                 icon: Icons.lock_outline_rounded,
               );
             }
@@ -365,6 +371,7 @@ class _MasterLeagueStaffScreenState
   Widget _buildBody(MasterLeague master, double hPad) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n = context.l10n;
 
     final rows = <_StaffRow>[
       _StaffRow(
@@ -412,7 +419,7 @@ class _MasterLeagueStaffScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Workspace Staff',
+                        l10n.tr('master_league_staff_header_title'),
                         style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w900,
                           color: AppTheme.primaryText(brightness),
@@ -420,8 +427,7 @@ class _MasterLeagueStaffScreenState
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Delegate competition management, result entry, or '
-                        'moderation without sharing full ownership.',
+                        l10n.tr('master_league_staff_header_subtitle'),
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w700,
@@ -438,9 +444,9 @@ class _MasterLeagueStaffScreenState
                           ),
                           onPressed: () => _showAddStaffDialog(master),
                           icon: const Icon(Icons.person_add_alt_1_rounded),
-                          label: const Text(
-                            'Add Staff',
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                          label: Text(
+                            l10n.tr('master_league_staff_add_dialog_title'),
+                            style: const TextStyle(fontWeight: FontWeight.w900),
                           ),
                         ),
                       ),
@@ -467,6 +473,7 @@ class _MasterLeagueStaffScreenState
   Widget _buildActivityLog(Map<String, String> names) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n = context.l10n;
 
     return Glass(
       borderRadius: 24,
@@ -477,7 +484,7 @@ class _MasterLeagueStaffScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Recent Activity',
+            l10n.tr('master_league_staff_activity_title'),
             style: theme.textTheme.titleSmall?.copyWith(
               color: AppTheme.primaryText(brightness),
               fontWeight: FontWeight.w900,
@@ -503,7 +510,7 @@ class _MasterLeagueStaffScreenState
               }
               if (docs.isEmpty) {
                 return Text(
-                  'No staff changes yet.',
+                  l10n.tr('master_league_staff_activity_empty'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
@@ -533,11 +540,11 @@ class _MasterLeagueStaffScreenState
 
                   final text = switch (action) {
                     'staff_added' =>
-                        '$targetLabel added as $roleLabel',
+                        '$targetLabel ${l10n.tr('master_league_staff_log_added_suffix')} $roleLabel',
                     'staff_removed' =>
-                        '$targetLabel removed (was $roleLabel)',
+                        '$targetLabel ${l10n.tr('master_league_staff_log_removed_suffix')} $roleLabel)',
                     'scope_changed' =>
-                        '$targetLabel\'s competition access changed',
+                        '$targetLabel${l10n.tr('master_league_staff_log_scope_changed_suffix')}',
                     _ => '$targetLabel • $action',
                   };
 
@@ -572,15 +579,16 @@ class _MasterLeagueStaffScreenState
   Widget _staffTile(_StaffRow row) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n = context.l10n;
     final isOwnerRow = row.role == MasterLeagueStaffRole.owner;
 
     final title = row.displayName.isNotEmpty ? row.displayName : row.userId;
     final subtitleParts = <String>[
       row.role.displayName,
       if (!isOwnerRow && row.competitionScope.isNotEmpty)
-        '${row.competitionScope.length} competition(s) only'
+        '${row.competitionScope.length} ${l10n.tr('master_league_staff_scope_limited_suffix')}'
       else if (!isOwnerRow)
-        'All competitions',
+        l10n.tr('master_league_staff_scope_all'),
     ];
 
     final tint = switch (row.role) {
@@ -640,7 +648,7 @@ class _MasterLeagueStaffScreenState
           ),
           if (!isOwnerRow)
             IconButton(
-              tooltip: 'Remove',
+              tooltip: l10n.tr('master_league_staff_remove_action'),
               icon: Icon(
                 Icons.person_remove_alt_1_rounded,
                 color: Theme.of(context).colorScheme.error,

@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -19,16 +20,16 @@ class LeagueRoleGuard extends StatefulWidget {
     required this.child,
     this.allowOrganizer = true,
     this.allowAdmin = true,
-    this.title = 'Restricted Access',
-    this.message = 'You do not have permission to open this page.',
+    this.title,
+    this.message,
   });
 
   final String leagueId;
   final Widget child;
   final bool allowOrganizer;
   final bool allowAdmin;
-  final String title;
-  final String message;
+  final String? title;
+  final String? message;
 
   @override
   State<LeagueRoleGuard> createState() => _LeagueRoleGuardState();
@@ -182,7 +183,7 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        widget.title,
+                        widget.title ?? context.l10n.tr('league_role_guard_default_title'),
                         style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w900,
                           letterSpacing: -0.3,
@@ -192,7 +193,7 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        widget.message,
+                        widget.message ?? context.l10n.tr('league_role_guard_default_message'),
                         style: TextStyle(
                           color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w700,
@@ -216,8 +217,8 @@ class _LeagueRoleGuardState extends State<LeagueRoleGuard> {
                             }
                           },
                           icon: const Icon(Icons.arrow_back_rounded),
-                          label: const Text(
-                            'Go Back',
+                          label: Text(
+                            context.l10n.tr('league_role_guard_go_back'),
                             style: TextStyle(fontWeight: FontWeight.w900),
                           ),
                         ),

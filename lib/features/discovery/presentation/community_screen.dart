@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -29,12 +30,13 @@ class CommunityScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Community'),
+        title: Text(l10n.tr('community_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -51,7 +53,7 @@ class CommunityScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'eSportlyic Community',
+                    l10n.tr('community_header_title'),
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 18,
@@ -60,7 +62,7 @@ class CommunityScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Chat live, start discussions, and explore the wider eSportlyic community.',
+                    l10n.tr('community_header_subtitle'),
                     style: TextStyle(
                       color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w600,
@@ -74,35 +76,35 @@ class CommunityScreen extends StatelessWidget {
             _CommunityRow(
               icon: Icons.forum_rounded,
               iconColor: const Color(0xFF8B5CF6),
-              title: 'Global Chat',
-              subtitle: 'Request access & chat with the community in realtime',
+              title: l10n.tr('community_global_chat_title'),
+              subtitle: l10n.tr('community_global_chat_subtitle'),
               onTap: () => context.push('/global-chat'),
             ),
             const SizedBox(height: 10),
             _CommunityRow(
               icon: Icons.chat_bubble_outline_rounded,
               iconColor: const Color(0xFF22C55E),
-              title: 'Discussions',
-              subtitle: 'Ask questions, share tips, and talk tactics',
+              title: l10n.tr('community_discussions_title'),
+              subtitle: l10n.tr('community_discussions_subtitle'),
               onTap: () => context.push('/discovery/community/discussions'),
             ),
             const SizedBox(height: 10),
             _CommunityRow(
               icon: Icons.local_movies_outlined,
               iconColor: const Color(0xFF38BDF8),
-              title: 'Highlights',
-              subtitle: 'Community match highlights',
-              badge: 'Soon',
-              onTap: () => _showComingSoon(context, 'Highlights'),
+              title: l10n.tr('community_highlights_title'),
+              subtitle: l10n.tr('community_highlights_subtitle'),
+              badge: l10n.tr('community_badge_soon'),
+              onTap: () => _showComingSoon(context, l10n.tr('community_highlights_title')),
             ),
             const SizedBox(height: 10),
             _CommunityRow(
               icon: Icons.menu_book_outlined,
               iconColor: const Color(0xFFF59E0B),
-              title: 'Guides',
-              subtitle: 'Tips, strategy, and how-tos from the community',
-              badge: 'Soon',
-              onTap: () => _showComingSoon(context, 'Guides'),
+              title: l10n.tr('community_guides_title'),
+              subtitle: l10n.tr('community_guides_subtitle'),
+              badge: l10n.tr('community_badge_soon'),
+              onTap: () => _showComingSoon(context, l10n.tr('community_guides_title')),
             ),
           ],
         ),
@@ -111,10 +113,11 @@ class CommunityScreen extends StatelessWidget {
   }
 
   void _showComingSoon(BuildContext context, String feature) {
+    final l10n = context.l10n;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        content: Text('$feature is coming soon.'),
+        content: Text('$feature${l10n.tr('community_coming_soon_suffix')}'),
       ),
     );
   }

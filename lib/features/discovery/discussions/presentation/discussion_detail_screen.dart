@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/errors/user_friendly_error.dart';
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
@@ -66,16 +67,17 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
   }
 
   Future<void> _confirmDeleteThread() async {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.cardColor(brightness),
-        title: const Text('Delete this discussion?'),
-        content: const Text('This cannot be undone.'),
+        title: Text(l10n.tr('discussion_detail_delete_dialog_title')),
+        content: Text(l10n.tr('discussion_detail_delete_dialog_message')),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Delete')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(l10n.tr('discussion_detail_delete_dialog_cancel'))),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(l10n.tr('discussion_detail_delete_dialog_confirm'))),
         ],
       ),
     );
@@ -89,21 +91,22 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
     }
   }
 
-  String _timeAgo(int ms) {
+  String _timeAgo(AppLocalizations l10n, int ms) {
     final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
-    if (diff.inMinutes < 1) return 'now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    return '${diff.inDays}d';
+    if (diff.inMinutes < 1) return l10n.tr('discussion_detail_time_now');
+    if (diff.inMinutes < 60) return '${diff.inMinutes}${l10n.tr('discussion_detail_time_minutes_suffix')}';
+    if (diff.inHours < 24) return '${diff.inHours}${l10n.tr('discussion_detail_time_hours_suffix')}';
+    return '${diff.inDays}${l10n.tr('discussion_detail_time_days_suffix')}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Discussion'),
+        title: Text(l10n.tr('discussion_detail_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -118,7 +121,7 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
             if (thread == null || thread.deleted) {
               return Center(
                 child: Text(
-                  'This discussion is no longer available.',
+                  l10n.tr('discussion_detail_unavailable'),
                   style: TextStyle(color: AppTheme.secondaryText(brightness), fontWeight: FontWeight.w600),
                 ),
               );
@@ -155,12 +158,12 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
-                                    thread.authorDisplayName.isEmpty ? 'User' : thread.authorDisplayName,
+                                    thread.authorDisplayName.isEmpty ? l10n.tr('discussion_detail_author_fallback') : thread.authorDisplayName,
                                     style: TextStyle(fontWeight: FontWeight.w900, color: AppTheme.primaryText(brightness)),
                                   ),
                                 ),
                                 Text(
-                                  _timeAgo(thread.createdAtMs),
+                                  _timeAgo(l10n, thread.createdAtMs),
                                   style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 12),
                                 ),
                                 if (isOwner)
@@ -196,7 +199,7 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        '${thread.replyCount} ${thread.replyCount == 1 ? "Reply" : "Replies"}',
+                        '${thread.replyCount} ${thread.replyCount == 1 ? l10n.tr('discussion_detail_reply_singular') : l10n.tr('discussion_detail_reply_plural')}',
                         style: TextStyle(fontWeight: FontWeight.w900, color: AppTheme.primaryText(brightness)),
                       ),
                       const SizedBox(height: 10),
@@ -208,7 +211,7 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
                             return Padding(
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               child: Text(
-                                'No replies yet. Be the first to respond.',
+                                l10n.tr('discussion_detail_no_replies'),
                                 style: TextStyle(color: AppTheme.secondaryText(brightness), fontWeight: FontWeight.w600),
                               ),
                             );
@@ -216,7 +219,7 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
                           return Column(
                             children: [
                               for (final reply in replies) ...[
-                                _ReplyTile(reply: reply, timeAgo: _timeAgo(reply.createdAtMs)),
+                                _ReplyTile(reply: reply, timeAgo: _timeAgo(l10n, reply.createdAtMs)),
                                 const SizedBox(height: 8),
                               ],
                             ],
@@ -236,7 +239,7 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
                           child: TextField(
                             controller: _replyController,
                             enabled: !_sending,
-                            decoration: const InputDecoration(hintText: 'Write a reply…'),
+                            decoration: InputDecoration(hintText: l10n.tr('discussion_detail_reply_hint')),
                             onSubmitted: (_) => _sendReply(),
                           ),
                         ),
@@ -314,7 +317,7 @@ class _ReplyTileState extends State<_ReplyTile> {
                   children: [
                     Expanded(
                       child: Text(
-                        widget.reply.authorDisplayName.isEmpty ? 'User' : widget.reply.authorDisplayName,
+                        widget.reply.authorDisplayName.isEmpty ? context.l10n.tr('discussion_detail_author_fallback') : widget.reply.authorDisplayName,
                         style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: AppTheme.primaryText(brightness)),
                       ),
                     ),

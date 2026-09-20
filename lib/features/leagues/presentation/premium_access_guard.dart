@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
@@ -34,14 +35,13 @@ class PremiumAccessGuard extends ConsumerWidget {
   const PremiumAccessGuard({
     super.key,
     required this.child,
-    this.title = 'Premium Feature',
-    this.description =
-        'This feature requires a premium subscription. Unlock it to get full access.',
+    this.title,
+    this.description,
   });
 
   final Widget child;
-  final String title;
-  final String description;
+  final String? title;
+  final String? description;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -53,8 +53,9 @@ class PremiumAccessGuard extends ConsumerWidget {
       data: (isPremium) {
         if (isPremium) return child;
         return _PremiumPaywall(
-          title: title,
-          description: description,
+          title: title ?? context.l10n.tr('premium_guard_default_title'),
+          description: description ??
+              context.l10n.tr('premium_guard_default_description'),
         );
       },
     );
@@ -96,7 +97,7 @@ class PremiumAccessGuard extends ConsumerWidget {
                 Icon(Icons.error_outline, color: cs.error, size: 48),
                 const SizedBox(height: 12),
                 Text(
-                  'Unable to verify subscription',
+                  context.l10n.tr('premium_guard_verify_error_title'),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: cs.onSurface,
                         fontWeight: FontWeight.w900,
@@ -104,7 +105,7 @@ class PremiumAccessGuard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Please check your internet connection and try again.',
+                  context.l10n.tr('premium_guard_verify_error_body'),
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: cs.onSurface.withOpacity(0.7),
@@ -118,7 +119,7 @@ class PremiumAccessGuard extends ConsumerWidget {
                     ref.invalidate(premiumStatusStreamProvider);
                   },
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
+                  label: Text(context.l10n.tr('common_retry')),
                 ),
               ],
             ),
@@ -151,7 +152,7 @@ class _PremiumPaywallState extends ConsumerState<_PremiumPaywall> {
 
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
-      setState(() => _errorMessage = 'Please sign in to continue.');
+      setState(() => _errorMessage = context.l10n.tr('premium_guard_sign_in_required'));
       return;
     }
 
@@ -176,7 +177,7 @@ class _PremiumPaywallState extends ConsumerState<_PremiumPaywall> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Premium activated! Enjoy ${result.premiumDurationDays} days of access.',
+              "${context.l10n.tr('premium_guard_activated_prefix')} ${result.premiumDurationDays} ${context.l10n.tr('premium_guard_activated_suffix')}",
             ),
             backgroundColor: Theme.of(context).colorScheme.primary,
           ),
@@ -184,7 +185,7 @@ class _PremiumPaywallState extends ConsumerState<_PremiumPaywall> {
       } else {
         setState(() {
           _errorMessage =
-              result.errorMessage ?? 'Payment cancelled or not successful.';
+              result.errorMessage ?? context.l10n.tr('premium_guard_payment_cancelled');
         });
       }
     } catch (e) {
@@ -282,7 +283,7 @@ class _PremiumPaywallState extends ConsumerState<_PremiumPaywall> {
                           const SizedBox(width: 6),
                           Flexible(
                             child: Text(
-                              'Secure payment verified by server',
+                              context.l10n.tr('premium_guard_secure_payment_notice'),
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: cs.onSurface.withOpacity(0.6),
                                 fontWeight: FontWeight.w700,
@@ -346,8 +347,8 @@ class _PremiumPaywallState extends ConsumerState<_PremiumPaywall> {
                             : const Icon(Icons.diamond_outlined),
                         label: Text(
                           _processing
-                              ? 'Processing…'
-                              : 'Purchase Premium',
+                              ? context.l10n.tr('premium_guard_processing')
+                              : context.l10n.tr('premium_guard_purchase_premium'),
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 16,

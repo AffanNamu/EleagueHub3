@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../leagues/models/fixture_match.dart';
 import '../../leagues/models/team.dart';
 import '../domain/match_highlight.dart';
@@ -19,24 +20,25 @@ class LeagueHighlightsSection extends StatelessWidget {
     required this.highlightsStream,
     required this.matchesById,
     required this.teamsById,
-    this.limitLabel = 'Latest highlights',
+    this.limitLabel,
   });
 
   final String leagueId;
   final Stream<List<MatchHighlight>> highlightsStream;
   final Map<String, FixtureMatch> matchesById;
   final Map<String, Team> teamsById;
-  final String limitLabel;
+  final String? limitLabel;
 
   Future<void> _openVideo(BuildContext context, String url) async {
+    final l10n = context.l10n;
     final u = Uri.tryParse(url.trim());
     if (u == null) {
-      _snack(context, 'Invalid video URL.');
+      _snack(context, l10n.tr('league_highlights_invalid_video_url'));
       return;
     }
 
     final ok = await launchUrl(u, mode: LaunchMode.externalApplication);
-    if (!ok) _snack(context, 'Could not open video.');
+    if (!ok) _snack(context, l10n.tr('league_highlights_open_video_failed'));
   }
 
   void _snack(BuildContext context, String msg) {
@@ -46,22 +48,29 @@ class LeagueHighlightsSection extends StatelessWidget {
     );
   }
 
-  String _matchLabel(FixtureMatch? m) {
-    if (m == null) return 'Match';
-    final h = teamsById[m.homeTeamId]?.name.trim().isNotEmpty == true ? teamsById[m.homeTeamId]!.name.trim() : 'Home';
-    final a = teamsById[m.awayTeamId]?.name.trim().isNotEmpty == true ? teamsById[m.awayTeamId]!.name.trim() : 'Away';
-    return '$h vs $a';
+  String _matchLabel(AppLocalizations l10n, FixtureMatch? m) {
+    if (m == null) return l10n.tr('league_highlights_match_fallback');
+    final h = teamsById[m.homeTeamId]?.name.trim().isNotEmpty == true
+        ? teamsById[m.homeTeamId]!.name.trim()
+        : l10n.tr('league_highlights_home_team_fallback');
+    final a = teamsById[m.awayTeamId]?.name.trim().isNotEmpty == true
+        ? teamsById[m.awayTeamId]!.name.trim()
+        : l10n.tr('league_highlights_away_team_fallback');
+    return '$h ${l10n.tr('league_highlights_vs_separator')} $a';
   }
 
-  String _uploaderTeamName(MatchHighlight h) {
+  String _uploaderTeamName(AppLocalizations l10n, MatchHighlight h) {
     final t = teamsById[h.teamId]?.name.trim() ?? '';
-    return t.isNotEmpty ? t : 'Team';
+    return t.isNotEmpty ? t : l10n.tr('league_highlights_team_fallback');
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final resolvedLimitLabel =
+        limitLabel ?? l10n.tr('league_highlights_default_title');
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -79,7 +88,7 @@ class LeagueHighlightsSection extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  limitLabel,
+                  resolvedLimitLabel,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: cs.onSurface,
@@ -88,7 +97,7 @@ class LeagueHighlightsSection extends StatelessWidget {
                 ),
               ),
               Text(
-                'Open to watch',
+                l10n.tr('league_highlights_open_to_watch'),
                 style: TextStyle(
                   color: cs.onSurface.withOpacity(0.55),
                   fontWeight: FontWeight.w700,
@@ -125,7 +134,7 @@ class LeagueHighlightsSection extends StatelessWidget {
                     border: Border.all(color: cs.onSurface.withOpacity(0.12)),
                   ),
                   child: Text(
-                    'No highlights yet.',
+                    l10n.tr('league_highlights_empty'),
                     style: TextStyle(
                       color: cs.onSurface.withOpacity(0.70),
                       fontWeight: FontWeight.w700,
@@ -141,8 +150,8 @@ class LeagueHighlightsSection extends StatelessWidget {
                   for (final h in items) ...[
                     _LeagueHighlightTile(
                       highlight: h,
-                      matchLabel: _matchLabel(matchesById[h.matchId]),
-                      uploaderTeamName: _uploaderTeamName(h),
+                      matchLabel: _matchLabel(l10n, matchesById[h.matchId]),
+                      uploaderTeamName: _uploaderTeamName(l10n, h),
                       onOpenVideo: h.secureUrl.trim().isEmpty ? null : () => _openVideo(context, h.secureUrl),
                       onOpenMatch: () {
                         final matchId = h.matchId.trim();
@@ -179,6 +188,7 @@ class _LeagueHighlightTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
@@ -191,9 +201,13 @@ class _LeagueHighlightTile extends StatelessWidget {
     }
 
     String statusLabel() {
-      if (highlight.status == MatchHighlight.statusApproved) return 'APPROVED';
-      if (highlight.status == MatchHighlight.statusProcessing) return 'PROCESSING';
-      return 'UPLOADING';
+      if (highlight.status == MatchHighlight.statusApproved) {
+        return l10n.tr('league_highlights_status_approved');
+      }
+      if (highlight.status == MatchHighlight.statusProcessing) {
+        return l10n.tr('league_highlights_status_processing');
+      }
+      return l10n.tr('league_highlights_status_uploading');
     }
 
     return InkWell(
@@ -264,9 +278,9 @@ class _LeagueHighlightTile extends StatelessWidget {
                       TextButton.icon(
                         onPressed: onOpenMatch,
                         icon: const Icon(Icons.sports_soccer, size: 16),
-                        label: const Text(
-                          'Match',
-                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                        label: Text(
+                          l10n.tr('league_highlights_match_button'),
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -274,14 +288,14 @@ class _LeagueHighlightTile extends StatelessWidget {
                         FilledButton.tonalIcon(
                           onPressed: onOpenVideo,
                           icon: const Icon(Icons.play_arrow, size: 16),
-                          label: const Text(
-                            'Watch',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                          label: Text(
+                            l10n.tr('league_highlights_watch_button'),
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                           ),
                         )
                       else
                         Text(
-                          'Not ready yet',
+                          l10n.tr('league_highlights_not_ready'),
                           style: TextStyle(
                             color: cs.onSurface.withOpacity(0.55),
                             fontWeight: FontWeight.w700,

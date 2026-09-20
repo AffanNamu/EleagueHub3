@@ -29,6 +29,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/payment_platform_config.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -229,7 +230,8 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
 
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
-      setState(() => _error = 'Please sign in before purchasing a plan.');
+      setState(() => _error =
+          context.l10n.tr('upgrade_plan_sign_in_before_purchase'));
       return;
     }
 
@@ -288,7 +290,7 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
           _processing = false;
           _error = errorMessage?.trim().isNotEmpty == true
               ? errorMessage
-              : 'Payment failed.';
+              : context.l10n.tr('upgrade_plan_payment_failed');
         });
         return;
       }
@@ -337,10 +339,9 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
       await GooglePlayBillingService.instance.restorePurchases();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Restore requested. Any previous purchases will be '
-            'reapplied shortly.',
+            context.l10n.tr('upgrade_plan_restore_requested_message'),
           ),
         ),
       );
@@ -349,7 +350,7 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Restore failed: '
+            '${context.l10n.tr('upgrade_plan_restore_failed_prefix')}'
             '${e.toString().replaceFirst('Exception: ', '').trim()}',
           ),
         ),
@@ -362,27 +363,28 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
   // ── Feature lists ─────────────────────────────────────────────────────
 
   List<String> _featuresFor(MasterLeaguePlan plan) {
+    final l10n = context.l10n;
     switch (plan) {
       case MasterLeaguePlan.basic:
-        return const [
-          '1 master league workspace',
-          'Up to 3 competitions',
-          'Standard organizer tools',
+        return [
+          l10n.tr('upgrade_plan_feature_basic_workspace'),
+          l10n.tr('upgrade_plan_feature_basic_competitions'),
+          l10n.tr('upgrade_plan_feature_basic_tools'),
         ];
       case MasterLeaguePlan.pro:
-        return const [
-          '5 master league workspaces',
-          'Up to 9 competitions per workspace',
-          'Pro organizer badge',
-          'Priority support',
+        return [
+          l10n.tr('upgrade_plan_feature_pro_workspaces'),
+          l10n.tr('upgrade_plan_feature_pro_competitions'),
+          l10n.tr('upgrade_plan_feature_pro_badge'),
+          l10n.tr('upgrade_plan_feature_priority_support'),
         ];
       case MasterLeaguePlan.elite:
-        return const [
-          'Unlimited master league workspaces',
-          'Unlimited competitions',
-          'Elite organizer badge',
-          'Maximum competition capacity',
-          'Priority support',
+        return [
+          l10n.tr('upgrade_plan_feature_elite_workspaces'),
+          l10n.tr('upgrade_plan_feature_elite_competitions'),
+          l10n.tr('upgrade_plan_feature_elite_badge'),
+          l10n.tr('upgrade_plan_feature_elite_capacity'),
+          l10n.tr('upgrade_plan_feature_priority_support'),
         ];
     }
   }
@@ -403,14 +405,14 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Upgrade Your Plan'),
+        title: Text(context.l10n.tr('upgrade_plan_appbar_title')),
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
-          tooltip: 'Close',
+          tooltip: context.l10n.tr('common_close'),
           onPressed: _processing
               ? null
               : () => Navigator.of(context).pop(false),
@@ -425,7 +427,7 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Restore'),
+                  : Text(context.l10n.tr('upgrade_plan_restore')),
             ),
         ],
       ),
@@ -531,8 +533,8 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                               ),
                             ),
                             child: Text(
-                              'Basic is your free starter plan and '
-                              'requires no payment.',
+                              context.l10n
+                                  .tr('upgrade_plan_basic_free_notice'),
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: AppTheme.secondaryText(
@@ -548,7 +550,7 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                             alignment:
                                 AlignmentDirectional.centerStart,
                             child: Text(
-                              'Choose duration',
+                              context.l10n.tr('upgrade_plan_choose_duration'),
                               style: theme.textTheme.titleSmall
                                   ?.copyWith(
                                 fontWeight: FontWeight.w900,
@@ -643,7 +645,8 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                                     )
                                   : Text(
                                       _priceUnavailable
-                                          ? 'Unavailable'
+                                          ? context.l10n.tr(
+                                              'upgrade_plan_price_unavailable')
                                           : (_currentPriceDisplay ??
                                               '—'),
                                       style: theme
@@ -658,8 +661,8 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                                     ),
                               Text(
                                 _priceUnavailable
-                                    ? 'Not available yet — try '
-                                        'again later'
+                                    ? context.l10n.tr(
+                                        'upgrade_plan_price_unavailable_retry_later')
                                     : _selectedDuration.displayName,
                                 style: TextStyle(
                                   color: AppTheme.secondaryText(
@@ -701,10 +704,13 @@ class _UpgradePlanScreenState extends ConsumerState<UpgradePlanScreen> {
                                 )
                               : Text(
                                   !_useNativeIAP
-                                      ? 'Subscribe & Pay'
+                                      ? context.l10n
+                                          .tr('upgrade_plan_subscribe_and_pay')
                                       : (_isIOS
-                                          ? 'Subscribe'
-                                          : 'Buy on Play'),
+                                          ? context.l10n
+                                              .tr('upgrade_plan_subscribe')
+                                          : context.l10n.tr(
+                                              'upgrade_plan_buy_on_play')),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w900,
                                   ),
@@ -768,34 +774,36 @@ class _SubscriptionDisclosure extends StatelessWidget {
       children: [
         if (useNativeIAP)
           Text(
-            'Payment will be charged to your $storeName account at '
-            'confirmation of purchase. Subscriptions automatically renew '
-            'for the same duration and price unless auto-renew is turned '
-            'off at least 24 hours before the end of the current period. '
-            'Manage or cancel any time in your $storeName account settings.',
+            '${context.l10n.tr('upgrade_plan_disclosure_prefix')}$storeName'
+            '${context.l10n.tr('upgrade_plan_disclosure_mid')}$storeName'
+            '${context.l10n.tr('upgrade_plan_disclosure_suffix')}',
             style: bodyStyle,
           ),
         if (useNativeIAP) const SizedBox(height: 8),
         Wrap(
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Text('By subscribing you agree to our ', style: bodyStyle),
+            Text(context.l10n.tr('upgrade_plan_agree_to_our_prefix'),
+                style: bodyStyle),
             GestureDetector(
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => const TermsOfServiceScreen(),
                 ),
               ),
-              child: Text('Terms of Service', style: linkStyle),
+              child: Text(context.l10n.tr('upgrade_plan_terms_of_service'),
+                  style: linkStyle),
             ),
-            Text(' and ', style: bodyStyle),
+            Text(context.l10n.tr('upgrade_plan_and_separator'),
+                style: bodyStyle),
             GestureDetector(
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => const PrivacyPolicyScreen(),
                 ),
               ),
-              child: Text('Privacy Policy', style: linkStyle),
+              child: Text(context.l10n.tr('upgrade_plan_privacy_policy'),
+                  style: linkStyle),
             ),
             Text('.', style: bodyStyle),
           ],

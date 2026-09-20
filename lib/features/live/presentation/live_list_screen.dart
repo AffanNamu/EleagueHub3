@@ -34,7 +34,7 @@ class _LiveListScreenState extends State<LiveListScreen> {
   Future<bool> _ensureSignedInAndOnline() async {
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
-      _showSnack('Please sign in and try again.');
+      _showSnack(context.l10n.tr('live_list_sign_in_and_try_again'));
       if (mounted) context.go('/login');
       return false;
     }
@@ -204,7 +204,9 @@ class _LiveListScreenState extends State<LiveListScreen> {
                                   final port =
                                       int.tryParse(portCtrl.text.trim()) ?? 8765;
                                   if (matchId.isEmpty) {
-                                    _showSnack('Please enter a valid match ID.');
+                                    _showSnack(
+                                      l10n.tr('live_list_enter_valid_match_id'),
+                                    );
                                     return;
                                   }
 

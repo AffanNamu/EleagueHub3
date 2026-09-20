@@ -13,6 +13,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -34,17 +35,25 @@ class _CompetitionRulesEditorScreenState
     extends State<CompetitionRulesEditorScreen> {
   final LeaguesRepositoryFirebase _repo = LeaguesRepositoryFirebase();
 
+  // Values are l10n keys (translated via context.l10n.tr at display time),
+  // not raw display text.
   static const Map<String, String> _fairPlayLabels = {
-    'fair_play_respect': 'Fair play & respect are mandatory',
-    'no_harassment': 'No harassment',
-    'no_abusive_language': 'No abusive language',
-    'no_discrimination': 'No discrimination',
-    'no_cheating': 'No cheating',
-    'no_match_fixing': 'No match fixing',
-    'no_collusion': 'No collusion',
-    'no_impersonation': 'No impersonation',
-    'no_account_sharing': 'No account sharing',
-    'no_deliberate_exploitation': 'No deliberate exploitation of glitches',
+    'fair_play_respect':
+        'competition_rules_editor_fair_play_respect_mandatory',
+    'no_harassment': 'competition_rules_editor_fair_play_no_harassment',
+    'no_abusive_language':
+        'competition_rules_editor_fair_play_no_abusive_language',
+    'no_discrimination':
+        'competition_rules_editor_fair_play_no_discrimination',
+    'no_cheating': 'competition_rules_editor_fair_play_no_cheating',
+    'no_match_fixing': 'competition_rules_editor_fair_play_no_match_fixing',
+    'no_collusion': 'competition_rules_editor_fair_play_no_collusion',
+    'no_impersonation':
+        'competition_rules_editor_fair_play_no_impersonation',
+    'no_account_sharing':
+        'competition_rules_editor_fair_play_no_account_sharing',
+    'no_deliberate_exploitation':
+        'competition_rules_editor_fair_play_no_deliberate_exploitation',
   };
 
   static const List<String> _evidenceTypeOptions = [
@@ -406,8 +415,8 @@ class _CompetitionRulesEditorScreenState
       });
 
       _snack(publishLocked
-          ? 'Rules published and locked (v${saved.version}).'
-          : 'Rules saved as draft (v${saved.version}).');
+          ? '${context.l10n.tr('competition_rules_editor_published_locked_prefix')}${saved.version}${context.l10n.tr('competition_rules_editor_published_locked_suffix')}'
+          : '${context.l10n.tr('competition_rules_editor_saved_draft_prefix')}${saved.version}${context.l10n.tr('competition_rules_editor_saved_draft_suffix')}');
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
@@ -497,12 +506,14 @@ class _CompetitionRulesEditorScreenState
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Competition Rules'),
+        title: Text(
+            context.l10n.tr('competition_rules_editor_app_bar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: 'Reload',
+            tooltip:
+                context.l10n.tr('competition_rules_editor_reload_tooltip'),
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -549,8 +560,9 @@ class _CompetitionRulesEditorScreenState
         children: [
           Text(
             _hadExistingDoc
-                ? 'Editing v$_loadedVersion'
-                : 'New Competition Rules',
+                ? '${context.l10n.tr('competition_rules_editor_editing_version_prefix')}$_loadedVersion'
+                : context.l10n
+                    .tr('competition_rules_editor_new_rules_title'),
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               color: AppTheme.primaryText(brightness),
@@ -558,9 +570,7 @@ class _CompetitionRulesEditorScreenState
           ),
           const SizedBox(height: 6),
           Text(
-            'Define what participants must follow in this competition. '
-            'This is separate from Organizer Discipline, which stays where '
-            'it is.',
+            context.l10n.tr('competition_rules_editor_header_subtitle'),
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w600,
@@ -578,14 +588,15 @@ class _CompetitionRulesEditorScreenState
                 border: Border.all(color: Colors.orange.withOpacity(0.4)),
               ),
               child: Row(
-                children: const [
-                  Icon(Icons.lock_rounded, size: 16, color: Colors.orange),
-                  SizedBox(width: 8),
+                children: [
+                  const Icon(Icons.lock_rounded,
+                      size: 16, color: Colors.orange),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'These rules are locked. Saving changes will publish '
-                      'a new version and keep the old one for history.',
-                      style: TextStyle(
+                      context.l10n.tr(
+                          'competition_rules_editor_locked_banner'),
+                      style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 12,
                         color: Colors.orange,
@@ -608,7 +619,7 @@ class _CompetitionRulesEditorScreenState
           ],
           const SizedBox(height: 14),
           Text(
-            'Competition Type',
+            context.l10n.tr('competition_rules_editor_competition_type'),
             style: theme.textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.w900,
               color: AppTheme.primaryText(brightness),
@@ -635,16 +646,18 @@ class _CompetitionRulesEditorScreenState
   }
 
   Widget _buildSchedulingCard(ThemeData theme, Brightness brightness) {
+    final l10n = context.l10n;
     return _sectionCard(
       brightness,
       theme,
-      title: '1. Match Scheduling',
-      subtitle: 'Do not assume a 24-hour deadline — pick what fits this '
-          'competition.',
+      title: l10n.tr('competition_rules_editor_scheduling_title'),
+      subtitle: l10n.tr('competition_rules_editor_scheduling_subtitle'),
       children: [
         DropdownButtonFormField<SchedulingMethod>(
           value: _schedulingMethod,
-          decoration: const InputDecoration(labelText: 'Scheduling method'),
+          decoration: InputDecoration(
+              labelText: l10n
+                  .tr('competition_rules_editor_scheduling_method_label')),
           items: SchedulingMethod.values
               .map((m) => DropdownMenuItem(
                     value: m,
@@ -658,52 +671,93 @@ class _CompetitionRulesEditorScreenState
         ),
         _rowGap(),
         if (_schedulingMethod == SchedulingMethod.fixedWindow) ...[
-          _numberField(_matchDeadlineHoursCtrl, 'Match deadline', suffix: 'hours'),
+          _numberField(
+              _matchDeadlineHoursCtrl,
+              l10n.tr(
+                  'competition_rules_editor_match_deadline_label'),
+              suffix: l10n.tr('competition_rules_editor_unit_hours')),
           _rowGap(),
         ],
-        _switchTile('Allow rescheduling', _allowRescheduling,
+        _switchTile(
+            l10n.tr('competition_rules_editor_allow_rescheduling'),
+            _allowRescheduling,
             (v) => setState(() => _allowRescheduling = v)),
-        _switchTile('Allow deadline extensions', _deadlineExtensionAllowed,
+        _switchTile(
+            l10n.tr(
+                'competition_rules_editor_allow_deadline_extensions'),
+            _deadlineExtensionAllowed,
             (v) => setState(() => _deadlineExtensionAllowed = v)),
         _rowGap(),
-        _textField(_timezoneCtrl, 'Timezone (optional)'),
+        _textField(_timezoneCtrl,
+            l10n.tr('competition_rules_editor_timezone_optional')),
         _rowGap(),
-        _textField(_venueCtrl, 'Venue / location (optional)'),
+        _textField(_venueCtrl,
+            l10n.tr('competition_rules_editor_venue_optional')),
         _rowGap(),
-        _textField(_schedulingNotesCtrl, 'Scheduling notes (optional)',
+        _textField(
+            _schedulingNotesCtrl,
+            l10n.tr(
+                'competition_rules_editor_scheduling_notes_optional'),
             maxLines: 3),
       ],
     );
   }
 
   Widget _buildMatchSettingsCard(ThemeData theme, Brightness brightness) {
+    final l10n = context.l10n;
     return _sectionCard(
       brightness,
       theme,
-      title: '2. Match Settings',
-      subtitle: 'Only fill in what applies to this competition/game type.',
+      title: l10n.tr('competition_rules_editor_match_settings_title'),
+      subtitle:
+          l10n.tr('competition_rules_editor_match_settings_subtitle'),
       children: [
-        _numberField(_matchDurationCtrl, 'Match duration', suffix: 'minutes'),
+        _numberField(
+            _matchDurationCtrl,
+            l10n.tr('competition_rules_editor_match_duration_label'),
+            suffix: l10n.tr('competition_rules_editor_unit_minutes')),
         _rowGap(),
         DropdownButtonFormField<int>(
           value: _legs,
-          decoration: const InputDecoration(labelText: 'Legs'),
-          items: const [
-            DropdownMenuItem(value: 1, child: Text('Single match')),
-            DropdownMenuItem(value: 2, child: Text('Home & away (2 legs)')),
+          decoration: InputDecoration(
+              labelText:
+                  l10n.tr('competition_rules_editor_legs_label')),
+          items: [
+            DropdownMenuItem(
+                value: 1,
+                child: Text(l10n
+                    .tr('competition_rules_editor_single_match'))),
+            DropdownMenuItem(
+                value: 2,
+                child: Text(l10n.tr(
+                    'competition_rules_editor_home_and_away'))),
           ],
           onChanged: _saving ? null : (v) => setState(() => _legs = v ?? 1),
         ),
-        _switchTile('Extra time enabled', _extraTimeEnabled,
+        _switchTile(
+            l10n.tr('competition_rules_editor_extra_time_enabled'),
+            _extraTimeEnabled,
             (v) => setState(() => _extraTimeEnabled = v)),
-        _switchTile('Penalty shootout enabled', _penaltiesEnabled,
+        _switchTile(
+            l10n.tr(
+                'competition_rules_editor_penalty_shootout_enabled'),
+            _penaltiesEnabled,
             (v) => setState(() => _penaltiesEnabled = v)),
         _rowGap(),
-        _textField(_conditionCtrl, 'Game condition (e.g. "Excellent", "Any")'),
+        _textField(
+            _conditionCtrl,
+            l10n.tr(
+                'competition_rules_editor_game_condition_label')),
         _rowGap(),
-        _textField(_substitutionsCtrl, 'Substitutions (-1 = unlimited)'),
+        _textField(
+            _substitutionsCtrl,
+            l10n.tr(
+                'competition_rules_editor_substitutions_label')),
         _rowGap(),
-        _textField(_matchSettingsNotesCtrl, 'Match settings notes (optional)',
+        _textField(
+            _matchSettingsNotesCtrl,
+            l10n.tr(
+                'competition_rules_editor_match_settings_notes_optional'),
             maxLines: 3),
       ],
     );
@@ -713,15 +767,15 @@ class _CompetitionRulesEditorScreenState
     return _sectionCard(
       brightness,
       theme,
-      title: '3. Gameplay Rules',
-      subtitle: 'One rule per line.',
+      title: context.l10n.tr('competition_rules_editor_gameplay_title'),
+      subtitle: context.l10n.tr('competition_rules_editor_gameplay_subtitle'),
       children: [
-        _textField(_allowedCtrl, 'Allowed gameplay settings', maxLines: 3),
+        _textField(_allowedCtrl, context.l10n.tr('competition_rules_editor_allowed_gameplay_settings'), maxLines: 3),
         _rowGap(),
-        _textField(_prohibitedCtrl, 'Prohibited behavior / glitches / cheating',
+        _textField(_prohibitedCtrl, context.l10n.tr('competition_rules_editor_prohibited_behavior'),
             maxLines: 3),
         _rowGap(),
-        _textField(_gameplayCustomCtrl, 'Custom organizer rules', maxLines: 3),
+        _textField(_gameplayCustomCtrl, context.l10n.tr('competition_rules_editor_custom_organizer_rules'), maxLines: 3),
       ],
     );
   }
@@ -730,24 +784,24 @@ class _CompetitionRulesEditorScreenState
     return _sectionCard(
       brightness,
       theme,
-      title: '4. Connection & Disconnection',
-      subtitle: 'Leave disabled for physical/local competitions.',
+      title: context.l10n.tr('competition_rules_editor_connection_title'),
+      subtitle: context.l10n.tr('competition_rules_editor_connection_subtitle'),
       children: [
-        _switchTile('Applies to this competition', _connectionEnabled,
+        _switchTile(context.l10n.tr('competition_rules_editor_applies_to_competition'), _connectionEnabled,
             (v) => setState(() => _connectionEnabled = v)),
         if (_connectionEnabled) ...[
           _rowGap(),
-          _numberField(_reconnectWindowCtrl, 'Time to reconnect',
-              suffix: 'minutes'),
-          _switchTile('Replay allowed', _replayAllowed,
+          _numberField(_reconnectWindowCtrl, context.l10n.tr('competition_rules_editor_time_to_reconnect'),
+              suffix: context.l10n.tr('competition_rules_editor_unit_minutes')),
+          _switchTile(context.l10n.tr('competition_rules_editor_replay_allowed'), _replayAllowed,
               (v) => setState(() => _replayAllowed = v)),
-          _switchTile('Evidence required', _connectionEvidenceRequired,
+          _switchTile(context.l10n.tr('competition_rules_editor_evidence_required'), _connectionEvidenceRequired,
               (v) => setState(() => _connectionEvidenceRequired = v)),
           _rowGap(),
-          _textField(_decidedByCtrl, 'Who decides the outcome'),
+          _textField(_decidedByCtrl, context.l10n.tr('competition_rules_editor_who_decides_outcome')),
           _rowGap(),
           _textField(_repeatedDisconnectionCtrl,
-              'Repeated disconnection consequence', maxLines: 2),
+              context.l10n.tr('competition_rules_editor_repeated_disconnection'), maxLines: 2),
         ],
       ],
     );
@@ -761,19 +815,19 @@ class _CompetitionRulesEditorScreenState
       subtitle: 'Works for both "missed the 24h deadline" and '
           '"failed to appear on the scheduled date".',
       children: [
-        _numberField(_waitingPeriodCtrl, 'Waiting period before forfeit',
-            suffix: 'minutes'),
-        _switchTile('Warn before forfeit', _warningBeforeForfeit,
+        _numberField(_waitingPeriodCtrl, context.l10n.tr('competition_rules_editor_waiting_period_forfeit'),
+            suffix: context.l10n.tr('competition_rules_editor_unit_minutes')),
+        _switchTile(context.l10n.tr('competition_rules_editor_warn_before_forfeit'), _warningBeforeForfeit,
             (v) => setState(() => _warningBeforeForfeit = v)),
-        _switchTile('Automatic forfeit', _autoForfeit,
+        _switchTile(context.l10n.tr('competition_rules_editor_automatic_forfeit'), _autoForfeit,
             (v) => setState(() => _autoForfeit = v)),
         _rowGap(),
-        _textField(_forfeitScoreCtrl, 'Forfeit score (e.g. "3-0")'),
+        _textField(_forfeitScoreCtrl, context.l10n.tr('competition_rules_editor_forfeit_score')),
         _rowGap(),
-        _numberField(_missedMatchesCtrl, 'Missed matches allowed'),
+        _numberField(_missedMatchesCtrl, context.l10n.tr('competition_rules_editor_missed_matches_allowed')),
         _rowGap(),
         _numberField(
-            _disqualificationThresholdCtrl, 'Disqualification threshold'),
+            _disqualificationThresholdCtrl, context.l10n.tr('competition_rules_editor_disqualification_threshold')),
       ],
     );
   }
@@ -782,12 +836,12 @@ class _CompetitionRulesEditorScreenState
     return _sectionCard(
       brightness,
       theme,
-      title: '6. Result Submission',
-      subtitle: 'Who submits results and how disputes are triggered.',
+      title: context.l10n.tr('competition_rules_editor_result_submission_title'),
+      subtitle: context.l10n.tr('competition_rules_editor_result_submission_subtitle'),
       children: [
         DropdownButtonFormField<ResultSubmissionMode>(
           value: _resultMode,
-          decoration: const InputDecoration(labelText: 'Submission mode'),
+          decoration: InputDecoration(labelText: context.l10n.tr('competition_rules_editor_submission_mode')),
           items: ResultSubmissionMode.values
               .map((m) => DropdownMenuItem(
                     value: m,
@@ -798,18 +852,18 @@ class _CompetitionRulesEditorScreenState
               ? null
               : (v) => setState(() => _resultMode = v ?? _resultMode),
         ),
-        _switchTile('Screenshot required', _screenshotRequired,
+        _switchTile(context.l10n.tr('competition_rules_editor_screenshot_required'), _screenshotRequired,
             (v) => setState(() => _screenshotRequired = v)),
-        _switchTile('Video required', _videoRequired,
+        _switchTile(context.l10n.tr('competition_rules_editor_video_required'), _videoRequired,
             (v) => setState(() => _videoRequired = v)),
-        _switchTile('Auto-confirm if no dispute is raised',
+        _switchTile(context.l10n.tr('competition_rules_editor_auto_confirm_no_dispute'),
             _autoConfirmIfNoDispute,
             (v) => setState(() => _autoConfirmIfNoDispute = v)),
         _rowGap(),
-        _numberField(_submissionDeadlineCtrl, 'Submission deadline',
-            suffix: 'hours'),
+        _numberField(_submissionDeadlineCtrl, context.l10n.tr('competition_rules_editor_submission_deadline'),
+            suffix: context.l10n.tr('competition_rules_editor_unit_hours')),
         _rowGap(),
-        _numberField(_disputeWindowCtrl, 'Dispute window', suffix: 'hours'),
+        _numberField(_disputeWindowCtrl, context.l10n.tr('competition_rules_editor_dispute_window'), suffix: context.l10n.tr('competition_rules_editor_unit_hours')),
       ],
     );
   }
@@ -818,8 +872,8 @@ class _CompetitionRulesEditorScreenState
     return _sectionCard(
       brightness,
       theme,
-      title: '7. Evidence',
-      subtitle: 'Not required for every competition by default.',
+      title: context.l10n.tr('competition_rules_editor_evidence_title'),
+      subtitle: context.l10n.tr('competition_rules_editor_evidence_subtitle'),
       children: [
         Wrap(
           spacing: 8,
@@ -849,20 +903,19 @@ class _CompetitionRulesEditorScreenState
     return _sectionCard(
       brightness,
       theme,
-      title: '8. Participant & Team Eligibility',
-      subtitle: 'Free text — keep it as strict or as open as this '
-          'competition needs.',
+      title: context.l10n.tr('competition_rules_editor_eligibility_title'),
+      subtitle: context.l10n.tr('competition_rules_editor_eligibility_subtitle'),
       children: [
-        _textField(_ageRestrictionCtrl, 'Age restriction (e.g. "16+", optional)'),
+        _textField(_ageRestrictionCtrl, context.l10n.tr('competition_rules_editor_age_restriction')),
         _rowGap(),
-        _textField(_rosterNotesCtrl, 'Roster / registration notes',
+        _textField(_rosterNotesCtrl, context.l10n.tr('competition_rules_editor_roster_notes'),
             maxLines: 2),
-        _switchTile('Duplicate teams allowed', _duplicateTeamsAllowed,
+        _switchTile(context.l10n.tr('competition_rules_editor_duplicate_teams_allowed'), _duplicateTeamsAllowed,
             (v) => setState(() => _duplicateTeamsAllowed = v)),
         _rowGap(),
-        _textField(_registrationDeadlineCtrl, 'Registration deadline (optional)'),
+        _textField(_registrationDeadlineCtrl, context.l10n.tr('competition_rules_editor_registration_deadline_optional')),
         _rowGap(),
-        _textField(_eligibilityNotesCtrl, 'Other eligibility notes',
+        _textField(_eligibilityNotesCtrl, context.l10n.tr('competition_rules_editor_other_eligibility_notes'),
             maxLines: 2),
       ],
     );
@@ -872,9 +925,8 @@ class _CompetitionRulesEditorScreenState
     return _sectionCard(
       brightness,
       theme,
-      title: '9. Fair Play & Conduct',
-      subtitle: 'Toggle the standard rules that apply, add custom ones '
-          'below.',
+      title: context.l10n.tr('competition_rules_editor_fair_play_title'),
+      subtitle: context.l10n.tr('competition_rules_editor_fair_play_subtitle'),
       children: [
         ..._fairPlayLabels.entries.map((entry) {
           final enabled = _enabledFairPlayKeys.contains(entry.key);
@@ -882,7 +934,7 @@ class _CompetitionRulesEditorScreenState
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             value: enabled,
-            title: Text(entry.value,
+            title: Text(context.l10n.tr(entry.value),
                 style: const TextStyle(fontWeight: FontWeight.w700)),
             onChanged: _saving
                 ? null
@@ -896,7 +948,7 @@ class _CompetitionRulesEditorScreenState
           );
         }),
         _rowGap(),
-        _textField(_fairPlayCustomCtrl, 'Custom fair play rules (one per line)',
+        _textField(_fairPlayCustomCtrl, context.l10n.tr('competition_rules_editor_custom_fair_play_rules'),
             maxLines: 3),
       ],
     );
@@ -906,17 +958,16 @@ class _CompetitionRulesEditorScreenState
     return _sectionCard(
       brightness,
       theme,
-      title: '10. Disputes & Appeals',
-      subtitle: 'Participants should know how disputes are handled before '
-          'joining.',
+      title: context.l10n.tr('competition_rules_editor_disputes_title'),
+      subtitle: context.l10n.tr('competition_rules_editor_disputes_subtitle'),
       children: [
-        _numberField(_disputeWindowHoursCtrl, 'Dispute window', suffix: 'hours'),
+        _numberField(_disputeWindowHoursCtrl, context.l10n.tr('competition_rules_editor_dispute_window'), suffix: context.l10n.tr('competition_rules_editor_unit_hours')),
         _rowGap(),
-        _textField(_whoCanSubmitCtrl, 'Who can submit a dispute'),
-        _switchTile('Evidence required for disputes', _disputeEvidenceRequired,
+        _textField(_whoCanSubmitCtrl, context.l10n.tr('competition_rules_editor_who_can_submit_dispute')),
+        _switchTile(context.l10n.tr('competition_rules_editor_evidence_required_disputes'), _disputeEvidenceRequired,
             (v) => setState(() => _disputeEvidenceRequired = v)),
         _rowGap(),
-        _textField(_finalAuthorityCtrl, 'Final decision authority (e.g. "Organizer")'),
+        _textField(_finalAuthorityCtrl, context.l10n.tr('competition_rules_editor_final_authority')),
       ],
     );
   }
@@ -931,7 +982,7 @@ class _CompetitionRulesEditorScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Review & Publish',
+            context.l10n.tr('competition_rules_editor_review_publish_title'),
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w900,
               color: AppTheme.primaryText(brightness),
@@ -939,8 +990,7 @@ class _CompetitionRulesEditorScreenState
           ),
           const SizedBox(height: 6),
           Text(
-            'Participants will see exactly these settings on the rules '
-            'screen shown when they join.',
+            context.l10n.tr('competition_rules_editor_review_publish_body'),
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w600,
@@ -959,7 +1009,7 @@ class _CompetitionRulesEditorScreenState
                     borderRadius: BorderRadius.circular(12)),
               ),
               icon: const Icon(Icons.save_outlined),
-              label: Text(_saving ? 'Saving...' : 'Save as Draft',
+              label: Text(_saving ? context.l10n.tr('competition_rules_editor_saving') : context.l10n.tr('competition_rules_editor_save_as_draft'),
                   style: const TextStyle(fontWeight: FontWeight.w900)),
               onPressed: _saving ? null : () => _save(publishLocked: false),
             ),
@@ -985,8 +1035,8 @@ class _CompetitionRulesEditorScreenState
                   : const Icon(Icons.lock_rounded),
               label: Text(
                 _saving
-                    ? 'Publishing...'
-                    : (_locked ? 'Save New Locked Version' : 'Publish & Lock Rules'),
+                    ? context.l10n.tr('competition_rules_editor_publishing')
+                    : (_locked ? context.l10n.tr('competition_rules_editor_save_new_locked_version') : context.l10n.tr('competition_rules_editor_publish_lock_rules')),
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
               onPressed: _saving ? null : () => _save(publishLocked: true),

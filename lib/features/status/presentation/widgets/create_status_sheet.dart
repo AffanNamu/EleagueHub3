@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../../core/errors/user_friendly_error.dart';
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/services/connectivity_service.dart';
 import '../../../../core/services/safe_image_picker.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -79,6 +80,7 @@ Future<String> _uploadStatusImageToCloudinary(PlatformFile picked) async {
 Future<bool?> showCreateStatusSheet(BuildContext context) {
   final captionController = TextEditingController();
   PlatformFile? picked;
+  final l10n = context.l10n;
 
   return showModalBottomSheet<bool>(
     context: context,
@@ -94,7 +96,7 @@ Future<bool?> showCreateStatusSheet(BuildContext context) {
             final result = await SafeImagePicker.pickImage();
             if (result.wasCancelled) return;
             if (!result.isSuccess) {
-              setSheetState(() => error = result.errorMessage ?? 'Could not pick image.');
+              setSheetState(() => error = result.errorMessage ?? l10n.tr('create_status_pick_image_failed'));
               return;
             }
             setSheetState(() {
@@ -105,7 +107,7 @@ Future<bool?> showCreateStatusSheet(BuildContext context) {
 
           Future<void> submit() async {
             if (picked == null) {
-              setSheetState(() => error = 'Please select an image first.');
+              setSheetState(() => error = l10n.tr('create_status_select_image_first'));
               return;
             }
             setSheetState(() {
@@ -139,7 +141,7 @@ Future<bool?> showCreateStatusSheet(BuildContext context) {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Add Status',
+                      l10n.tr('create_status_title'),
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 16,
@@ -148,7 +150,7 @@ Future<bool?> showCreateStatusSheet(BuildContext context) {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Visible to everyone for 24 hours.',
+                      l10n.tr('create_status_subtitle'),
                       style: TextStyle(
                         color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w600,
@@ -176,7 +178,7 @@ Future<bool?> showCreateStatusSheet(BuildContext context) {
                                         color: AppTheme.secondaryText(brightness), size: 30),
                                     const SizedBox(height: 6),
                                     Text(
-                                      'Tap to select image',
+                                      l10n.tr('create_status_tap_to_select'),
                                       style: TextStyle(
                                         color: AppTheme.secondaryText(brightness),
                                         fontWeight: FontWeight.w700,
@@ -205,7 +207,7 @@ Future<bool?> showCreateStatusSheet(BuildContext context) {
                       maxLength: 200,
                       maxLines: 2,
                       enabled: !busy,
-                      decoration: const InputDecoration(hintText: 'Add a caption (optional)'),
+                      decoration: InputDecoration(hintText: l10n.tr('create_status_caption_hint')),
                     ),
                     if (error != null) ...[
                       const SizedBox(height: 4),
@@ -233,7 +235,7 @@ Future<bool?> showCreateStatusSheet(BuildContext context) {
                                 height: 18,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkText),
                               )
-                            : const Text('Post Status', style: TextStyle(fontWeight: FontWeight.w900)),
+                            : Text(l10n.tr('create_status_submit_button'), style: const TextStyle(fontWeight: FontWeight.w900)),
                       ),
                     ),
                   ],

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../models/formation_presets.dart';
@@ -425,6 +426,7 @@ class _InfoPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final l10n = context.l10n;
     final bench = squad.bench;
 
     final captain = squad.players
@@ -447,18 +449,17 @@ class _InfoPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _row(context, 'Formation', squad.formation),
-              _row(context, 'Manager', squad.managerName.isEmpty ? '—' : squad.managerName),
-              _row(context, 'Team Strength', '${squad.teamStrength}'),
-              _row(context, 'Captain', captain?.name ?? '—'),
-              _row(context, 'Vice Captain', vice?.name ?? '—'),
+              _row(context, l10n.tr('squad_pitch_label_formation'), squad.formation),
+              _row(context, l10n.tr('squad_pitch_label_manager'),
+                  squad.managerName.isEmpty ? '—' : squad.managerName),
+              _row(context, l10n.tr('squad_pitch_label_team_strength'), '${squad.teamStrength}'),
+              _row(context, l10n.tr('squad_pitch_label_captain'), captain?.name ?? '—'),
+              _row(context, l10n.tr('squad_pitch_label_vice_captain'), vice?.name ?? '—'),
               if (isEditable)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    'Drag players on the pitch to reposition them — '
-                    'the formation updates automatically. Tap a player '
-                    'below to set captain / vice captain.',
+                    l10n.tr('squad_pitch_edit_hint'),
                     style: TextStyle(
                       color: AppTheme.secondaryText(brightness),
                       fontSize: 11,
@@ -473,7 +474,7 @@ class _InfoPanel extends StatelessWidget {
         Row(
           children: [
             Text(
-              'Bench (${bench.length})',
+              '${l10n.tr('squad_pitch_bench_count_prefix')}${bench.length}${l10n.tr('squad_pitch_bench_count_suffix')}',
               style: TextStyle(
                 color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w900,
@@ -485,14 +486,14 @@ class _InfoPanel extends StatelessWidget {
               TextButton.icon(
                 onPressed: onAddBenchPlayer,
                 icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('Add sub'),
+                label: Text(l10n.tr('squad_pitch_add_sub_button')),
               ),
           ],
         ),
         const SizedBox(height: 8),
         if (bench.isEmpty)
           Text(
-            'No substitutes added yet.',
+            l10n.tr('squad_pitch_no_substitutes_message'),
             style: TextStyle(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w600,
@@ -562,6 +563,7 @@ class _InfoPanel extends StatelessWidget {
   }
 
   void _showCaptaincyMenu(BuildContext context, String playerId) {
+    final l10n = context.l10n;
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -570,7 +572,7 @@ class _InfoPanel extends StatelessWidget {
           children: [
             ListTile(
               leading: const Icon(Icons.stars_rounded),
-              title: const Text('Make Captain'),
+              title: Text(l10n.tr('squad_pitch_make_captain_label')),
               onTap: () {
                 Navigator.of(ctx).pop();
                 onSetCaptain?.call(playerId);
@@ -578,7 +580,7 @@ class _InfoPanel extends StatelessWidget {
             ),
             ListTile(
               leading: const Icon(Icons.star_border_rounded),
-              title: const Text('Make Vice Captain'),
+              title: Text(l10n.tr('squad_pitch_make_vice_captain_label')),
               onTap: () {
                 Navigator.of(ctx).pop();
                 onSetViceCaptain?.call(playerId);

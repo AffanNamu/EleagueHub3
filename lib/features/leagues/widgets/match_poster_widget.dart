@@ -13,6 +13,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../models/match_poster_data.dart';
 
@@ -315,7 +316,7 @@ class _VsBadge extends StatelessWidget {
           ],
         ),
         child: Text(
-          'VS',
+          context.l10n.tr('league_details_vs'),
           style: TextStyle(
             color: AppTheme.darkText,
             fontSize: 20 * scale,

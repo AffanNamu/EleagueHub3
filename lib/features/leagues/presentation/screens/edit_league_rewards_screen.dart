@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/color_compat.dart';
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
@@ -58,7 +59,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => RewardEditorSheet(
         leagueId: widget.leagueId,
-        title: 'Add Prize',
+        title: context.l10n.tr('edit_league_rewards_add_prize_title'),
       ),
     );
 
@@ -74,7 +75,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => RewardEditorSheet(
         leagueId: widget.leagueId,
-        title: 'Edit Prize',
+        title: context.l10n.tr('edit_league_rewards_edit_prize_title'),
         initialReward: reward,
       ),
     );
@@ -96,17 +97,17 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
         return AlertDialog(
           backgroundColor: AppTheme.cardColor(brightness),
           surfaceTintColor: Colors.transparent,
-          title: const Text('Delete prize?'),
-          content:
-              Text('This will permanently remove "${reward.rewardName}".'),
+          title: Text(context.l10n.tr('edit_league_rewards_delete_prize_title')),
+          content: Text(
+              '${context.l10n.tr('edit_league_rewards_delete_prize_message_prefix')}${reward.rewardName}${context.l10n.tr('edit_league_rewards_delete_prize_message_suffix')}'),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
+              child: Text(context.l10n.tr('common_cancel')),
             ),
             FilledButton.tonal(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete'),
+              child: Text(context.l10n.tr('edit_league_rewards_delete')),
             ),
           ],
         );
@@ -147,7 +148,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: Text(
-                'You do not have permission to manage prizes for this league.',
+                context.l10n.tr('edit_league_rewards_no_permission_message'),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppTheme.secondaryText(brightness),
@@ -194,7 +195,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
             if (rewards.isEmpty) {
               return Center(
                 child: Text(
-                  'No prizes yet. Tap \u201cAdd Prize\u201d to create one.',
+                  context.l10n.tr('edit_league_rewards_empty_state'),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w600,
@@ -214,7 +215,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
                       IconButton(
-                        tooltip: 'Edit',
+                        tooltip: context.l10n.tr('edit_league_rewards_edit_tooltip'),
                         onPressed: () => _editReward(reward),
                         icon: Icon(
                           Icons.edit_outlined,
@@ -222,7 +223,7 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Delete',
+                        tooltip: context.l10n.tr('edit_league_rewards_delete'),
                         onPressed: () => _deleteReward(reward),
                         icon: Icon(
                           Icons.delete_outline,
@@ -250,14 +251,14 @@ class _EditLeagueRewardsScreenState extends State<EditLeagueRewardsScreen> {
           foregroundColor: AppTheme.darkText,
           onPressed: _createReward,
           icon: const Icon(Icons.add),
-          label: const Text('Add Prize'),
+          label: Text(context.l10n.tr('edit_league_rewards_add_prize_title')),
         );
       },
     );
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Manage Prizes'),
+        title: Text(context.l10n.tr('edit_league_rewards_manage_prizes_title')),
       ),
       floatingActionButton: fab,
       body: SafeArea(
@@ -522,8 +523,9 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                               Expanded(
                                 child: DropdownButtonFormField<int>(
                                   value: _position,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Position',
+                                  decoration: InputDecoration(
+                                    labelText:
+                                        context.l10n.tr('edit_league_rewards_position_label'),
                                   ),
                                   dropdownColor:
                                       Theme.of(context).colorScheme.surface,
@@ -548,31 +550,37 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                                   value: RewardModel.normalizeRewardType(
                                     _rewardType,
                                   ),
-                                  decoration: const InputDecoration(
-                                    labelText: 'Prize Type',
+                                  decoration: InputDecoration(
+                                    labelText:
+                                        context.l10n.tr('edit_league_rewards_prize_type_label'),
                                   ),
                                   dropdownColor:
                                       Theme.of(context).colorScheme.surface,
-                                  items: const <DropdownMenuItem<String>>[
+                                  items: <DropdownMenuItem<String>>[
                                     DropdownMenuItem(
                                       value: 'cash',
-                                      child: Text('Monetary'),
+                                      child: Text(context.l10n
+                                          .tr('edit_league_rewards_type_monetary')),
                                     ),
                                     DropdownMenuItem(
                                       value: 'physical',
-                                      child: Text('Physical Item'),
+                                      child: Text(context.l10n
+                                          .tr('edit_league_rewards_type_physical')),
                                     ),
                                     DropdownMenuItem(
                                       value: 'digital',
-                                      child: Text('Digital Item'),
+                                      child: Text(context.l10n
+                                          .tr('edit_league_rewards_type_digital')),
                                     ),
                                     DropdownMenuItem(
                                       value: 'trophy',
-                                      child: Text('Trophy / Medal'),
+                                      child: Text(context.l10n
+                                          .tr('edit_league_rewards_type_trophy')),
                                     ),
                                     DropdownMenuItem(
                                       value: 'other',
-                                      child: Text('Other'),
+                                      child: Text(context.l10n
+                                          .tr('edit_league_rewards_type_other')),
                                     ),
                                   ],
                                   onChanged: _busy
@@ -589,14 +597,19 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                           TextFormField(
                             initialValue: _rewardName,
                             enabled: !_busy,
-                            decoration: const InputDecoration(
-                              labelText: 'Prize Name',
+                            decoration: InputDecoration(
+                              labelText:
+                                  context.l10n.tr('edit_league_rewards_prize_name_label'),
                             ),
                             validator: (v) {
                               if (v == null || v.trim().isEmpty) {
-                                return 'Prize name is required';
+                                return context.l10n
+                                    .tr('edit_league_rewards_prize_name_required');
                               }
-                              if (v.trim().length < 2) return 'Too short';
+                              if (v.trim().length < 2) {
+                                return context.l10n
+                                    .tr('edit_league_rewards_too_short');
+                              }
                               return null;
                             },
                             onSaved: (v) => _rewardName = v ?? '',
@@ -606,8 +619,9 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                           TextFormField(
                             initialValue: _description,
                             enabled: !_busy,
-                            decoration: const InputDecoration(
-                              labelText: 'Description',
+                            decoration: InputDecoration(
+                              labelText:
+                                  context.l10n.tr('edit_league_rewards_description_label'),
                             ),
                             maxLines: 4,
                             onSaved: (v) => _description = v ?? '',
@@ -646,7 +660,7 @@ class _RewardEditorSheetState extends State<RewardEditorSheet> {
                                         color: AppTheme.darkText,
                                       ),
                                     )
-                                  : const Text('Save'),
+                                  : Text(context.l10n.tr('common_save')),
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -687,8 +701,8 @@ class _ImagePickerRow extends StatelessWidget {
     final Widget preview = _buildPreview(context);
 
     return InputDecorator(
-      decoration: const InputDecoration(
-        labelText: 'Prize Image (Cloudinary)',
+      decoration: InputDecoration(
+        labelText: context.l10n.tr('edit_league_rewards_prize_image_label'),
       ),
       child: Row(
         children: <Widget>[
@@ -697,10 +711,12 @@ class _ImagePickerRow extends StatelessWidget {
           Expanded(
             child: Text(
               pickedXFile != null || pickedPlatformFile != null
-                  ? 'Selected image'
+                  ? context.l10n.tr('edit_league_rewards_image_selected')
                   : (existingUrl.trim().isNotEmpty
-                      ? 'Using existing image'
-                      : 'No image selected'),
+                      ? context.l10n
+                          .tr('edit_league_rewards_image_using_existing')
+                      : context.l10n
+                          .tr('edit_league_rewards_image_none_selected')),
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w600,
@@ -711,11 +727,11 @@ class _ImagePickerRow extends StatelessWidget {
           TextButton.icon(
             onPressed: onPick,
             icon: const Icon(Icons.photo_library_outlined),
-            label: const Text('Pick'),
+            label: Text(context.l10n.tr('edit_league_rewards_pick')),
           ),
           const SizedBox(width: 8),
           IconButton(
-            tooltip: 'Clear',
+            tooltip: context.l10n.tr('edit_league_rewards_clear'),
             onPressed: onClear,
             icon: const Icon(Icons.delete_outline),
           ),

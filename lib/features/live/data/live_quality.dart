@@ -55,6 +55,10 @@ class LiveCaptureConfig {
       'screen=${screenWidth}x$screenHeight@$screenFps cam=${cameraWidth}x$cameraHeight@$cameraFps';
 }
 
+// NOTE (i18n): qualityLabel is only referenced from local_live_service.dart,
+// the legacy LAN live path with no active presentation-layer caller (see
+// that file's note), so this label is not actually shown to end users
+// today. It's a top-level function with no BuildContext; left as English.
 String qualityLabel(LiveQualityPreset p) {
   switch (p) {
     case LiveQualityPreset.low:

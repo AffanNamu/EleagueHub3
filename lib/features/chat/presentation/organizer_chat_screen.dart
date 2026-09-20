@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/push_messaging_service.dart';
@@ -115,7 +116,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
       setState(() {
         _chatAccessResolved = true;
         _chatAccessAllowed = false;
-        _chatAccessReason = 'Please sign in to access organizer chat.';
+        _chatAccessReason = context.l10n.tr('organizer_chat_sign_in_required');
       });
       return;
     }
@@ -230,7 +231,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         _chatAccessResolved = true;
         _chatAccessAllowed = false;
         _chatAccessReason =
-            'Organizer chat is only available if you follow this organizer or joined one of their competitions.';
+            context.l10n.tr('organizer_chat_access_denied_message');
       });
     } catch (_) {
       if (!mounted) return;
@@ -238,7 +239,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         _chatAccessResolved = true;
         _chatAccessAllowed = false;
         _chatAccessReason =
-            'Could not verify organizer chat access right now. Please try again.';
+            context.l10n.tr('organizer_chat_access_check_failed');
       });
     }
   }
@@ -272,13 +273,14 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
       final name = (data['name'] ?? data['title'] ?? '').toString().trim();
       if (!mounted) return;
       setState(() {
-        _workspaceName = name.isNotEmpty ? name : 'Organizer Chat';
+        _workspaceName =
+            name.isNotEmpty ? name : context.l10n.tr('organizer_chat_default_title');
         _workspaceNameResolved = true;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _workspaceName = 'Organizer Chat';
+        _workspaceName = context.l10n.tr('organizer_chat_default_title');
         _workspaceNameResolved = true;
       });
     }
@@ -371,7 +373,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
     if (dn.isNotEmpty) return dn;
     final email = (_user.email ?? '').trim();
     if (email.isNotEmpty) return email.split('@').first;
-    return 'Player';
+    return context.l10n.tr('organizer_chat_default_player_name');
   }
 
   String _fallbackPhoto() => (_user.photoURL ?? '').trim();
@@ -416,11 +418,11 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
   Future<void> _sendText() async {
     if (_chatBlocked) {
-      _toast('You are banned from Organizer Chat.', error: true);
+      _toast(context.l10n.tr('organizer_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in Organizer Chat.', error: true);
+      _toast(context.l10n.tr('organizer_chat_muted_message'), error: true);
       return;
     }
     if (_isSelecting) return;
@@ -462,11 +464,11 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
   Future<void> _pickAndSendImage() async {
     if (_chatBlocked) {
-      _toast('You are banned from Organizer Chat.', error: true);
+      _toast(context.l10n.tr('organizer_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in Organizer Chat.', error: true);
+      _toast(context.l10n.tr('organizer_chat_muted_message'), error: true);
       return;
     }
     if (_sending || _isSelecting) return;
@@ -486,7 +488,9 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
       }
       if (!pick.isSuccess) {
         if (mounted) setState(() => _sending = false);
-        _toast((pick.errorMessage ?? 'Could not pick image.').trim(),
+        _toast(
+            (pick.errorMessage ?? context.l10n.tr('organizer_chat_pick_image_failed'))
+                .trim(),
             error: true);
         return;
       }
@@ -526,11 +530,11 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
   Future<void> _startRecording() async {
     if (_chatBlocked) {
-      _toast('You are banned from Organizer Chat.', error: true);
+      _toast(context.l10n.tr('organizer_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in Organizer Chat.', error: true);
+      _toast(context.l10n.tr('organizer_chat_muted_message'), error: true);
       return;
     }
     if (_sending || _isVoiceSending || _isRecording || _isSelecting) return;
@@ -543,7 +547,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
       if (!hasPerm) {
         if (!mounted) return;
         setState(() => _recordingPermissionDenied = true);
-        _toast('Microphone permission denied', error: true);
+        _toast(context.l10n.tr('organizer_chat_mic_permission_denied'), error: true);
         return;
       }
       if (!mounted) return;
@@ -611,11 +615,11 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
   Future<void> _sendRecording() async {
     if (_chatBlocked) {
-      _toast('You are banned from Organizer Chat.', error: true);
+      _toast(context.l10n.tr('organizer_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in Organizer Chat.', error: true);
+      _toast(context.l10n.tr('organizer_chat_muted_message'), error: true);
       return;
     }
     if (_isVoiceSending || !_isRecording || _isSelecting) return;
@@ -640,7 +644,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
       final file = File(finalPath);
       if (!await file.exists()) {
-        throw StateError('Recording not found. Try again.');
+        throw StateError(context.l10n.tr('organizer_chat_recording_not_found'));
       }
 
       final recordedMs = _recordingStartedAt == null
@@ -708,11 +712,11 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
   Future<void> _softDeleteSelected(ChatMessage msg) async {
     if (!_canDeleteMessage(msg)) {
-      _toast('You can only delete your own messages.', error: true);
+      _toast(context.l10n.tr('organizer_chat_delete_own_only'), error: true);
       return;
     }
     if (msg.deleted) {
-      _toast('Already deleted');
+      _toast(context.l10n.tr('organizer_chat_already_deleted'));
       _selectedMessageId.value = null;
       return;
     }
@@ -726,7 +730,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         deletedBy: _user.uid,
       );
       _selectedMessageId.value = null;
-      _toast('Message deleted');
+      _toast(context.l10n.tr('organizer_chat_message_deleted'));
     } catch (e) {
       _toastErr(e);
     }
@@ -734,11 +738,11 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
   Future<void> _pinSelected(ChatMessage msg) async {
     if (!_canPinMessage(msg)) {
-      _toast('You do not have permission to pin messages.', error: true);
+      _toast(context.l10n.tr('organizer_chat_pin_permission_denied'), error: true);
       return;
     }
     if (msg.deleted) {
-      _toast('Cannot pin a deleted message.', error: true);
+      _toast(context.l10n.tr('organizer_chat_cannot_pin_deleted'), error: true);
       _selectedMessageId.value = null;
       return;
     }
@@ -752,7 +756,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         pinnedBy: _user.uid,
       );
       _selectedMessageId.value = null;
-      _toast('Pinned');
+      _toast(context.l10n.tr('organizer_chat_pinned'));
     } catch (e) {
       _toastErr(e);
     }
@@ -760,7 +764,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
   Future<void> _copySelected(ChatMessage msg) async {
     if (msg.deleted) {
-      _toast('Nothing to copy', error: true);
+      _toast(context.l10n.tr('organizer_chat_nothing_to_copy'), error: true);
       _selectedMessageId.value = null;
       return;
     }
@@ -772,13 +776,13 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
             : (msg.type == ChatMessageType.voice ? msg.voiceUrl.trim() : ''));
 
     if (txt.isEmpty) {
-      _toast('Nothing to copy', error: true);
+      _toast(context.l10n.tr('organizer_chat_nothing_to_copy'), error: true);
       _selectedMessageId.value = null;
       return;
     }
 
     await Clipboard.setData(ClipboardData(text: txt));
-    _toast('Copied');
+    _toast(context.l10n.tr('organizer_chat_copied'));
     _selectedMessageId.value = null;
   }
 
@@ -786,7 +790,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
     final key = _messageKeys[messageId];
     final ctx = key?.currentContext;
     if (ctx == null) {
-      _toast('Message not loaded yet');
+      _toast(context.l10n.tr('organizer_chat_message_not_loaded'));
       return;
     }
     Scrollable.ensureVisible(
@@ -811,7 +815,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Recording… ${_recordingElapsed()}',
+                "${context.l10n.tr('organizer_chat_recording_prefix')}${_recordingElapsed()}",
                 style: TextStyle(
                   color: cs.onSurface.withOpacity(0.85),
                   fontWeight: FontWeight.w700,
@@ -820,7 +824,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
             ),
             TextButton(
               onPressed: _isVoiceSending ? null : _cancelRecording,
-              child: const Text('Cancel'),
+              child: Text(context.l10n.tr('common_cancel')),
             ),
             const SizedBox(width: 6),
             FilledButton(
@@ -831,7 +835,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Send'),
+                  : Text(context.l10n.tr('organizer_chat_send')),
             ),
           ],
         ),
@@ -849,7 +853,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
           if (!selecting) {
             return AppBar(
-              title: const Text('Organizer Chat'),
+              title: Text(context.l10n.tr('organizer_chat_default_title')),
               backgroundColor: Colors.transparent,
               elevation: 0,
             );
@@ -860,29 +864,29 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
 
           return AppBar(
             leading: IconButton(
-              tooltip: 'Cancel selection',
+              tooltip: context.l10n.tr('organizer_chat_cancel_selection_tooltip'),
               onPressed: () => _selectedMessageId.value = null,
               icon: const Icon(Icons.close_rounded),
             ),
-            title: const Text('1 selected'),
+            title: Text(context.l10n.tr('organizer_chat_one_selected')),
             backgroundColor: Colors.transparent,
             elevation: 0,
             actions: [
               IconButton(
-                tooltip: 'Copy',
+                tooltip: context.l10n.tr('common_copy'),
                 onPressed:
                     selectedMsg == null ? null : () => _copySelected(selectedMsg),
                 icon: const Icon(Icons.copy_rounded),
               ),
               if (selectedMsg != null && _canDeleteMessage(selectedMsg))
                 IconButton(
-                  tooltip: 'Delete',
+                  tooltip: context.l10n.tr('organizer_chat_delete_tooltip'),
                   onPressed: () => _softDeleteSelected(selectedMsg),
                   icon: const Icon(Icons.delete_outline_rounded),
                 ),
               if (selectedMsg != null && _canPinMessage(selectedMsg))
                 IconButton(
-                  tooltip: 'Pin',
+                  tooltip: context.l10n.tr('organizer_chat_pin_tooltip'),
                   onPressed: () => _pinSelected(selectedMsg),
                   icon: const Icon(Icons.push_pin_outlined),
                 ),
@@ -910,7 +914,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                'Organizer Chat Locked',
+                context.l10n.tr('organizer_chat_locked_title'),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w900,
@@ -931,8 +935,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                 onPressed: () =>
                     context.push('/master-leagues/${widget.masterLeagueId}'),
                 icon: const Icon(Icons.arrow_back_rounded),
-                label: const Text(
-                  'Back to Workspace',
+                label: Text(
+                  context.l10n.tr('organizer_chat_back_to_workspace'),
                   style: TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
@@ -1019,7 +1023,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                           Text(
                                             _workspaceNameResolved
                                                 ? _workspaceName
-                                                : 'Organizer Chat',
+                                                : context.l10n.tr('organizer_chat_default_title'),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: theme.textTheme.titleSmall
@@ -1030,7 +1034,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                           ),
                                           const SizedBox(height: 2),
                                           Text(
-                                            'General community chat across this organizer’s competitions',
+                                            context.l10n.tr('organizer_chat_description'),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
@@ -1049,8 +1053,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                       icon: const Icon(
                                           Icons.open_in_new_rounded,
                                           size: 16),
-                                      label: const Text(
-                                        'Workspace',
+                                      label: Text(
+                                        context.l10n.tr('organizer_chat_workspace_label'),
                                         style: TextStyle(
                                             fontWeight: FontWeight.w900),
                                       ),
@@ -1072,7 +1076,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          'You are banned from Organizer Chat. You can no longer send messages here.',
+                                          context.l10n.tr('organizer_chat_banned_full_message'),
                                           style:
                                               theme.textTheme.bodySmall?.copyWith(
                                             color: theme.colorScheme.error,
@@ -1098,7 +1102,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          'You are muted in Organizer Chat. You can read messages but cannot send new ones.',
+                                          context.l10n.tr('organizer_chat_muted_full_message'),
                                           style:
                                               theme.textTheme.bodySmall?.copyWith(
                                             color: const Color(0xFFF59E0B),
@@ -1163,7 +1167,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                                 onPressed: () =>
                                                     Navigator.of(context)
                                                         .maybePop(),
-                                                child: const Text('Back'),
+                                                child: Text(context.l10n.tr('common_back')),
                                               ),
                                             ],
                                           ),
@@ -1177,7 +1181,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                   if (msgs.isEmpty) {
                                     return Center(
                                       child: Text(
-                                        'No messages yet',
+                                        context.l10n.tr('organizer_chat_no_messages'),
                                         style: TextStyle(
                                           color: theme.colorScheme.onSurface
                                               .withOpacity(0.55),
@@ -1289,8 +1293,9 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                         ? null
                                         : _startRecording,
                                     voiceTooltip: _recordingPermissionDenied
-                                        ? 'Microphone permission required'
-                                        : 'Record voice',
+                                        ? context.l10n
+                                            .tr('organizer_chat_mic_permission_required_tooltip')
+                                        : context.l10n.tr('organizer_chat_record_voice_tooltip'),
                                     replySenderName: reply?.displaySenderName,
                                     replyPreview: reply?.replyPreview(),
                                     onCancelReply: () => _replyTo.value = null,

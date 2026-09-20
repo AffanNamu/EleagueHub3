@@ -3,6 +3,7 @@ import 'dart:ui';
 import '../../models/league_format.dart';
 import '../data/leagues_repository_mock.dart';
 import '../models/team_stats.dart';
+import '../../../core/locale/app_localizations.dart';
 
 class LeagueLeaderboardScreen extends StatefulWidget {
   final LeagueFormat format;
@@ -39,26 +40,27 @@ class _LeagueLeaderboardScreenState extends State<LeagueLeaderboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       backgroundColor: const Color(0xFF4FC3F7),
       appBar: AppBar(
-        title: Text('${widget.leagueName} Standings'),
+        title: Text('${widget.leagueName} ${l10n.tr('league_leaderboard_standings_suffix')}'),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
       body: SafeArea(
         child: widget.format == LeagueFormat.uclGroup
-            ? _buildGroupView()
-            : _buildSingleTableView(),
+            ? _buildGroupView(l10n)
+            : _buildSingleTableView(l10n),
       ),
     );
   }
 
   /// ---------------- GROUP VIEW ----------------
-  Widget _buildGroupView() {
+  Widget _buildGroupView(AppLocalizations l10n) {
     final groups = <String, List<TeamStats>>{};
     for (int i = 0; i < _teams.length; i++) {
-      String group = "Group ${String.fromCharCode(65 + (i ~/ 4))}";
+      String group = "${l10n.tr('league_leaderboard_group_label_prefix')} ${String.fromCharCode(65 + (i ~/ 4))}";
       groups.putIfAbsent(group, () => []);
       groups[group]!.add(_teams[i]);
     }
@@ -90,7 +92,7 @@ class _LeagueLeaderboardScreenState extends State<LeagueLeaderboardScreen> {
   }
 
   /// ---------------- SINGLE TABLE VIEW ----------------
-  Widget _buildSingleTableView() {
+  Widget _buildSingleTableView(AppLocalizations l10n) {
     final teams = [..._teams];
     teams.sort((a, b) => b.points.compareTo(a.points));
 
@@ -98,7 +100,7 @@ class _LeagueLeaderboardScreenState extends State<LeagueLeaderboardScreen> {
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          _buildTableHead(),
+          _buildTableHead(l10n),
           const SizedBox(height: 8),
           Expanded(child: _buildGlassTable(teams)),
         ],
@@ -106,16 +108,16 @@ class _LeagueLeaderboardScreenState extends State<LeagueLeaderboardScreen> {
     );
   }
 
-  Widget _buildTableHead() {
+  Widget _buildTableHead(AppLocalizations l10n) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: const Row(
+      child: Row(
         children: [
-          Expanded(flex: 1, child: Text("#", style: TextStyle(color: Colors.white60, fontSize: 12))),
-          Expanded(flex: 4, child: Text("TEAM", style: TextStyle(color: Colors.white60, fontSize: 12))),
-          Expanded(child: Text("P", style: TextStyle(color: Colors.white60, fontSize: 12))),
-          Expanded(child: Text("GD", style: TextStyle(color: Colors.white60, fontSize: 12))),
-          Expanded(child: Text("PTS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12))),
+          const Expanded(flex: 1, child: Text("#", style: TextStyle(color: Colors.white60, fontSize: 12))),
+          Expanded(flex: 4, child: Text(l10n.tr('league_leaderboard_column_team'), style: const TextStyle(color: Colors.white60, fontSize: 12))),
+          Expanded(child: Text(l10n.tr('league_leaderboard_column_played'), style: const TextStyle(color: Colors.white60, fontSize: 12))),
+          Expanded(child: Text(l10n.tr('league_leaderboard_column_goal_difference'), style: const TextStyle(color: Colors.white60, fontSize: 12))),
+          Expanded(child: Text(l10n.tr('league_leaderboard_column_points'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12))),
         ],
       ),
     );

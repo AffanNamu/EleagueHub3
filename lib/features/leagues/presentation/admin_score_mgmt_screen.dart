@@ -147,10 +147,10 @@ class _AdminScoreMgmtScreenState
     if (g == 'Group G') return l10n.tr('add_teams_group_g');
     if (g == 'Group H') return l10n.tr('add_teams_group_h');
 
-    // World Cup 2026 extra groups (no l10n keys yet).
-    if (g == 'Group I' || g == 'Group J' || g == 'Group K' || g == 'Group L') {
-      return g;
-    }
+    if (g == 'Group I') return l10n.tr('add_teams_group_i');
+    if (g == 'Group J') return l10n.tr('add_teams_group_j');
+    if (g == 'Group K') return l10n.tr('add_teams_group_k');
+    if (g == 'Group L') return l10n.tr('add_teams_group_l');
 
     return g;
   }
@@ -797,9 +797,10 @@ class _AdminScoreMgmtScreenState
             constraints: BoxConstraints(maxWidth: isTablet ? 1000 : 500),
             child: Column(
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: SectionHeader('Admin Score Management'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SectionHeader(
+                      l10n.tr('admin_score_section_title')),
                 ),
                 const SizedBox(height: 6),
                 if (showGenerateClassic || showGenerateGroup || showGenerateSwiss)

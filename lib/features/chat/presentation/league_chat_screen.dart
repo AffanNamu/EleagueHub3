@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
@@ -182,13 +183,13 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       final name = (data['name'] ?? data['leagueName'] ?? '').toString().trim();
       if (!mounted) return;
       setState(() {
-        _leagueName = name.isNotEmpty ? name : 'League';
+        _leagueName = name.isNotEmpty ? name : context.l10n.tr('league_chat_default_name');
         _leagueNameResolved = true;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _leagueName = 'League';
+        _leagueName = context.l10n.tr('league_chat_default_name');
         _leagueNameResolved = true;
       });
     }
@@ -253,7 +254,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     if (dn.isNotEmpty) return dn;
     final email = (_user.email ?? '').trim();
     if (email.isNotEmpty) return email.split('@').first;
-    return 'Player';
+    return context.l10n.tr('league_chat_default_player_name');
   }
 
   String _fallbackPhoto() => (_user.photoURL ?? '').trim();
@@ -301,11 +302,15 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     required String voiceUrl,
   }) {
     final t = type.trim();
-    if (t == ChatMessageType.voice || voiceUrl.trim().isNotEmpty) return 'Voice message';
-    if (t == ChatMessageType.image || imageUrl.trim().isNotEmpty) return 'Photo';
-    if (t == ChatMessageType.code) return 'Code snippet';
+    if (t == ChatMessageType.voice || voiceUrl.trim().isNotEmpty) {
+      return context.l10n.tr('league_chat_preview_voice_message');
+    }
+    if (t == ChatMessageType.image || imageUrl.trim().isNotEmpty) {
+      return context.l10n.tr('league_chat_preview_photo');
+    }
+    if (t == ChatMessageType.code) return context.l10n.tr('league_chat_preview_code_snippet');
     final msg = text.trim();
-    if (msg.isEmpty) return 'New message';
+    if (msg.isEmpty) return context.l10n.tr('league_chat_preview_new_message');
     return msg.length > 140 ? '${msg.substring(0, 140)}…' : msg;
   }
 
@@ -317,7 +322,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   }) async {
     await SupabaseEdgeNotificationsService.instance.notifyLeagueChatMessage(
       leagueId: widget.leagueId,
-      leagueName: _leagueNameResolved ? _leagueName : 'League',
+      leagueName: _leagueNameResolved ? _leagueName : context.l10n.tr('league_chat_default_name'),
       messageId: messageId,
       senderId: _user.uid.trim(),
       senderName: _senderName().trim(),
@@ -377,7 +382,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   String _spaceTitleFrom(Map<String, dynamic> data) {
     final t = (data['title'] ?? data['name'] ?? data['spaceName'] ?? '').toString().trim();
-    return t.isNotEmpty ? t : 'League Space';
+    return t.isNotEmpty ? t : context.l10n.tr('league_chat_space_default_title');
   }
 
   String _spaceHostUidFrom(Map<String, dynamic> data) {
@@ -415,7 +420,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   Future<void> _startSpaceFromBanner({required String title}) async {
     if (_spaceActionBusy) return;
     if (!_canModerateLeague) {
-      _toast('You do not have permission to start a space.', error: true);
+      _toast(context.l10n.tr('league_chat_space_start_permission_denied'), error: true);
       return;
     }
 
@@ -430,7 +435,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         {
           'leagueId': widget.leagueId,
           'hostUserId': _user.uid.trim(),
-          'title': title.trim().isNotEmpty ? title.trim() : 'League Space',
+          'title': title.trim().isNotEmpty
+              ? title.trim()
+              : context.l10n.tr('league_chat_space_default_title'),
           'isLive': true,
           'startedAtMs': now,
           'updatedAtMs': now,
@@ -452,7 +459,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   Future<void> _endSpaceFromBanner() async {
     if (_spaceActionBusy) return;
     if (!_canModerateLeague) {
-      _toast('You do not have permission to end a space.', error: true);
+      _toast(context.l10n.tr('league_chat_space_end_permission_denied'), error: true);
       return;
     }
 
@@ -494,13 +501,13 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         final data = snap.data?.data() ?? <String, dynamic>{};
 
         final isLive = exists ? _spaceIsLiveFrom(data) : false;
-        final title = exists ? _spaceTitleFrom(data) : 'League Space';
+        final title = exists ? _spaceTitleFrom(data) : context.l10n.tr('league_chat_space_default_title');
         final hostUid = exists ? _spaceHostUidFrom(data) : '';
         final isHost = hostUid.isNotEmpty && hostUid == _user.uid.trim();
 
         if (hostUid.isNotEmpty) _ensureIdentityLoadedForUid(hostUid);
 
-        final hostName = hostUid.isNotEmpty ? _displayNameForUid(hostUid) : 'Host';
+        final hostName = hostUid.isNotEmpty ? _displayNameForUid(hostUid) : context.l10n.tr('league_chat_space_default_host');
 
         final showStart = !isLive && _canModerateLeague;
         final showJoin = isLive && !isHost;
@@ -510,8 +517,12 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         );
 
         final actionLabel = showJoin
-            ? 'Join'
-            : (showStart ? 'Start' : (isLive ? 'Open' : 'Off'));
+            ? context.l10n.tr('common_join')
+            : (showStart
+                ? context.l10n.tr('league_chat_space_action_start')
+                : (isLive
+                    ? context.l10n.tr('common_open')
+                    : context.l10n.tr('league_chat_space_action_off')));
 
         final actionEnabled = !_spaceActionBusy && (showJoin || showStart || isLive);
 
@@ -570,7 +581,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                       children: [
                         Expanded(
                           child: Text(
-                            'Host: $hostName',
+                            "${context.l10n.tr('league_space_host_prefix')}$hostName",
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -599,7 +610,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                                 : _spaceSpeakersCol.doc(hostUid.trim()).snapshots(includeMetadataChanges: true),
                             builder: (context, speakerSnap) {
                               final muted = speakerSnap.data?.data()?['muted'] == true;
-                              final label = muted ? 'Mic off' : 'Mic on';
+                              final label = muted
+                                  ? context.l10n.tr('league_chat_mic_off')
+                                  : context.l10n.tr('league_chat_mic_on');
                               final icon = muted ? Icons.mic_off_rounded : Icons.mic_rounded;
                               final color = muted ? cs.error : cs.primary;
 
@@ -635,7 +648,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                               foregroundColor: cs.error,
                               textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
                             ),
-                            child: const Text('End'),
+                            child: Text(context.l10n.tr('league_chat_space_end_button')),
                           ),
                         ],
                       ),
@@ -703,11 +716,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   Future<void> _sendText() async {
     if (_chatBlocked) {
-      _toast('You are banned from chat.', error: true);
+      _toast(context.l10n.tr('league_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in chat.', error: true);
+      _toast(context.l10n.tr('league_chat_muted_message'), error: true);
       return;
     }
     if (_isSelecting) return;
@@ -756,11 +769,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   Future<void> _pickAndSendImage() async {
     if (_chatBlocked) {
-      _toast('You are banned from chat.', error: true);
+      _toast(context.l10n.tr('league_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in chat.', error: true);
+      _toast(context.l10n.tr('league_chat_muted_message'), error: true);
       return;
     }
     if (_sending || _isSelecting) return;
@@ -779,7 +792,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       }
       if (!pick.isSuccess) {
         if (mounted) setState(() => _sending = false);
-        _toast((pick.errorMessage ?? 'Could not pick image.').trim(), error: true);
+        _toast(
+            (pick.errorMessage ?? context.l10n.tr('league_chat_pick_image_failed')).trim(),
+            error: true);
         return;
       }
 
@@ -826,11 +841,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   Future<void> _startRecording() async {
     if (_chatBlocked) {
-      _toast('You are banned from chat.', error: true);
+      _toast(context.l10n.tr('league_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in chat.', error: true);
+      _toast(context.l10n.tr('league_chat_muted_message'), error: true);
       return;
     }
     if (_sending || _isVoiceSending || _isRecording || _isSelecting) return;
@@ -842,7 +857,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       if (!hasPerm) {
         if (!mounted) return;
         setState(() => _recordingPermissionDenied = true);
-        _toast('Microphone permission denied', error: true);
+        _toast(context.l10n.tr('league_chat_mic_permission_denied'), error: true);
         return;
       }
       if (!mounted) return;
@@ -908,11 +923,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   Future<void> _sendRecording() async {
     if (_chatBlocked) {
-      _toast('You are banned from chat.', error: true);
+      _toast(context.l10n.tr('league_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in chat.', error: true);
+      _toast(context.l10n.tr('league_chat_muted_message'), error: true);
       return;
     }
     if (_isVoiceSending || !_isRecording || _isSelecting) return;
@@ -934,7 +949,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       _recordingTicker = null;
 
       final file = File(finalPath);
-      if (!await file.exists()) throw StateError('Recording not found. Try again.');
+      if (!await file.exists()) {
+        throw StateError(context.l10n.tr('league_chat_recording_not_found'));
+      }
 
       final recordedMs = _recordingStartedAt == null
           ? 0
@@ -1009,11 +1026,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   Future<void> _softDeleteSelected(ChatMessage msg) async {
     if (!_canDeleteMessage(msg)) {
-      _toast('You can only delete your own messages.', error: true);
+      _toast(context.l10n.tr('league_chat_delete_own_only'), error: true);
       return;
     }
     if (msg.deleted) {
-      _toast('Already deleted');
+      _toast(context.l10n.tr('league_chat_already_deleted'));
       _selectedMessageId.value = null;
       return;
     }
@@ -1026,7 +1043,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         deletedBy: _user.uid,
       );
       _selectedMessageId.value = null;
-      _toast('Message deleted');
+      _toast(context.l10n.tr('league_chat_message_deleted'));
     } catch (e) {
       _toastErr(e);
     }
@@ -1034,11 +1051,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   Future<void> _pinSelected(ChatMessage msg) async {
     if (!_canPinMessage(msg)) {
-      _toast('You do not have permission to pin messages.', error: true);
+      _toast(context.l10n.tr('league_chat_pin_permission_denied'), error: true);
       return;
     }
     if (msg.deleted) {
-      _toast('Cannot pin a deleted message.', error: true);
+      _toast(context.l10n.tr('league_chat_cannot_pin_deleted'), error: true);
       _selectedMessageId.value = null;
       return;
     }
@@ -1051,7 +1068,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         pinnedBy: _user.uid,
       );
       _selectedMessageId.value = null;
-      _toast('Pinned');
+      _toast(context.l10n.tr('league_chat_pinned'));
     } catch (e) {
       _toastErr(e);
     }
@@ -1059,7 +1076,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   Future<void> _copySelected(ChatMessage msg) async {
     if (msg.deleted) {
-      _toast('Nothing to copy', error: true);
+      _toast(context.l10n.tr('league_chat_nothing_to_copy'), error: true);
       _selectedMessageId.value = null;
       return;
     }
@@ -1071,13 +1088,13 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
             : (msg.type == ChatMessageType.voice ? msg.voiceUrl.trim() : ''));
 
     if (txt.isEmpty) {
-      _toast('Nothing to copy', error: true);
+      _toast(context.l10n.tr('league_chat_nothing_to_copy'), error: true);
       _selectedMessageId.value = null;
       return;
     }
 
     await Clipboard.setData(ClipboardData(text: txt));
-    _toast('Copied');
+    _toast(context.l10n.tr('league_chat_copied'));
     _selectedMessageId.value = null;
   }
 
@@ -1085,7 +1102,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     final key = _messageKeys[messageId];
     final ctx = key?.currentContext;
     if (ctx == null) {
-      _toast('Message not loaded yet');
+      _toast(context.l10n.tr('league_chat_message_not_loaded'));
       return;
     }
     Scrollable.ensureVisible(
@@ -1110,7 +1127,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Recording… ${_recordingElapsed()}',
+                "${context.l10n.tr('league_chat_recording_prefix')}${_recordingElapsed()}",
                 style: TextStyle(
                   color: cs.onSurface.withOpacity(0.85),
                   fontWeight: FontWeight.w700,
@@ -1119,7 +1136,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
             ),
             TextButton(
               onPressed: _isVoiceSending ? null : _cancelRecording,
-              child: const Text('Cancel'),
+              child: Text(context.l10n.tr('common_cancel')),
             ),
             const SizedBox(width: 6),
             FilledButton(
@@ -1130,7 +1147,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Send'),
+                  : Text(context.l10n.tr('league_chat_send')),
             ),
           ],
         ),
@@ -1148,7 +1165,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
           if (!selecting) {
             return AppBar(
-              title: const Text('League Chat'),
+              title: Text(context.l10n.tr('league_chat_title')),
               backgroundColor: Colors.transparent,
               elevation: 0,
             );
@@ -1158,28 +1175,28 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
           return AppBar(
             leading: IconButton(
-              tooltip: 'Cancel selection',
+              tooltip: context.l10n.tr('league_chat_cancel_selection_tooltip'),
               onPressed: () => _selectedMessageId.value = null,
               icon: const Icon(Icons.close_rounded),
             ),
-            title: const Text('1 selected'),
+            title: Text(context.l10n.tr('league_chat_one_selected')),
             backgroundColor: Colors.transparent,
             elevation: 0,
             actions: [
               IconButton(
-                tooltip: 'Copy',
+                tooltip: context.l10n.tr('common_copy'),
                 onPressed: selectedMsg == null ? null : () => _copySelected(selectedMsg),
                 icon: const Icon(Icons.copy_rounded),
               ),
               if (selectedMsg != null && _canDeleteMessage(selectedMsg))
                 IconButton(
-                  tooltip: 'Delete',
+                  tooltip: context.l10n.tr('league_chat_delete_tooltip'),
                   onPressed: () => _softDeleteSelected(selectedMsg),
                   icon: const Icon(Icons.delete_outline_rounded),
                 ),
               if (selectedMsg != null && _canPinMessage(selectedMsg))
                 IconButton(
-                  tooltip: 'Pin',
+                  tooltip: context.l10n.tr('league_chat_pin_tooltip'),
                   onPressed: () => _pinSelected(selectedMsg),
                   icon: const Icon(Icons.push_pin_outlined),
                 ),
@@ -1205,7 +1222,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'You are banned from chat. You can no longer send messages here.',
+                  context.l10n.tr('league_chat_banned_full_message'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.error,
                     fontWeight: FontWeight.w800,
@@ -1231,7 +1248,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'You are muted in chat. You can read messages but cannot send new ones.',
+                  context.l10n.tr('league_chat_muted_full_message'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: const Color(0xFFF59E0B),
                     fontWeight: FontWeight.w800,
@@ -1329,7 +1346,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                                     const SizedBox(height: 10),
                                     FilledButton(
                                       onPressed: () => Navigator.of(context).maybePop(),
-                                      child: const Text('Back'),
+                                      child: Text(context.l10n.tr('common_back')),
                                     ),
                                   ],
                                 ),
@@ -1342,7 +1359,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                         if (msgs.isEmpty) {
                           return Center(
                             child: Text(
-                              'No messages yet',
+                              context.l10n.tr('league_chat_no_messages'),
                               style: TextStyle(
                                 color: theme.colorScheme.onSurface.withOpacity(0.55),
                                 fontWeight: FontWeight.w700,
@@ -1421,7 +1438,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                           onRecordVoice: (_sending || _isVoiceSending || _isRecording || selecting || _chatReadOnly)
                               ? null
                               : _startRecording,
-                          voiceTooltip: _recordingPermissionDenied ? 'Microphone permission required' : 'Record voice',
+                          voiceTooltip: _recordingPermissionDenied
+                              ? context.l10n.tr('league_chat_mic_permission_required_tooltip')
+                              : context.l10n.tr('league_chat_record_voice_tooltip'),
                           replySenderName: reply?.displaySenderName,
                           replyPreview: reply?.replyPreview(),
                           onCancelReply: () => _replyTo.value = null,
@@ -1468,7 +1487,9 @@ class _SpaceLivePill extends StatelessWidget {
             const SizedBox(width: 6),
           ],
           Text(
-            isLive ? 'LIVE' : 'OFF',
+            isLive
+                ? context.l10n.tr('league_chat_space_pill_live')
+                : context.l10n.tr('league_chat_space_pill_off'),
             style: TextStyle(
               color: color,
               fontSize: 10,
@@ -1550,7 +1571,7 @@ class _SpaceParticipantsLabel extends StatelessWidget {
 
     if (!isLive) {
       return Text(
-        '0 participants',
+        context.l10n.tr('league_chat_space_zero_participants'),
         style: TextStyle(
           color: theme.colorScheme.onSurface.withOpacity(0.55),
           fontWeight: FontWeight.w700,
@@ -1562,7 +1583,7 @@ class _SpaceParticipantsLabel extends StatelessWidget {
     if (explicitCount != null) {
       final n = explicitCount!;
       return Text(
-        '$n participants',
+        "$n${context.l10n.tr('league_chat_space_participants_suffix')}",
         style: TextStyle(
           color: theme.colorScheme.onSurface.withOpacity(0.62),
           fontWeight: FontWeight.w800,
@@ -1581,7 +1602,7 @@ class _SpaceParticipantsLabel extends StatelessWidget {
         final total = docs.length + (host.isNotEmpty && !hostInSpeakers ? 1 : 0);
 
         return Text(
-          '$total participants',
+          "$total${context.l10n.tr('league_chat_space_participants_suffix')}",
           style: TextStyle(
             color: theme.colorScheme.onSurface.withOpacity(0.62),
             fontWeight: FontWeight.w800,

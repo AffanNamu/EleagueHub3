@@ -46,6 +46,13 @@ class QuickMessagePolicy {
     return s;
   }
 
+  // NOTE (i18n): The error strings below are surfaced to the user via
+  // exceptions caught in lib/features/profile/presentation/settings_screen.dart
+  // (outside this localization pass's file list), which currently displays
+  // `e.toString()` verbatim rather than mapping an error code to localized
+  // text. Converting these to error keys would require changing that
+  // caller too, which is a larger cross-file refactor than this pass
+  // covers, so they are left as English for now.
   static QuickMessageValidationResult validateCustomMessage(String raw) {
     final s = normalize(raw);
     if (s.isEmpty) return const QuickMessageValidationResult.invalid('Message is empty');

@@ -18,6 +18,33 @@ final callSessionControllerProvider =
   return CallSessionController();
 });
 
+/// Error keys used by [CallSessionState.errorKey].
+///
+/// The presentation layer (which has a [BuildContext] and can localize)
+/// maps these semantic keys — plus [CallSessionState.errorArg] where
+/// relevant — to user-facing text. This logic layer never formats
+/// user-facing English strings directly.
+abstract class CallSessionErrorKey {
+  static const String none = '';
+  static const String signInRequired = 'sign_in_required';
+  static const String invalidRoomCode = 'invalid_room_code';
+  static const String networkIssue = 'network_issue';
+  static const String connectionTimeout = 'connection_timeout';
+  static const String permissionDenied = 'permission_denied';
+  static const String authFailed = 'auth_failed';
+  static const String roomConnectFailed = 'room_connect_failed';
+  static const String unknown = 'unknown_error';
+  static const String reconnectGiveUp = 'reconnect_give_up';
+  // errorArg holds the sub-reason key (one of the above) being retried.
+  static const String reconnectingWithReason = 'reconnecting_with_reason';
+  // errorArg holds "attempt/max" (e.g. "2/5").
+  static const String connectionLostReconnecting =
+      'connection_lost_reconnecting';
+  // errorArg holds the raw, already-formed message (e.g. from a thrown
+  // UserFriendlyException whose message is set elsewhere).
+  static const String raw = 'raw';
+}
+
 @immutable
 class CallSessionState {
   final bool joining;
@@ -25,7 +52,8 @@ class CallSessionState {
   final String callId;
   final bool micEnabled;
   final bool micPermissionGranted;
-  final String error;
+  final String errorKey;
+  final String? errorArg;
   final bool reconnecting;
 
   final String? incomingQuickText;
@@ -38,12 +66,15 @@ class CallSessionState {
     required this.callId,
     required this.micEnabled,
     required this.micPermissionGranted,
-    required this.error,
+    required this.errorKey,
+    this.errorArg,
     required this.reconnecting,
     required this.incomingQuickText,
     required this.incomingQuickFrom,
     required this.incomingQuickAtMs,
   });
+
+  bool get hasError => errorKey.isNotEmpty;
 
   factory CallSessionState.initial() => const CallSessionState(
         joining: false,
@@ -51,7 +82,8 @@ class CallSessionState {
         callId: '',
         micEnabled: false,
         micPermissionGranted: false,
-        error: '',
+        errorKey: '',
+        errorArg: null,
         reconnecting: false,
         incomingQuickText: null,
         incomingQuickFrom: null,
@@ -64,7 +96,8 @@ class CallSessionState {
     String? callId,
     bool? micEnabled,
     bool? micPermissionGranted,
-    String? error,
+    String? errorKey,
+    String? errorArg,
     bool? reconnecting,
     String? incomingQuickText,
     String? incomingQuickFrom,
@@ -76,7 +109,8 @@ class CallSessionState {
       callId: callId ?? this.callId,
       micEnabled: micEnabled ?? this.micEnabled,
       micPermissionGranted: micPermissionGranted ?? this.micPermissionGranted,
-      error: error ?? this.error,
+      errorKey: errorKey ?? this.errorKey,
+      errorArg: errorKey != null ? errorArg : (errorArg ?? this.errorArg),
       reconnecting: reconnecting ?? this.reconnecting,
       incomingQuickText: incomingQuickText,
       incomingQuickFrom: incomingQuickFrom,
@@ -103,47 +137,77 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
   static final RegExp _codeRe = RegExp(r'^[A-Z0-9]{8}$');
 
-  static String _friendlyError(Object error) {
-    if (error is UserFriendlyException) return error.message;
+  /// Returns a (errorKey, errorArg) pair describing [error] in a
+  /// localization-agnostic way. errorArg is only non-null for
+  /// [CallSessionErrorKey.raw], where it carries the already-formed message.
+  static (String, String?) _friendlyError(Object error) {
+    if (error is UserFriendlyException) {
+      return (CallSessionErrorKey.raw, error.message);
+    }
     final msg = error.toString().toLowerCase();
     if (msg.contains('socket') ||
         msg.contains('network') ||
         msg.contains('unreachable')) {
-      return 'Network issue. Please check your connection.';
+      return (CallSessionErrorKey.networkIssue, null);
     }
     if (msg.contains('timeout')) {
-      return 'Connection timed out. Please try again.';
+      return (CallSessionErrorKey.connectionTimeout, null);
     }
     if (msg.contains('permission')) {
-      return 'Permission denied. Please check app permissions.';
+      return (CallSessionErrorKey.permissionDenied, null);
     }
     if (msg.contains('token') || msg.contains('auth')) {
-      return 'Authentication failed. Please sign in again.';
+      return (CallSessionErrorKey.authFailed, null);
     }
     if (msg.contains('room') || msg.contains('connect')) {
-      return 'Could not connect to voice room. Please try again.';
+      return (CallSessionErrorKey.roomConnectFailed, null);
     }
-    return 'Something went wrong. Please try again.';
+    return (CallSessionErrorKey.unknown, null);
   }
 
-  Future<String> createAndJoin() async {
+  // Caller-supplied, already-localized text for the Android foreground
+  // notification shown while a voice room is active (this logic layer has
+  // no BuildContext to localize with). Falls back to plain English if a
+  // caller doesn't provide one (e.g. an automatic reconnect).
+  String _notificationTitle = 'Voice room';
+  String _notificationTextPrefix = 'Room ';
+
+  Future<String> createAndJoin({
+    String? notificationTitle,
+    String? notificationTextPrefix,
+  }) async {
     final code = _generate8CharCode();
-    await joinByCode(code, isHost: true);
+    await joinByCode(
+      code,
+      isHost: true,
+      notificationTitle: notificationTitle,
+      notificationTextPrefix: notificationTextPrefix,
+    );
     return code;
   }
 
-  Future<void> joinByCode(String code, {bool isHost = false}) async {
+  Future<void> joinByCode(
+    String code, {
+    bool isHost = false,
+    String? notificationTitle,
+    String? notificationTextPrefix,
+  }) async {
     final uid = _uid.trim();
     final callId = code.trim().toUpperCase();
 
+    if (notificationTitle != null) _notificationTitle = notificationTitle;
+    if (notificationTextPrefix != null) {
+      _notificationTextPrefix = notificationTextPrefix;
+    }
+
     if (uid.isEmpty) {
-      state = state.copyWith(error: 'Please sign in to use voice rooms.');
+      state = state.copyWith(errorKey: CallSessionErrorKey.signInRequired);
       return;
     }
 
     if (!_codeRe.hasMatch(callId)) {
       state = state.copyWith(
-        error: 'Room code must be exactly 8 letters/numbers.',
+        errorKey: CallSessionErrorKey.invalidRoomCode,
       );
       return;
     }
@@ -156,7 +220,7 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
     state = state.copyWith(
       joining: true,
-      error: '',
+      errorKey: CallSessionErrorKey.none,
       reconnecting: false,
       incomingQuickText: null,
       incomingQuickFrom: null,
@@ -212,8 +276,11 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
       _listener!.on<RoomConnectedEvent>((_) {
         _reconnectAttempts = 0;
-        state =
-            state.copyWith(connected: true, reconnecting: false, error: '');
+        state = state.copyWith(
+          connected: true,
+          reconnecting: false,
+          errorKey: CallSessionErrorKey.none,
+        );
       });
 
       _listener!.on<RoomDisconnectedEvent>((_) {
@@ -281,8 +348,8 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
       unawaited(
         OverlayPlatform.startOverlayVoiceForegroundService(
-          title: 'Voice room',
-          text: 'Room $callId',
+          title: _notificationTitle,
+          text: '$_notificationTextPrefix$callId',
         ),
       );
 
@@ -290,14 +357,21 @@ class CallSessionController extends StateNotifier<CallSessionState> {
         joining: false,
         connected: true,
         reconnecting: false,
-        error: '',
+        errorKey: CallSessionErrorKey.none,
       );
     } catch (e) {
-      final friendly = _friendlyError(e is Object ? e : Exception('unknown'));
+      final (friendlyKey, friendlyArg) =
+          _friendlyError(e is Object ? e : Exception('unknown'));
       if (isReconnect) {
         state = state.copyWith(
           reconnecting: true,
-          error: 'Reconnecting... $friendly',
+          errorKey: CallSessionErrorKey.reconnectingWithReason,
+          // Encodes the sub-reason so the presentation layer can resolve it:
+          // "key|<errorKey>" for a semantic key, "raw|<message>" for an
+          // already-formed message (e.g. from UserFriendlyException).
+          errorArg: friendlyKey == CallSessionErrorKey.raw
+              ? 'raw|$friendlyArg'
+              : 'key|$friendlyKey',
         );
         _scheduleReconnect();
       } else {
@@ -305,7 +379,8 @@ class CallSessionController extends StateNotifier<CallSessionState> {
           joining: false,
           connected: false,
           reconnecting: false,
-          error: friendly,
+          errorKey: friendlyKey,
+          errorArg: friendlyArg,
         );
       }
       unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
@@ -318,7 +393,7 @@ class CallSessionController extends StateNotifier<CallSessionState> {
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       state = state.copyWith(
         reconnecting: false,
-        error: 'Could not reconnect. Please rejoin manually.',
+        errorKey: CallSessionErrorKey.reconnectGiveUp,
       );
       return;
     }
@@ -330,8 +405,8 @@ class CallSessionController extends StateNotifier<CallSessionState> {
 
     state = state.copyWith(
       reconnecting: true,
-      error:
-          'Connection lost. Reconnecting (attempt $_reconnectAttempts/$_maxReconnectAttempts)...',
+      errorKey: CallSessionErrorKey.connectionLostReconnecting,
+      errorArg: '$_reconnectAttempts/$_maxReconnectAttempts',
     );
 
     _reconnectTimer = Timer(delay, () {
@@ -444,7 +519,7 @@ class CallSessionController extends StateNotifier<CallSessionState> {
       joining: false,
       connected: false,
       micEnabled: false,
-      error: '',
+      errorKey: CallSessionErrorKey.none,
       callId: clearCode ? '' : state.callId,
       incomingQuickText: null,
       incomingQuickFrom: null,

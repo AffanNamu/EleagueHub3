@@ -272,7 +272,7 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
               Icon(Icons.cloud_off_rounded, size: 40, color: cs.primary),
               const SizedBox(height: 12),
               Text(
-                'Couldn’t load participants',
+                context.l10n.tr('league_participants_load_error_title'),
                 style: theme.textTheme.titleMedium?.copyWith(
                   color: cs.onSurface,
                   fontWeight: FontWeight.w900,
@@ -294,7 +294,7 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
               const SizedBox(height: 14),
               FilledButton(
                 onPressed: _load,
-                child: const Text('Retry'),
+                child: Text(context.l10n.tr('common_retry')),
               ),
             ],
           ),
@@ -388,13 +388,17 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
 
     final String assignedLeagueTeamName = team != null
         ? team.name
-        : (teamId.isNotEmpty ? l10n.tr('league_participants_team_prefix').trim().isEmpty ? 'Team' : l10n.tr('league_participants_team_prefix').trim() : l10n.tr('league_participants_no_team'));
+        : (teamId.isNotEmpty
+            ? (l10n.tr('league_participants_team_prefix').trim().isEmpty
+                ? l10n.tr('league_participants_team_fallback')
+                : l10n.tr('league_participants_team_prefix').trim())
+            : l10n.tr('league_participants_no_team'));
 
     // Hide Firebase UID from viewers: only show resolved display name (teamName) or a generic label.
     final globalTeamName = (_teamNameByUserId[m.userId] ?? '').trim();
     final title = globalTeamName.isNotEmpty
         ? globalTeamName
-        : (assignedLeagueTeamName.trim().isNotEmpty && assignedLeagueTeamName != l10n.tr('league_participants_no_team') ? assignedLeagueTeamName : 'Participant');
+        : (assignedLeagueTeamName.trim().isNotEmpty && assignedLeagueTeamName != l10n.tr('league_participants_no_team') ? assignedLeagueTeamName : l10n.tr('league_participants_fallback_title'));
 
     final isOrganizer = m.role == LeagueRole.organizer;
 

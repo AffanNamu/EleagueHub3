@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
@@ -106,7 +107,7 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
     return GlassScaffold(
       appBar: AppBar(
         title: Text(
-          'Prizes',
+          context.l10n.tr('league_rewards_title'),
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w900,
           ),
@@ -118,7 +119,7 @@ class _LeagueRewardsScreenState extends State<LeagueRewardsScreen> {
               final canManage = snap.data == true;
               if (!canManage) return const SizedBox.shrink();
               return IconButton(
-                tooltip: 'Manage Prizes',
+                tooltip: context.l10n.tr('league_rewards_manage_tooltip'),
                 onPressed: _openManageRewards,
                 icon: Icon(
                   Icons.edit_outlined,
@@ -183,7 +184,7 @@ class _EmptyState extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'No prizes available',
+                  context.l10n.tr('league_rewards_no_prizes'),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: AppTheme.primaryText(brightness),
@@ -191,7 +192,7 @@ class _EmptyState extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Check back later for updates.',
+                  context.l10n.tr('league_rewards_check_back_later'),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w600,

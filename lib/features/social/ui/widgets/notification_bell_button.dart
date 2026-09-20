@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../data/platform_announcements_repository.dart';
 import '../screens/notifications_list_screen.dart';
 
@@ -40,7 +41,7 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
           children: [
             IconButton(
               icon: const Icon(Icons.notifications_outlined),
-              tooltip: 'Notifications',
+              tooltip: context.l10n.tr('notification_bell_tooltip'),
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(

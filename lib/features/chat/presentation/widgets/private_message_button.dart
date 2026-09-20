@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/private_chat_repository.dart';
 
@@ -73,8 +74,9 @@ class _PrivateMessageButtonState extends State<PrivateMessageButton> {
       return;
     }
     _snack(
-      'Starting a private chat requires Premium. '
-      '${widget.targetDisplayName} can still message you first.',
+      '${context.l10n.tr('private_message_button_locked_prefix')}'
+      '${widget.targetDisplayName}'
+      '${context.l10n.tr('private_message_button_locked_suffix')}',
     );
   }
 
@@ -106,7 +108,7 @@ class _PrivateMessageButtonState extends State<PrivateMessageButton> {
               ),
               onPressed: () => _openExisting(result.existingThreadId!),
               icon: const Icon(Icons.message_rounded),
-              label: const Text('Message'),
+              label: Text(context.l10n.tr('private_message_button_label')),
             );
           case PrivateChatAccess.canStart:
             return FilledButton.icon(
@@ -116,7 +118,7 @@ class _PrivateMessageButtonState extends State<PrivateMessageButton> {
               ),
               onPressed: _startNew,
               icon: const Icon(Icons.message_rounded),
-              label: const Text('Message'),
+              label: Text(context.l10n.tr('private_message_button_label')),
             );
           case PrivateChatAccess.locked:
             return OutlinedButton.icon(
@@ -126,7 +128,7 @@ class _PrivateMessageButtonState extends State<PrivateMessageButton> {
               ),
               onPressed: _handleLockedTap,
               icon: const Icon(Icons.lock_outline_rounded, size: 18),
-              label: const Text('Message (Premium)'),
+              label: Text(context.l10n.tr('private_message_button_premium_label')),
             );
           case PrivateChatAccess.blocked:
             // No button at all — a blocked relationship shouldn't even

@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/cloudinary_utils.dart';
 import '../../../../core/widgets/glass.dart';
@@ -166,13 +167,13 @@ class MasterLeagueCard extends ConsumerWidget {
 
   // ── Owner badge icons ─────────────────────────────────────────────────────
 
-  Widget _ownerBadges(VerificationBadges badges) {
+  Widget _ownerBadges(AppLocalizations l10n, VerificationBadges badges) {
     final icons = <Widget>[];
 
     if (badges.isStaffActive) {
-      icons.add(const Tooltip(
-        message: 'Staff / Ambassador',
-        child: Padding(
+      icons.add(Tooltip(
+        message: l10n.tr('master_league_card_badge_staff_ambassador'),
+        child: const Padding(
           padding: EdgeInsets.only(left: 3),
           child: Icon(
             Icons.shield_rounded,
@@ -184,9 +185,9 @@ class MasterLeagueCard extends ConsumerWidget {
     }
 
     if (badges.isOrganizerActive) {
-      icons.add(const Tooltip(
-        message: 'Official Tournament Organizer',
-        child: Padding(
+      icons.add(Tooltip(
+        message: l10n.tr('master_league_card_badge_official_organizer'),
+        child: const Padding(
           padding: EdgeInsets.only(left: 3),
           child: Icon(
             Icons.verified_rounded,
@@ -198,9 +199,9 @@ class MasterLeagueCard extends ConsumerWidget {
     }
 
     if (badges.isGreenActive) {
-      icons.add(const Tooltip(
-        message: 'Verified User',
-        child: Padding(
+      icons.add(Tooltip(
+        message: l10n.tr('master_league_card_badge_verified_user'),
+        child: const Padding(
           padding: EdgeInsets.only(left: 3),
           child: Icon(
             Icons.verified_rounded,
@@ -228,18 +229,18 @@ class MasterLeagueCard extends ConsumerWidget {
   // requiring the user to notice a tiny icon. Uses only
   // masterLeague.isVerifiedOrganizer / isVerificationPending, the same
   // two getters already used elsewhere in this file.
-  Widget _verificationLabel(Brightness brightness) {
+  Widget _verificationLabel(AppLocalizations l10n, Brightness brightness) {
     if (masterLeague.isVerifiedOrganizer) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 2),
+      return Padding(
+        padding: const EdgeInsets.only(top: 2),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.verified_rounded, size: 13, color: Color(0xFF1D9BF0)),
-            SizedBox(width: 4),
+            const Icon(Icons.verified_rounded, size: 13, color: Color(0xFF1D9BF0)),
+            const SizedBox(width: 4),
             Text(
-              'Verified Organizer',
-              style: TextStyle(
+              l10n.tr('master_league_card_verified_organizer_label'),
+              style: const TextStyle(
                 color: Color(0xFF1D9BF0),
                 fontWeight: FontWeight.w800,
                 fontSize: 11,
@@ -250,16 +251,16 @@ class MasterLeagueCard extends ConsumerWidget {
       );
     }
     if (masterLeague.isVerificationPending) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 2),
+      return Padding(
+        padding: const EdgeInsets.only(top: 2),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.verified_outlined, size: 13, color: Color(0xFFF59E0B)),
-            SizedBox(width: 4),
+            const Icon(Icons.verified_outlined, size: 13, color: Color(0xFFF59E0B)),
+            const SizedBox(width: 4),
             Text(
-              'Verification Pending',
-              style: TextStyle(
+              l10n.tr('master_league_card_verification_pending_label'),
+              style: const TextStyle(
                 color: Color(0xFFF59E0B),
                 fontWeight: FontWeight.w800,
                 fontSize: 11,
@@ -275,6 +276,7 @@ class MasterLeagueCard extends ConsumerWidget {
   // ── Hero body ─────────────────────────────────────────────────────────────
 
   Widget _buildHero(
+    AppLocalizations l10n,
     Brightness brightness,
     WidgetRef ref,
   ) {
@@ -328,7 +330,7 @@ class MasterLeagueCard extends ConsumerWidget {
                     children: [
                       Text(
                         masterLeague.name.trim().isEmpty
-                            ? 'Master League'
+                            ? l10n.tr('master_league_card_default_name')
                             : masterLeague.name.trim(),
                         style: const TextStyle(
                           fontWeight: FontWeight.w900,
@@ -355,7 +357,7 @@ class MasterLeagueCard extends ConsumerWidget {
                   // NEW: explicit verification-type text, shown together
                   // with the logo (which sits to the left of this whole
                   // column) rather than relying on the small icon alone.
-                  _verificationLabel(brightness),
+                  _verificationLabel(l10n, brightness),
 
                   // Owner name + new badge icons
                   // Only show if ownerName is not empty.
@@ -383,7 +385,7 @@ class MasterLeagueCard extends ConsumerWidget {
                                 TextOverflow.ellipsis,
                           ),
                         ),
-                        _ownerBadges(ownerBadges),
+                        _ownerBadges(l10n, ownerBadges),
                       ],
                     ),
                   ],
@@ -416,7 +418,7 @@ class MasterLeagueCard extends ConsumerWidget {
                         brightness: brightness,
                         text:
                             '${masterLeague.followersCount}'
-                            ' follower'
+                            ' ${l10n.tr('master_league_card_follower_suffix')}'
                             '${masterLeague.followersCount == 1 ? '' : 's'}',
                         color: const Color(0xFF22C55E),
                         icon:
@@ -434,7 +436,7 @@ class MasterLeagueCard extends ConsumerWidget {
         // Bio
         Text(
           masterLeague.organizerProfile.bio.trim().isEmpty
-              ? 'No organizer bio yet.'
+              ? l10n.tr('master_league_card_no_bio')
               : masterLeague.organizerProfile.bio.trim(),
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
@@ -459,21 +461,21 @@ class MasterLeagueCard extends ConsumerWidget {
                     icon: Icons.emoji_events_outlined,
                     text:
                         '${masterLeague.analytics.totalTournamentsCreated}'
-                        ' competitions',
+                        ' ${l10n.tr('master_league_card_competitions_suffix')}',
                   ),
                   _metaText(
                     brightness,
                     icon: Icons.groups_rounded,
                     text:
                         '${masterLeague.analytics.totalParticipantsTeams}'
-                        ' teams',
+                        ' ${l10n.tr('master_league_card_teams_suffix')}',
                   ),
                   _metaText(
                     brightness,
                     icon: Icons.sports_score_rounded,
                     text:
                         '${masterLeague.analytics.totalMatches}'
-                        ' matches',
+                        ' ${l10n.tr('master_league_card_matches_suffix')}',
                   ),
                 ],
               ),
@@ -494,13 +496,14 @@ class MasterLeagueCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final brightness = Theme.of(context).brightness;
+    final l10n = context.l10n;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktop =
             constraints.maxWidth >= _BP.desktop;
 
-        final hero = _buildHero(brightness, ref);
+        final hero = _buildHero(l10n, brightness, ref);
 
         if (isDesktop) {
           return Material(

@@ -116,11 +116,13 @@ class _LeaguesListScreenState
       !_isPremiumUser &&
       _createdLeagueCount >= _freeLeagueListLimit;
 
-  String _freeLimitMessage([String action = 'create more']) {
-    return 'Basic users can create up to $_freeLeagueListLimit '
-        'leagues/competitions total. This total is shared across normal '
-        'leagues and competitions inside Organizer or Master League '
-        'workspace. Upgrade to a paid plan to $action.';
+  String _freeLimitMessage([String? action]) {
+    final l10n = context.l10n;
+    final resolvedAction =
+        action ?? l10n.tr('leagues_free_limit_action_default');
+    return '${l10n.tr('leagues_free_limit_message_prefix')}$_freeLeagueListLimit'
+        '${l10n.tr('leagues_free_limit_message_mid')}$resolvedAction'
+        '${l10n.tr('leagues_free_limit_message_suffix')}';
   }
 
   @override
@@ -242,25 +244,27 @@ class _LeaguesListScreenState
     try {
       final uid = _authUidOrEmpty();
       if (uid.isEmpty) {
-        _snack('Please sign in to continue.');
+        _snack(context.l10n.tr('leagues_list_sign_in_to_continue'));
         return;
       }
 
       final success =
           await LeaguePremiumUpgradeHelper.openUpgradeFlow(
         context,
-        leagueName: 'Organizer Plan',
+        leagueName:
+            context.l10n.tr('leagues_list_organizer_plan_name'),
       );
 
       if (!mounted) return;
 
       if (success) {
-        _snack('Plan purchase completed. Refreshing access...');
+        _snack(context.l10n
+            .tr('leagues_list_plan_purchase_completed'));
         await _refreshLeagues();
         return;
       }
 
-      _snack('Plan upgrade cancelled.');
+      _snack(context.l10n.tr('leagues_list_plan_upgrade_cancelled'));
     } catch (e) {
       if (!mounted) return;
       _snack(UserFriendlyError.toMessage(
@@ -780,8 +784,7 @@ class _LeaguesListScreenState
 
     if (!rewardEarned) {
       _snack(
-        'Watch the full ad to open league details. '
-        'Please try again.',
+        context.l10n.tr('leagues_list_ad_watch_full_required'),
       );
       return;
     }
@@ -848,16 +851,13 @@ class _LeaguesListScreenState
                       const SizedBox(height: 6),
                       Text(
                         isOwner
-                            ? 'Invite friends to join, or open '
-                              'this league\'s workspace/details.'
+                            ? context.l10n.tr(
+                                'leagues_list_menu_subtitle_owner')
                             : (league.isInsideMasterLeague
-                                ? 'This competition belongs to a '
-                                  'master league workspace. You can '
-                                  'still remove it from your '
-                                  'personal list.'
-                                : 'You can remove this league from '
-                                  'your list if you no longer need '
-                                  'it.'),
+                                ? context.l10n.tr(
+                                    'leagues_list_menu_subtitle_master_member')
+                                : context.l10n.tr(
+                                    'leagues_list_menu_subtitle_member')),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall
                             ?.copyWith(
@@ -883,9 +883,10 @@ class _LeaguesListScreenState
                           },
                           icon: const Icon(
                               Icons.ios_share_rounded),
-                          label: const Text(
-                            'Share / Invite League',
-                            style: TextStyle(
+                          label: Text(
+                            context.l10n.tr(
+                                'leagues_list_menu_share_invite'),
+                            style: const TextStyle(
                                 fontWeight: FontWeight.w900),
                           ),
                         ),
@@ -901,9 +902,10 @@ class _LeaguesListScreenState
                             },
                             icon: const Icon(
                                 Icons.exit_to_app_rounded),
-                            label: const Text(
-                              'Remove from My List',
-                              style: TextStyle(
+                            label: Text(
+                              context.l10n.tr(
+                                  'leagues_list_menu_remove_from_my_list'),
+                              style: const TextStyle(
                                   fontWeight: FontWeight.w900),
                             ),
                           ),
@@ -926,9 +928,10 @@ class _LeaguesListScreenState
                             },
                             icon: const Icon(
                                 Icons.hub_rounded),
-                            label: const Text(
-                              'Open Workspace',
-                              style: TextStyle(
+                            label: Text(
+                              context.l10n.tr(
+                                  'leagues_list_menu_open_workspace'),
+                              style: const TextStyle(
                                   fontWeight:
                                       FontWeight.w900),
                             ),
@@ -941,9 +944,9 @@ class _LeaguesListScreenState
                         child: TextButton(
                           onPressed: () =>
                               Navigator.of(sheetCtx).pop(),
-                          child: const Text(
-                            'Cancel',
-                            style: TextStyle(
+                          child: Text(
+                            context.l10n.tr('common_cancel'),
+                            style: const TextStyle(
                                 fontWeight: FontWeight.w900),
                           ),
                         ),
@@ -984,7 +987,8 @@ class _LeaguesListScreenState
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'Remove league from your list?',
+                      context.l10n.tr(
+                          'leagues_list_remove_dialog_title'),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.titleMedium
                           ?.copyWith(
@@ -995,9 +999,9 @@ class _LeaguesListScreenState
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'You will leave "${league.name}" and it '
-                      'will no longer appear on your leagues '
-                      'screen.',
+                      '${context.l10n.tr('leagues_list_remove_dialog_body_prefix')}"'
+                      '${league.name}"'
+                      '${context.l10n.tr('leagues_list_remove_dialog_body_suffix')}',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall
                           ?.copyWith(
@@ -1014,9 +1018,9 @@ class _LeaguesListScreenState
                           child: OutlinedButton(
                             onPressed: () =>
                                 Navigator.of(ctx).pop(false),
-                            child: const Text(
-                              'Cancel',
-                              style: TextStyle(
+                            child: Text(
+                              context.l10n.tr('common_cancel'),
+                              style: const TextStyle(
                                   fontWeight: FontWeight.w900),
                             ),
                           ),
@@ -1032,9 +1036,10 @@ class _LeaguesListScreenState
                             ),
                             onPressed: () =>
                                 Navigator.of(ctx).pop(true),
-                            child: const Text(
-                              'Remove',
-                              style: TextStyle(
+                            child: Text(
+                              context.l10n.tr(
+                                  'leagues_list_remove_confirm_button'),
+                              style: const TextStyle(
                                   fontWeight: FontWeight.w900),
                             ),
                           ),
@@ -1073,7 +1078,7 @@ class _LeaguesListScreenState
       }
 
       if (!mounted) return;
-      _snack('League removed from your list.');
+      _snack(context.l10n.tr('leagues_list_removed_snackbar'));
       await _refreshLeagues();
     } catch (e) {
       if (!mounted) return;
@@ -1100,7 +1105,7 @@ class _LeaguesListScreenState
 
     final authUid = _authUidOrEmpty();
     if (authUid.isEmpty) {
-      _snack('Please sign in and try again.');
+      _snack(l10n.tr('leagues_list_sign_in_and_retry'));
       return;
     }
 
@@ -1240,8 +1245,8 @@ class _LeaguesListScreenState
       final code =
           normalizeCoupon(couponCtrl.text);
       if (code.length < 6) {
-        setModalState(
-            () => error = 'Enter a valid coupon code.');
+        setModalState(() => error =
+            l10n.tr('leagues_list_coupon_invalid_code'));
         return;
       }
 
@@ -1269,7 +1274,8 @@ class _LeaguesListScreenState
             error =
                 res.errorMessage?.trim().isNotEmpty == true
                     ? res.errorMessage
-                    : 'Coupon redemption failed.';
+                    : l10n.tr(
+                        'leagues_list_coupon_redemption_failed');
           });
           setState(() => _payingLeagueId = null);
           return;
@@ -1297,7 +1303,7 @@ class _LeaguesListScreenState
       });
 
       Navigator.of(context).pop();
-      _snack('Coupon redeemed. Access unlocked.');
+      _snack(l10n.tr('leagues_list_coupon_redeemed_unlocked'));
     }
 
     await showModalBottomSheet<void>(
@@ -1342,7 +1348,8 @@ class _LeaguesListScreenState
                               ),
                             ),
                             Text(
-                              'Unlock access',
+                              l10n.tr(
+                                  'leagues_list_unlock_access_title'),
                               style: theme
                                   .textTheme.titleMedium
                                   ?.copyWith(
@@ -1366,10 +1373,8 @@ class _LeaguesListScreenState
                             if (classicFullViewerRequiresUnlock) ...[
                               const SizedBox(height: 10),
                               Text(
-                                'This classic league is full. '
-                                'You can unlock access as a '
-                                'viewer by paying or using a '
-                                'coupon.',
+                                l10n.tr(
+                                    'leagues_list_classic_full_unlock_hint'),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color:
@@ -1412,9 +1417,10 @@ class _LeaguesListScreenState
                                         .payments_outlined),
                                 label: busy
                                     ? const Text('')
-                                    : const Text(
-                                        'Pay to unlock',
-                                        style: TextStyle(
+                                    : Text(
+                                        l10n.tr(
+                                            'leagues_list_pay_to_unlock'),
+                                        style: const TextStyle(
                                           fontWeight:
                                               FontWeight.w900,
                                         ),
@@ -1427,7 +1433,8 @@ class _LeaguesListScreenState
                                   AlignmentDirectional
                                       .centerStart,
                               child: Text(
-                                'Or use a coupon',
+                                l10n.tr(
+                                    'leagues_list_or_use_a_coupon'),
                                 style: TextStyle(
                                   color:
                                       AppTheme.primaryText(
@@ -1444,11 +1451,11 @@ class _LeaguesListScreenState
                               textCapitalization:
                                   TextCapitalization.characters,
                               decoration:
-                                  const InputDecoration(
-                                prefixIcon: Icon(Icons
+                                  InputDecoration(
+                                prefixIcon: const Icon(Icons
                                     .confirmation_number_outlined),
-                                hintText:
-                                    'Enter coupon code',
+                                hintText: l10n.tr(
+                                    'leagues_list_enter_coupon_code'),
                               ),
                               onSubmitted: (_) =>
                                   unlockByCoupon(
@@ -1464,9 +1471,10 @@ class _LeaguesListScreenState
                                         setModalState),
                                 icon: const Icon(Icons
                                     .verified_outlined),
-                                label: const Text(
-                                  'Apply coupon',
-                                  style: TextStyle(
+                                label: Text(
+                                  l10n.tr(
+                                      'leagues_list_apply_coupon'),
+                                  style: const TextStyle(
                                       fontWeight:
                                           FontWeight.w900),
                                 ),
@@ -1539,7 +1547,7 @@ class _LeaguesListScreenState
   Future<void> _handleCreateLeagueTap(
       BuildContext context) async {
     if (_checkingPlan) {
-      _snack('Checking your access. Please wait.');
+      _snack(context.l10n.tr('leagues_list_checking_access_wait'));
       return;
     }
 
@@ -1562,7 +1570,7 @@ class _LeaguesListScreenState
   Future<void> _handleJoinQrTap(
       BuildContext context) async {
     if (_checkingPlan) {
-      _snack('Checking your access. Please wait.');
+      _snack(context.l10n.tr('leagues_list_checking_access_wait'));
       return;
     }
 
@@ -1575,7 +1583,7 @@ class _LeaguesListScreenState
   Future<void> _handleJoinByIdTap(
       BuildContext context) async {
     if (_checkingPlan) {
-      _snack('Checking your access. Please wait.');
+      _snack(context.l10n.tr('leagues_list_checking_access_wait'));
       return;
     }
 
@@ -1630,7 +1638,8 @@ class _LeaguesListScreenState
     ];
 
     if (league.viewerCapacity > 0) {
-      pieces.add('${league.viewerCapacity} Viewers');
+      pieces.add(
+          '${league.viewerCapacity} ${l10n.tr('leagues_list_viewers_word')}');
     }
 
     final desc = league.description.trim();
@@ -1673,7 +1682,7 @@ class _LeaguesListScreenState
       resizeToAvoidBottomInset: true,
       appBar: widget.showAppBar
           ? AppBar(
-              title: const Text('Leagues'),
+              title: Text(l10n.tr('leagues_list_app_bar_title')),
               backgroundColor: Colors.transparent,
               elevation: 0,
               centerTitle: false,
@@ -1787,9 +1796,10 @@ class _LeaguesListScreenState
                                   const SizedBox(height: 1),
                                   Text(
                                     _isLoading
-                                        ? 'Loading...'
-                                        : '${_leagues.length} league'
-                                          '${_leagues.length == 1 ? '' : 's'}',
+                                        ? l10n.tr(
+                                            'leagues_list_loading_ellipsis')
+                                        : '${_leagues.length} '
+                                          '${_leagues.length == 1 ? l10n.tr('leagues_list_league_word_singular') : l10n.tr('leagues_list_league_word_plural')}',
                                     style: TextStyle(
                                       color: AppTheme
                                           .secondaryText(
@@ -1818,7 +1828,8 @@ class _LeaguesListScreenState
                           const SizedBox(height: 8),
                           if (_checkingPlan)
                             Text(
-                              'Checking your access...',
+                              l10n.tr(
+                                  'leagues_list_checking_access_ellipsis'),
                               style: TextStyle(
                                 color: AppTheme.secondaryText(
                                     brightness),
@@ -1829,9 +1840,9 @@ class _LeaguesListScreenState
                             )
                           else if (_isPremiumUser)
                             Text(
-                              'Paid plan active: you can create '
-                              'more than $_freeLeagueListLimit '
-                              'leagues/competitions.',
+                              '${l10n.tr('leagues_list_paid_plan_active_prefix')}'
+                              '$_freeLeagueListLimit'
+                              '${l10n.tr('leagues_list_paid_plan_active_suffix')}',
                               style: TextStyle(
                                 color:
                                     AppTheme.limeAccentDark,
@@ -1842,12 +1853,11 @@ class _LeaguesListScreenState
                             )
                           else if (_freeLimitReached)
                             Text(
-                              'Basic/free creation limit '
-                              'reached: you already created '
-                              '$_createdLeagueCount / '
-                              '$_freeLeagueListLimit leagues '
-                              'or competitions across normal '
-                              'leagues and Organizer workspace.',
+                              '${l10n.tr('leagues_list_free_limit_reached_prefix')}'
+                              '$_createdLeagueCount'
+                              '${l10n.tr('leagues_list_free_limit_reached_mid')}'
+                              '$_freeLeagueListLimit'
+                              '${l10n.tr('leagues_list_free_limit_reached_suffix')}',
                               style: const TextStyle(
                                 color: _premiumAmber,
                                 fontSize: 11.5,
@@ -1857,11 +1867,11 @@ class _LeaguesListScreenState
                             )
                           else
                             Text(
-                              'Basic/free access active: you '
-                              'have used $_createdLeagueCount '
-                              '/ $_freeLeagueListLimit shared '
-                              'creation slots across normal '
-                              'leagues and Organizer workspace.',
+                              '${l10n.tr('leagues_list_free_access_active_prefix')}'
+                              '$_createdLeagueCount'
+                              '${l10n.tr('leagues_list_free_access_active_mid')}'
+                              '$_freeLeagueListLimit'
+                              '${l10n.tr('leagues_list_free_access_active_suffix')}',
                               style: TextStyle(
                                 color: AppTheme.secondaryText(
                                     brightness),
@@ -1911,14 +1921,19 @@ class _LeaguesListScreenState
                                     ),
                               label: Text(
                                 _planUpgradeInProgress
-                                    ? 'Processing...'
+                                    ? l10n.tr(
+                                        'leagues_list_processing_ellipsis')
                                     : (_freeLimitReached
                                         ? (isAndroidBilling
-                                            ? 'Upgrade on Play'
-                                            : 'Upgrade Plan')
+                                            ? l10n.tr(
+                                                'leagues_list_upgrade_on_play')
+                                            : l10n.tr(
+                                                'leagues_list_upgrade_plan'))
                                         : (isAndroidBilling
-                                            ? 'View Plans (Play)'
-                                            : 'View Plans')),
+                                            ? l10n.tr(
+                                                'leagues_list_view_plans_play')
+                                            : l10n.tr(
+                                                'leagues_list_view_plans'))),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w900,
                                 ),
@@ -1954,10 +1969,9 @@ class _LeaguesListScreenState
                           child: TextField(
                             controller: _searchController,
                             decoration:
-                                const InputDecoration(
-                              hintText:
-                                  'Search leagues, codes, '
-                                  'announcements...',
+                                InputDecoration(
+                              hintText: l10n.tr(
+                                  'leagues_list_search_hint'),
                               border: InputBorder.none,
                               isDense: true,
                             ),
@@ -1965,7 +1979,8 @@ class _LeaguesListScreenState
                         ),
                         if (_searchQuery.trim().isNotEmpty)
                           IconButton(
-                            tooltip: 'Clear',
+                            tooltip:
+                                l10n.tr('leagues_list_clear_tooltip'),
                             visualDensity:
                                 VisualDensity.compact,
                             onPressed: () {
@@ -2037,7 +2052,8 @@ class _LeaguesListScreenState
                                 ),
                                 const SizedBox(height: 14),
                                 Text(
-                                  'Loading leagues...',
+                                  l10n.tr(
+                                      'leagues_list_loading_leagues'),
                                   style: TextStyle(
                                     color:
                                         AppTheme.secondaryText(
@@ -2234,7 +2250,8 @@ class _LeaguesListScreenState
                                   const EdgeInsets.only(
                                       bottom: 6),
                               child: _CardBadge(
-                                label: 'MASTER',
+                                label: l10n.tr(
+                                    'leagues_list_badge_master'),
                                 icon: Icons.hub_rounded,
                                 color: _premiumAmber,
                                 bg: _premiumAmber
@@ -2296,7 +2313,8 @@ class _LeaguesListScreenState
                         bottom: 14,
                         start: 14,
                         child: _CardBadge(
-                          label: 'LONG PRESS',
+                          label: l10n.tr(
+                              'leagues_list_badge_long_press'),
                           icon: Icons.touch_app_rounded,
                           color: AppTheme.secondaryText(
                               brightness),
@@ -2386,8 +2404,9 @@ class _LeaguesListScreenState
                                   color: Colors.black
                                       .withOpacity(0.55),
                                 ),
-                                child: const Text(
-                                  'Loading ad...',
+                                child: Text(
+                                  l10n.tr(
+                                      'leagues_list_loading_ad'),
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 11,
@@ -2441,9 +2460,10 @@ class _LeaguesListScreenState
                       ),
                       icon:
                           const Icon(Icons.hub_rounded),
-                      label: const Text(
-                        'Open Workspace',
-                        style: TextStyle(
+                      label: Text(
+                        l10n.tr(
+                            'leagues_list_menu_open_workspace'),
+                        style: const TextStyle(
                             fontWeight: FontWeight.w900),
                       ),
                     ),
@@ -2511,9 +2531,11 @@ class _LeaguesListScreenState
               const SizedBox(height: 20),
               Text(
                 hasSearch
-                    ? 'No leagues match your search'
+                    ? l10n.tr(
+                        'leagues_list_empty_no_search_match')
                     : (isMasterTab
-                        ? 'No master competitions yet'
+                        ? l10n.tr(
+                            'leagues_list_empty_no_master')
                         : l10n.tr('leagues_empty_title')),
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w900,
@@ -2526,12 +2548,11 @@ class _LeaguesListScreenState
               const SizedBox(height: 10),
               Text(
                 hasSearch
-                    ? 'Try another search term for league '
-                      'name, code, region, or announcement.'
+                    ? l10n.tr(
+                        'leagues_list_empty_search_hint')
                     : (isMasterTab
-                        ? 'Competitions you joined from a '
-                          'master league container will '
-                          'appear here.'
+                        ? l10n.tr(
+                            'leagues_list_empty_master_hint')
                         : l10n.tr('leagues_empty_subtitle')),
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -2586,11 +2607,14 @@ class _LeaguesListScreenState
                             const SizedBox(width: 8),
                             Text(
                               hasSearch
-                                  ? 'Clear Search'
+                                  ? l10n.tr(
+                                      'leagues_list_clear_search')
                                   : (_freeLimitReached
                                       ? (isAndroidBilling
-                                          ? 'Upgrade on Play'
-                                          : 'Upgrade Plan')
+                                          ? l10n.tr(
+                                              'leagues_list_upgrade_on_play')
+                                          : l10n.tr(
+                                              'leagues_list_upgrade_plan'))
                                       : l10n.tr(
                                           'leagues_empty_cta')),
                               style: const TextStyle(
@@ -2609,7 +2633,8 @@ class _LeaguesListScreenState
               if (_freeLimitReached && !hasSearch) ...[
                 const SizedBox(height: 12),
                 Text(
-                  _freeLimitMessage('create more'),
+                  _freeLimitMessage(
+                      l10n.tr('leagues_list_free_limit_action_short')),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: _premiumAmber,
@@ -2693,8 +2718,8 @@ class _LeaguesListScreenState
                             const SizedBox(height: 8),
                             Text(
                               _freeLimitMessage(
-                                'create more leagues or '
-                                'competitions',
+                                l10n.tr(
+                                    'leagues_list_free_limit_action_long'),
                               ),
                               textAlign: TextAlign.center,
                               style: const TextStyle(
@@ -2707,11 +2732,9 @@ class _LeaguesListScreenState
                           ] else ...[
                             const SizedBox(height: 8),
                             Text(
-                              'Basic users can create up to '
-                              '$_freeLeagueListLimit total '
-                              'leagues or competitions. '
-                              'Joining leagues remains '
-                              'available.',
+                              '${l10n.tr('leagues_list_basic_users_limit_prefix')}'
+                              '$_freeLeagueListLimit'
+                              '${l10n.tr('leagues_list_basic_users_limit_suffix')}',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color:
@@ -2739,16 +2762,18 @@ class _LeaguesListScreenState
                           : AppTheme.limeAccentDark,
                       title: _freeLimitReached
                           ? (isAndroidBilling
-                              ? 'Upgrade on Google Play'
-                              : 'Upgrade Plan')
+                              ? l10n.tr(
+                                  'leagues_list_upgrade_on_google_play')
+                              : l10n.tr(
+                                  'leagues_list_upgrade_plan'))
                           : l10n.tr(
                               'leagues_options_create_title'),
                       subtitle: _freeLimitReached
                           ? (isAndroidBilling
-                              ? 'Purchase a plan via Google '
-                                'Play Billing to create more.'
-                              : 'You used all free creation '
-                                'slots. Upgrade to create more.')
+                              ? l10n.tr(
+                                  'leagues_list_purchase_via_google_play')
+                              : l10n.tr(
+                                  'leagues_list_used_all_free_slots'))
                           : l10n.tr(
                               'leagues_options_create_subtitle'),
                       onTap: () async {
@@ -2811,12 +2836,12 @@ class _LeaguesListScreenState
 
     final authUid = _authUidOrEmpty();
     if (authUid.isEmpty) {
-      _snack('Please sign in and try again.');
+      _snack(l10n.tr('leagues_list_sign_in_and_retry'));
       return;
     }
 
     if (_checkingPlan) {
-      _snack('Checking your access. Please wait.');
+      _snack(context.l10n.tr('leagues_list_checking_access_wait'));
       return;
     }
 
@@ -3328,6 +3353,7 @@ class _TopLeagueSwitcher extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n = context.l10n;
 
     Widget chip({
       required _LeagueViewTab tab,
@@ -3398,14 +3424,14 @@ class _TopLeagueSwitcher extends StatelessWidget {
         children: [
           chip(
             tab: _LeagueViewTab.leagues,
-            label: 'Leagues',
+            label: l10n.tr('leagues_list_tab_leagues'),
             count: normalCount,
             icon: Icons.emoji_events_outlined,
           ),
           const SizedBox(width: 6),
           chip(
             tab: _LeagueViewTab.master,
-            label: 'Master',
+            label: l10n.tr('leagues_list_tab_master'),
             count: masterCount,
             icon: Icons.hub_rounded,
           ),

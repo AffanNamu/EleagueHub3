@@ -1,6 +1,7 @@
 //AccountSuspendedScreen
 import 'package:flutter/material.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -40,13 +41,14 @@ class _AccountSuspendedScreenState extends State<AccountSuspendedScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final reason = authRouterRefresh.suspensionReason;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Account Suspended'),
+        title: Text(l10n.tr('account_suspended_app_bar_title')),
         automaticallyImplyLeading: false,
       ),
       body: Center(
@@ -70,7 +72,7 @@ class _AccountSuspendedScreenState extends State<AccountSuspendedScreen> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'Your account has been suspended',
+                      l10n.tr('account_suspended_title'),
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: AppTheme.primaryText(brightness),
@@ -80,7 +82,7 @@ class _AccountSuspendedScreenState extends State<AccountSuspendedScreen> {
                     const SizedBox(height: 6),
                     Text(
                       reason.isEmpty
-                          ? 'Contact support if you believe this is a mistake.'
+                          ? l10n.tr('account_suspended_contact_support')
                           : reason,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: AppTheme.secondaryText(brightness),
@@ -106,7 +108,7 @@ class _AccountSuspendedScreenState extends State<AccountSuspendedScreen> {
                                   color: AppTheme.darkText,
                                 ),
                               )
-                            : const Text('Sign out'),
+                            : Text(l10n.tr('account_suspended_sign_out')),
                       ),
                     ),
                   ],

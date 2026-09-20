@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/marketplace_repository.dart';
@@ -27,6 +28,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
@@ -86,7 +88,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                                 CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Marketplace',
+                                l10n.tr('marketplace_header_title'),
                                 style: theme.textTheme.titleLarge
                                     ?.copyWith(
                                   fontWeight: FontWeight.w900,
@@ -96,7 +98,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Gaming & sports gear',
+                                l10n.tr('marketplace_header_subtitle'),
                                 style: TextStyle(
                                   color:
                                       onSurface.withOpacity(0.60),
@@ -154,7 +156,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'Could not load products.',
+                            l10n.tr('marketplace_load_error'),
                             style: theme.textTheme.titleSmall
                                 ?.copyWith(
                                     fontWeight:
@@ -178,7 +180,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                               color: cs.primary),
                           const SizedBox(height: 14),
                           Text(
-                            'Loading products...',
+                            l10n.tr('marketplace_loading'),
                             style: TextStyle(
                               color: onSurface
                                   .withOpacity(0.55),
@@ -212,8 +214,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           const SizedBox(height: 12),
                           Text(
                             _selectedCategory == 'All'
-                                ? 'No products yet.'
-                                : 'No products in $_selectedCategory yet.',
+                                ? l10n.tr('marketplace_empty_all')
+                                : '${l10n.tr('marketplace_empty_category_prefix')}'
+                                    '$_selectedCategory'
+                                    '${l10n.tr('marketplace_empty_category_suffix')}',
                             style: TextStyle(
                               color: onSurface
                                   .withOpacity(0.65),
@@ -408,6 +412,7 @@ class _ProductCardState extends State<_ProductCard>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
@@ -493,7 +498,7 @@ class _ProductCardState extends State<_ProductCard>
               const SizedBox(height: 10),
               Text(
                 p.name.trim().isEmpty
-                    ? 'Untitled'
+                    ? l10n.tr('marketplace_product_untitled')
                     : p.name,
                 maxLines: 2,
                 overflow:
@@ -536,7 +541,7 @@ class _ProductCardState extends State<_ProductCard>
                       p.sellerName
                               .trim()
                               .isEmpty
-                          ? 'Seller'
+                          ? l10n.tr('marketplace_product_seller_fallback')
                           : p.sellerName
                               .trim(),
                       maxLines: 1,
@@ -574,6 +579,7 @@ class _AffiliateDisclosureCard
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final cs =
         Theme.of(context).colorScheme;
     final onSurface = cs.onSurface;
@@ -604,16 +610,16 @@ class _AffiliateDisclosureCard
               crossAxisAlignment:
                   CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Affiliate Disclosure',
-                  style: TextStyle(
+                Text(
+                  l10n.tr('marketplace_affiliate_disclosure_title'),
+                  style: const TextStyle(
                       fontWeight:
                           FontWeight.w900,
                       fontSize: 13),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'This marketplace contains affiliate products. We may earn commission from purchases.',
+                  l10n.tr('marketplace_affiliate_disclosure_body'),
                   style: TextStyle(
                     color: onSurface
                         .withOpacity(0.55),

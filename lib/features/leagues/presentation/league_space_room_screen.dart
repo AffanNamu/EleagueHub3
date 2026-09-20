@@ -271,31 +271,32 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       );
 
   String _friendlyConnectionError(Object error) {
+    final l10n = context.l10n;
     final raw = error.toString().toLowerCase();
     if (raw.contains('timeout') || raw.contains('timed out')) {
-      return 'Connection timed out. Please check your internet and try again.';
+      return l10n.tr('league_space_error_connection_timed_out');
     }
     if (raw.contains('no internet') ||
         raw.contains('offline') ||
         raw.contains('network')) {
-      return 'No internet connection. Please check your network and try again.';
+      return l10n.tr('league_space_error_no_internet');
     }
     if (raw.contains('permission') || raw.contains('denied')) {
-      return 'Microphone permission is required to join voice chat.';
+      return l10n.tr('league_space_error_mic_permission_required');
     }
     if (raw.contains('token') ||
         raw.contains('auth') ||
         raw.contains('401') ||
         raw.contains('403')) {
-      return 'Authentication failed. Please sign out and sign back in.';
+      return l10n.tr('league_space_error_authentication_failed');
     }
     if (raw.contains('room') ||
         raw.contains('livekit') ||
         raw.contains('websocket') ||
         raw.contains('connect')) {
-      return 'Could not connect to voice server. Retrying...';
+      return l10n.tr('league_space_error_could_not_connect_voice_server');
     }
-    return 'Something went wrong. Please try again.';
+    return l10n.tr('league_space_error_generic');
   }
 
   Future<void> _init() async {
@@ -475,10 +476,10 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       final st = await Permission.notification.status;
       if (!st.isGranted) await Permission.notification.request();
     } catch (_) {}
-    final title = 'Voice chat';
+    final title = context.l10n.tr('league_space_fgs_notification_title');
     final text = (_space?.title?.trim().isNotEmpty == true)
         ? _space!.title!.trim()
-        : 'Space audio is running';
+        : context.l10n.tr('league_space_fgs_notification_text');
     try {
       await OverlayPlatform.startOverlayVoiceForegroundService(
           title: title, text: text);
@@ -521,7 +522,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       setState(() {
         _isReconnecting = false;
         _error =
-            'Unable to reconnect after multiple attempts. Please try again manually.';
+            context.l10n.tr('league_space_error_reconnect_failed_final');
       });
       return;
     }
@@ -595,7 +596,8 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
         unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
 
         if (_isLive && !_isReconnecting) {
-          _toastWarn('Connection lost. Reconnecting...');
+          _toastWarn(
+              context.l10n.tr('league_space_connection_lost_reconnecting'));
           _scheduleReconnect();
         }
       });
@@ -638,7 +640,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
       if (isTransient &&
           _reconnectAttempts < _maxReconnectAttempts &&
           _isLive) {
-        _toastWarn('Reconnecting...');
+        _toastWarn(context.l10n.tr('league_space_reconnecting'));
         _scheduleReconnect();
       } else {
         setState(() => _error = friendlyMsg);
@@ -940,10 +942,11 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                             const SizedBox(height: 2),
                             Text(
                               _loading
-                                  ? 'Loading...'
+                                  ? l10n.tr('league_space_status_loading')
                                   : (_connected
-                                      ? 'Connected'
-                                      : 'Not connected'),
+                                      ? l10n.tr('league_space_status_connected')
+                                      : l10n.tr(
+                                          'league_space_status_not_connected')),
                               style: TextStyle(
                                 color: _connected
                                     ? const Color(0xFF00E676)
@@ -992,7 +995,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           CircularProgressIndicator(color: cs.primary),
           const SizedBox(height: 16),
           Text(
-            'Connecting to space...',
+            context.l10n.tr('league_space_connecting_to_space'),
             style: TextStyle(
               color: onSurface.withOpacity(0.60),
               fontWeight: FontWeight.w600,
@@ -1023,7 +1026,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Connection Issue',
+            context.l10n.tr('league_space_connection_issue_title'),
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               fontSize: 18,
@@ -1050,7 +1053,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     side: BorderSide(color: onSurface.withOpacity(0.18)),
                     foregroundColor: onSurface.withOpacity(0.80),
                   ),
-                  child: const Text('Go Back'),
+                  child: Text(context.l10n.tr('league_space_go_back')),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1064,7 +1067,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
                     _connectAudio();
                   },
                   icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('Retry'),
+                  label: Text(context.l10n.tr('common_retry')),
                 ),
               ),
             ],
@@ -1092,7 +1095,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ),
           const SizedBox(height: 18),
           Text(
-            'Reconnecting...',
+            context.l10n.tr('league_space_reconnecting'),
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               fontSize: 18,
@@ -1101,7 +1104,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Attempt $_reconnectAttempts of $_maxReconnectAttempts',
+            '${context.l10n.tr('league_space_attempt_prefix')}$_reconnectAttempts${context.l10n.tr('league_space_attempt_mid')}$_maxReconnectAttempts',
             style: TextStyle(
               color: onSurface.withOpacity(0.55),
               fontWeight: FontWeight.w600,
@@ -1110,7 +1113,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Please wait while we restore your connection.',
+            context.l10n.tr('league_space_restore_connection_message'),
             textAlign: TextAlign.center,
             style: TextStyle(
               color: onSurface.withOpacity(0.50),
@@ -1132,7 +1135,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
               side: BorderSide(color: onSurface.withOpacity(0.18)),
               foregroundColor: onSurface.withOpacity(0.80),
             ),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.tr('common_cancel')),
           ),
         ],
       ),
@@ -1167,7 +1170,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'No Active Space',
+            l10n.tr('league_space_no_active_space_title'),
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               fontSize: 18,

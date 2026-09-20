@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../data/models/reward_model.dart';
@@ -35,22 +36,22 @@ class RewardCard extends StatelessWidget {
   /// Firestore field values (e.g. 'cash', 'physical') are internal identifiers
   /// and must not change. Only the display label presented to users is mapped
   /// here so that no financial terminology appears in the UI.
-  static String _typeDisplayLabel(String rewardType) {
+  static String _typeDisplayLabel(AppLocalizations l10n, String rewardType) {
     final t = rewardType.trim().toLowerCase();
     switch (t) {
       case 'cash':
-        return 'Monetary';
+        return l10n.tr('reward_card_type_monetary');
       case 'physical':
-        return 'Physical Item';
+        return l10n.tr('reward_card_type_physical');
       case 'digital':
-        return 'Digital Item';
+        return l10n.tr('reward_card_type_digital');
       case 'trophy':
-        return 'Trophy / Medal';
+        return l10n.tr('reward_card_type_trophy');
       case 'other':
-        return 'Other';
+        return l10n.tr('reward_card_type_other');
       default:
         // For any unknown / future type, capitalize first letter as fallback.
-        if (t.isEmpty) return 'Other';
+        if (t.isEmpty) return l10n.tr('reward_card_type_other');
         return t[0].toUpperCase() + t.substring(1);
     }
   }
@@ -239,7 +240,7 @@ class RewardCard extends StatelessWidget {
           right: 12,
           top: 12,
           child: _TypeChip(
-            displayLabel: _typeDisplayLabel(reward.rewardType),
+            displayLabel: _typeDisplayLabel(context.l10n, reward.rewardType),
             color: _typeChipColor(),
           ),
         ),

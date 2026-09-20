@@ -15,6 +15,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/route_resolver.dart';
 import '../../../core/seo/web_meta_updater.dart';
 import '../../../core/theme/app_theme.dart';
@@ -88,7 +89,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _toggleLike(bool currentlyLiked) async {
     final uid = _uid;
     if (uid.isEmpty) {
-      _snack('Please sign in to like posts.');
+      _snack(context.l10n.tr('post_detail_sign_in_to_like'));
       return;
     }
     if (_liking) return;
@@ -115,7 +116,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _submitComment() async {
     final uid = _uid;
     if (uid.isEmpty) {
-      _snack('Please sign in to comment.');
+      _snack(context.l10n.tr('post_detail_sign_in_to_comment'));
       return;
     }
     final text = _commentCtrl.text.trim();
@@ -132,7 +133,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         'authorId': uid,
         'authorDisplayName': (user?.displayName ?? '').trim().isNotEmpty
             ? user!.displayName!.trim()
-            : 'User',
+            : context.l10n.tr('post_detail_author_fallback'),
         'authorPhotoUrl': (user?.photoURL ?? '').trim(),
         'text': text,
         'createdAtMs': DateTime.now().millisecondsSinceEpoch,
@@ -162,6 +163,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _watchPost(),
       builder: (context, snap) {
@@ -171,9 +173,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
         final data = snap.data?.data();
         if (data == null || data['deleted'] == true) {
-          return const ContentUnavailableScreen(
-            message: 'This post is unavailable.',
-            subtitle: 'It may have been removed by its author.',
+          return ContentUnavailableScreen(
+            message: l10n.tr('post_detail_unavailable_message'),
+            subtitle: l10n.tr('post_detail_unavailable_subtitle'),
           );
         }
 
@@ -183,7 +185,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         final authorName =
             (data['authorDisplayName'] as String? ?? '').trim().isNotEmpty
                 ? data['authorDisplayName'] as String
-                : 'User';
+                : l10n.tr('post_detail_author_fallback');
         final authorPhoto = (data['authorPhotoUrl'] as String? ?? '').trim();
         final text = (data['text'] as String? ?? '').trim();
         final mediaUrl = (data['mediaUrl'] as String? ?? '').trim();
@@ -193,14 +195,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         final leagueName = (data['leagueName'] as String? ?? '').trim();
 
         WebMetaUpdater.applyEntityMeta(
-          title: '$authorName on eSportlyic',
+          title: '$authorName${l10n.tr('post_detail_meta_title_suffix')}',
           description: text.length > 160 ? '${text.substring(0, 160)}…' : text,
           imageUrl: mediaUrl.isNotEmpty ? mediaUrl : authorPhoto,
         );
 
         return GlassScaffold(
           appBar: AppBar(
-            title: const Text('Post'),
+            title: Text(l10n.tr('post_detail_appbar_title')),
             backgroundColor: Colors.transparent,
             elevation: 0,
             actions: [
@@ -209,7 +211,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   type: ShareableEntityType.post,
                   id: widget.postId.trim(),
                 ),
-                title: '$authorName on eSportlyic',
+                title: '$authorName${l10n.tr('post_detail_meta_title_suffix')}',
                 description: text.length > 100 ? '${text.substring(0, 100)}…' : text,
               ),
             ],
@@ -364,7 +366,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Comments',
+                  l10n.tr('post_detail_comments_label'),
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: AppTheme.primaryText(brightness),
@@ -376,8 +378,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     Expanded(
                       child: TextField(
                         controller: _commentCtrl,
-                        decoration: const InputDecoration(
-                          hintText: 'Write a comment…',
+                        decoration: InputDecoration(
+                          hintText: l10n.tr('post_detail_comment_hint'),
                         ),
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _submitComment(),
@@ -405,7 +407,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         child: Text(
-                          'No comments yet.',
+                          l10n.tr('post_detail_no_comments'),
                           style: TextStyle(
                             color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w600,
@@ -418,7 +420,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                         final name =
                             (c['authorDisplayName'] as String? ?? '').trim().isNotEmpty
                                 ? c['authorDisplayName'] as String
-                                : 'User';
+                                : l10n.tr('post_detail_author_fallback');
                         final commentText = (c['text'] as String? ?? '').trim();
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),

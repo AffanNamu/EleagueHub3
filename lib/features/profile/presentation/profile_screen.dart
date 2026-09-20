@@ -54,12 +54,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   // own Profile tab, instead of only new saves populating `country`.
   bool _countryBackfillTriggered = false;
 
-  String _couponLeagueSubtitle({
+  String _couponLeagueSubtitle(
+    BuildContext context, {
     required bool enabled,
     required int discountPercent,
   }) {
-    if (!enabled) return 'Not enabled';
-    return 'Discount $discountPercent%';
+    final l10n = context.l10n;
+    if (!enabled) return l10n.tr('profile_coupon_status_not_enabled');
+    return '${l10n.tr('profile_coupon_status_discount_prefix')}'
+        '$discountPercent'
+        '${l10n.tr('profile_coupon_status_discount_suffix')}';
   }
 
   void _snack(BuildContext context, String msg) {
@@ -164,7 +168,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         if (!context.mounted) return;
         _snack(
           context,
-          pickResult.errorMessage ?? 'Could not pick image.',
+          pickResult.errorMessage ??
+              context.l10n.tr('profile_avatar_pick_failed_fallback'),
         );
         return;
       }
@@ -175,7 +180,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         if (!context.mounted) return;
         _snack(
           context,
-          'Image too large. Please select an image under 5 MB.',
+          context.l10n.tr('profile_avatar_too_large_message'),
         );
         return;
       }
@@ -229,6 +234,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
 
     final brightness = Theme.of(context).brightness;
+    final l10n = context.l10n;
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -276,7 +282,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       const SizedBox(width: 14),
                       Expanded(
                         child: Text(
-                          'Remove photo?',
+                          l10n.tr('profile_remove_photo_confirm_title'),
                           style: Theme.of(ctx)
                               .textTheme
                               .titleMedium
@@ -302,7 +308,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   Align(
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
-                      'This will remove your profile/team photo.',
+                      l10n.tr('profile_remove_photo_confirm_message'),
                       style: TextStyle(
                         color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w600,
@@ -317,7 +323,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         child: OutlinedButton(
                           onPressed: () =>
                               Navigator.of(ctx).pop(false),
-                          child: const Text('Cancel'),
+                          child: Text(l10n.tr('common_cancel')),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -330,7 +336,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                           onPressed: () =>
                               Navigator.of(ctx).pop(true),
-                          child: const Text('Remove'),
+                          child: Text(l10n.tr('profile_remove_button')),
                         ),
                       ),
                     ],
@@ -370,7 +376,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       } catch (_) {}
 
       if (!context.mounted) return;
-      _snack(context, 'Removed.');
+      _snack(context, context.l10n.tr('profile_avatar_removed_snackbar'));
     } catch (e) {
       if (!context.mounted) return;
       _snack(
@@ -418,6 +424,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       builder: (ctx) {
         final theme = Theme.of(ctx);
         final brightness = theme.brightness;
+        final l10n = ctx.l10n;
 
         final cfgStream =
             CouponConfigService().watchConfig(leagueId);
@@ -466,7 +473,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                         ),
                         Text(
-                          'Coupons',
+                          l10n.tr('profile_coupons_title'),
                           style:
                               theme.textTheme.titleMedium?.copyWith(
                             color:
@@ -545,7 +552,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       vertical: 8,
                                     ),
                                     child: Text(
-                                      'No coupon configuration yet.',
+                                      l10n.tr(
+                                          'profile_coupon_config_missing_message'),
                                       textAlign: TextAlign.center,
                                       style: theme
                                           .textTheme.bodySmall
@@ -570,8 +578,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                   .pop(),
                                           icon: const Icon(
                                               Icons.close),
-                                          label: const Text(
-                                              'Close'),
+                                          label: Text(
+                                              l10n.tr(
+                                                  'profile_close_tooltip')),
                                         ),
                                       ),
                                       const SizedBox(width: 10),
@@ -608,8 +617,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                             Icons
                                                 .add_shopping_cart,
                                           ),
-                                          label: const Text(
-                                              'Buy / enable'),
+                                          label: Text(l10n.tr(
+                                              'profile_coupon_buy_enable_button')),
                                         ),
                                       ),
                                     ],
@@ -627,28 +636,35 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               crossAxisAlignment:
                                   CrossAxisAlignment.start,
                               children: [
-                                _kv(context, 'Currency',
+                                _kv(
+                                    context,
+                                    l10n.tr(
+                                        'profile_coupon_label_currency'),
                                     cfg.currency),
                                 _kv(
                                   context,
-                                  'Unit price',
+                                  l10n.tr(
+                                      'profile_coupon_label_unit_price'),
                                   '${money(cfg.unitPrice)} ${cfg.currency}',
                                 ),
                                 _kv(
                                   context,
-                                  'Effective unit',
+                                  l10n.tr(
+                                      'profile_coupon_label_effective_unit'),
                                   '${money(cfg.effectiveUnit)} ${cfg.currency}',
                                 ),
                                 _kv(
                                   context,
-                                  'Threshold',
+                                  l10n.tr(
+                                      'profile_coupon_label_threshold'),
                                   cfg.threshold == null
                                       ? '—'
                                       : '${money(cfg.threshold!)} ${cfg.currency}',
                                 ),
                                 _kv(
                                   context,
-                                  'Threshold discount',
+                                  l10n.tr(
+                                      'profile_coupon_label_threshold_discount'),
                                   '${money(cfg.thresholdDiscountPercent)}%',
                                 ),
                                 Divider(
@@ -656,19 +672,32 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         brightness)),
                                 _kv(
                                   context,
-                                  'Discount',
+                                  l10n.tr(
+                                      'profile_coupon_label_discount'),
                                   '${cfg.discountPercent}%',
                                 ),
-                                _kv(context, 'Users pay',
+                                _kv(
+                                    context,
+                                    l10n.tr(
+                                        'profile_coupon_label_users_pay'),
                                     '$usersPay%'),
                                 Divider(
                                     color: AppTheme.cardBorder(
                                         brightness)),
-                                _kv(context, 'Purchased',
+                                _kv(
+                                    context,
+                                    l10n.tr(
+                                        'profile_coupon_label_purchased'),
                                     '${cfg.qtyTotal}'),
-                                _kv(context, 'Remaining',
+                                _kv(
+                                    context,
+                                    l10n.tr(
+                                        'profile_coupon_label_remaining'),
                                     '${cfg.qtyRemaining}'),
-                                _kv(context, 'Redeemed',
+                                _kv(
+                                    context,
+                                    l10n.tr(
+                                        'profile_coupon_label_redeemed'),
                                     '$redeemed'),
                                 const SizedBox(height: 8),
                                 Row(
@@ -680,8 +709,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                 .pop(),
                                         icon:
                                             const Icon(Icons.close),
-                                        label:
-                                            const Text('Close'),
+                                        label: Text(
+                                            l10n.tr(
+                                                'profile_close_tooltip')),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
@@ -716,15 +746,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                         icon: const Icon(
                                           Icons.add_shopping_cart,
                                         ),
-                                        label:
-                                            const Text('Buy more'),
+                                        label: Text(l10n.tr(
+                                            'profile_coupon_buy_more_button')),
                                       ),
                                     ),
                                   ],
                                 ),
                                 const SizedBox(height: 14),
                                 Text(
-                                  'Recent redemptions',
+                                  l10n.tr(
+                                      'profile_coupon_recent_redemptions_title'),
                                   style: theme
                                       .textTheme.bodyMedium
                                       ?.copyWith(
@@ -781,7 +812,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       if (docs.isEmpty) {
                                         return Center(
                                           child: Text(
-                                            'No redemptions yet.',
+                                            l10n.tr(
+                                                'profile_coupon_no_redemptions_message'),
                                             style: theme
                                                 .textTheme.bodySmall
                                                 ?.copyWith(
@@ -871,7 +903,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                             ),
                                             title: Text(
                                               shortUserId.isEmpty
-                                                  ? '(unknown user)'
+                                                  ? l10n.tr(
+                                                      'profile_coupon_unknown_user_placeholder')
                                                   : shortUserId,
                                               style: theme.textTheme
                                                   .bodyMedium
@@ -886,8 +919,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                             ),
                                             subtitle: Text(
                                               isPaid
-                                                  ? 'Paid • $provider • $when'
-                                                  : 'Pending • ${money(expected)} $currency',
+                                                  ? '${l10n.tr('profile_coupon_redemption_paid_label')} • $provider • $when'
+                                                  : '${l10n.tr('profile_coupon_redemption_pending_label')} • ${money(expected)} $currency',
                                               style: theme.textTheme
                                                   .bodySmall
                                                   ?.copyWith(
@@ -900,8 +933,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                               ),
                                             ),
                                             trailing: IconButton(
-                                              tooltip:
-                                                  'Copy short id',
+                                              tooltip: l10n.tr(
+                                                  'profile_coupon_copy_short_id_tooltip'),
                                               icon: Icon(
                                                 Icons.copy,
                                                 color: AppTheme
@@ -931,7 +964,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                             SnackBar(
                                                               content:
                                                                   Text(
-                                                                'Copied: $shortUserId',
+                                                                '${l10n.tr('profile_coupon_copied_prefix')}$shortUserId',
                                                               ),
                                                             ),
                                                           );
@@ -971,8 +1004,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (!context.mounted) return;
       _snack(
         context,
-        'Need to link your desktop? Visit esportlyic.web.app on '
-        'your computer and scan the displayed QR code.',
+        context.l10n.tr('profile_desktop_scanner_web_hint_message'),
       );
       return;
     }
@@ -1019,15 +1051,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   ) {
     if (profile == null) return const SizedBox.shrink();
 
+    final l10n = context.l10n;
     final badges = profile.verificationBadges;
     final icons = <Widget>[];
 
     // 1. Staff / Ambassador badge
     if (badges.isStaffActive) {
       icons.add(
-        const Tooltip(
-          message: 'Staff / Ambassador',
-          child: Padding(
+        Tooltip(
+          message: l10n.tr('profile_badge_staff_ambassador_tooltip'),
+          child: const Padding(
             padding: EdgeInsets.only(left: 4),
             child: Icon(
               Icons.shield_rounded,
@@ -1042,9 +1075,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     // 2. Gold Organizer badge
     if (badges.isOrganizerActive) {
       icons.add(
-        const Tooltip(
-          message: 'Official Tournament Organizer',
-          child: Padding(
+        Tooltip(
+          message: l10n.tr('profile_badge_organizer_tooltip'),
+          child: const Padding(
             padding: EdgeInsets.only(left: 4),
             child: Icon(
               Icons.verified_rounded,
@@ -1059,9 +1092,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     // 3. Green verified badge (from new badge system)
     if (badges.isGreenActive) {
       icons.add(
-        const Tooltip(
-          message: 'Verified User',
-          child: Padding(
+        Tooltip(
+          message: l10n.tr('profile_badge_verified_user_tooltip'),
+          child: const Padding(
             padding: EdgeInsets.only(left: 4),
             child: Icon(
               Icons.verified_rounded,
@@ -1076,9 +1109,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       // 4. Legacy isVerified fallback
       if (profile.verifiedActive) {
         icons.add(
-          const Tooltip(
-            message: 'Verified account',
-            child: Padding(
+          Tooltip(
+            message: l10n.tr('profile_badge_verified_account_tooltip'),
+            child: const Padding(
               padding: EdgeInsets.only(left: 4),
               child: Icon(
                 Icons.verified_rounded,
@@ -1091,9 +1124,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       } else if (profile.verificationPending) {
         // 5. Pending verification
         icons.add(
-          const Tooltip(
-            message: 'Verification pending',
-            child: Padding(
+          Tooltip(
+            message: l10n.tr('profile_badge_verification_pending_tooltip'),
+            child: const Padding(
               padding: EdgeInsets.only(left: 4),
               child: Icon(
                 Icons.verified_outlined,
@@ -1424,7 +1457,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                                 ? ''
                                                 : (usernameDisplayValue
                                                         .isEmpty
-                                                    ? 'Setting up username…'
+                                                    ? l10n.tr(
+                                                        'profile_username_setting_up_placeholder')
                                                     : usernameDisplayValue),
                                             style: TextStyle(
                                               color: muted,
@@ -1546,7 +1580,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               Expanded(
                                 child: _ProfileActionChip(
                                   icon: Icons.person_search_rounded,
-                                  label: 'Public View',
+                                  label: l10n.tr('profile_action_public_view_label'),
                                   onTap: () {
                                     if (uid.isEmpty) return;
                                     HapticFeedback.selectionClick();
@@ -1558,7 +1592,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               Expanded(
                                 child: _ProfileActionChip(
                                   icon: Icons.groups_rounded,
-                                  label: 'My Squad',
+                                  label: l10n.tr('profile_action_my_squad_label'),
                                   onTap: () {
                                     if (uid.isEmpty) return;
                                     HapticFeedback.selectionClick();
@@ -1570,7 +1604,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               Expanded(
                                 child: _ProfileActionChip(
                                   icon: Icons.settings_rounded,
-                                  label: 'Settings',
+                                  label: l10n.tr('settings_title'),
                                   onTap: () {
                                     HapticFeedback.selectionClick();
                                     context.push('/profile/settings');
@@ -1585,7 +1619,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                const SectionHeader('Desktop Web'),
+                SectionHeader(l10n.tr('profile_section_desktop_web_title')),
                 const SizedBox(height: 12),
                 Glass(
                   borderRadius: 22,
@@ -1594,15 +1628,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   borderColor: AppTheme.cardBorder(brightness),
                   child: _DesktopWebRow(
                     icon: Icons.qr_code_scanner_rounded,
-                    title: 'Link Desktop Web',
+                    title: l10n.tr('profile_link_desktop_web_title'),
                     subtitle:
-                        'Open the mobile QR scanner to pair with '
-                        'eSportlyic Web at esportlyic.web.app.',
+                        l10n.tr('profile_link_desktop_web_subtitle'),
                     onTap: () => _openDesktopScanner(context),
                   ),
                 ),
                 const SizedBox(height: 18),
-                const SectionHeader('Coupons'),
+                SectionHeader(l10n.tr('profile_coupons_title')),
                 const SizedBox(height: 12),
                 if (uid.isEmpty)
                   Glass(
@@ -1620,7 +1653,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'Sign in to view your coupons.',
+                            l10n.tr('profile_coupons_sign_in_required_message'),
                             style: TextStyle(
                               color:
                                   AppTheme.secondaryText(brightness),
@@ -1697,8 +1730,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'No coupons found. Enable coupons '
-                                  'during league creation payment.',
+                                  l10n.tr(
+                                      'profile_coupons_none_found_message'),
                                   style: TextStyle(
                                     color:
                                         AppTheme.secondaryText(
@@ -1718,8 +1751,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               _OrganizerLeagueCouponsTile(
                                 leagueName: (m['name']
                                         as String?) ??
-                                    'League',
+                                    l10n.tr(
+                                        'profile_coupon_league_fallback_name'),
                                 subtitle: _couponLeagueSubtitle(
+                                  context,
                                   enabled: true,
                                   discountPercent:
                                       ((m['couponDiscountPercent']
@@ -1735,7 +1770,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                       '',
                                   leagueName: (m['name']
                                           as String?) ??
-                                      'League',
+                                      l10n.tr(
+                                          'profile_coupon_league_fallback_name'),
                                 ),
                               ),
                               const SizedBox(height: 10),
@@ -1746,7 +1782,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                 const SizedBox(height: 18),
-                const SectionHeader('Legal'),
+                SectionHeader(l10n.tr('profile_section_legal_title')),
                 const SizedBox(height: 12),
                 Glass(
                   borderRadius: 22,
@@ -1757,10 +1793,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     children: [
                       _LegalNavRow(
                         icon: Icons.privacy_tip_outlined,
-                        title: 'Privacy Policy',
+                        title: l10n.tr('profile_legal_privacy_policy_title'),
                         subtitle:
-                            'How we collect, use, and protect '
-                            'information.',
+                            l10n.tr('profile_legal_privacy_policy_subtitle'),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) =>
@@ -1774,9 +1809,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                       _LegalNavRow(
                         icon: Icons.article_outlined,
-                        title: 'Terms of Service',
+                        title: l10n.tr('profile_legal_terms_of_service_title'),
                         subtitle:
-                            'Rules and conditions for using the app.',
+                            l10n.tr('profile_legal_terms_of_service_subtitle'),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) =>
@@ -1790,9 +1825,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                       _LegalNavRow(
                         icon: Icons.support_agent_outlined,
-                        title: 'Contact',
+                        title: l10n.tr('profile_legal_contact_title'),
                         subtitle:
-                            'Get help or report an issue.',
+                            l10n.tr('profile_legal_contact_subtitle'),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) => const ContactScreen(),
@@ -1805,10 +1840,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                       _LegalNavRow(
                         icon: Icons.link_outlined,
-                        title: 'Affiliate Disclosure',
+                        title: l10n.tr(
+                            'profile_legal_affiliate_disclosure_title'),
                         subtitle:
-                            'How affiliate links work in the '
-                            'marketplace.',
+                            l10n.tr(
+                                'profile_legal_affiliate_disclosure_subtitle'),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) =>
@@ -1825,7 +1861,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     Expanded(child: Divider(color: faint)),
                     const SizedBox(width: 12),
                     Text(
-                      'Profile',
+                      l10n.tr('profile_footer_label'),
                       style: TextStyle(
                         color: muted,
                         fontWeight: FontWeight.w700,
@@ -2056,6 +2092,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final repo = UserProfileRepository();
     final brightness = Theme.of(context).brightness;
     final controller = TextEditingController(text: current);
+    final l10n = context.l10n;
 
     try {
       final saved = await showDialog<bool>(
@@ -2089,8 +2126,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   setDialogState(() {
                     checkState = _UsernameCheckState.invalid;
                     errorText =
-                        '${UsernameUtils.minLength}-${UsernameUtils.maxLength} '
-                        'characters: lowercase letters, numbers, and _ only.';
+                        '${UsernameUtils.minLength}-${UsernameUtils.maxLength}'
+                        '${l10n.tr('profile_username_invalid_format_suffix')}';
                   });
                   return;
                 }
@@ -2098,7 +2135,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 if (UsernameUtils.isReserved(candidate)) {
                   setDialogState(() {
                     checkState = _UsernameCheckState.taken;
-                    errorText = 'That username is reserved.';
+                    errorText = l10n.tr('profile_username_reserved_message');
                   });
                   return;
                 }
@@ -2121,8 +2158,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         checkState = available
                             ? _UsernameCheckState.available
                             : _UsernameCheckState.taken;
-                        errorText =
-                            available ? null : 'Username already taken.';
+                        errorText = available
+                            ? null
+                            : l10n.tr('profile_username_taken_message');
                       });
                     } catch (e) {
                       if (!ctx.mounted) return;
@@ -2152,7 +2190,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Checking availability…',
+                          l10n.tr('profile_username_checking_message'),
                           style: TextStyle(
                             color: AppTheme.secondaryText(brightness),
                             fontSize: 12,
@@ -2170,9 +2208,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           color: Color(0xFF22C55E),
                         ),
                         const SizedBox(width: 6),
-                        const Text(
-                          'Username available',
-                          style: TextStyle(
+                        Text(
+                          l10n.tr('profile_username_available_message'),
+                          style: const TextStyle(
                             color: Color(0xFF22C55E),
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -2193,7 +2231,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            errorText ?? 'Unavailable.',
+                            errorText ??
+                                l10n.tr('profile_username_unavailable_fallback'),
                             style: TextStyle(
                               color: Theme.of(ctx).colorScheme.error,
                               fontSize: 12,
@@ -2249,7 +2288,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             const SizedBox(width: 14),
                             Expanded(
                               child: Text(
-                                'Edit Username',
+                                l10n.tr('profile_edit_username_dialog_title'),
                                 style: theme.textTheme.titleMedium
                                     ?.copyWith(
                                   color: AppTheme.primaryText(brightness),
@@ -2279,7 +2318,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                           decoration: InputDecoration(
                             prefixText: '@',
-                            hintText: 'yourusername',
+                            hintText: l10n.tr('profile_username_hint'),
                             hintStyle: TextStyle(
                               color: AppTheme.secondaryText(brightness),
                             ),
@@ -2299,7 +2338,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 onPressed: saving
                                     ? null
                                     : () => Navigator.of(ctx).pop(false),
-                                child: const Text('Cancel'),
+                                child: Text(l10n.tr('common_cancel')),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -2348,7 +2387,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                           color: AppTheme.darkText,
                                         ),
                                       )
-                                    : const Text('Save'),
+                                    : Text(l10n.tr('common_save')),
                               ),
                             ),
                           ],
@@ -2365,7 +2404,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
       if (saved == true && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Username updated.')),
+          SnackBar(content: Text(l10n.tr('profile_username_updated_snackbar'))),
         );
       }
     } finally {
@@ -2692,7 +2731,7 @@ class _OrganizerLeagueCouponsTile extends StatelessWidget {
               foregroundColor: AppTheme.darkText,
             ),
             onPressed: onView,
-            child: const Text('View'),
+            child: Text(context.l10n.tr('profile_coupon_view_button')),
           ),
         ],
       ),

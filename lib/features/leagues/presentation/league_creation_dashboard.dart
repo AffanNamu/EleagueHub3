@@ -179,7 +179,7 @@ class _LeagueCreationDashboardState
         _hasLeagueAccess = false;
         _isPaidPlanUser = false;
         _currentLeagueCardCount = 0;
-        _activePlanLabel = 'Basic';
+        _activePlanLabel = context.l10n.tr('league_create_basic_plan_label');
       });
       return;
     }
@@ -200,8 +200,10 @@ class _LeagueCreationDashboardState
         _hasLeagueAccess = true;
         _isPaidPlanUser = isPaid;
         _currentLeagueCardCount = count;
-        _activePlanLabel =
-            isPaid ? (activePlan?.displayName ?? 'Paid Plan') : 'Basic';
+        _activePlanLabel = isPaid
+            ? (activePlan?.displayName ??
+                context.l10n.tr('league_create_paid_plan_fallback'))
+            : context.l10n.tr('league_create_basic_plan_label');
         _checkingAccess = false;
       });
 
@@ -218,7 +220,7 @@ class _LeagueCreationDashboardState
         _hasLeagueAccess = true;
         _isPaidPlanUser = false;
         _currentLeagueCardCount = 0;
-        _activePlanLabel = 'Basic';
+        _activePlanLabel = context.l10n.tr('league_create_basic_plan_label');
       });
 
       unawaited(
@@ -244,26 +246,24 @@ class _LeagueCreationDashboardState
       !_googlePlayPaymentDone;
 
   String get _freeLimitText =>
-      'Basic users can create up to $_freeLeagueListLimit '
-      'leagues/competitions total. This total is shared across '
-      'normal leagues and competitions created inside Organizer '
-      'or Master League workspace. Upgrade to Pro or Elite to '
-      'create more.';
+      '${context.l10n.tr('league_create_basic_users_limit_prefix')} $_freeLeagueListLimit '
+      '${context.l10n.tr('league_create_basic_users_limit_suffix')}';
 
   Future<void> _openPlanUpgradeFlow() async {
     final success = await LeaguePremiumUpgradeHelper.openUpgradeFlow(
       context,
       leagueName: _name.text.trim().isEmpty
-          ? 'Organizer Plan'
+          ? context.l10n.tr('league_create_organizer_plan_fallback')
           : _name.text.trim(),
     );
     if (!mounted) return;
     if (success) {
-      _showSnack('Plan purchase completed. Refreshing access...');
+      _showSnack(context.l10n
+          .tr('league_create_plan_purchase_completed_refreshing'));
       await _loadPlanLimitState();
       return;
     }
-    _showSnack('Plan purchase cancelled.');
+    _showSnack(context.l10n.tr('league_create_plan_purchase_cancelled'));
   }
 
   // ── Google Play league creation payment ───────────────────────────────────
@@ -274,7 +274,7 @@ class _LeagueCreationDashboardState
     final uid =
         (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
     if (uid.isEmpty) {
-      _showSnack('Please sign in to continue.');
+      _showSnack(context.l10n.tr('league_create_please_sign_in_to_continue'));
       return;
     }
 
@@ -287,7 +287,7 @@ class _LeagueCreationDashboardState
         userId: uid,
         leagueName: _name.text.trim().isNotEmpty
             ? _name.text.trim()
-            : 'New League',
+            : context.l10n.tr('league_create_new_league_fallback'),
         addonsOnly: false,
         premiumUpgrade: false,
       );
@@ -301,7 +301,8 @@ class _LeagueCreationDashboardState
           _googlePlayPaymentId = result.paymentId;
           _submitting = false;
         });
-        _showSnack('Payment successful. You can now create your league.');
+        _showSnack(context.l10n
+            .tr('league_create_payment_successful_can_create'));
       } else {
         setState(() => _submitting = false);
         final msg = (result.errorMessage ?? '').trim();
@@ -590,9 +591,9 @@ class _LeagueCreationDashboardState
       case LeagueCreationType.classic:
         return l10n.tr('league_create_type_classic_title');
       case LeagueCreationType.worldCup:
-        return '🌍 World Cup';
+        return l10n.tr('league_create_type_world_cup_title');
       case LeagueCreationType.directKnockout:
-        return 'Direct Knockout';
+        return l10n.tr('league_create_type_direct_knockout_title');
     }
   }
 
@@ -615,7 +616,8 @@ class _LeagueCreationDashboardState
 
   void _setType(LeagueCreationType t) {
     if (!_hasLeagueAccess) {
-      _showSnack('You need to sign in to create leagues.');
+      _showSnack(
+          context.l10n.tr('league_create_need_sign_in_to_create'));
       return;
     }
     setState(() {
@@ -654,7 +656,8 @@ class _LeagueCreationDashboardState
     if (_submitting) return;
 
     if (!_hasLeagueAccess) {
-      _showSnack('You need to sign in to create leagues.');
+      _showSnack(
+          context.l10n.tr('league_create_need_sign_in_to_create'));
       return;
     }
 
@@ -679,8 +682,9 @@ class _LeagueCreationDashboardState
 
       if (url == null || url.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Image not selected or upload failed.'),
+          SnackBar(
+            content: Text(l10n
+                .tr('league_create_image_not_selected_or_upload_failed')),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -739,7 +743,7 @@ class _LeagueCreationDashboardState
       if (snap.docs.isEmpty) return code;
     }
     throw StateError(
-        "We couldn't create a join code. Please try again.");
+        context.l10n.tr('league_create_join_code_generation_failed'));
   }
 
   Future<League> _createLeagueOnline(
@@ -805,7 +809,7 @@ class _LeagueCreationDashboardState
         appBar: AppBar(
           title: Text(
             _inMasterLeagueMode
-                ? 'Create Competition'
+                ? l10n.tr('league_create_create_competition_title')
                 : l10n.tr('league_create_appbar_title'),
           ),
           backgroundColor: Colors.transparent,
@@ -831,7 +835,7 @@ class _LeagueCreationDashboardState
                           size: 44),
                       const SizedBox(height: 10),
                       Text(
-                        'Sign in required',
+                        l10n.tr('league_creation_payment_sign_in_required'),
                         style:
                             theme.textTheme.titleMedium?.copyWith(
                           color: AppTheme.primaryText(brightness),
@@ -840,7 +844,8 @@ class _LeagueCreationDashboardState
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Please sign in to create a league.',
+                        l10n.tr(
+                            'league_create_please_sign_in_to_create_league'),
                         textAlign: TextAlign.center,
                         style:
                             theme.textTheme.bodyMedium?.copyWith(
@@ -857,7 +862,7 @@ class _LeagueCreationDashboardState
                           foregroundColor: AppTheme.darkText,
                         ),
                         onPressed: _safePop,
-                        child: const Text('Close'),
+                        child: Text(l10n.tr('league_admin_close_button')),
                       ),
                     ],
                   ),
@@ -879,7 +884,7 @@ class _LeagueCreationDashboardState
       appBar: AppBar(
         title: Text(
           _inMasterLeagueMode
-              ? 'Create Competition'
+              ? l10n.tr('league_create_create_competition_title')
               : l10n.tr('league_create_appbar_title'),
         ),
         backgroundColor: Colors.transparent,
@@ -955,7 +960,7 @@ class _LeagueCreationDashboardState
       appBar: AppBar(
         title: Text(
           _inMasterLeagueMode
-              ? 'Competition Created'
+              ? l10n.tr('league_create_competition_created_title')
               : l10n.tr('league_create_created_title'),
         ),
         backgroundColor: Colors.transparent,
@@ -1030,8 +1035,8 @@ class _LeagueCreationDashboardState
                             if (_inMasterLeagueMode) ...[
                               const SizedBox(height: 10),
                               Text(
-                                'League created successfully '
-                                'inside Master League container',
+                                l10n.tr(
+                                    'league_create_league_created_inside_master_league'),
                                 textAlign: TextAlign.center,
                                 style: theme
                                     .textTheme.bodySmall
@@ -1121,6 +1126,7 @@ class _LeagueCreationDashboardState
   // ── Main wizard card ───────────────────────────────────────────────────────
 
   Widget _buildMainCard(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
@@ -1139,40 +1145,44 @@ class _LeagueCreationDashboardState
           if (_checkingAccess)
             _infoBanner(
               icon: Icons.hourglass_top_rounded,
-              title: 'Checking your access...',
-              subtitle:
-                  'Please wait while we load your entitlement.',
+              title: l10n.tr('league_create_checking_access_title'),
+              subtitle: l10n
+                  .tr('league_create_checking_access_subtitle'),
               accent: AppTheme.limeAccentDark,
             )
           else if (_freeLimitReachedForNewLeague)
             _infoBanner(
               icon: Icons.lock_rounded,
-              title: 'Basic limit reached',
+              title:
+                  l10n.tr('league_create_basic_limit_reached_title'),
               subtitle: _freeLimitText,
               accent: _premiumAmber,
             )
           else if (_googlePlayPaymentDone)
             _infoBanner(
               icon: Icons.check_circle_rounded,
-              title: 'Google Play purchase complete',
-              subtitle:
-                  'Your payment was processed. Proceed to create your league.',
+              title: l10n.tr(
+                  'league_create_google_play_purchase_complete_title'),
+              subtitle: l10n.tr(
+                  'league_create_google_play_purchase_complete_subtitle'),
               accent: AppTheme.limeAccentDark,
             )
           else if (_isPaidPlanUser)
             _infoBanner(
               icon: Icons.verified_rounded,
-              title: 'Paid plan active',
+              title:
+                  l10n.tr('league_create_paid_plan_active_title'),
               subtitle:
-                  '$_activePlanLabel plan active. You can create more leagues.',
+                  '$_activePlanLabel ${l10n.tr('league_create_paid_plan_active_subtitle_suffix')}',
               accent: AppTheme.limeAccentDark,
             )
           else
             _infoBanner(
               icon: Icons.layers_outlined,
-              title: 'Basic/free access active',
+              title: l10n
+                  .tr('league_create_basic_free_access_title'),
               subtitle:
-                  'You have used $_currentLeagueCardCount / $_freeLeagueListLimit free league slots.',
+                  '${l10n.tr('league_create_used_slots_prefix')} $_currentLeagueCardCount / $_freeLeagueListLimit ${l10n.tr('league_create_used_slots_suffix')}',
               accent: AppTheme.limeAccentDark,
             ),
 
@@ -1221,11 +1231,11 @@ class _LeagueCreationDashboardState
             _isPaidPlanUser
                 ? Icons.verified_rounded
                 : Icons.layers_outlined,
-            'Access',
+            l10n.tr('league_create_summary_access_label'),
             _isPaidPlanUser
                 ? _activePlanLabel
-                : 'Basic • $_currentLeagueCardCount / '
-                    '$_freeLeagueListLimit used',
+                : '${l10n.tr('league_create_basic_plan_label')} • $_currentLeagueCardCount / '
+                    '$_freeLeagueListLimit ${l10n.tr('league_create_used_word')}',
             valueColor: _isPaidPlanUser
                 ? AppTheme.limeAccentDark
                 : (_freeLimitReachedForNewLeague
@@ -1235,22 +1245,22 @@ class _LeagueCreationDashboardState
           if (_googlePlayPaymentDone)
             _summaryRow(
               Icons.shopping_bag_outlined,
-              'Payment',
-              'Google Play – paid',
+              l10n.tr('league_create_summary_payment_label'),
+              l10n.tr('league_create_google_play_paid'),
               valueColor: AppTheme.limeAccentDark,
             ),
           if (_freeLimitReachedForNewLeague)
             _summaryRow(
               Icons.lock_rounded,
-              'Limit',
-              'Reached',
+              l10n.tr('league_create_summary_limit_label'),
+              l10n.tr('league_create_reached'),
               valueColor: _premiumAmber,
             ),
           if (_inMasterLeagueMode)
             _summaryRow(
               Icons.hub_rounded,
-              'Master',
-              'Inside Master League',
+              l10n.tr('league_create_summary_master_label'),
+              l10n.tr('league_create_inside_master_league'),
               valueColor: AppTheme.limeAccentDark,
             ),
           _summaryRow(
@@ -1262,15 +1272,15 @@ class _LeagueCreationDashboardState
           if (_type == LeagueCreationType.worldCup)
             _summaryRow(
               Icons.public_rounded,
-              'WC Format',
+              l10n.tr('league_create_summary_wc_format_label'),
               _worldCupFormat.teamCount == 48
-                  ? 'FIFA 2026 (48 Teams)'
-                  : 'FIFA 2022 (32 Teams)',
+                  ? l10n.tr('league_create_fifa_2026_48_teams')
+                  : l10n.tr('league_create_fifa_2022_32_teams'),
               valueColor: _worldCupGold,
             ),
           _summaryRow(
             Icons.sports_soccer_rounded,
-            'Category',
+            l10n.tr('league_create_summary_category_label'),
             _footballCategory.badgeLabel,
             valueColor: AppTheme.limeAccentDark,
           ),
@@ -1296,16 +1306,20 @@ class _LeagueCreationDashboardState
           if (_supportsHomeAwayMatches)
             _summaryRow(
               Icons.swap_horiz,
-              'Home/Away',
-              _homeAwayEnabled ? 'Enabled' : 'Disabled',
+              l10n.tr('league_create_summary_home_away_label'),
+              _homeAwayEnabled
+                  ? l10n.tr('league_create_enabled')
+                  : l10n.tr('league_create_disabled'),
               valueColor: _homeAwayEnabled
                   ? AppTheme.limeAccentDark
                   : AppTheme.secondaryText(brightness),
             ),
           _summaryRow(
             Icons.card_giftcard_outlined,
-            'Rewards',
-            _containsRewards ? 'Yes' : 'No',
+            l10n.tr('league_create_summary_rewards_label'),
+            _containsRewards
+                ? l10n.tr('common_yes')
+                : l10n.tr('common_no'),
             valueColor: _containsRewards
                 ? AppTheme.limeAccentDark
                 : AppTheme.secondaryText(brightness),
@@ -1315,12 +1329,15 @@ class _LeagueCreationDashboardState
             l10n.tr(
                 'league_create_summary_creation_fee_label'),
             _freeLimitReachedForNewLeague
-                ? 'Upgrade required'
+                ? l10n.tr('league_create_upgrade_required')
                 : (_isPaidPlanUser
-                    ? 'Included in paid plan'
+                    ? l10n.tr(
+                        'league_create_included_in_paid_plan')
                     : (_googlePlayPaymentDone
-                        ? 'Paid via Google Play'
-                        : 'Included in Basic allowance')),
+                        ? l10n.tr(
+                            'league_create_paid_via_google_play')
+                        : l10n.tr(
+                            'league_create_included_in_basic_allowance'))),
             valueColor: _freeLimitReachedForNewLeague
                 ? _premiumAmber
                 : AppTheme.limeAccentDark,
@@ -1330,12 +1347,10 @@ class _LeagueCreationDashboardState
             _freeLimitReachedForNewLeague
                 ? _freeLimitText
                 : (_inMasterLeagueMode
-                    ? 'This competition will use the same '
-                        'shared Basic creation allowance as '
-                        'normal leagues.'
-                    : 'Normal leagues and Organizer/Master '
-                        'League competitions share the same '
-                        'Basic allowance.'),
+                    ? l10n.tr(
+                        'league_create_competition_shares_basic_allowance')
+                    : l10n.tr(
+                        'league_create_leagues_share_basic_allowance')),
             style: theme.textTheme.bodySmall?.copyWith(
               color: _freeLimitReachedForNewLeague
                   ? _premiumAmber
@@ -1358,10 +1373,10 @@ class _LeagueCreationDashboardState
                     _submitting ? null : _openPlanUpgradeFlow,
                 icon: const Icon(
                     Icons.workspace_premium_rounded),
-                label: const Text(
-                  'Upgrade Plan',
-                  style:
-                      TextStyle(fontWeight: FontWeight.w900),
+                label: Text(
+                  l10n.tr('league_create_upgrade_plan_button'),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900),
                 ),
               ),
             ),
@@ -1461,7 +1476,8 @@ class _LeagueCreationDashboardState
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Creating inside Master League',
+                    l10n.tr(
+                        'league_create_creating_inside_master_league'),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: AppTheme.limeAccentDark,
                       fontWeight: FontWeight.w900,
@@ -1475,7 +1491,7 @@ class _LeagueCreationDashboardState
         ],
         Text(
           _inMasterLeagueMode
-              ? 'Create Competition'
+              ? l10n.tr('league_create_create_competition_title')
               : l10n.tr('league_create_header_title'),
           style: theme.textTheme.titleLarge?.copyWith(
             color: AppTheme.primaryText(brightness),
@@ -1637,7 +1653,8 @@ class _LeagueCreationDashboardState
       children: [
         Text(
           _inMasterLeagueMode
-              ? 'Select the competition type for your Master League.'
+              ? l10n.tr(
+                  'league_create_select_competition_type_master_league')
               : l10n.tr('league_create_choose_type_help'),
           style: theme.textTheme.bodyMedium?.copyWith(
             color: AppTheme.secondaryText(brightness),
@@ -1671,9 +1688,8 @@ class _LeagueCreationDashboardState
         const SizedBox(height: 10),
         _typeCard(
           type: LeagueCreationType.directKnockout,
-          title: 'Direct Knockout',
-          subtitle:
-              'Skip groups and qualifiers — straight to a knockout bracket',
+          title: l10n.tr('league_create_type_direct_knockout_title'),
+          subtitle: l10n.tr('league_create_type_direct_knockout_subtitle'),
           icon: Icons.bolt_rounded,
         ),
         const SizedBox(height: 10),
@@ -1760,10 +1776,12 @@ class _LeagueCreationDashboardState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionTitle('Football Category', Icons.sports_soccer_rounded),
+        _sectionTitle(
+            l10n.tr('league_create_football_category_title'),
+            Icons.sports_soccer_rounded),
         const SizedBox(height: 6),
         Text(
-          'Choose the football category or game this league is played on.',
+          l10n.tr('league_create_football_category_subtitle'),
           style: theme.textTheme.bodySmall?.copyWith(
             color: AppTheme.secondaryText(brightness),
             height: 1.35,
@@ -1886,7 +1904,7 @@ class _LeagueCreationDashboardState
                     children: [
                       Expanded(
                         child: Text(
-                          '🌍 World Cup',
+                          '🌍 ${context.l10n.tr('league_create_world_cup_card_title')}',
                           style: theme.textTheme.titleSmall?.copyWith(
                             color: selected
                                 ? _worldCupGold
@@ -1911,7 +1929,7 @@ class _LeagueCreationDashboardState
                           ),
                         ),
                         child: Text(
-                          'PREMIUM',
+                          context.l10n.tr('league_create_premium_badge'),
                           style: TextStyle(
                             color: _worldCupGold,
                             fontWeight: FontWeight.w900,
@@ -1924,9 +1942,7 @@ class _LeagueCreationDashboardState
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Official FIFA World Cup format with group stage, '
-                    'knockout rounds, third place match, and final. '
-                    'Choose 32 or 48 teams.',
+                    context.l10n.tr('league_create_world_cup_card_description'),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: AppTheme.secondaryText(brightness),
                       height: 1.25,
@@ -1983,10 +1999,12 @@ class _LeagueCreationDashboardState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionTitle('World Cup Format', Icons.public_rounded),
+        _sectionTitle(
+            context.l10n.tr('league_create_world_cup_format_title'),
+            Icons.public_rounded),
         const SizedBox(height: 10),
         Text(
-          'Choose the official FIFA World Cup format for your tournament.',
+          context.l10n.tr('league_create_world_cup_format_subtitle'),
           style: theme.textTheme.bodySmall?.copyWith(
             color: AppTheme.secondaryText(brightness),
             height: 1.35,
@@ -2099,17 +2117,17 @@ class _LeagueCreationDashboardState
                     runSpacing: 4,
                     children: [
                       _wcStatChip(
-                        '${format.teamCount} Teams',
+                        '${format.teamCount} ${context.l10n.tr('league_create_wc_stat_teams_suffix')}',
                         Icons.groups_rounded,
                         isSelected,
                       ),
                       _wcStatChip(
-                        '${format.groupCount} Groups',
+                        '${format.groupCount} ${context.l10n.tr('league_create_wc_stat_groups_suffix')}',
                         Icons.grid_view_rounded,
                         isSelected,
                       ),
                       _wcStatChip(
-                        '${format.teamsPerGroup} per Group',
+                        '${format.teamsPerGroup} ${context.l10n.tr('league_create_wc_stat_per_group_suffix')}',
                         Icons.people_rounded,
                         isSelected,
                       ),
@@ -2329,11 +2347,12 @@ class _LeagueCreationDashboardState
         ),
         const SizedBox(height: 12),
         _sectionTitle(
-            'Images (optional)', Icons.image_outlined),
+            l10n.tr('league_create_images_section_title'),
+            Icons.image_outlined),
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _leagueImageUrl,
-          label: 'League image (optional)',
+          label: l10n.tr('league_create_league_image_optional_label'),
           uploading: _uploadingLeagueImage,
           onUpload: () =>
               _uploadImage(kind: LeagueMediaKind.leagueImage),
@@ -2345,7 +2364,7 @@ class _LeagueCreationDashboardState
         const SizedBox(height: 10),
         _OptionalImageField(
           controller: _sponsorImageUrl,
-          label: 'Sponsor image (optional)',
+          label: l10n.tr('league_create_sponsor_image_optional_label'),
           uploading: _uploadingSponsorImage,
           onUpload: () => _uploadImage(
               kind: LeagueMediaKind.sponsorImage),
@@ -2470,12 +2489,14 @@ class _LeagueCreationDashboardState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _sectionTitle(
-              'Creation status', Icons.verified_rounded),
+              context.l10n.tr('league_create_creation_status_title'),
+              Icons.verified_rounded),
           const SizedBox(height: 10),
           _infoBanner(
             icon: Icons.hourglass_top_rounded,
-            title: 'Checking your access...',
-            subtitle: 'Please wait before continuing.',
+            title: context.l10n.tr('league_create_checking_access_title'),
+            subtitle:
+                context.l10n.tr('league_create_checking_access_subtitle'),
             accent: AppTheme.limeAccentDark,
           ),
         ],
@@ -2488,14 +2509,15 @@ class _LeagueCreationDashboardState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _sectionTitle(
-              'Creation status', Icons.verified_rounded),
+              context.l10n.tr('league_create_creation_status_title'),
+              Icons.verified_rounded),
           const SizedBox(height: 10),
           _infoBanner(
             icon: Icons.verified_rounded,
-            title: 'Included in your paid plan',
+            title:
+                context.l10n.tr('league_create_included_paid_plan_title'),
             subtitle:
-                'Your $_activePlanLabel plan includes additional '
-                'league and competition creation.',
+                '${context.l10n.tr('league_create_paid_plan_extra_prefix')} $_activePlanLabel ${context.l10n.tr('league_create_paid_plan_extra_suffix')}',
             accent: AppTheme.limeAccentDark,
           ),
         ],
@@ -2508,14 +2530,15 @@ class _LeagueCreationDashboardState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _sectionTitle(
-              'Creation status', Icons.verified_rounded),
+              context.l10n.tr('league_create_creation_status_title'),
+              Icons.verified_rounded),
           const SizedBox(height: 10),
           _infoBanner(
             icon: Icons.verified_rounded,
-            title: 'Included in your Basic allowance',
+            title: context.l10n
+                .tr('league_create_included_basic_allowance_title'),
             subtitle:
-                'Basic users can create up to $_freeLeagueListLimit '
-                'leagues/competitions total.',
+                '${context.l10n.tr('league_create_basic_allowance_total_prefix')} $_freeLeagueListLimit ${context.l10n.tr('league_create_basic_allowance_total_suffix')}',
             accent: AppTheme.limeAccentDark,
           ),
         ],
@@ -2528,13 +2551,15 @@ class _LeagueCreationDashboardState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _sectionTitle(
-              'Payment complete', Icons.check_circle_rounded),
+              context.l10n.tr('league_create_payment_complete_title'),
+              Icons.check_circle_rounded),
           const SizedBox(height: 10),
           _infoBanner(
             icon: Icons.check_circle_rounded,
-            title: 'Google Play purchase successful',
-            subtitle: 'Your payment was processed. '
-                'Tap Next to create your league.',
+            title: context.l10n
+                .tr('league_create_google_play_purchase_successful_title'),
+            subtitle:
+                context.l10n.tr('league_create_payment_processed_subtitle'),
             accent: AppTheme.limeAccentDark,
           ),
           if (_googlePlayReceiptId.trim().isNotEmpty) ...[
@@ -2556,7 +2581,7 @@ class _LeagueCreationDashboardState
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Receipt: ${_googlePlayReceiptId}',
+                      '${context.l10n.tr('league_create_receipt_prefix')} $_googlePlayReceiptId',
                       style: theme.textTheme.bodySmall
                           ?.copyWith(
                         color: AppTheme.secondaryText(
@@ -2585,12 +2610,12 @@ class _LeagueCreationDashboardState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _sectionTitle(
-              'Unlock league creation',
+              context.l10n.tr('league_create_unlock_league_creation_title'),
               Icons.shopping_bag_outlined),
           const SizedBox(height: 10),
           _infoBanner(
             icon: Icons.lock_rounded,
-            title: 'Basic limit reached',
+            title: context.l10n.tr('league_create_basic_limit_reached_title'),
             subtitle: _freeLimitText,
             accent: _premiumAmber,
           ),
@@ -2612,10 +2637,8 @@ class _LeagueCreationDashboardState
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'This is an in-app purchase managed by '
-                    'Google Play. Subscriptions can be '
-                    'managed in the Play Store under '
-                    'Subscriptions.',
+                    context.l10n
+                        .tr('league_create_google_play_managed_notice'),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color:
                           AppTheme.secondaryText(brightness),
@@ -2654,8 +2677,9 @@ class _LeagueCreationDashboardState
                   : const Icon(Icons.shopping_bag_outlined),
               label: Text(
                 _submitting
-                    ? 'Processing…'
-                    : 'Purchase on Google Play',
+                    ? context.l10n.tr('league_create_processing_label')
+                    : context.l10n
+                        .tr('league_create_purchase_google_play_button'),
                 style: const TextStyle(
                   fontWeight: FontWeight.w900,
                   fontSize: 15,
@@ -2672,12 +2696,12 @@ class _LeagueCreationDashboardState
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _sectionTitle(
-            'Upgrade required',
+            context.l10n.tr('league_create_upgrade_required'),
             Icons.workspace_premium_rounded),
         const SizedBox(height: 10),
         _infoBanner(
           icon: Icons.workspace_premium_rounded,
-          title: 'Basic limit reached',
+          title: context.l10n.tr('league_create_basic_limit_reached_title'),
           subtitle: _freeLimitText,
           accent: _premiumAmber,
         ),
@@ -2690,9 +2714,9 @@ class _LeagueCreationDashboardState
           onPressed:
               _submitting ? null : _openPlanUpgradeFlow,
           icon: const Icon(Icons.workspace_premium_rounded),
-          label: const Text(
-            'Upgrade Plan',
-            style: TextStyle(fontWeight: FontWeight.w900),
+          label: Text(
+            context.l10n.tr('league_create_upgrade_plan_button'),
+            style: const TextStyle(fontWeight: FontWeight.w900),
           ),
         ),
       ],
@@ -2732,21 +2756,21 @@ class _LeagueCreationDashboardState
         if (_inMasterLeagueMode)
           _confirmRow(
             Icons.hub_rounded,
-            'Master League',
-            'Inside Master League',
+            l10n.tr('league_create_summary_master_label'),
+            l10n.tr('league_create_inside_master_league'),
             valueColor: AppTheme.limeAccentDark,
           ),
         // World Cup specific confirm row.
         if (_type == LeagueCreationType.worldCup)
           _confirmRow(
             Icons.public_rounded,
-            'WC Format',
+            l10n.tr('league_create_summary_wc_format_label'),
             _worldCupFormat.displayName,
             valueColor: _worldCupGold,
           ),
         _confirmRow(
           Icons.sports_soccer_rounded,
-          'Football Category',
+          l10n.tr('league_create_summary_category_label'),
           _footballCategory.badgeLabel,
           valueColor: AppTheme.limeAccentDark,
         ),
@@ -2765,16 +2789,20 @@ class _LeagueCreationDashboardState
         if (_supportsHomeAwayMatches)
           _confirmRow(
             Icons.swap_horiz,
-            'Home & away matches',
-            _homeAwayEnabled ? 'Enabled' : 'Disabled',
+            l10n.tr('league_create_summary_home_away_label'),
+            _homeAwayEnabled
+                ? l10n.tr('league_create_enabled')
+                : l10n.tr('league_create_disabled'),
             valueColor: _homeAwayEnabled
                 ? AppTheme.limeAccentDark
                 : AppTheme.secondaryText(brightness),
           ),
         _confirmRow(
           Icons.card_giftcard_outlined,
-          'Rewards',
-          _containsRewards ? 'Enabled' : 'Disabled',
+          l10n.tr('league_create_summary_rewards_label'),
+          _containsRewards
+              ? l10n.tr('league_create_enabled')
+              : l10n.tr('league_create_disabled'),
           valueColor: _containsRewards
               ? AppTheme.limeAccentDark
               : AppTheme.secondaryText(brightness),
@@ -2782,15 +2810,15 @@ class _LeagueCreationDashboardState
         if (_googlePlayPaymentDone)
           _confirmRow(
             Icons.shopping_bag_outlined,
-            'Payment',
-            'Google Play – paid',
+            l10n.tr('league_create_summary_payment_label'),
+            l10n.tr('league_create_google_play_paid'),
             valueColor: AppTheme.limeAccentDark,
           ),
         const SizedBox(height: 12),
         if (_freeLimitReachedForNewLeague) ...[
           _infoBanner(
             icon: Icons.workspace_premium_rounded,
-            title: 'Upgrade required',
+            title: l10n.tr('league_create_upgrade_required'),
             subtitle: _freeLimitText,
             accent: _premiumAmber,
           ),
@@ -2803,23 +2831,25 @@ class _LeagueCreationDashboardState
             onPressed:
                 _submitting ? null : _openPlanUpgradeFlow,
             icon: const Icon(Icons.workspace_premium_rounded),
-            label: const Text(
-              'Upgrade Plan',
-              style: TextStyle(fontWeight: FontWeight.w900),
+            label: Text(
+              l10n.tr('league_create_upgrade_plan_button'),
+              style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           ),
         ] else ...[
           _infoBanner(
             icon: Icons.verified_rounded,
             title: _googlePlayPaymentDone
-                ? 'Google Play purchase complete'
+                ? l10n.tr(
+                    'league_create_google_play_purchase_complete_title')
                 : (_isPaidPlanUser
-                    ? 'Included in your paid plan'
-                    : 'Included in your Basic allowance'),
+                    ? l10n.tr('league_create_included_paid_plan_title')
+                    : l10n.tr(
+                        'league_create_included_basic_allowance_title')),
             subtitle: _inMasterLeagueMode
-                ? 'This competition uses the same shared '
-                    'creation allowance as normal leagues.'
-                : 'You can create this league now.',
+                ? l10n.tr(
+                    'league_create_master_league_shared_allowance_notice')
+                : l10n.tr('league_create_can_create_now_notice'),
             accent: AppTheme.limeAccentDark,
           ),
         ],
@@ -2851,7 +2881,7 @@ class _LeagueCreationDashboardState
               activeColor: AppTheme.limeAccentDark,
               checkColor: Colors.white,
               title: Text(
-                'Home and Away Matches',
+                l10n.tr('league_create_home_away_matches_title'),
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w900,
@@ -2859,8 +2889,8 @@ class _LeagueCreationDashboardState
               ),
               subtitle: Text(
                 _homeAwayEnabled
-                    ? 'Each team plays twice (home + away).'
-                    : 'Each team plays once.',
+                    ? l10n.tr('league_create_home_away_twice_subtitle')
+                    : l10n.tr('league_create_home_away_once_subtitle'),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: AppTheme.secondaryText(brightness),
                   fontSize: 12,
@@ -2952,11 +2982,11 @@ class _LeagueCreationDashboardState
                 )
               : Text(
                   _freeLimitReachedForNewLeague
-                      ? 'UPGRADE PLAN'
+                      ? l10n.tr('league_create_upgrade_plan_upper')
                       : (_inMasterLeagueMode
-                          ? 'CREATE COMPETITION'
+                          ? l10n.tr('league_create_create_competition_upper')
                           : (_type == LeagueCreationType.worldCup
-                              ? 'CREATE WORLD CUP'
+                              ? l10n.tr('league_create_create_world_cup_upper')
                               : l10n.tr(
                                   'league_create_create_league'
                                   '_button_upper'))),
@@ -3201,8 +3231,8 @@ class _LeagueCreationDashboardState
         if (step3AndroidGate) ...[
           const SizedBox(height: 8),
           Text(
-            'Complete the Google Play purchase above '
-            'to continue.',
+            context.l10n
+                .tr('league_create_complete_google_play_purchase_notice'),
             textAlign: TextAlign.center,
             style: Theme.of(context)
                 .textTheme
@@ -3224,11 +3254,11 @@ class _LeagueCreationDashboardState
     final l10n = context.l10n;
 
     if (_checkingAccess) {
-      _showSnack('Checking your access. Please wait.');
+      _showSnack(l10n.tr('league_create_checking_access_snack'));
       return false;
     }
     if (!_hasLeagueAccess) {
-      _showSnack('You need to sign in to create leagues.');
+      _showSnack(l10n.tr('league_create_need_sign_in_to_create'));
       return false;
     }
     if (_step == 0) {
@@ -3256,8 +3286,8 @@ class _LeagueCreationDashboardState
             .routeAndroidPaymentsToGooglePlayBilling &&
         _freeLimitReachedForNewLeague &&
         !_googlePlayPaymentDone) {
-      _showSnack(
-          'Please complete the Google Play purchase first.');
+      _showSnack(l10n
+          .tr('league_create_complete_google_play_purchase_first_snack'));
       return false;
     }
     return true;
@@ -3269,18 +3299,18 @@ class _LeagueCreationDashboardState
     final l10n = context.l10n;
 
     if (_checkingAccess) {
-      _showSnack('Checking your access. Please wait.');
+      _showSnack(l10n.tr('league_create_checking_access_snack'));
       return;
     }
     if (!_hasLeagueAccess) {
-      _showSnack('You need to sign in to create leagues.');
+      _showSnack(l10n.tr('league_create_need_sign_in_to_create'));
       return;
     }
     if (_freeLimitReachedForNewLeague) {
       if (PaymentPlatformConfig
           .routeAndroidPaymentsToGooglePlayBilling) {
-        _showSnack(
-            'Please complete the Google Play purchase in Step 3 first.');
+        _showSnack(l10n
+            .tr('league_create_complete_google_play_purchase_step3_snack'));
       } else {
         await _openPlanUpgradeFlow();
       }
@@ -3312,7 +3342,7 @@ class _LeagueCreationDashboardState
         if (!mounted) return;
 
         if (!earned) {
-          _showSnack('Ad not completed. Creation cancelled.');
+          _showSnack(l10n.tr('league_create_ad_not_completed_snack'));
           return;
         }
       } finally {
@@ -3421,7 +3451,7 @@ class _LeagueCreationDashboardState
           final actorName =
               ownerProfile?.teamName.trim().isNotEmpty == true
                   ? ownerProfile!.teamName.trim()
-                  : 'Organizer';
+                  : l10n.tr('league_create_organizer_fallback_name');
           await _organizerFeed.addCompetitionCreatedEvent(
             masterLeagueId: _masterLeagueId.trim(),
             leagueId: created.id,
@@ -3442,8 +3472,7 @@ class _LeagueCreationDashboardState
 
       if (_inMasterLeagueMode) {
         _showSnack(
-          'League created successfully inside '
-          'Master League container',
+          l10n.tr('league_create_success_inside_master_league_message'),
         );
       }
     } catch (e) {
@@ -3543,10 +3572,10 @@ class _OptionalImageField extends StatelessWidget {
         );
 
         final String statusText = uploading
-            ? 'Uploading...'
+            ? context.l10n.tr('league_create_image_status_uploading')
             : hasImage
-                ? 'Uploaded'
-                : 'No image selected';
+                ? context.l10n.tr('league_create_image_status_uploaded')
+                : context.l10n.tr('league_create_image_status_none_selected');
 
         final IconData tickIcon = hasImage
             ? Icons.check_box
@@ -3621,7 +3650,8 @@ class _OptionalImageField extends StatelessWidget {
                           ),
                         )
                       : IconButton(
-                          tooltip: 'Upload',
+                          tooltip: context.l10n
+                              .tr('league_create_image_upload_tooltip'),
                           onPressed: onUpload,
                           icon: const Icon(
                               Icons.cloud_upload_outlined),
@@ -3632,8 +3662,9 @@ class _OptionalImageField extends StatelessWidget {
                   height: 40,
                   child: IconButton(
                     tooltip: hasImage
-                        ? 'Clear'
-                        : 'Clear (disabled)',
+                        ? context.l10n.tr('league_create_image_clear_tooltip')
+                        : context.l10n
+                            .tr('league_create_image_clear_disabled_tooltip'),
                     onPressed:
                         (!uploading && hasImage) ? onClear : null,
                     icon: const Icon(Icons.clear),

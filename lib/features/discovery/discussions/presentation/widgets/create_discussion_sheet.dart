@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/errors/user_friendly_error.dart';
+import '../../../../../core/locale/app_localizations.dart';
 import '../../../../../core/theme/app_theme.dart';
 import '../../data/discussions_repository.dart';
 
@@ -13,6 +14,7 @@ Future<bool?> showCreateDiscussionSheet(
 }) {
   final titleController = TextEditingController();
   final bodyController = TextEditingController();
+  final l10n = context.l10n;
 
   return showModalBottomSheet<bool>(
     context: context,
@@ -27,7 +29,7 @@ Future<bool?> showCreateDiscussionSheet(
           Future<void> submit() async {
             final title = titleController.text.trim();
             if (title.isEmpty) {
-              setSheetState(() => error = 'Please add a title.');
+              setSheetState(() => error = l10n.tr('create_discussion_title_required'));
               return;
             }
             setSheetState(() {
@@ -61,7 +63,7 @@ Future<bool?> showCreateDiscussionSheet(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Start a Discussion',
+                      l10n.tr('create_discussion_sheet_title'),
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 16,
@@ -73,14 +75,14 @@ Future<bool?> showCreateDiscussionSheet(
                       controller: titleController,
                       maxLength: 140,
                       enabled: !busy,
-                      decoration: const InputDecoration(hintText: 'Title'),
+                      decoration: InputDecoration(hintText: l10n.tr('create_discussion_title_hint')),
                     ),
                     TextField(
                       controller: bodyController,
                       maxLength: 4000,
                       maxLines: 5,
                       enabled: !busy,
-                      decoration: const InputDecoration(hintText: 'Share more detail (optional)'),
+                      decoration: InputDecoration(hintText: l10n.tr('create_discussion_body_hint')),
                     ),
                     if (error != null) ...[
                       const SizedBox(height: 4),
@@ -108,7 +110,7 @@ Future<bool?> showCreateDiscussionSheet(
                                 height: 18,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkText),
                               )
-                            : const Text('Post Discussion', style: TextStyle(fontWeight: FontWeight.w900)),
+                            : Text(l10n.tr('create_discussion_submit_button'), style: const TextStyle(fontWeight: FontWeight.w900)),
                       ),
                     ),
                   ],

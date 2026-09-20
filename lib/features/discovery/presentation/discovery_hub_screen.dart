@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -17,6 +18,7 @@ class DiscoveryHubScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
 
@@ -27,7 +29,7 @@ class DiscoveryHubScreen extends StatelessWidget {
           padding: const EdgeInsetsDirectional.fromSTEB(16, 16, 16, 100),
           children: [
             Text(
-              'DISCOVERY',
+              l10n.tr('discovery_hub_eyebrow'),
               style: TextStyle(
                 color: AppTheme.limeAccentDark,
                 fontWeight: FontWeight.w900,
@@ -37,7 +39,7 @@ class DiscoveryHubScreen extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Discover eSportlyic',
+              l10n.tr('discovery_hub_title'),
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w900,
                 color: AppTheme.primaryText(brightness),
@@ -45,7 +47,7 @@ class DiscoveryHubScreen extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Explore competitions, organizers, teams and the global eSportlyic community.',
+              l10n.tr('discovery_hub_subtitle'),
               style: TextStyle(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w600,
@@ -56,49 +58,49 @@ class DiscoveryHubScreen extends StatelessWidget {
             _DiscoveryRow(
               icon: Icons.local_fire_department_rounded,
               iconColor: const Color(0xFF22C55E),
-              title: 'Public Feed',
-              subtitle: "See what's happening in the community",
-              badge: 'HOT',
+              title: l10n.tr('discovery_hub_public_feed_title'),
+              subtitle: l10n.tr('discovery_hub_public_feed_subtitle'),
+              badge: l10n.tr('discovery_hub_public_feed_badge'),
               onTap: () => context.push('/discovery/feed'),
             ),
             const SizedBox(height: 10),
             _DiscoveryRow(
               icon: Icons.chat_bubble_rounded,
               iconColor: const Color(0xFFBEF264),
-              title: 'My Chats',
-              subtitle: 'See the users you are chatting with',
+              title: l10n.tr('discovery_hub_my_chats_title'),
+              subtitle: l10n.tr('discovery_hub_my_chats_subtitle'),
               onTap: () => context.push('/messages'),
             ),
             const SizedBox(height: 10),
             _DiscoveryRow(
               icon: Icons.emoji_events_rounded,
               iconColor: const Color(0xFF38BDF8),
-              title: 'Competitions',
-              subtitle: 'Find leagues, tournaments and upcoming matches',
+              title: l10n.tr('discovery_hub_competitions_title'),
+              subtitle: l10n.tr('discovery_hub_competitions_subtitle'),
               onTap: () => context.push('/discovery/competitions'),
             ),
             const SizedBox(height: 10),
             _DiscoveryRow(
               icon: Icons.hub_rounded,
               iconColor: const Color(0xFF8B5CF6),
-              title: 'Organizers',
-              subtitle: 'Discover verified organizers and workspaces',
+              title: l10n.tr('discovery_hub_organizers_title'),
+              subtitle: l10n.tr('discovery_hub_organizers_subtitle'),
               onTap: () => context.push('/organizer-discovery'),
             ),
             const SizedBox(height: 10),
             _DiscoveryRow(
               icon: Icons.groups_rounded,
               iconColor: const Color(0xFF2DD4BF),
-              title: 'Teams',
-              subtitle: 'Find competitive teams and squads',
+              title: l10n.tr('discovery_hub_teams_title'),
+              subtitle: l10n.tr('discovery_hub_teams_subtitle'),
               onTap: () => context.push('/search'),
             ),
             const SizedBox(height: 10),
             _DiscoveryRow(
               icon: Icons.public_rounded,
               iconColor: const Color(0xFFF59E0B),
-              title: 'Community',
-              subtitle: 'Explore global eSportlyic content and discussions',
+              title: l10n.tr('discovery_hub_community_title'),
+              subtitle: l10n.tr('discovery_hub_community_subtitle'),
               onTap: () => context.push('/discovery/community'),
             ),
           ],

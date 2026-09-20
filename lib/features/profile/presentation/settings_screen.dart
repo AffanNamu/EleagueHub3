@@ -365,6 +365,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final t = theme.textTheme;
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
+    final l10n = context.l10n;
 
     final res = await showDialog<bool>(
       context: context,
@@ -409,7 +410,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       const SizedBox(width: 14),
                       Expanded(
                         child: Text(
-                          'Log out?',
+                          l10n.tr('settings_logout_confirm_title'),
                           style: t.titleLarge?.copyWith(
                             color: onSurface,
                             fontWeight: FontWeight.w900,
@@ -430,7 +431,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   Align(
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
-                      'You will need to sign in again to access your leagues and profile.',
+                      l10n.tr('settings_logout_confirm_message'),
                       style: TextStyle(
                         color: onSurface.withOpacity(0.65),
                         height: 1.4,
@@ -451,7 +452,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(ctx).pop(false),
-                          child: const Text('Cancel'),
+                          child: Text(l10n.tr('common_cancel')),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -464,7 +465,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => Navigator.of(ctx).pop(true),
-                          child: const Text('Log Out'),
+                          child: Text(l10n.tr('settings_logout_button')),
                         ),
                       ),
                     ],
@@ -532,7 +533,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     if (!mounted) return;
     if (upgraded) {
       ref.invalidate(isPremiumProvider);
-      _snack('Plan updated.');
+      _snack(context.l10n.tr('settings_plan_updated_snackbar'));
     }
   }
 
@@ -543,7 +544,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       case ThemeMode.system:
         return l10n.themeSystem;
       case ThemeMode.light:
-        return 'Light';
+        return l10n.themeLight;
       case ThemeMode.dark:
         return l10n.themeDark;
     }
@@ -665,7 +666,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Customize your experience',
+                              l10n.tr('settings_header_subtitle'),
                               style: TextStyle(
                                 color: onSurface.withOpacity(0.55),
                                 fontSize: 12,
@@ -684,7 +685,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 // ── Account (identity only — actions live below) ────────
                 _SectionLabel(
                   icon: Icons.person_rounded,
-                  label: 'Account',
+                  label: l10n.tr('settings_section_account'),
                 ),
                 const SizedBox(height: 8),
                 Glass(
@@ -714,7 +715,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              currentUser?.displayName ?? 'My Account',
+                              currentUser?.displayName ??
+                                  l10n.tr('settings_account_fallback_name'),
                               style: TextStyle(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 15,
@@ -746,7 +748,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 // ── Session (Logout) ─────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.meeting_room_rounded,
-                  label: 'Session',
+                  label: l10n.tr('settings_section_session'),
                 ),
                 const SizedBox(height: 8),
                 Glass(
@@ -773,7 +775,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Log out',
+                              l10n.tr('settings_logout_row_title'),
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
                                 fontSize: 14,
@@ -782,7 +784,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Sign out of this device.',
+                              l10n.tr('settings_logout_row_subtitle'),
                               style: TextStyle(
                                 color: onSurface.withOpacity(0.55),
                                 fontSize: 12,
@@ -809,9 +811,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Text(
-                                'Log Out',
-                                style: TextStyle(fontWeight: FontWeight.w800),
+                            : Text(
+                                l10n.tr('settings_logout_button'),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800),
                               ),
                       ),
                     ],
@@ -823,7 +826,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 // ── Verification ────────────────────────────────────────
                 _SectionLabel(
                   icon: Icons.verified_user_rounded,
-                  label: 'Verification',
+                  label: l10n.tr('settings_section_verification'),
                 ),
                 const SizedBox(height: 8),
                 createdMasterLeaguesAsync.when(
@@ -850,7 +853,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         borderRadius: 20,
                         padding: const EdgeInsets.all(16),
                         child: Text(
-                          'Create an organizer workspace first before requesting verification.',
+                          l10n.tr('settings_verification_no_workspace_message'),
                           style: TextStyle(
                             color: onSurface.withOpacity(0.68),
                             fontWeight: FontWeight.w700,
@@ -868,7 +871,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         borderRadius: 20,
                         padding: const EdgeInsets.all(16),
                         child: Text(
-                          'No organizer workspace is currently available for verification.',
+                          l10n.tr(
+                              'settings_verification_no_eligible_workspace_message'),
                           style: TextStyle(
                             color: onSurface.withOpacity(0.68),
                             fontWeight: FontWeight.w700,
@@ -888,41 +892,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         if (workspace.isVerifiedOrganizer) {
                           statusColor = const Color(0xFF1D9BF0);
                           statusIcon = Icons.verified_rounded;
-                          statusTitle = 'Verified';
-                          statusSubtitle =
-                              'Your organizer is already verified.';
+                          statusTitle =
+                              l10n.tr('settings_verification_status_verified');
+                          statusSubtitle = l10n.tr(
+                              'settings_verification_status_verified_subtitle');
                         } else if (workspace.verificationStatus
                                 .trim()
                                 .toLowerCase() ==
                             'info_requested') {
                           statusColor = const Color(0xFFF59E0B);
                           statusIcon = Icons.edit_document;
-                          statusTitle = 'Additional Info Requested';
-                          statusSubtitle =
-                              'eSportlyic needs more information before deciding. '
-                              'Resubmit your application to continue.';
-                          actionLabel = 'Resubmit Application';
+                          statusTitle = l10n.tr(
+                              'settings_verification_status_info_requested');
+                          statusSubtitle = l10n.tr(
+                              'settings_verification_status_info_requested_subtitle');
+                          actionLabel = l10n
+                              .tr('settings_verification_action_resubmit');
                         } else if (workspace.isVerificationPending) {
                           statusColor = const Color(0xFFF59E0B);
                           statusIcon = Icons.hourglass_top_rounded;
-                          statusTitle = 'Verification Pending';
-                          statusSubtitle =
-                              'Your verification request is currently under review.';
+                          statusTitle = l10n
+                              .tr('settings_verification_status_pending');
+                          statusSubtitle = l10n.tr(
+                              'settings_verification_status_pending_subtitle');
                         } else if (workspace.verificationExpired &&
                             workspace.canRenewVerification) {
                           statusColor = const Color(0xFFF59E0B);
                           statusIcon = Icons.refresh_rounded;
-                          statusTitle = 'Verification Expired';
-                          statusSubtitle =
-                              'Renew your organizer verification to restore the verified badge.';
-                          actionLabel = 'Get Verified';
+                          statusTitle = l10n
+                              .tr('settings_verification_status_expired');
+                          statusSubtitle = l10n.tr(
+                              'settings_verification_status_expired_subtitle');
+                          actionLabel = l10n.tr(
+                              'settings_verification_action_get_verified');
                         } else {
                           statusColor = onSurface.withOpacity(0.60);
                           statusIcon = Icons.verified_outlined;
-                          statusTitle = 'Not Verified';
-                          statusSubtitle =
-                              'Get verified to show trust and authenticity beside your organizer name.';
-                          actionLabel = 'Get Verified';
+                          statusTitle = l10n.tr(
+                              'settings_verification_status_not_verified');
+                          statusSubtitle = l10n.tr(
+                              'settings_verification_status_not_verified_subtitle');
+                          actionLabel = l10n.tr(
+                              'settings_verification_action_get_verified');
                         }
 
                         final canPress =
@@ -972,7 +983,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                         const SizedBox(height: 2),
                                         Text(
                                           workspace.name.trim().isEmpty
-                                              ? 'Organizer Workspace'
+                                              ? l10n.tr(
+                                                  'settings_verification_workspace_fallback_name')
                                               : workspace.name.trim(),
                                           style: TextStyle(
                                             color: onSurface,
@@ -1030,7 +1042,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 // ── Appearance (Theme + Language) ────────────────────────
                 _SectionLabel(
                   icon: Icons.palette_rounded,
-                  label: 'Appearance',
+                  label: l10n.tr('settings_item_appearance'),
                 ),
                 const SizedBox(height: 8),
                 Glass(
@@ -1212,13 +1224,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                     // the toggle back to OFF.
                                     ScaffoldMessenger.of(context)
                                         .showSnackBar(
-                                      const SnackBar(
+                                      SnackBar(
                                         behavior:
                                             SnackBarBehavior.floating,
                                         content: Text(
-                                          'Notification permission denied. '
-                                          'Please enable it in Android Settings '
-                                          '→ Apps → eSportlyic → Permissions.',
+                                          l10n.tr(
+                                              'settings_notifications_permission_denied_message'),
                                         ),
                                       ),
                                     );
@@ -1511,7 +1522,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                     'quick_messages_add_hint',
                                     'Add custom message…',
                                   ),
-                                  helperText: 'Max $_quickMaxChars chars',
+                                  helperText:
+                                      '${l10n.tr('settings_quick_messages_max_chars_prefix')}$_quickMaxChars${l10n.tr('settings_quick_messages_max_chars_suffix')}',
                                   hintStyle: TextStyle(
                                       color:
                                           onSurface.withOpacity(0.45)),
@@ -1614,7 +1626,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Powered by Nassara CoreTech',
+                              l10n.tr('settings_app_info_powered_by'),
                               style: TextStyle(
                                 color: onSurface.withOpacity(0.50),
                                 fontSize: 12,
@@ -1640,7 +1652,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'Danger Zone',
+                      l10n.tr('settings_danger_zone_title'),
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 14,
@@ -1660,7 +1672,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'close Account',
+                        l10n.tr('settings_danger_zone_close_account_title'),
                         style: TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 15,
@@ -1669,7 +1681,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Permanently close your account and all associated data. This action cannot be undone.',
+                        l10n.tr('settings_danger_zone_close_account_message'),
                         style: TextStyle(
                           color: onSurface.withOpacity(0.55),
                           fontSize: 12,
@@ -1715,8 +1727,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                                 ),
                           label: Text(
                             _deletingAccount
-                                ? 'Processing…'
-                                : 'Closing Account',
+                                ? l10n.tr('settings_danger_zone_processing')
+                                : l10n.tr(
+                                    'settings_danger_zone_close_account_button'),
                             style: const TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 14,
@@ -2085,7 +2098,7 @@ class _OverlayStatusCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 8, vertical: 4),
                 child: Text(
-                  'Grant',
+                  context.l10n.tr('settings_overlay_grant_button'),
                   style: TextStyle(
                     color: color,
                     fontWeight: FontWeight.w900,
@@ -2119,7 +2132,9 @@ class _PremiumBadge extends StatelessWidget {
         border: Border.all(color: color.withOpacity(0.30)),
       ),
       child: Text(
-        isPremium ? 'PREMIUM' : 'LOCKED',
+        isPremium
+            ? context.l10n.tr('settings_quick_messages_premium_badge')
+            : context.l10n.tr('leagues_badge_locked'),
         style: TextStyle(
           color: color,
           fontWeight: FontWeight.w900,

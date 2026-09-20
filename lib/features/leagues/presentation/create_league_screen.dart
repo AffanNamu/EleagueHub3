@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../../core/locale/app_localizations.dart';
 import '../../models/league_format.dart';
 
 /// Screen to create a new league.
@@ -50,9 +52,10 @@ class _CreateLeagueScreenState extends State<CreateLeagueScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Create eSportlyic League'),
+        title: Text(l10n.tr('create_league_appbar_title')),
         backgroundColor:
             _selectedFormat == LeagueFormat.classic ? Colors.green : Colors.indigo,
       ),
@@ -66,19 +69,20 @@ class _CreateLeagueScreenState extends State<CreateLeagueScreen> {
               /// League name
               TextFormField(
                 controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'League Name',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.tr('create_league_name_label'),
+                  border: const OutlineInputBorder(),
                 ),
-                validator: (val) =>
-                    val == null || val.isEmpty ? 'Enter a league name' : null,
+                validator: (val) => val == null || val.isEmpty
+                    ? l10n.tr('create_league_name_required')
+                    : null,
               ),
 
               const SizedBox(height: 24),
 
-              const Text(
-                'Select Format:',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Text(
+                l10n.tr('create_league_select_format_title'),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
 
               /// Classic League
@@ -122,7 +126,7 @@ class _CreateLeagueScreenState extends State<CreateLeagueScreen> {
                         width: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('CREATE LEAGUE'),
+                    : Text(l10n.tr('create_league_submit_button')),
               ),
             ],
           ),

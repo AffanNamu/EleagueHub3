@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/marketplace_repository.dart';
@@ -46,9 +47,10 @@ class ProductDetailsScreen extends StatelessWidget {
   }
 
   Future<void> _buyNow(BuildContext context, MarketplaceProduct p) async {
+    final l10n = context.l10n;
     final affiliate = p.affiliateUrl.trim();
     if (!_looksLikeHttpUrl(affiliate)) {
-      _snack(context, 'Invalid affiliate link.');
+      _snack(context, l10n.tr('marketplace_details_invalid_affiliate_link'));
       return;
     }
 
@@ -93,7 +95,7 @@ class ProductDetailsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  'Continue to Partner Store?',
+                  l10n.tr('marketplace_details_buy_confirm_title'),
                   style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
                         fontSize: 18,
@@ -101,7 +103,7 @@ class ProductDetailsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'You will be redirected to an external store to complete your purchase.',
+                  l10n.tr('marketplace_details_buy_confirm_body'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: onSurface.withOpacity(0.60),
@@ -117,7 +119,7 @@ class ProductDetailsScreen extends StatelessWidget {
                       child: OutlinedButton(
                         onPressed: () =>
                             Navigator.of(ctx).pop(false),
-                        child: const Text('Cancel'),
+                        child: Text(l10n.tr('marketplace_details_buy_confirm_cancel')),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -128,7 +130,7 @@ class ProductDetailsScreen extends StatelessWidget {
                         icon: const Icon(
                             Icons.open_in_new_rounded,
                             size: 18),
-                        label: const Text('Continue'),
+                        label: Text(l10n.tr('marketplace_details_buy_confirm_continue')),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: cs.primary,
                           foregroundColor: Colors.white,
@@ -148,7 +150,7 @@ class ProductDetailsScreen extends StatelessWidget {
 
     final uri = _parseAffiliateUri(affiliate);
     if (uri == null) {
-      _snack(context, 'Invalid link URL.');
+      _snack(context, l10n.tr('marketplace_details_invalid_link_url'));
       return;
     }
 
@@ -156,17 +158,18 @@ class ProductDetailsScreen extends StatelessWidget {
       final launched =
           await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!launched && context.mounted) {
-        _snack(context, 'Could not open partner store.');
+        _snack(context, l10n.tr('marketplace_details_open_store_failed'));
       }
     } catch (_) {
       if (context.mounted) {
-        _snack(context, 'Could not open partner store.');
+        _snack(context, l10n.tr('marketplace_details_open_store_failed'));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final onSurface = cs.onSurface;
@@ -278,7 +281,7 @@ class ProductDetailsScreen extends StatelessWidget {
                   children: [
                     Text(
                       p.name.trim().isEmpty
-                          ? 'Untitled product'
+                          ? l10n.tr('marketplace_details_untitled_product')
                           : p.name.trim(),
                       style: theme
                           .textTheme.titleLarge
@@ -306,7 +309,7 @@ class ProductDetailsScreen extends StatelessWidget {
                             .withOpacity(0.08)),
                     const SizedBox(height: 12),
                     Text(
-                      'Description',
+                      l10n.tr('marketplace_details_description_label'),
                       style: TextStyle(
                         color: onSurface
                             .withOpacity(0.55),
@@ -318,7 +321,7 @@ class ProductDetailsScreen extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       p.description.trim().isEmpty
-                          ? 'No description.'
+                          ? l10n.tr('marketplace_details_no_description')
                           : p.description.trim(),
                       style: TextStyle(
                         color: onSurface
@@ -342,9 +345,9 @@ class ProductDetailsScreen extends StatelessWidget {
                       _buyNow(context, p),
                   icon: const Icon(
                       Icons.shopping_cart_rounded),
-                  label: const Text(
-                    'BUY NOW',
-                    style: TextStyle(
+                  label: Text(
+                    l10n.tr('marketplace_details_buy_now'),
+                    style: const TextStyle(
                       fontWeight:
                           FontWeight.w900,
                       letterSpacing: 0.5,

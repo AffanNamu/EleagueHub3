@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/routing/route_resolver.dart';
 import '../../../core/services/supabase_edge_notifications_service.dart';
@@ -317,7 +318,7 @@ class _MasterLeagueDetailsScreenState
     } catch (_) {}
     final shortId = UserProfile.deriveShareIdFromUid(ownerId.trim());
     if (shortId.isNotEmpty) return shortId;
-    return 'Organizer';
+    return context.l10n.tr('master_league_details_organizer_fallback');
   }
 
   Future<Membership?> _membershipForLeague(String leagueId) {
@@ -469,13 +470,13 @@ class _MasterLeagueDetailsScreenState
   Future<void> _openOrganizerChatIfAllowed(MasterLeague master) async {
     final uid = _currentUid.trim();
     if (uid.isEmpty) {
-      _snack('Please sign in to access organizer chat.', error: true);
+      _snack(context.l10n.tr('master_league_details_chat_sign_in_required'), error: true);
       return;
     }
     final allowed = await _canAccessOrganizerChat(master);
     if (!allowed) {
       _snack(
-        'Organizer chat is only available if you follow this organizer or joined one of their competitions.',
+        context.l10n.tr('master_league_details_chat_access_denied'),
         error: true,
       );
       return;
@@ -489,7 +490,7 @@ class _MasterLeagueDetailsScreenState
   Future<void> _promptJoinCompetition(League league) async {
     final uid = _currentUid.trim();
     if (uid.isEmpty) {
-      _snack('Please sign in and try again.', error: true);
+      _snack(context.l10n.tr('master_league_details_join_sign_in_required'), error: true);
       return;
     }
     if (_joiningLeagueId == league.id) return;
@@ -499,13 +500,13 @@ class _MasterLeagueDetailsScreenState
       existing = await repo.getMembership(leagueId: league.id, userId: uid);
     } catch (_) {}
     if (existing != null) {
-      _snack('You already joined this competition.');
+      _snack(context.l10n.tr('master_league_details_already_joined_message'));
       return;
     }
     final selectedMode = await showJoinLeagueModeSheet(
       context,
       league: league,
-      title: 'Join Competition',
+      title: context.l10n.tr('master_league_details_join_competition_label'),
     );
     if (selectedMode == null) return;
     if (mounted) setState(() => _joiningLeagueId = league.id);
@@ -515,8 +516,8 @@ class _MasterLeagueDetailsScreenState
       _membershipCache.remove(league.id);
       _snack(
         selectedMode == LeagueJoinMode.viewer
-            ? 'Competition added to your list as viewer.'
-            : 'Successfully joined competition.',
+            ? context.l10n.tr('master_league_details_joined_as_viewer_message')
+            : context.l10n.tr('master_league_details_joined_success_message'),
       );
     } catch (e) {
       if (!mounted) return;
@@ -534,7 +535,7 @@ class _MasterLeagueDetailsScreenState
   ) async {
     if (ml == null || !_isOwner(ml)) {
       _snack(
-        'Only the Master League owner can create competitions.',
+        context.l10n.tr('master_league_details_create_competition_owner_only'),
         error: true,
       );
       return;
@@ -600,7 +601,7 @@ class _MasterLeagueDetailsScreenState
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
         surfaceTintColor: Colors.transparent,
-        title: const Text('Post Organizer Announcement'),
+        title: Text(context.l10n.tr('master_league_details_announcement_composer_title')),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -608,9 +609,9 @@ class _MasterLeagueDetailsScreenState
               TextField(
                 controller: titleCtrl,
                 maxLength: 80,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  prefixIcon: Icon(Icons.campaign_outlined),
+                decoration: InputDecoration(
+                  labelText: context.l10n.tr('master_league_details_announcement_title_label'),
+                  prefixIcon: const Icon(Icons.campaign_outlined),
                 ),
               ),
               const SizedBox(height: 10),
@@ -618,10 +619,10 @@ class _MasterLeagueDetailsScreenState
                 controller: messageCtrl,
                 maxLines: 5,
                 maxLength: 1000,
-                decoration: const InputDecoration(
-                  labelText: 'Message',
+                decoration: InputDecoration(
+                  labelText: context.l10n.tr('master_league_details_announcement_message_label'),
                   alignLabelWithHint: true,
-                  prefixIcon: Icon(Icons.notes_outlined),
+                  prefixIcon: const Icon(Icons.notes_outlined),
                 ),
               ),
             ],
@@ -630,7 +631,7 @@ class _MasterLeagueDetailsScreenState
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.tr('common_cancel')),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -638,7 +639,7 @@ class _MasterLeagueDetailsScreenState
               foregroundColor: AppTheme.darkText,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Post'),
+            child: Text(context.l10n.tr('master_league_details_post_button')),
           ),
         ],
       ),
@@ -653,7 +654,7 @@ class _MasterLeagueDetailsScreenState
     titleCtrl.dispose();
     messageCtrl.dispose();
     if (title.isEmpty || message.isEmpty) {
-      _snack('Please enter both title and message.', error: true);
+      _snack(context.l10n.tr('master_league_details_announcement_missing_fields'), error: true);
       return;
     }
     setState(() => _busy = true);
@@ -663,7 +664,7 @@ class _MasterLeagueDetailsScreenState
       final authorName =
           ownerProfile?.displayName.trim().isNotEmpty == true
               ? ownerProfile!.displayName.trim()
-              : 'Organizer';
+              : context.l10n.tr('master_league_details_organizer_fallback');
       await _announcements.addMasterLeagueAnnouncement(
         masterLeagueId: ml.id,
         title: title,
@@ -690,7 +691,7 @@ class _MasterLeagueDetailsScreenState
           title: title,
         ),
       );
-      _snack('Announcement posted.');
+      _snack(context.l10n.tr('master_league_details_announcement_posted_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -708,7 +709,7 @@ class _MasterLeagueDetailsScreenState
         announcementId: ann.id,
         pinnedBy: _currentUid,
       );
-      _snack('Announcement pinned.');
+      _snack(context.l10n.tr('master_league_details_announcement_pinned_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -723,7 +724,7 @@ class _MasterLeagueDetailsScreenState
         announcementId: ann.id,
         masterLeagueId: ann.masterLeagueId,
       );
-      _snack('Announcement unpinned.');
+      _snack(context.l10n.tr('master_league_details_announcement_unpinned_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -738,21 +739,22 @@ class _MasterLeagueDetailsScreenState
         backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
         surfaceTintColor: Colors.transparent,
         title: Text(
-          'Delete announcement?',
+          context.l10n.tr('master_league_details_delete_announcement_title'),
           style: TextStyle(color: Theme.of(ctx).colorScheme.error),
         ),
-        content: Text('Delete "${ann.title}" from organizer announcements?'),
+        content: Text(
+            '${context.l10n.tr('master_league_details_delete_quote_prefix')}${ann.title}${context.l10n.tr('master_league_details_delete_announcement_confirm_suffix')}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.tr('common_cancel')),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
+            child: Text(context.l10n.tr('league_admin_delete')),
           ),
         ],
       ),
@@ -764,7 +766,7 @@ class _MasterLeagueDetailsScreenState
         ann.id,
         masterLeagueId: ann.masterLeagueId,
       );
-      _snack('Announcement deleted.');
+      _snack(context.l10n.tr('master_league_details_announcement_deleted_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -793,7 +795,7 @@ class _MasterLeagueDetailsScreenState
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Rename Master League',
+                context.l10n.tr('master_league_details_rename_dialog_title'),
                 style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: AppTheme.primaryText(brightness),
@@ -805,9 +807,9 @@ class _MasterLeagueDetailsScreenState
                 autofocus: true,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
-                decoration: const InputDecoration(
-                  labelText: 'New Name',
-                  prefixIcon: Icon(Icons.edit_outlined),
+                decoration: InputDecoration(
+                  labelText: context.l10n.tr('master_league_details_rename_new_name_label'),
+                  prefixIcon: const Icon(Icons.edit_outlined),
                 ),
               ),
               const SizedBox(height: 14),
@@ -816,9 +818,9 @@ class _MasterLeagueDetailsScreenState
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => Navigator.of(ctx).pop(null),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(fontWeight: FontWeight.w900),
+                      child: Text(
+                        context.l10n.tr('common_cancel'),
+                        style: const TextStyle(fontWeight: FontWeight.w900),
                       ),
                     ),
                   ),
@@ -830,9 +832,9 @@ class _MasterLeagueDetailsScreenState
                         foregroundColor: AppTheme.darkText,
                       ),
                       onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-                      child: const Text(
-                        'Rename',
-                        style: TextStyle(fontWeight: FontWeight.w900),
+                      child: Text(
+                        context.l10n.tr('master_league_details_rename_button'),
+                        style: const TextStyle(fontWeight: FontWeight.w900),
                       ),
                     ),
                   ),
@@ -851,7 +853,7 @@ class _MasterLeagueDetailsScreenState
             masterLeagueId: widget.masterLeagueId,
             newName: newName,
           );
-      _snack('Renamed to "$newName"');
+      _snack('${context.l10n.tr('master_league_details_renamed_to_prefix')}$newName"');
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -863,7 +865,7 @@ class _MasterLeagueDetailsScreenState
 
   Future<void> _showTemplateComposer(MasterLeague ml) async {
     if (!_isOwner(ml)) {
-      _snack('Only the owner can create templates.', error: true);
+      _snack(context.l10n.tr('master_league_details_template_owner_only'), error: true);
       return;
     }
     final nameCtrl = TextEditingController();
@@ -905,7 +907,7 @@ class _MasterLeagueDetailsScreenState
             return AlertDialog(
               backgroundColor: AppTheme.cardColor(brightness),
               surfaceTintColor: Colors.transparent,
-              title: const Text('Create Competition Template'),
+              title: Text(context.l10n.tr('master_league_details_template_composer_title')),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -913,9 +915,9 @@ class _MasterLeagueDetailsScreenState
                     TextField(
                       controller: nameCtrl,
                       maxLength: 80,
-                      decoration: const InputDecoration(
-                        labelText: 'Template Name',
-                        prefixIcon: Icon(Icons.bookmark_outline),
+                      decoration: InputDecoration(
+                        labelText: context.l10n.tr('master_league_details_template_name_label'),
+                        prefixIcon: const Icon(Icons.bookmark_outline),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -923,35 +925,35 @@ class _MasterLeagueDetailsScreenState
                       controller: descCtrl,
                       maxLines: 4,
                       maxLength: 500,
-                      decoration: const InputDecoration(
-                        labelText: 'Template Description',
+                      decoration: InputDecoration(
+                        labelText: context.l10n.tr('master_league_details_template_description_label'),
                         alignLabelWithHint: true,
-                        prefixIcon: Icon(Icons.notes_outlined),
+                        prefixIcon: const Icon(Icons.notes_outlined),
                       ),
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<LeagueFormat>(
                       value: format,
-                      decoration: const InputDecoration(
-                        labelText: 'Competition Format',
-                        prefixIcon: Icon(Icons.auto_awesome_outlined),
+                      decoration: InputDecoration(
+                        labelText: context.l10n.tr('master_league_details_template_format_label'),
+                        prefixIcon: const Icon(Icons.auto_awesome_outlined),
                       ),
-                      items: const [
+                      items: [
                         DropdownMenuItem(
                           value: LeagueFormat.classic,
-                          child: Text('Classic League'),
+                          child: Text(context.l10n.tr('master_league_details_format_classic')),
                         ),
                         DropdownMenuItem(
                           value: LeagueFormat.uclGroup,
-                          child: Text('UCL Group League'),
+                          child: Text(context.l10n.tr('master_league_details_format_ucl_group')),
                         ),
                         DropdownMenuItem(
                           value: LeagueFormat.uclSwiss,
-                          child: Text('Swiss / Series League'),
+                          child: Text(context.l10n.tr('master_league_details_format_swiss_series')),
                         ),
                         DropdownMenuItem(
                           value: LeagueFormat.worldCup,
-                          child: Text('🌍 World Cup'),
+                          child: Text(context.l10n.tr('master_league_details_world_cup_label')),
                         ),
                       ],
                       onChanged: (v) {
@@ -968,7 +970,7 @@ class _MasterLeagueDetailsScreenState
                       DropdownButtonFormField<WorldCupFormat>(
                         value: worldCupFormat,
                         decoration: InputDecoration(
-                          labelText: 'World Cup Format',
+                          labelText: context.l10n.tr('master_league_details_world_cup_format_label'),
                           prefixIcon: Icon(Icons.public_rounded,
                               color: _worldCupGold),
                         ),
@@ -1010,7 +1012,7 @@ class _MasterLeagueDetailsScreenState
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                '${worldCupFormat.teamCount} teams • ${worldCupFormat.groupCount} groups • Single round-robin',
+                                '${worldCupFormat.teamCount}${context.l10n.tr('master_league_details_wc_teams_suffix')}${worldCupFormat.groupCount}${context.l10n.tr('master_league_details_wc_groups_single_rr_suffix')}',
                                 style: TextStyle(
                                   color: _worldCupGold,
                                   fontWeight: FontWeight.w800,
@@ -1026,14 +1028,14 @@ class _MasterLeagueDetailsScreenState
                     if (format != LeagueFormat.worldCup)
                       DropdownButtonFormField<int>(
                         value: maxTeams,
-                        decoration: const InputDecoration(
-                          labelText: 'Max Teams',
-                          prefixIcon: Icon(Icons.groups_outlined),
+                        decoration: InputDecoration(
+                          labelText: context.l10n.tr('master_league_details_max_teams_label'),
+                          prefixIcon: const Icon(Icons.groups_outlined),
                         ),
                         items: allowedTeams()
                             .map((e) => DropdownMenuItem<int>(
                                   value: e,
-                                  child: Text('$e teams'),
+                                  child: Text('$e${context.l10n.tr('master_league_details_teams_count_suffix')}'),
                                 ))
                             .toList(growable: false),
                         onChanged: (v) {
@@ -1044,18 +1046,18 @@ class _MasterLeagueDetailsScreenState
                     const SizedBox(height: 10),
                     DropdownButtonFormField<LeaguePrivacy>(
                       value: privacy,
-                      decoration: const InputDecoration(
-                        labelText: 'Privacy',
-                        prefixIcon: Icon(Icons.lock_outline),
+                      decoration: InputDecoration(
+                        labelText: context.l10n.tr('master_league_details_privacy_label'),
+                        prefixIcon: const Icon(Icons.lock_outline),
                       ),
-                      items: const [
+                      items: [
                         DropdownMenuItem(
                           value: LeaguePrivacy.private,
-                          child: Text('Private'),
+                          child: Text(context.l10n.tr('master_league_details_privacy_private')),
                         ),
                         DropdownMenuItem(
                           value: LeaguePrivacy.public,
-                          child: Text('Public'),
+                          child: Text(context.l10n.tr('master_league_details_privacy_public')),
                         ),
                       ],
                       onChanged: (v) {
@@ -1069,7 +1071,7 @@ class _MasterLeagueDetailsScreenState
                       value: containsRewards,
                       onChanged: (v) =>
                           setModalState(() => containsRewards = v),
-                      title: const Text('Contains rewards'),
+                      title: Text(context.l10n.tr('master_league_details_contains_rewards_label')),
                     ),
                     if (supportsHomeAway)
                       SwitchListTile.adaptive(
@@ -1077,16 +1079,16 @@ class _MasterLeagueDetailsScreenState
                         value: homeAwayEnabled,
                         onChanged: (v) =>
                             setModalState(() => homeAwayEnabled = v),
-                        title: const Text('Home & Away matches'),
-                        subtitle: const Text(
-                          'Each team plays twice (home and away).',
+                        title: Text(context.l10n.tr('master_league_details_home_away_label')),
+                        subtitle: Text(
+                          context.l10n.tr('master_league_details_home_away_subtitle'),
                         ),
                       ),
                     if (format == LeagueFormat.uclSwiss) ...[
                       const SizedBox(height: 8),
                       _formatHintBox(
                         brightness,
-                        'Swiss / Series templates are ideal for repeat tournament structures.',
+                        context.l10n.tr('master_league_details_swiss_hint'),
                         color: AppTheme.limeAccentDark,
                       ),
                     ],
@@ -1094,7 +1096,7 @@ class _MasterLeagueDetailsScreenState
                       const SizedBox(height: 8),
                       _formatHintBox(
                         brightness,
-                        '🌍 World Cup templates include group stage, knockout rounds, third place match, and final. Home/away is not supported.',
+                        context.l10n.tr('master_league_details_world_cup_hint'),
                         color: _worldCupGold,
                       ),
                     ],
@@ -1104,7 +1106,7 @@ class _MasterLeagueDetailsScreenState
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(ctx).pop(false),
-                  child: const Text('Cancel'),
+                  child: Text(context.l10n.tr('common_cancel')),
                 ),
                 FilledButton(
                   style: FilledButton.styleFrom(
@@ -1114,7 +1116,7 @@ class _MasterLeagueDetailsScreenState
                     foregroundColor: Colors.white,
                   ),
                   onPressed: () => Navigator.of(ctx).pop(true),
-                  child: const Text('Save Template'),
+                  child: Text(context.l10n.tr('master_league_details_save_template_button')),
                 ),
               ],
             );
@@ -1133,7 +1135,7 @@ class _MasterLeagueDetailsScreenState
     nameCtrl.dispose();
     descCtrl.dispose();
     if (name.isEmpty) {
-      _snack('Template name is required.', error: true);
+      _snack(context.l10n.tr('master_league_details_template_name_required'), error: true);
       return;
     }
     setState(() => _busy = true);
@@ -1161,7 +1163,7 @@ class _MasterLeagueDetailsScreenState
         masterLeagueId: ml.id,
         template: template,
       );
-      _snack('Competition template saved.');
+      _snack(context.l10n.tr('master_league_details_template_saved_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -1203,21 +1205,22 @@ class _MasterLeagueDetailsScreenState
         backgroundColor: AppTheme.cardColor(Theme.of(ctx).brightness),
         surfaceTintColor: Colors.transparent,
         title: Text(
-          'Delete template?',
+          context.l10n.tr('master_league_details_delete_template_title'),
           style: TextStyle(color: Theme.of(ctx).colorScheme.error),
         ),
-        content: Text('Delete "${template.name}"?'),
+        content: Text(
+            '${context.l10n.tr('master_league_details_delete_quote_prefix')}${template.name}${context.l10n.tr('master_league_details_delete_template_confirm_suffix')}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.tr('common_cancel')),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
+            child: Text(context.l10n.tr('league_admin_delete')),
           ),
         ],
       ),
@@ -1231,7 +1234,7 @@ class _MasterLeagueDetailsScreenState
             masterLeagueId: ml.id,
             templateId: template.id,
           );
-      _snack('Template deleted.');
+      _snack(context.l10n.tr('master_league_details_template_deleted_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
@@ -1301,7 +1304,7 @@ class _MasterLeagueDetailsScreenState
                           const SizedBox(width: 14),
                           Expanded(
                             child: Text(
-                              'Delete Workspace',
+                              context.l10n.tr('master_league_details_delete_workspace_title'),
                               style: Theme.of(ctx)
                                   .textTheme
                                   .titleLarge
@@ -1330,7 +1333,7 @@ class _MasterLeagueDetailsScreenState
                           ),
                         ),
                         child: Text(
-                          '⚠️ This action will permanently delete your workspace, including all leagues, players, and data. This cannot be undone.',
+                          context.l10n.tr('master_league_details_delete_workspace_warning'),
                           style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
                                 color: Theme.of(ctx).colorScheme.error,
                                 fontWeight: FontWeight.w900,
@@ -1340,7 +1343,7 @@ class _MasterLeagueDetailsScreenState
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Please type your profile name exactly to confirm.',
+                        context.l10n.tr('master_league_details_delete_workspace_confirm_instruction'),
                         style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
                               color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w800,
@@ -1375,10 +1378,11 @@ class _MasterLeagueDetailsScreenState
                         onChanged: (value) =>
                             setModalState(() => typed = value),
                         decoration: InputDecoration(
-                          labelText: 'Type exact name to confirm',
+                          labelText: context.l10n.tr('master_league_details_delete_workspace_confirm_label'),
                           prefixIcon: const Icon(Icons.edit_outlined),
-                          errorText:
-                              showMismatch ? 'Name does not match' : null,
+                          errorText: showMismatch
+                              ? context.l10n.tr('master_league_details_delete_workspace_name_mismatch')
+                              : null,
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -1389,9 +1393,9 @@ class _MasterLeagueDetailsScreenState
                               onPressed: deleting
                                   ? null
                                   : () => Navigator.of(ctx).pop(false),
-                              child: const Text(
-                                'Cancel',
-                                style: TextStyle(fontWeight: FontWeight.w900),
+                              child: Text(
+                                context.l10n.tr('common_cancel'),
+                                style: const TextStyle(fontWeight: FontWeight.w900),
                               ),
                             ),
                           ),
@@ -1410,7 +1414,9 @@ class _MasterLeagueDetailsScreenState
                                       Navigator.of(ctx).pop(true);
                                     },
                               child: Text(
-                                deleting ? 'Deleting...' : 'Delete Workspace',
+                                deleting
+                                    ? context.l10n.tr('master_league_details_deleting_ellipsis')
+                                    : context.l10n.tr('master_league_details_delete_workspace_title'),
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w900),
                               ),
@@ -1433,7 +1439,7 @@ class _MasterLeagueDetailsScreenState
     try {
       await ref.read(masterLeaguesRepositoryProvider).delete(master.id);
       if (!mounted) return;
-      _snack('Workspace deleted.');
+      _snack(context.l10n.tr('master_league_details_workspace_deleted_message'));
       _safeGo('/master-leagues');
     } catch (e) {
       _snack('$e', error: true);
@@ -1550,22 +1556,22 @@ class _MasterLeagueDetailsScreenState
               children: [
                 ListTile(
                   leading: const Icon(Icons.edit_outlined),
-                  title: const Text('Rename Master League'),
+                  title: Text(context.l10n.tr('master_league_details_rename_dialog_title')),
                   onTap: () => Navigator.of(ctx).pop('rename'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.badge_outlined),
-                  title: const Text('Organizer Profile'),
+                  title: Text(context.l10n.tr('master_league_details_organizer_profile_label')),
                   onTap: () => Navigator.of(ctx).pop('profile'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.groups_2_outlined),
-                  title: const Text('Manage Staff'),
+                  title: Text(context.l10n.tr('master_league_details_manage_staff_label')),
                   onTap: () => Navigator.of(ctx).pop('staff'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.delete_forever_outlined),
-                  title: const Text('Delete Workspace'),
+                  title: Text(context.l10n.tr('master_league_details_delete_workspace_title')),
                   onTap: () => Navigator.of(ctx).pop('delete'),
                 ),
               ],
@@ -1625,7 +1631,7 @@ class _MasterLeagueDetailsScreenState
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'All Competitions',
+                            context.l10n.tr('master_league_details_all_competitions_title'),
                             style: sheetTheme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w900,
                               color: AppTheme.primaryText(brightness),
@@ -1644,11 +1650,11 @@ class _MasterLeagueDetailsScreenState
                     const SizedBox(height: 14),
                     Expanded(
                       child: leagues.isEmpty
-                          ? const Center(
+                          ? Center(
                               child: EmptyState(
-                                title: 'No competitions yet',
-                                message:
-                                    'There are no competitions in this Master League.',
+                                title: context.l10n.tr('master_league_details_no_competitions_title'),
+                                message: context.l10n.tr(
+                                    'master_league_details_no_competitions_message_workspace'),
                                 icon: Icons.emoji_events_outlined,
                               ),
                             )
@@ -1720,9 +1726,9 @@ class _MasterLeagueDetailsScreenState
                                                       '/leagues/${l.id}'),
                                                   icon: const Icon(Icons
                                                       .open_in_new_rounded),
-                                                  label: const Text(
-                                                    'Open',
-                                                    style: TextStyle(
+                                                  label: Text(
+                                                    context.l10n.tr('common_open'),
+                                                    style: const TextStyle(
                                                       fontWeight:
                                                           FontWeight.w900,
                                                     ),
@@ -1736,9 +1742,9 @@ class _MasterLeagueDetailsScreenState
                                                         onPressed: null,
                                                         icon: const Icon(Icons
                                                             .check_circle_outline_rounded),
-                                                        label: const Text(
-                                                          'Joined',
-                                                          style: TextStyle(
+                                                        label: Text(
+                                                          context.l10n.tr('master_league_details_joined_label'),
+                                                          style: const TextStyle(
                                                             fontWeight:
                                                                 FontWeight
                                                                     .w900,
@@ -1776,8 +1782,10 @@ class _MasterLeagueDetailsScreenState
                                                                 .login_rounded),
                                                         label: Text(
                                                           joiningThis
-                                                              ? 'Joining...'
-                                                              : 'Join',
+                                                              ? context.l10n.tr(
+                                                                  'master_league_details_joining_ellipsis')
+                                                              : context.l10n.tr(
+                                                                  'master_league_details_join_button'),
                                                           style:
                                                               const TextStyle(
                                                             fontWeight:
@@ -1825,7 +1833,7 @@ class _MasterLeagueDetailsScreenState
             Icon(Icons.public_rounded, color: _worldCupGold, size: 14),
             const SizedBox(width: 6),
             Text(
-              '🌍 World Cup',
+              context.l10n.tr('master_league_details_world_cup_label'),
               style: TextStyle(
                 color: _worldCupGold,
                 fontWeight: FontWeight.w900,
@@ -1891,12 +1899,12 @@ class _MasterLeagueDetailsScreenState
 
         return GlassScaffold(
           appBar: AppBar(
-            title: const Text('Master League Workspace'),
+            title: Text(context.l10n.tr('master_league_details_appbar_title')),
             backgroundColor: Colors.transparent,
             elevation: 0,
             leading: IconButton(
               icon: const Icon(Icons.arrow_back),
-              tooltip: 'Back',
+              tooltip: context.l10n.tr('common_back'),
               onPressed: _safePop,
             ),
             actions: [
@@ -1907,29 +1915,29 @@ class _MasterLeagueDetailsScreenState
                     id: master.id,
                   ),
                   title: master.name.trim().isEmpty
-                      ? 'Organizer Workspace'
+                      ? context.l10n.tr('master_league_details_share_title_fallback')
                       : master.name.trim(),
                   description: master.organizerProfile.bio.trim().isEmpty
-                      ? 'Check out this organizer workspace on eSportlyic.'
+                      ? context.l10n.tr('master_league_details_share_description_fallback')
                       : master.organizerProfile.bio.trim(),
-                  tooltip: 'Share workspace',
+                  tooltip: context.l10n.tr('master_league_details_share_tooltip'),
                 ),
               if (master != null && _currentUid.isNotEmpty)
                 IconButton(
-                  tooltip: 'Organizer Profile',
+                  tooltip: context.l10n.tr('master_league_details_organizer_profile_label'),
                   onPressed: () => _openOrganizerProfile(master),
                   icon: const Icon(Icons.badge_outlined),
                 ),
               if (isOwner)
                 IconButton(
-                  tooltip: 'Create Competition',
+                  tooltip: context.l10n.tr('master_league_details_create_competition_label'),
                   onPressed: () =>
                       _showCreateCompetitionSheet(context, master),
                   icon: const Icon(Icons.add_circle_outline_rounded),
                 ),
               if (isOwner && master != null)
                 IconButton(
-                  tooltip: 'Workspace options',
+                  tooltip: context.l10n.tr('master_league_details_workspace_options_tooltip'),
                   onPressed: () => _showOwnerMenu(master),
                   icon: const Icon(Icons.more_vert),
                 ),
@@ -1947,7 +1955,7 @@ class _MasterLeagueDetailsScreenState
                     onPressed: () =>
                         _showCreateCompetitionSheet(context, master),
                     icon: const Icon(Icons.add),
-                    label: const Text('Create Competition'),
+                    label: Text(context.l10n.tr('master_league_details_create_competition_label')),
                   ),
                 )
               : null,
@@ -1958,9 +1966,8 @@ class _MasterLeagueDetailsScreenState
                   if (hasPermissionError) {
                     return Center(
                       child: EmptyState(
-                        title: 'Access Denied',
-                        message:
-                            'You do not have permission to view this Master League. Please sign in or contact the organizer.',
+                        title: context.l10n.tr('master_league_details_access_denied_title'),
+                        message: context.l10n.tr('master_league_details_access_denied_message'),
                         icon: Icons.lock_outline_rounded,
                         action: FilledButton.icon(
                           style: FilledButton.styleFrom(
@@ -1969,7 +1976,7 @@ class _MasterLeagueDetailsScreenState
                           ),
                           onPressed: () => _safeGo('/master-leagues'),
                           icon: const Icon(Icons.arrow_back),
-                          label: const Text('Go Back'),
+                          label: Text(context.l10n.tr('master_league_details_go_back_button')),
                         ),
                       ),
                     );
@@ -1980,7 +1987,7 @@ class _MasterLeagueDetailsScreenState
                     return Center(
                       child: _GlassLoader(
                         size: 48,
-                        message: 'Loading workspace…',
+                        message: context.l10n.tr('master_league_details_loading_workspace'),
                       ),
                     );
                   }
@@ -1988,9 +1995,8 @@ class _MasterLeagueDetailsScreenState
                   if (master == null) {
                     return Center(
                       child: EmptyState(
-                        title: 'Master League not found',
-                        message:
-                            'This may have been deleted or you don\'t have access.',
+                        title: context.l10n.tr('master_league_details_not_found_title'),
+                        message: context.l10n.tr('master_league_details_not_found_message'),
                         icon: Icons.hub_rounded,
                         action: FilledButton.icon(
                           style: FilledButton.styleFrom(
@@ -1999,7 +2005,7 @@ class _MasterLeagueDetailsScreenState
                           ),
                           onPressed: () => _safeGo('/master-leagues'),
                           icon: const Icon(Icons.arrow_back),
-                          label: const Text('Go Back'),
+                          label: Text(context.l10n.tr('master_league_details_go_back_button')),
                         ),
                       ),
                     );
@@ -2074,7 +2080,7 @@ class _MasterLeagueDetailsScreenState
                             _GlassLoader(size: 44),
                             const SizedBox(height: 16),
                             Text(
-                              'Please wait…',
+                              context.l10n.tr('common_please_wait'),
                               style: TextStyle(
                                 color: AppTheme.secondaryText(brightness),
                                 fontWeight: FontWeight.w700,
@@ -2205,17 +2211,17 @@ class _MasterLeagueDetailsScreenState
             : AppTheme.secondaryText(brightness));
 
     final trustLabel = master.isVerifiedOrganizer
-        ? 'Verified Organizer'
+        ? context.l10n.tr('master_league_details_verified_organizer_label')
         : (master.isVerificationPending
-            ? 'Verification Pending'
-            : 'Unverified');
+            ? context.l10n.tr('master_league_details_verification_pending_label')
+            : context.l10n.tr('master_league_details_unverified_label'));
 
     return FutureBuilder<String>(
       future: _ownerDisplayName(master.ownerId),
       builder: (context, ownerSnap) {
         final ownerName = ownerSnap.data?.trim().isNotEmpty == true
             ? ownerSnap.data!.trim()
-            : 'Organizer';
+            : context.l10n.tr('master_league_details_organizer_fallback');
 
         return Glass(
           borderRadius: 30,
@@ -2249,7 +2255,7 @@ class _MasterLeagueDetailsScreenState
                           ),
                           alignment: Alignment.center,
                           child: Text(
-                            'Banner unavailable',
+                            context.l10n.tr('master_league_details_banner_unavailable'),
                             style: TextStyle(
                               color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w800,
@@ -2294,7 +2300,7 @@ class _MasterLeagueDetailsScreenState
                               children: [
                                 Text(
                                   master.name.trim().isEmpty
-                                      ? 'Master League'
+                                      ? context.l10n.tr('master_league_details_master_league_fallback_name')
                                       : master.name.trim(),
                                   style: theme.textTheme.titleLarge?.copyWith(
                                     fontWeight: FontWeight.w900,
@@ -2320,7 +2326,7 @@ class _MasterLeagueDetailsScreenState
                               children: [
                                 Flexible(
                                   child: Text(
-                                    'Managed by $ownerName',
+                                    '${context.l10n.tr('master_league_details_managed_by_prefix')}$ownerName',
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color:
                                           AppTheme.secondaryText(brightness),
@@ -2342,7 +2348,7 @@ class _MasterLeagueDetailsScreenState
                             const SizedBox(height: 8),
                             Text(
                               master.organizerProfile.bio.trim().isEmpty
-                                  ? 'No organizer bio yet.'
+                                  ? context.l10n.tr('master_league_details_no_bio_message')
                                   : master.organizerProfile.bio.trim(),
                               maxLines: 4,
                               overflow: TextOverflow.ellipsis,
@@ -2403,19 +2409,19 @@ class _MasterLeagueDetailsScreenState
     final stats = <_DashboardStat>[
       _DashboardStat(
         icon: Icons.emoji_events_outlined,
-        label: 'Competitions',
+        label: context.l10n.tr('master_league_details_stat_competitions_label'),
         value: '${leagues.length}',
         tint: AppTheme.limeAccentDark,
       ),
       _DashboardStat(
         icon: Icons.campaign_outlined,
-        label: 'Announcements',
+        label: context.l10n.tr('master_league_details_stat_announcements_label'),
         value: '${announcements.length}',
         tint: const Color(0xFF8B5CF6),
       ),
       _DashboardStat(
         icon: Icons.favorite_border_rounded,
-        label: 'Followers',
+        label: context.l10n.tr('master_league_details_stat_followers_label'),
         value: followersCountAsync.maybeWhen(
           data: (v) => '$v',
           orElse: () => '${master.followersCount}',
@@ -2425,7 +2431,7 @@ class _MasterLeagueDetailsScreenState
       if (worldCupCount > 0)
         _DashboardStat(
           icon: Icons.public_rounded,
-          label: 'World Cup',
+          label: context.l10n.tr('master_league_details_stat_world_cup_label'),
           value: '$worldCupCount',
           tint: _worldCupGold,
         )
@@ -2436,10 +2442,12 @@ class _MasterLeagueDetailsScreenState
               : (master.isVerificationPending
                   ? Icons.hourglass_top_rounded
                   : Icons.shield_outlined),
-          label: 'Organizer',
+          label: context.l10n.tr('master_league_details_stat_organizer_label'),
           value: master.isVerifiedOrganizer
-              ? 'Verified'
-              : (master.isVerificationPending ? 'Pending' : 'Public'),
+              ? context.l10n.tr('master_league_details_status_verified')
+              : (master.isVerificationPending
+                  ? context.l10n.tr('master_league_details_status_pending')
+                  : context.l10n.tr('master_league_details_privacy_public')),
           tint: master.isVerifiedOrganizer
               ? const Color(0xFF1D9BF0)
               : (master.isVerificationPending
@@ -2579,35 +2587,32 @@ class _MasterLeagueDetailsScreenState
       children: [
         tile(
           icon: Icons.badge_outlined,
-          title: 'Organizer Profile',
-          subtitle: 'Branding, socials, bio, and public identity',
+          title: context.l10n.tr('master_league_details_organizer_profile_label'),
+          subtitle: context.l10n.tr('master_league_details_tile_organizer_profile_subtitle'),
           onTap: () => _openOrganizerProfile(master),
           tint: AppTheme.limeAccentDark,
         ),
         const SizedBox(height: 12),
         tile(
           icon: Icons.campaign_outlined,
-          title: 'Organizer Announcements',
-          subtitle:
-              'Post updates for competitions, registration, and important notices',
+          title: context.l10n.tr('master_league_details_tile_announcements_title'),
+          subtitle: context.l10n.tr('master_league_details_tile_announcements_subtitle'),
           onTap: () => _showAnnouncementComposer(master),
           tint: const Color(0xFF8B5CF6),
         ),
         const SizedBox(height: 12),
         tile(
           icon: Icons.forum_outlined,
-          title: 'Organizer Chat',
-          subtitle:
-              "General community chat across this organizer's competitions",
+          title: context.l10n.tr('master_league_details_organizer_chat_label'),
+          subtitle: context.l10n.tr('master_league_details_tile_chat_subtitle'),
           onTap: () => _openOrganizerChatIfAllowed(master),
           tint: const Color(0xFF0EA5E9),
         ),
         const SizedBox(height: 12),
         tile(
           icon: Icons.gavel_rounded,
-          title: 'Organizer Discipline',
-          subtitle:
-              'Warnings, point deductions, and organizer chat sanctions',
+          title: context.l10n.tr('master_league_details_tile_discipline_title'),
+          subtitle: context.l10n.tr('master_league_details_tile_discipline_subtitle'),
           onTap: () =>
               _safePush('/master-leagues/${master.id}/discipline'),
           tint: const Color(0xFFDC2626),
@@ -2615,43 +2620,40 @@ class _MasterLeagueDetailsScreenState
         const SizedBox(height: 12),
         tile(
           icon: Icons.groups_2_outlined,
-          title: 'Manage Staff',
-          subtitle:
-              'Delegate competition management, results, or moderation',
+          title: context.l10n.tr('master_league_details_manage_staff_label'),
+          subtitle: context.l10n.tr('master_league_details_tile_staff_subtitle'),
           onTap: () => _safePush('/master-leagues/${master.id}/staff'),
           tint: const Color(0xFF0EA5E9),
         ),
         const SizedBox(height: 12),
         tile(
           icon: Icons.bookmarks_outlined,
-          title: 'Competition Templates',
-          subtitle: 'Save reusable competition setups and launch faster',
+          title: context.l10n.tr('master_league_details_tile_templates_title'),
+          subtitle: context.l10n.tr('master_league_details_tile_templates_subtitle'),
           onTap: () => _showTemplateComposer(master),
           tint: const Color(0xFF14B8A6),
         ),
         const SizedBox(height: 12),
         tile(
           icon: Icons.public_rounded,
-          title: '🌍 Create World Cup',
-          subtitle:
-              'Launch a FIFA 2022 (32-team) or FIFA 2026 (48-team) tournament inside this workspace',
+          title: context.l10n.tr('master_league_details_tile_create_world_cup_title'),
+          subtitle: context.l10n.tr('master_league_details_tile_create_world_cup_subtitle'),
           onTap: () => _showCreateCompetitionSheet(context, master),
           tint: _worldCupGold,
         ),
         const SizedBox(height: 12),
         tile(
           icon: Icons.add_circle_outline_rounded,
-          title: 'Create Competition',
-          subtitle: 'Launch a new competition inside this workspace',
+          title: context.l10n.tr('master_league_details_create_competition_label'),
+          subtitle: context.l10n.tr('master_league_details_tile_create_competition_subtitle'),
           onTap: () => _showCreateCompetitionSheet(context, master),
           tint: const Color(0xFF22C55E),
         ),
         const SizedBox(height: 12),
         tile(
           icon: Icons.delete_forever_outlined,
-          title: 'Delete Workspace',
-          subtitle:
-              'Permanently remove this organizer workspace and all linked data',
+          title: context.l10n.tr('master_league_details_delete_workspace_title'),
+          subtitle: context.l10n.tr('master_league_details_tile_delete_workspace_subtitle'),
           onTap: () => _confirmDeleteWorkspace(master),
           tint: theme.colorScheme.error,
         ),
@@ -2677,10 +2679,10 @@ class _MasterLeagueDetailsScreenState
             : AppTheme.secondaryText(brightness));
 
     final statusText = master.isVerifiedOrganizer
-        ? 'Verified Organizer'
+        ? context.l10n.tr('master_league_details_verified_organizer_label')
         : (master.isVerificationPending
-            ? 'Verification Pending'
-            : 'Unverified Organizer');
+            ? context.l10n.tr('master_league_details_verification_pending_label')
+            : context.l10n.tr('master_league_details_unverified_organizer_label'));
 
     Widget item({
       required IconData icon,
@@ -2742,7 +2744,7 @@ class _MasterLeagueDetailsScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
-            'Organizer Overview',
+            context.l10n.tr('master_league_details_organizer_overview_title'),
             padding: EdgeInsets.zero,
             trailing: Icon(
               Icons.visibility_outlined,
@@ -2752,14 +2754,14 @@ class _MasterLeagueDetailsScreenState
           const SizedBox(height: 10),
           item(
             icon: Icons.verified_user_outlined,
-            label: 'Organizer Status',
+            label: context.l10n.tr('master_league_details_organizer_status_label'),
             value: statusText,
             tint: statusColor,
           ),
           const SizedBox(height: 10),
           item(
             icon: Icons.favorite_border_rounded,
-            label: 'Followers',
+            label: context.l10n.tr('master_league_details_stat_followers_label'),
             value: followersCountAsync.maybeWhen(
               data: (v) => '$v',
               orElse: () => '${master.followersCount}',
@@ -2769,8 +2771,8 @@ class _MasterLeagueDetailsScreenState
           const SizedBox(height: 10),
           item(
             icon: Icons.badge_outlined,
-            label: 'Profile Access',
-            value: 'View Organizer Profile',
+            label: context.l10n.tr('master_league_details_profile_access_label'),
+            value: context.l10n.tr('master_league_details_view_organizer_profile_label'),
             tint: AppTheme.limeAccentDark,
           ),
           const SizedBox(height: 14),
@@ -2780,9 +2782,9 @@ class _MasterLeagueDetailsScreenState
                 child: OutlinedButton.icon(
                   onPressed: () => _openOrganizerProfile(master),
                   icon: const Icon(Icons.open_in_new_rounded),
-                  label: const Text(
-                    'View Organizer Profile',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                  label: Text(
+                    context.l10n.tr('master_league_details_view_organizer_profile_label'),
+                    style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
               ),
@@ -2794,9 +2796,9 @@ class _MasterLeagueDetailsScreenState
             child: FilledButton.tonalIcon(
               onPressed: () => _openOrganizerChatIfAllowed(master),
               icon: const Icon(Icons.forum_outlined),
-              label: const Text(
-                'Organizer Chat',
-                style: TextStyle(fontWeight: FontWeight.w900),
+              label: Text(
+                context.l10n.tr('master_league_details_organizer_chat_label'),
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
@@ -2818,9 +2820,9 @@ class _MasterLeagueDetailsScreenState
                 ),
                 onPressed: _followBusy ? null : () => _toggleFollow(master),
                 icon: const Icon(Icons.person_add_alt_1_rounded),
-                label: const Text(
-                  'Follow Organizer',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                label: Text(
+                  context.l10n.tr('master_league_details_follow_organizer_label'),
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
             ),
@@ -2842,7 +2844,9 @@ class _MasterLeagueDetailsScreenState
                             : const Icon(
                                 Icons.check_circle_outline_rounded),
                         label: Text(
-                          _followBusy ? 'Please wait...' : 'Following',
+                          _followBusy
+                              ? context.l10n.tr('master_league_details_please_wait_ellipsis_dots')
+                              : context.l10n.tr('master_league_details_following_label'),
                           style: const TextStyle(
                               fontWeight: FontWeight.w900),
                         ),
@@ -2867,8 +2871,8 @@ class _MasterLeagueDetailsScreenState
                             : const Icon(Icons.person_add_alt_1_rounded),
                         label: Text(
                           _followBusy
-                              ? 'Please wait...'
-                              : 'Follow Organizer',
+                              ? context.l10n.tr('master_league_details_please_wait_ellipsis_dots')
+                              : context.l10n.tr('master_league_details_follow_organizer_label'),
                           style: const TextStyle(
                               fontWeight: FontWeight.w900),
                         ),
@@ -2907,7 +2911,7 @@ class _MasterLeagueDetailsScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SectionHeader(
-                'Pinned Organizer Notice',
+                context.l10n.tr('master_league_details_pinned_notice_title'),
                 padding: EdgeInsets.zero,
                 trailing: Icon(
                   Icons.push_pin_rounded,
@@ -2930,9 +2934,9 @@ class _MasterLeagueDetailsScreenState
                     TextButton.icon(
                       onPressed: () => _unpinAnnouncement(pinned),
                       icon: const Icon(Icons.push_pin_outlined, size: 18),
-                      label: const Text(
-                        'Unpin',
-                        style: TextStyle(fontWeight: FontWeight.w900),
+                      label: Text(
+                        context.l10n.tr('master_league_details_unpin_button'),
+                        style: const TextStyle(fontWeight: FontWeight.w900),
                       ),
                     ),
                 ],
@@ -2955,7 +2959,7 @@ class _MasterLeagueDetailsScreenState
                     brightness,
                     icon: Icons.person_outline_rounded,
                     label: pinned.authorName.trim().isEmpty
-                        ? 'Organizer'
+                        ? context.l10n.tr('master_league_details_organizer_fallback')
                         : pinned.authorName.trim(),
                   ),
                   _announcementMetaChip(
@@ -2965,7 +2969,7 @@ class _MasterLeagueDetailsScreenState
                         ? DateTime.fromMillisecondsSinceEpoch(
                             pinned.pinnedAtMs,
                           ).toLocal().toString().split('.').first
-                        : 'Pinned',
+                        : context.l10n.tr('master_league_details_pinned_label'),
                   ),
                 ],
               ),
@@ -3000,15 +3004,15 @@ class _MasterLeagueDetailsScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SectionHeader(
-                'Organizer Announcements',
+                context.l10n.tr('master_league_details_tile_announcements_title'),
                 padding: EdgeInsets.zero,
                 trailing: _isOwner(master)
                     ? TextButton.icon(
                         onPressed: () => _showAnnouncementComposer(master),
                         icon: const Icon(Icons.add, size: 18),
-                        label: const Text(
-                          'Post',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                        label: Text(
+                          context.l10n.tr('master_league_details_post_button'),
+                          style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       )
                     : Icon(
@@ -3051,7 +3055,7 @@ class _MasterLeagueDetailsScreenState
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'No organizer announcements yet.',
+                            context.l10n.tr('master_league_details_no_announcements_message'),
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: AppTheme.secondaryText(brightness),
                               fontWeight: FontWeight.w700,
@@ -3088,7 +3092,7 @@ class _MasterLeagueDetailsScreenState
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  'Pinned',
+                                  context.l10n.tr('master_league_details_pinned_label'),
                                   style:
                                       theme.textTheme.labelMedium?.copyWith(
                                     color: AppTheme.limeAccentDark,
@@ -3114,7 +3118,7 @@ class _MasterLeagueDetailsScreenState
                               if (_isOwner(master)) ...[
                                 if (ann.pinned)
                                   IconButton(
-                                    tooltip: 'Unpin announcement',
+                                    tooltip: context.l10n.tr('master_league_details_unpin_announcement_tooltip'),
                                     onPressed: () =>
                                         _unpinAnnouncement(ann),
                                     icon: Icon(
@@ -3125,7 +3129,7 @@ class _MasterLeagueDetailsScreenState
                                   )
                                 else
                                   IconButton(
-                                    tooltip: 'Pin announcement',
+                                    tooltip: context.l10n.tr('master_league_details_pin_announcement_tooltip'),
                                     onPressed: () => _pinAnnouncement(ann),
                                     icon: Icon(
                                       Icons.push_pin_rounded,
@@ -3136,7 +3140,7 @@ class _MasterLeagueDetailsScreenState
                               ],
                               if (_isOwner(master) || isMyAnnouncement)
                                 IconButton(
-                                  tooltip: 'Delete announcement',
+                                  tooltip: context.l10n.tr('master_league_details_delete_announcement_tooltip'),
                                   onPressed: () =>
                                       _confirmDeleteAnnouncement(ann),
                                   icon: Icon(
@@ -3165,7 +3169,7 @@ class _MasterLeagueDetailsScreenState
                                 brightness,
                                 icon: Icons.person_outline_rounded,
                                 label: ann.authorName.trim().isEmpty
-                                    ? 'Organizer'
+                                    ? context.l10n.tr('master_league_details_organizer_fallback')
                                     : ann.authorName.trim(),
                               ),
                               _announcementMetaChip(
@@ -3179,7 +3183,7 @@ class _MasterLeagueDetailsScreenState
                                         .toString()
                                         .split('.')
                                         .first
-                                    : 'Unknown time',
+                                    : context.l10n.tr('master_league_details_unknown_time'),
                               ),
                             ],
                           ),
@@ -3245,20 +3249,20 @@ class _MasterLeagueDetailsScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
-            'Competition Templates',
+            context.l10n.tr('master_league_details_tile_templates_title'),
             padding: EdgeInsets.zero,
             trailing: TextButton.icon(
               onPressed: () => _showTemplateComposer(master),
               icon: const Icon(Icons.add, size: 18),
-              label: const Text(
-                'New',
-                style: TextStyle(fontWeight: FontWeight.w900),
+              label: Text(
+                context.l10n.tr('master_league_details_new_button'),
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
           const SizedBox(height: 10),
           Text(
-            'Save reusable competition setups and launch faster next time.',
+            context.l10n.tr('master_league_details_templates_section_hint'),
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
@@ -3288,7 +3292,7 @@ class _MasterLeagueDetailsScreenState
             data: (templates) {
               if (templates.isEmpty) {
                 return Text(
-                  'No templates yet. Save your first reusable competition setup.',
+                  context.l10n.tr('master_league_details_no_templates_message'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
@@ -3330,7 +3334,7 @@ class _MasterLeagueDetailsScreenState
                                 ),
                               ),
                               IconButton(
-                                tooltip: 'Delete template',
+                                tooltip: context.l10n.tr('master_league_details_delete_template_tooltip'),
                                 onPressed: () => _confirmDeleteTemplate(
                                     master, template),
                                 icon: Icon(
@@ -3366,15 +3370,15 @@ class _MasterLeagueDetailsScreenState
                               _templateChip(
                                 brightness,
                                 icon: Icons.groups_outlined,
-                                label: '${template.maxTeams} teams',
+                                label: '${template.maxTeams}${context.l10n.tr('master_league_details_teams_count_suffix')}',
                                 active: isWC,
                               ),
                               _templateChip(
                                 brightness,
                                 icon: Icons.lock_outline,
                                 label: template.privacy.name == 'private'
-                                    ? 'Private'
-                                    : 'Public',
+                                    ? context.l10n.tr('master_league_details_privacy_private')
+                                    : context.l10n.tr('master_league_details_privacy_public'),
                                 active: isWC,
                               ),
                               if (isWC && template.worldCupFormat != null)
@@ -3389,14 +3393,14 @@ class _MasterLeagueDetailsScreenState
                                 _templateChip(
                                   brightness,
                                   icon: Icons.swap_horiz,
-                                  label: 'Home & Away',
+                                  label: context.l10n.tr('master_league_details_chip_home_away'),
                                   active: false,
                                 ),
                               if (template.containsRewards)
                                 _templateChip(
                                   brightness,
                                   icon: Icons.card_giftcard_outlined,
-                                  label: 'Rewards',
+                                  label: context.l10n.tr('master_league_details_chip_rewards'),
                                   active: false,
                                 ),
                             ],
@@ -3419,8 +3423,8 @@ class _MasterLeagueDetailsScreenState
                                   : Icons.bolt_rounded),
                               label: Text(
                                 isWC
-                                    ? 'Use World Cup Template'
-                                    : 'Use Template',
+                                    ? context.l10n.tr('master_league_details_use_world_cup_template_button')
+                                    : context.l10n.tr('master_league_details_use_template_button'),
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w900),
                               ),
@@ -3498,24 +3502,23 @@ class _MasterLeagueDetailsScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SectionHeader(
-            'Competitions',
+            context.l10n.tr('master_league_details_stat_competitions_label'),
             padding: EdgeInsets.zero,
             trailing: _isOwner(master)
                 ? TextButton.icon(
                     onPressed: () =>
                         _showCreateCompetitionSheet(context, master),
                     icon: const Icon(Icons.add, size: 18),
-                    label: const Text(
-                      'Create',
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                    label: Text(
+                      context.l10n.tr('master_league_details_create_button'),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                   )
                 : null,
           ),
           const SizedBox(height: 10),
           Text(
-            'Users can join using the invite code or QR on the competition '
-            'card, or tap the share icon to send an invite link.',
+            context.l10n.tr('master_league_details_competitions_section_hint'),
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
@@ -3527,9 +3530,9 @@ class _MasterLeagueDetailsScreenState
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const EmptyState(
-                  title: 'No competitions yet',
-                  message: 'There are no competitions available right now.',
+                EmptyState(
+                  title: context.l10n.tr('master_league_details_no_competitions_title'),
+                  message: context.l10n.tr('master_league_details_no_competitions_message_general'),
                   icon: Icons.emoji_events_rounded,
                 ),
                 if (_isOwner(master)) ...[
@@ -3542,9 +3545,9 @@ class _MasterLeagueDetailsScreenState
                     onPressed: () =>
                         _showCreateCompetitionSheet(context, master),
                     icon: const Icon(Icons.add),
-                    label: const Text(
-                      'Create Competition',
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                    label: Text(
+                      context.l10n.tr('master_league_details_create_competition_label'),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                   ),
                 ],
@@ -3598,10 +3601,10 @@ class _MasterLeagueDetailsScreenState
                             onPressed: () =>
                                 _safePush('/leagues/${preview.id}'),
                             icon: const Icon(Icons.open_in_new_rounded),
-                            label: const Text(
-                              'Open Competition',
+                            label: Text(
+                              context.l10n.tr('master_league_details_open_competition_button'),
                               style:
-                                  TextStyle(fontWeight: FontWeight.w900),
+                                  const TextStyle(fontWeight: FontWeight.w900),
                             ),
                           ),
                         ),
@@ -3615,9 +3618,9 @@ class _MasterLeagueDetailsScreenState
                               onPressed: null,
                               icon: const Icon(
                                   Icons.check_circle_outline_rounded),
-                              label: const Text(
-                                'Already Joined',
-                                style: TextStyle(
+                              label: Text(
+                                context.l10n.tr('master_league_details_already_joined_button'),
+                                style: const TextStyle(
                                     fontWeight: FontWeight.w900),
                               ),
                             )
@@ -3642,8 +3645,8 @@ class _MasterLeagueDetailsScreenState
                                   : const Icon(Icons.login_rounded),
                               label: Text(
                                 joiningThis
-                                    ? 'Joining...'
-                                    : 'Join Competition',
+                                    ? context.l10n.tr('master_league_details_joining_ellipsis')
+                                    : context.l10n.tr('master_league_details_join_competition_label'),
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w900),
                               ),
@@ -3659,8 +3662,8 @@ class _MasterLeagueDetailsScreenState
                           icon: const Icon(Icons.view_carousel_outlined),
                           label: Text(
                             remaining == 1
-                                ? 'View 1 more competition'
-                                : 'View $remaining more competitions',
+                                ? context.l10n.tr('master_league_details_view_one_more_competition')
+                                : '${context.l10n.tr('master_league_details_view_more_competitions_prefix')}$remaining${context.l10n.tr('master_league_details_view_more_competitions_suffix')}',
                             style: const TextStyle(
                                 fontWeight: FontWeight.w900),
                           ),
@@ -3822,7 +3825,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Create Competition',
+                      context.l10n.tr('master_league_details_create_competition_label'),
                       style: sheetTheme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: AppTheme.primaryText(brightness),
@@ -3835,22 +3838,22 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
             const SizedBox(height: 12),
             option(
               icon: Icons.emoji_events_outlined,
-              title: 'Classic League',
-              subtitle: 'Round-robin style competition',
+              title: context.l10n.tr('master_league_details_format_classic'),
+              subtitle: context.l10n.tr('master_league_details_option_classic_subtitle'),
               format: LeagueFormat.classic,
               tint: AppTheme.limeAccentDark,
             ),
             option(
               icon: Icons.grid_view_rounded,
-              title: 'Swiss League',
-              subtitle: 'Swiss/Series format',
+              title: context.l10n.tr('master_league_details_option_swiss_title'),
+              subtitle: context.l10n.tr('master_league_details_option_swiss_subtitle'),
               format: LeagueFormat.uclSwiss,
               tint: const Color(0xFF8B5CF6),
             ),
             option(
               icon: Icons.groups_rounded,
-              title: 'UCL Group League',
-              subtitle: 'Group stage competition',
+              title: context.l10n.tr('master_league_details_format_ucl_group'),
+              subtitle: context.l10n.tr('master_league_details_option_ucl_group_subtitle'),
               format: LeagueFormat.uclGroup,
               tint: const Color(0xFF22C55E),
             ),
@@ -3908,7 +3911,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                           children: [
                             Expanded(
                               child: Text(
-                                '🌍 World Cup',
+                                context.l10n.tr('master_league_details_world_cup_label'),
                                 style: sheetTheme.textTheme.titleSmall
                                     ?.copyWith(
                                   fontWeight: FontWeight.w900,
@@ -3929,7 +3932,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                                   ),
                                 ),
                                 child: Text(
-                                  'PREMIUM',
+                                  context.l10n.tr('master_league_details_premium_badge'),
                                   style: TextStyle(
                                     color: _worldCupGold,
                                     fontWeight: FontWeight.w900,
@@ -3942,7 +3945,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          'FIFA 2022 (32 teams) or FIFA 2026 (48 teams) format',
+                          context.l10n.tr('master_league_details_world_cup_format_subtitle'),
                           style: sheetTheme.textTheme.bodySmall?.copyWith(
                             color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w700,
@@ -3985,7 +3988,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Group stage → Knockouts → Final. Home/away not supported.',
+                        context.l10n.tr('master_league_details_world_cup_flow_hint'),
                         style: TextStyle(
                           color: _worldCupGold,
                           fontWeight: FontWeight.w700,
@@ -3999,7 +4002,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
               ),
               const SizedBox(height: 12),
               Text(
-                'Select World Cup Format',
+                context.l10n.tr('master_league_details_select_world_cup_format_label'),
                 style: sheetTheme.textTheme.bodySmall?.copyWith(
                   color: AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w900,
@@ -4038,7 +4041,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                   onPressed: _confirmWorldCup,
                   icon: const Icon(Icons.public_rounded),
                   label: Text(
-                    'Create ${_worldCupFormat.displayName}',
+                    '${context.l10n.tr('master_league_details_create_format_prefix')}${_worldCupFormat.displayName}',
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
@@ -4102,7 +4105,7 @@ class _CreateCompetitionSheetState extends State<_CreateCompetitionSheet> {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '${format.teamCount} teams • ${format.groupCount} groups',
+                    '${format.teamCount}${context.l10n.tr('master_league_details_wc_teams_suffix')}${format.groupCount}${context.l10n.tr('master_league_details_wc_groups_only_suffix')}',
                     style: sheetTheme.textTheme.bodySmall?.copyWith(
                       color: AppTheme.secondaryText(brightness),
                       fontWeight: FontWeight.w700,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -99,7 +100,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
       authorPhotoUrl: account?.effectivePhotoUrl ?? '',
     );
     if (result == true && mounted) {
-      _snack('Posted to the community feed.');
+      _snack(context.l10n.tr('public_feed_post_created'));
     }
   }
 
@@ -143,23 +144,24 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
   }
 
   Future<void> _confirmDelete(String postId) async {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.cardColor(brightness),
-        title: const Text('Delete this post?'),
-        content: const Text('This cannot be undone.'),
+        title: Text(l10n.tr('public_feed_delete_dialog_title')),
+        content: Text(l10n.tr('public_feed_delete_dialog_message')),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Delete')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(l10n.tr('public_feed_delete_dialog_cancel'))),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(l10n.tr('public_feed_delete_dialog_confirm'))),
         ],
       ),
     );
     if (confirm != true) return;
     try {
       await _repo.deletePost(postId);
-      if (mounted) _snack('Post deleted.');
+      if (mounted) _snack(l10n.tr('public_feed_post_deleted'));
     } catch (e) {
       _snack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
     }
@@ -167,11 +169,12 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Public Feed'),
+        title: Text(l10n.tr('public_feed_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -195,7 +198,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                         children: [
                           Expanded(
                             child: _TabChip(
-                              label: 'For You',
+                              label: l10n.tr('public_feed_tab_for_you'),
                               selected: _tab == _FeedTab.forYou,
                               onTap: () => setState(() => _tab = _FeedTab.forYou),
                             ),
@@ -203,7 +206,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: _TabChip(
-                              label: 'Latest',
+                              label: l10n.tr('public_feed_tab_latest'),
                               selected: _tab == _FeedTab.latest,
                               onTap: () => setState(() => _tab = _FeedTab.latest),
                             ),
@@ -234,7 +237,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                               child: Padding(
                                 padding: const EdgeInsets.all(24),
                                 child: Text(
-                                  'No posts yet. Be the first to share something with the community.',
+                                  l10n.tr('public_feed_empty'),
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     color: AppTheme.secondaryText(brightness),
@@ -388,16 +391,17 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback? onOpenLeague;
 
-  String _timeAgo(int ms) {
+  String _timeAgo(AppLocalizations l10n, int ms) {
     final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
-    if (diff.inMinutes < 1) return 'now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    return '${diff.inDays}d';
+    if (diff.inMinutes < 1) return l10n.tr('public_feed_time_now');
+    if (diff.inMinutes < 60) return '${diff.inMinutes}${l10n.tr('public_feed_time_minutes_suffix')}';
+    if (diff.inHours < 24) return '${diff.inHours}${l10n.tr('public_feed_time_hours_suffix')}';
+    return '${diff.inDays}${l10n.tr('public_feed_time_days_suffix')}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
     return Glass(
@@ -425,7 +429,7 @@ class _PostCard extends StatelessWidget {
                   children: [
                     Flexible(
                       child: Text(
-                        post.authorDisplayName.isEmpty ? 'User' : post.authorDisplayName,
+                        post.authorDisplayName.isEmpty ? l10n.tr('public_feed_author_fallback') : post.authorDisplayName,
                         style: TextStyle(
                           fontWeight: FontWeight.w900,
                           color: AppTheme.primaryText(brightness),
@@ -445,7 +449,7 @@ class _PostCard extends StatelessWidget {
                 ),
               ),
               Text(
-                _timeAgo(post.createdAtMs),
+                _timeAgo(l10n, post.createdAtMs),
                 style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 12),
               ),
               if (isOwner)
@@ -519,7 +523,7 @@ class _PostCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        post.leagueName.isEmpty ? 'View competition' : post.leagueName,
+                        post.leagueName.isEmpty ? l10n.tr('public_feed_view_competition') : post.leagueName,
                         style: TextStyle(
                           color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w800,

@@ -25,6 +25,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -127,10 +128,11 @@ class _SpinWheelDrawScreenState extends State<SpinWheelDrawScreen>
   Future<void> _restartDraw() async {
     if (_drawnOrder.isEmpty) return;
 
+    final l10n = context.l10n;
     final confirmed = await _confirmDialog(
-      title: 'Restart this draw?',
-      message: 'All current temporary pairings will be discarded.',
-      confirmLabel: 'Restart',
+      title: l10n.tr('spin_wheel_restart_draw_title'),
+      message: l10n.tr('spin_wheel_restart_draw_message'),
+      confirmLabel: l10n.tr('spin_wheel_restart_label'),
     );
     if (confirmed != true || !mounted) return;
 
@@ -150,11 +152,11 @@ class _SpinWheelDrawScreenState extends State<SpinWheelDrawScreen>
   Future<bool> _handleBack() async {
     if (_drawnOrder.isEmpty) return true;
 
+    final l10n = context.l10n;
     final leave = await _confirmDialog(
-      title: 'Leave draw?',
-      message: 'Your current draw has not been confirmed. '
-          'Leaving will discard the temporary pairings.',
-      confirmLabel: 'Leave',
+      title: l10n.tr('spin_wheel_leave_draw_title'),
+      message: l10n.tr('spin_wheel_leave_draw_message'),
+      confirmLabel: l10n.tr('spin_wheel_leave_label'),
     );
     return leave == true;
   }
@@ -267,7 +269,7 @@ class _SpinWheelDrawScreenState extends State<SpinWheelDrawScreen>
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Text(
-            'Match $_currentMatchNumber',
+            "${context.l10n.tr('spin_wheel_match_prefix')} $_currentMatchNumber",
             style: TextStyle(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w800,
@@ -316,8 +318,8 @@ class _SpinWheelDrawScreenState extends State<SpinWheelDrawScreen>
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Text(
             remaining == 0
-                ? 'All participants drawn'
-                : '$remaining participant${remaining == 1 ? '' : 's'} remaining',
+                ? context.l10n.tr('spin_wheel_all_participants_drawn')
+                : "$remaining ${remaining == 1 ? context.l10n.tr('spin_wheel_participant_singular') : context.l10n.tr('spin_wheel_participant_plural')} ${context.l10n.tr('spin_wheel_remaining_suffix')}",
             style: TextStyle(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w700,
@@ -334,7 +336,7 @@ class _SpinWheelDrawScreenState extends State<SpinWheelDrawScreen>
                   child: OutlinedButton.icon(
                     onPressed: _isSpinning ? null : _restartDraw,
                     icon: const Icon(Icons.refresh),
-                    label: const Text('Restart'),
+                    label: Text(context.l10n.tr('spin_wheel_restart')),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -533,9 +535,7 @@ class _SpinWheelDrawScreenState extends State<SpinWheelDrawScreen>
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          '${leftover!.name} — odd participant count. '
-                          'The league schedule rotates each team through a '
-                          'bye round automatically.',
+                          "${leftover!.name} ${context.l10n.tr('spin_wheel_odd_participant_note')}",
                           style: TextStyle(
                             color: AppTheme.secondaryText(brightness),
                             fontWeight: FontWeight.w600,
@@ -557,7 +557,7 @@ class _SpinWheelDrawScreenState extends State<SpinWheelDrawScreen>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'All participants have been assigned.',
+                context.l10n.tr('spin_wheel_all_participants_assigned'),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: AppTheme.secondaryText(brightness),
@@ -572,7 +572,7 @@ class _SpinWheelDrawScreenState extends State<SpinWheelDrawScreen>
                     child: OutlinedButton.icon(
                       onPressed: _restartDraw,
                       icon: const Icon(Icons.refresh),
-                      label: const Text('Restart Draw'),
+                      label: Text(context.l10n.tr('spin_wheel_restart_draw_button')),
                     ),
                   ),
                   const SizedBox(width: 10),

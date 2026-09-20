@@ -19,6 +19,15 @@ class UserFriendlyException implements Exception {
 /// ONLINE-ONLY guard:
 /// Local LAN live streaming must NOT run offline.
 /// We enforce this at the service layer so callers cannot bypass UI gating.
+// NOTE (i18n): LocalLiveService (and the LocalLiveHostSession /
+// LocalLiveViewerSession / discovery classes it orchestrates) is the legacy
+// LAN/WebRTC live path. No presentation-layer screen currently constructs
+// it (the active live flow uses LiveKit via live_view_screen.dart), so the
+// UserFriendlyException strings and the hardcoded foreground-notification
+// title/text below are not actually shown to end users today. Localizing
+// them would mean reviving/wiring a caller with BuildContext for this
+// legacy path, which is a larger refactor than this pass covers, so they
+// are left as English for now.
 class LocalLiveService {
   LocalLiveService._();
   static final LocalLiveService instance = LocalLiveService._();

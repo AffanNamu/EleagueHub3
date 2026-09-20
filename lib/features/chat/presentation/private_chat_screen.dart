@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
@@ -110,7 +111,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   // via UserProfileRepository elsewhere. ──────────────────────────────────
   String _senderName() {
     final name = FirebaseAuth.instance.currentUser?.displayName?.trim() ?? '';
-    return name.isEmpty ? 'Someone' : name;
+    return name.isEmpty ? context.l10n.tr('private_chat_default_sender_name') : name;
   }
 
   Future<void> _notifyPush({
@@ -165,7 +166,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       }
       if (!pick.isSuccess) {
         if (mounted) setState(() => _busyWithAttachment = false);
-        _toast((pick.errorMessage ?? 'Could not pick image.').trim(), error: true);
+        _toast(
+            (pick.errorMessage ?? context.l10n.tr('private_chat_pick_image_failed')).trim(),
+            error: true);
         return;
       }
 
@@ -173,7 +176,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       final url = await _repo.uploadImage(threadId: widget.threadId, file: file);
       final messageId =
           await _repo.sendImageMessage(threadId: widget.threadId, imageUrl: url);
-      unawaited(_notifyPush(messageId: messageId, preview: '📷 Photo'));
+      unawaited(_notifyPush(
+          messageId: messageId,
+          preview: context.l10n.tr('private_chat_preview_photo')));
 
       if (mounted) setState(() => _busyWithAttachment = false);
     } catch (e) {
@@ -192,7 +197,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (!hasPerm) {
         if (!mounted) return;
         setState(() => _recordingPermissionDenied = true);
-        _toast('Microphone permission denied', error: true);
+        _toast(context.l10n.tr('private_chat_mic_permission_denied'), error: true);
         return;
       }
       if (!mounted) return;
@@ -273,7 +278,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       _recordingTicker = null;
 
       final file = File(finalPath);
-      if (!await file.exists()) throw StateError('Recording not found. Try again.');
+      if (!await file.exists()) {
+        throw StateError(context.l10n.tr('private_chat_recording_not_found'));
+      }
 
       final recordedMs = _recordingStartedAt == null
           ? 0
@@ -295,7 +302,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         voiceUrl: voiceUrl,
         voiceDurationMs: recordedMs,
       );
-      unawaited(_notifyPush(messageId: messageId, preview: '🎤 Voice message'));
+      unawaited(_notifyPush(
+          messageId: messageId,
+          preview: context.l10n.tr('private_chat_preview_voice_message')));
 
       try {
         if (await file.exists()) await file.delete();
@@ -344,7 +353,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Recording… ${_recordingElapsed()}',
+                "${context.l10n.tr('private_chat_recording_prefix')}${_recordingElapsed()}",
                 style: TextStyle(
                   color: AppTheme.primaryText(brightness),
                   fontWeight: FontWeight.w700,
@@ -353,7 +362,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             ),
             TextButton(
               onPressed: _isVoiceSending ? null : _cancelRecording,
-              child: const Text('Cancel'),
+              child: Text(context.l10n.tr('common_cancel')),
             ),
             const SizedBox(width: 6),
             FilledButton(
@@ -364,7 +373,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Send'),
+                  : Text(context.l10n.tr('private_chat_send')),
             ),
           ],
         ),
@@ -438,7 +447,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   if (messages.isEmpty) {
                     return Center(
                       child: Text(
-                        'Say hello 👋',
+                        context.l10n.tr('private_chat_empty_state'),
                         style: TextStyle(color: AppTheme.secondaryText(brightness)),
                       ),
                     );
@@ -515,7 +524,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 child: Row(
                   children: [
                     IconButton(
-                      tooltip: 'Send photo',
+                      tooltip: context.l10n.tr('private_chat_send_photo_tooltip'),
                       onPressed: _busyWithAttachment ? null : _pickAndSendImage,
                       icon: _busyWithAttachment
                           ? const SizedBox(
@@ -527,8 +536,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     ),
                     IconButton(
                       tooltip: _recordingPermissionDenied
-                          ? 'Microphone permission required'
-                          : 'Record voice message',
+                          ? context.l10n.tr('private_chat_mic_permission_required_tooltip')
+                          : context.l10n.tr('private_chat_record_voice_tooltip'),
                       onPressed: (_busyWithAttachment || _isVoiceSending)
                           ? null
                           : _startRecording,
@@ -539,7 +548,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                         controller: _input,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _send(),
-                        decoration: const InputDecoration(hintText: 'Message…'),
+                        decoration: InputDecoration(
+                          hintText: context.l10n.tr('private_chat_message_hint'),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),

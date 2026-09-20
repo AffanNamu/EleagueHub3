@@ -24,6 +24,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -152,12 +153,15 @@ class _CreateMasterLeagueScreenState
   MasterLeagueCompetitionDraft? _buildCompetitionDraft() {
     final competitionName = _competitionNameCtrl.text.trim();
     if (competitionName.isEmpty) {
-      _showMessage('Please enter the competition name.',
+      _showMessage(
+          context.l10n.tr('create_master_league_competition_name_required'),
           error: true);
       return null;
     }
     if (competitionName.length > 60) {
-      _showMessage('Competition name is too long.', error: true);
+      _showMessage(
+          context.l10n.tr('create_master_league_competition_name_too_long'),
+          error: true);
       return null;
     }
     return MasterLeagueCompetitionDraft(
@@ -204,12 +208,15 @@ class _CreateMasterLeagueScreenState
 
     final masterLeagueName = _masterLeagueNameCtrl.text.trim();
     if (masterLeagueName.isEmpty) {
-      _showMessage('Please enter a Master League name.',
+      _showMessage(
+          context.l10n.tr('create_master_league_name_required'),
           error: true);
       return;
     }
     if (masterLeagueName.length > 60) {
-      _showMessage('Master League name is too long.', error: true);
+      _showMessage(
+          context.l10n.tr('create_master_league_name_too_long'),
+          error: true);
       return;
     }
 
@@ -254,9 +261,7 @@ class _CreateMasterLeagueScreenState
             await entitlementSvc.getProfilePlanStrictWithRetry();
         if (verifiedPlan == null) {
           _showMessage(
-            "Your payment went through, but we couldn't confirm your "
-            'plan yet. Please wait a moment and tap Create Workspace '
-            'again.',
+            context.l10n.tr('create_master_league_payment_confirm_pending'),
             error: true,
           );
           setState(() => _processing = false);
@@ -266,8 +271,9 @@ class _CreateMasterLeagueScreenState
         workspaceCount = await entitlementSvc.countOwnedWorkspaces();
         if (!verifiedPlan.canCreateWorkspace(workspaceCount)) {
           _showMessage(
-            'You have reached the workspace limit for '
-            '${verifiedPlan.displayName} plan.',
+            '${context.l10n.tr('create_master_league_workspace_limit_prefix')} '
+            '${verifiedPlan.displayName} '
+            '${context.l10n.tr('create_master_league_workspace_limit_suffix')}',
             error: true,
           );
           setState(() => _processing = false);
@@ -317,7 +323,7 @@ class _CreateMasterLeagueScreenState
       }
 
       if (!mounted) return;
-      _showMessage('Master League created successfully.');
+      _showMessage(context.l10n.tr('create_master_league_success_message'));
       _safeGo('/master-leagues/${created.id}');
     } catch (e) {
       if (kDebugMode) {
@@ -333,9 +339,10 @@ class _CreateMasterLeagueScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Create Master League'),
+        title: Text(l10n.tr('create_master_league_title')),
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
@@ -343,7 +350,7 @@ class _CreateMasterLeagueScreenState
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
+          tooltip: l10n.tr('common_back'),
           onPressed: _safePop,
         ),
       ),
@@ -416,6 +423,7 @@ class _CreateMasterLeagueScreenState
   Widget _buildFormCard(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n = context.l10n;
 
     return Glass(
       borderRadius: 28,
@@ -446,7 +454,7 @@ class _CreateMasterLeagueScreenState
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Create New Master League',
+                  l10n.tr('create_master_league_form_heading'),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     letterSpacing: -0.2,
@@ -458,7 +466,7 @@ class _CreateMasterLeagueScreenState
           ),
           const SizedBox(height: 10),
           Text(
-            'Enter a workspace name and first competition name.',
+            l10n.tr('create_master_league_form_subtitle'),
             style: theme.textTheme.bodyMedium?.copyWith(
               color: AppTheme.secondaryText(brightness),
               fontWeight: FontWeight.w600,
@@ -472,9 +480,9 @@ class _CreateMasterLeagueScreenState
             controller: _masterLeagueNameCtrl,
             enabled: !_processing,
             textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              labelText: 'Master League Name',
-              prefixIcon: Icon(Icons.edit_outlined),
+            decoration: InputDecoration(
+              labelText: l10n.tr('create_master_league_name_label'),
+              prefixIcon: const Icon(Icons.edit_outlined),
             ),
           ),
           const SizedBox(height: 12),
@@ -483,9 +491,9 @@ class _CreateMasterLeagueScreenState
             enabled: !_processing,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _create(),
-            decoration: const InputDecoration(
-              labelText: 'Competition Name',
-              prefixIcon: Icon(Icons.emoji_events_outlined),
+            decoration: InputDecoration(
+              labelText: l10n.tr('create_master_league_competition_name_label'),
+              prefixIcon: const Icon(Icons.emoji_events_outlined),
             ),
           ),
           const SizedBox(height: 14),
@@ -497,14 +505,14 @@ class _CreateMasterLeagueScreenState
                 : (v) => setState(() => _enableRewards = v),
             contentPadding: EdgeInsets.zero,
             title: Text(
-              'Enable rewards for first competition',
+              l10n.tr('create_master_league_enable_rewards_title'),
               style: TextStyle(
                 fontWeight: FontWeight.w900,
                 color: AppTheme.primaryText(brightness),
               ),
             ),
             subtitle: Text(
-              'Full reward details will be configured later.',
+              l10n.tr('create_master_league_enable_rewards_subtitle'),
               style: TextStyle(
                 color: AppTheme.secondaryText(brightness),
               ),
@@ -520,10 +528,11 @@ class _CreateMasterLeagueScreenState
   Widget _buildPlanStatusRow(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n = context.l10n;
 
     if (_loadingEntitlement) {
       return Text(
-        'Checking active plan...',
+        l10n.tr('create_master_league_checking_plan'),
         style: theme.textTheme.bodySmall?.copyWith(
           color: AppTheme.secondaryText(brightness),
           fontWeight: FontWeight.w800,
@@ -532,8 +541,9 @@ class _CreateMasterLeagueScreenState
     }
     if (_activePlan != null) {
       return Text(
-        'Active plan: ${_activePlan!.displayName} • '
-        'Workspaces: $_ownedWorkspaceCount / '
+        '${l10n.tr('create_master_league_active_plan_prefix')} '
+        '${_activePlan!.displayName} • '
+        '${l10n.tr('create_master_league_workspaces_mid')} $_ownedWorkspaceCount / '
         '${_activePlan!.unlimitedMasterLeagues ? '∞' : '${_activePlan!.maxMasterLeagues}'}',
         style: theme.textTheme.bodySmall?.copyWith(
           color: AppTheme.limeAccentDark,
@@ -542,7 +552,7 @@ class _CreateMasterLeagueScreenState
       );
     }
     return Text(
-      'No active plan yet — a free Basic workspace will be created.',
+      l10n.tr('create_master_league_no_active_plan_message'),
       style: theme.textTheme.bodySmall?.copyWith(
         color: AppTheme.secondaryText(brightness),
         fontWeight: FontWeight.w800,
@@ -561,6 +571,7 @@ class _CreateMasterLeagueScreenState
   Widget _buildActionPanel(BuildContext context) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n = context.l10n;
 
     return Glass(
       borderRadius: 28,
@@ -573,7 +584,7 @@ class _CreateMasterLeagueScreenState
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 10),
             child: Text(
-              'Workspace Plan',
+              l10n.tr('create_master_league_workspace_plan_heading'),
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w900,
                 letterSpacing: -0.2,
@@ -602,9 +613,9 @@ class _CreateMasterLeagueScreenState
                 ),
               ),
               icon: const Icon(Icons.workspace_premium_rounded),
-              label: const Text(
-                'Upgrade Plan',
-                style: TextStyle(fontWeight: FontWeight.w900),
+              label: Text(
+                l10n.tr('create_master_league_upgrade_plan_button'),
+                style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
@@ -635,7 +646,9 @@ class _CreateMasterLeagueScreenState
                     )
                   : const Icon(Icons.add_circle_outline_rounded),
               label: Text(
-                _processing ? 'Processing...' : 'Create Workspace',
+                _processing
+                    ? l10n.tr('create_master_league_processing_label')
+                    : l10n.tr('create_master_league_create_workspace_button'),
                 style: const TextStyle(
                     fontWeight: FontWeight.w900),
               ),
@@ -646,9 +659,7 @@ class _CreateMasterLeagueScreenState
             padding:
                 const EdgeInsets.symmetric(horizontal: 4),
             child: Text(
-              'If you hit your workspace limit, Create Workspace will '
-              'take you straight to the upgrade screen and finish '
-              'creating once payment is confirmed.',
+              l10n.tr('create_master_league_limit_hint'),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,

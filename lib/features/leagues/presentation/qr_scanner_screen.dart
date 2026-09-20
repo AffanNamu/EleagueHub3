@@ -231,7 +231,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       _scannerStarted = true;
     } catch (_) {
       _scannerStarted = false;
-      _setError('We couldn\'t access your camera. Please try again.');
+      _setError(context.l10n.tr('qr_scanner_camera_start_failed'));
     }
   }
 
@@ -313,9 +313,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'A short rewarded video ad will play '
-                                    'before you join. Watch it fully to '
-                                    'unlock joining.',
+                                    l10n.tr('qr_scanner_ad_notice'),
                                     style: TextStyle(
                                       color: Colors.amber.shade700,
                                       fontSize: 11,
@@ -497,7 +495,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                 busy = false;
                 error = result.errorMessage?.trim().isNotEmpty == true
                     ? result.errorMessage
-                    : 'Payment not successful.';
+                    : context.l10n.tr('qr_scanner_payment_not_successful');
               });
               return;
             }
@@ -535,7 +533,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
 
           final code = _normalizeCoupon(ctrl.text);
           if (code.length < 6) {
-            setSheet(() => error = 'Enter a valid coupon code.');
+            setSheet(() => error =
+                context.l10n.tr('qr_scanner_enter_valid_coupon_code'));
             return;
           }
 
@@ -558,7 +557,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                 busy = false;
                 error = res.errorMessage?.trim().isNotEmpty == true
                     ? res.errorMessage
-                    : 'Coupon redemption failed.';
+                    : context.l10n.tr('qr_scanner_coupon_redemption_failed');
               });
               return;
             }
@@ -624,7 +623,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              'Unlock access',
+                              context.l10n.tr('qr_scanner_unlock_access_title'),
                               style: Theme.of(ctx)
                                   .textTheme
                                   .titleMedium
@@ -646,9 +645,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                             ),
                             if (_isClassicFullViewerUnlockScenario(league))
                               Text(
-                                'Classic league is full. You can unlock '
-                                'access as a viewer using payment or a '
-                                'coupon.',
+                                context.l10n.tr(
+                                    'qr_scanner_classic_league_full_viewer_message'),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: AppTheme.secondaryText(brightness),
@@ -678,7 +676,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                       )
                                     : const Icon(Icons.payments_outlined),
                                 label: Text(
-                                  busy ? 'Processing\u2026' : 'Pay to unlock',
+                                  busy
+                                      ? context.l10n.tr('qr_scanner_processing')
+                                      : context.l10n
+                                          .tr('qr_scanner_pay_to_unlock'),
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w900),
                                 ),
@@ -688,7 +689,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                             Align(
                               alignment: AlignmentDirectional.centerStart,
                               child: Text(
-                                'Or redeem a coupon',
+                                context.l10n.tr('qr_scanner_or_redeem_coupon'),
                                 style: TextStyle(
                                   color: AppTheme.primaryText(brightness),
                                   fontWeight: FontWeight.w900,
@@ -702,11 +703,12 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                               enabled: !busy,
                               textCapitalization:
                                   TextCapitalization.characters,
-                              decoration: const InputDecoration(
-                                prefixIcon: Icon(
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(
                                   Icons.confirmation_number_outlined,
                                 ),
-                                hintText: 'Enter coupon code',
+                                hintText: context.l10n
+                                    .tr('qr_scanner_enter_coupon_code_hint'),
                               ),
                               onSubmitted: (_) => doCoupon(setSheet),
                             ),
@@ -718,10 +720,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     ? null
                                     : () => doCoupon(setSheet),
                                 icon: const Icon(Icons.verified_outlined),
-                                label: const Text(
-                                  'Apply coupon',
-                                  style:
-                                      TextStyle(fontWeight: FontWeight.w900),
+                                label: Text(
+                                  context.l10n.tr('qr_scanner_apply_coupon'),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w900),
                                 ),
                               ),
                             ),
@@ -764,7 +766,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                   foregroundColor:
                                       AppTheme.secondaryText(brightness),
                                 ),
-                                child: const Text('Cancel'),
+                                child: Text(context.l10n.tr('common_cancel')),
                               ),
                             ),
                           ],
@@ -847,8 +849,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       if (!mounted) return true;
       setState(() {
         _joining = false;
-        _error =
-            'Please sign in first to link this eSportlyic Web session.';
+        _error = context.l10n
+            .tr('qr_scanner_desktop_sign_in_required');
         _isScanned = false;
       });
       await _startScannerSafely();
@@ -875,7 +877,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         if (!mounted) return true;
         setState(() {
           _joining = false;
-          _error = 'Could not refresh your sign-in token: $tokenErr';
+          _error =
+              '${context.l10n.tr('qr_scanner_token_refresh_failed_prefix')}$tokenErr';
           _isScanned = false;
         });
         await _startScannerSafely();
@@ -887,8 +890,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         setState(() {
           _joining = false;
           _error =
-              'Firebase returned an empty ID token. Please sign out and '
-              'sign in again.';
+              context.l10n.tr('qr_scanner_empty_id_token_message');
           _isScanned = false;
         });
         await _startScannerSafely();
@@ -909,7 +911,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
           _joining = false;
           _error = result.message.trim().isNotEmpty
               ? result.message.trim()
-              : 'Could not link this desktop session. Please try again.';
+              : context.l10n.tr('qr_scanner_desktop_link_failed');
           _isScanned = false;
         });
         await _startScannerSafely();
@@ -924,8 +926,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
         _desktopPairingApproved = true;
         _desktopPairingMessage = result.message.trim().isNotEmpty
             ? result.message.trim()
-            : 'Desktop linked successfully. Your eSportlyic Web page '
-              'should update automatically.';
+            : context.l10n
+                .tr('qr_scanner_desktop_linked_success_message');
       });
 
       return true;
@@ -934,8 +936,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       setState(() {
         _joining = false;
         _error =
-            'Desktop link timed out (25 s). Check your internet and try '
-            'again.';
+            context.l10n.tr('qr_scanner_desktop_link_timeout');
         _isScanned = false;
       });
       await _startScannerSafely();
@@ -945,8 +946,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       final raw = e.toString().trim();
       setState(() {
         _joining = false;
-        _error =
-            raw.isNotEmpty ? raw : 'Unknown error during desktop link.';
+        _error = raw.isNotEmpty
+            ? raw
+            : context.l10n.tr('qr_scanner_desktop_link_unknown_error');
         _isScanned = false;
       });
       await _startScannerSafely();
@@ -1029,8 +1031,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       if (!rewardEarned) {
         setState(() {
           _joining = false;
-          _error = 'You need to watch the full ad to join this league. '
-              'Please try again.';
+          _error = l10n.tr('qr_scanner_ad_not_completed_message');
           _isScanned = false;
         });
         await _startScannerSafely();
@@ -1057,7 +1058,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       if (!mounted) return;
       setState(() {
         _joining = false;
-        _error = 'Please sign in and try again.';
+        _error = l10n.tr('qr_scanner_sign_in_and_retry');
         _isScanned = false;
       });
       await _startScannerSafely();
@@ -1311,9 +1312,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'A short rewarded video ad will play '
-                                      'before you join. Watch it fully to '
-                                      'unlock joining.',
+                                      l10n.tr('qr_scanner_ad_notice'),
                                       style: TextStyle(
                                         color: Colors.amber.shade700,
                                         fontSize: 11,
@@ -1459,7 +1458,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     if (_desktopPairingApproved) {
       return GlassScaffold(
         appBar: AppBar(
-          title: const Text('Desktop linked'),
+          title: Text(l10n.tr('qr_scanner_desktop_linked_appbar_title')),
           backgroundColor: Colors.transparent,
           elevation: 0,
           leading: IconButton(
@@ -1500,7 +1499,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        'Desktop linked successfully',
+                        l10n.tr('qr_scanner_desktop_linked_success_title'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.titleLarge?.copyWith(
                           color: AppTheme.primaryText(brightness),
@@ -1511,9 +1510,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                       Text(
                         (_desktopPairingMessage ?? '').trim().isNotEmpty
                             ? _desktopPairingMessage!.trim()
-                            : 'Your eSportlyic Web session has been '
-                              'approved. The desktop page should '
-                              'continue automatically.',
+                            : l10n.tr(
+                                'qr_scanner_desktop_pairing_approved_message'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: AppTheme.secondaryText(brightness),
@@ -1528,7 +1526,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                             child: OutlinedButton.icon(
                               onPressed: _scanAgain,
                               icon: const Icon(Icons.qr_code_scanner),
-                              label: const Text('Scan another'),
+                              label: Text(l10n.tr('qr_scanner_scan_another')),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1541,7 +1539,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                               onPressed: _finishDesktopPairingFlow,
                               icon:
                                   const Icon(Icons.check_circle_outline),
-                              label: const Text('Done'),
+                              label: Text(l10n.tr('common_done')),
                             ),
                           ),
                         ],
@@ -1783,8 +1781,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Please check your camera permission and '
-                            'try again.',
+                            context.l10n
+                                .tr('qr_scanner_camera_permission_retry_message'),
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: AppTheme.secondaryText(brightness),
@@ -2040,8 +2038,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      'This scanner can join leagues or '
-                                      'link eSportlyic Web.',
+                                      l10n.tr('qr_scanner_scanner_description'),
                                       textAlign: TextAlign.center,
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
@@ -2076,8 +2073,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
                                             const SizedBox(width: 6),
                                             Expanded(
                                               child: Text(
-                                                'Free plan: a short ad plays '
-                                                'before joining.',
+                                                l10n.tr(
+                                                    'qr_scanner_free_plan_ad_notice'),
                                                 style: TextStyle(
                                                   color:
                                                       Colors.amber.shade700,

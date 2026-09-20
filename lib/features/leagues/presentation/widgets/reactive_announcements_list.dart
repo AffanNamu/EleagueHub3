@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'package:eleaguehub3/core/locale/app_localizations.dart';
 import 'package:eleaguehub3/core/theme/app_theme.dart';
 import 'package:eleaguehub3/core/widgets/glass.dart';
 import 'package:eleaguehub3/features/leagues/data/announcements_firebase.dart';
@@ -72,7 +73,7 @@ class ReactiveAnnouncementsList extends StatelessWidget {
         if (announcements.isEmpty) {
           return Center(
             child: Text(
-              'No announcements yet',
+              context.l10n.tr('reactive_announcements_none'),
               style: TextStyle(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w600,

@@ -289,8 +289,8 @@ class _LeagueCreationPaymentScreenState
                                   const Color(0xFF22C55E).withOpacity(0.28),
                             ),
                           ),
-                          child: const Text(
-                            'POPULAR',
+                          child: Text(
+                            context.l10n.tr('league_creation_payment_popular_badge'),
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w900,
@@ -400,9 +400,9 @@ class _LeagueCreationPaymentScreenState
         appBar: AppBar(
           title: Text(
             premiumUpgrade
-                ? 'Upgrade Organizer Plan'
+                ? l10n.tr('league_creation_payment_upgrade_organizer_title')
                 : (addonsOnly
-                    ? 'Upgrade payment'
+                    ? l10n.tr('league_creation_payment_upgrade_payment_title')
                     : l10n.tr('league_creation_payment_appbar_title')),
           ),
           backgroundColor: Colors.transparent,
@@ -429,7 +429,7 @@ class _LeagueCreationPaymentScreenState
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Sign in required',
+                        l10n.tr('league_creation_payment_sign_in_required_title'),
                         style: theme.textTheme.titleMedium?.copyWith(
                           color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w900,
@@ -437,7 +437,7 @@ class _LeagueCreationPaymentScreenState
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Please sign in to continue. Payments must be tied to your Firebase account.',
+                        l10n.tr('league_creation_payment_sign_in_required_body'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: AppTheme.secondaryText(brightness),
@@ -453,7 +453,7 @@ class _LeagueCreationPaymentScreenState
                         ),
                         onPressed:
                             () => context.pop<LeagueCreationPaymentResult?>(null),
-                        child: const Text('Close'),
+                        child: Text(l10n.tr('common_close')),
                       ),
                     ],
                   ),
@@ -469,9 +469,9 @@ class _LeagueCreationPaymentScreenState
       appBar: AppBar(
         title: Text(
           premiumUpgrade
-              ? 'Upgrade Organizer Plan'
+              ? l10n.tr('league_creation_payment_upgrade_organizer_title')
               : (addonsOnly
-                  ? 'Upgrade payment'
+                  ? l10n.tr('league_creation_payment_upgrade_payment_title')
                   : l10n.tr('league_creation_payment_appbar_title')),
         ),
         backgroundColor: Colors.transparent,
@@ -486,7 +486,7 @@ class _LeagueCreationPaymentScreenState
             if (snap.hasError) {
               return Center(
                 child: Text(
-                  'Failed to load pricing. Please try again.',
+                  l10n.tr('league_creation_payment_pricing_load_failed'),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: Theme.of(context).colorScheme.error,
                     fontWeight: FontWeight.w700,
@@ -563,7 +563,9 @@ class _LeagueCreationPaymentScreenState
                   height: 1.35,
                 );
 
-                final qtyLabel = addonsOnly ? 'Additional coupons' : 'Coupons';
+                final qtyLabel = addonsOnly
+                    ? l10n.tr('league_creation_payment_additional_coupons_label')
+                    : l10n.tr('league_creation_payment_coupons_label');
 
                 final bool thresholdConfigured =
                     plan.couponThreshold != null && plan.couponThreshold! > 0;
@@ -585,20 +587,20 @@ class _LeagueCreationPaymentScreenState
                 final chipBorder = AppTheme.searchOutline(brightness);
 
                 final headerTitle = premiumUpgrade
-                    ? 'Choose Organizer Plan'
+                    ? l10n.tr('league_creation_payment_choose_organizer_plan')
                     : (addonsOnly
-                        ? 'Payment required to upgrade'
+                        ? l10n.tr('league_creation_payment_required_addon_title')
                         : l10n.tr('league_creation_payment_required_title'));
 
                 final headerBody = premiumUpgrade
-                    ? 'Upgrade your organizer account to continue creating more leagues and unlock larger organizer capacity.\n\n'
-                        'Selected plan: ${_selectedUpgradePlan.displayName}\n'
-                        'Duration: ${_selectedUpgradeDuration.displayName}\n'
-                        'Plan fee: ${_money(baseFee)} $premiumCurrency\n'
-                        'Provider: ${provider.providerName}'
-                    : 'Total: ${_money(total)} $currency\n\n'
-                        '${addonsOnly ? 'Upgrade' : l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
-                        '${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}';
+                    ? "${l10n.tr('league_creation_payment_upgrade_organizer_body')}\n\n"
+                        "${l10n.tr('league_creation_payment_selected_plan_prefix')} ${_selectedUpgradePlan.displayName}\n"
+                        "${l10n.tr('league_creation_payment_duration_prefix')} ${_selectedUpgradeDuration.displayName}\n"
+                        "${l10n.tr('league_creation_payment_plan_fee_prefix')} ${_money(baseFee)} $premiumCurrency\n"
+                        "${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}"
+                    : "${l10n.tr('league_creation_payment_total_prefix')} ${_money(total)} $currency\n\n"
+                        '${addonsOnly ? l10n.tr('league_creation_payment_upgrade_word') : l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
+                        "${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}";
 
                 return SingleChildScrollView(
                   padding:
@@ -649,7 +651,7 @@ class _LeagueCreationPaymentScreenState
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Choose plan',
+                                      l10n.tr('league_creation_payment_choose_plan'),
                                       style: theme.textTheme.bodyMedium?.copyWith(
                                         color: AppTheme.primaryText(brightness),
                                         fontWeight: FontWeight.w900,
@@ -696,7 +698,7 @@ class _LeagueCreationPaymentScreenState
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Choose duration',
+                                      l10n.tr('league_creation_payment_choose_duration'),
                                       style: theme.textTheme.bodyMedium?.copyWith(
                                         color: AppTheme.primaryText(brightness),
                                         fontWeight: FontWeight.w900,
@@ -755,7 +757,7 @@ class _LeagueCreationPaymentScreenState
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Plan benefits',
+                                      l10n.tr('league_creation_payment_plan_benefits'),
                                       style: theme.textTheme.bodyMedium?.copyWith(
                                         color: AppTheme.primaryText(brightness),
                                         fontWeight: FontWeight.w900,
@@ -799,7 +801,7 @@ class _LeagueCreationPaymentScreenState
                                       children: [
                                         Expanded(
                                           child: Text(
-                                            'Coupons (optional)',
+                                            l10n.tr('league_creation_payment_coupons_optional'),
                                             style: theme.textTheme.bodyMedium
                                                 ?.copyWith(
                                               color:
@@ -837,7 +839,7 @@ class _LeagueCreationPaymentScreenState
                                         _existingCouponCount > 0) ...[
                                       const SizedBox(height: 6),
                                       Text(
-                                        'Already purchased: $_existingCouponCount',
+                                        "${l10n.tr('league_creation_payment_already_purchased_prefix')} $_existingCouponCount",
                                         style: theme.textTheme.bodySmall
                                             ?.copyWith(
                                           color: AppTheme.secondaryText(brightness),
@@ -847,8 +849,8 @@ class _LeagueCreationPaymentScreenState
                                     ],
                                     const SizedBox(height: 6),
                                     Text(
-                                      'Full coupon unit (access fee): ${_money(plan.couponUnit)} $currency.\n'
-                                      'You pay only the discount portion now: unit × (discount%).',
+                                      "${l10n.tr('league_creation_payment_coupon_unit_prefix')} ${_money(plan.couponUnit)} $currency.\n"
+                                      "${l10n.tr('league_creation_payment_coupon_unit_suffix')}",
                                       style: theme.textTheme.bodySmall?.copyWith(
                                         color: AppTheme.secondaryText(brightness),
                                         fontWeight: FontWeight.w600,
@@ -858,8 +860,8 @@ class _LeagueCreationPaymentScreenState
                                     const SizedBox(height: 8),
                                     Text(
                                       thresholdConfigured
-                                          ? 'Bulk discount: ${_money(plan.couponDiscountPercent)}% when coupon subtotal ≥ ${_money(plan.couponThreshold!)} $currency.'
-                                          : 'Bulk discount not configured.',
+                                          ? "${l10n.tr('league_creation_payment_bulk_discount_configured_prefix')} ${_money(plan.couponDiscountPercent)}% ${l10n.tr('league_creation_payment_bulk_discount_configured_suffix')} ${_money(plan.couponThreshold!)} $currency."
+                                          : l10n.tr('league_creation_payment_bulk_discount_not_configured'),
                                       style: theme.textTheme.bodySmall?.copyWith(
                                         color: AppTheme.secondaryText(brightness),
                                         fontWeight: FontWeight.w600,
@@ -900,7 +902,7 @@ class _LeagueCreationPaymentScreenState
                                             ),
                                           ),
                                           IconButton(
-                                            tooltip: 'Decrease',
+                                            tooltip: l10n.tr('league_creation_payment_decrease'),
                                             onPressed: _processing
                                                 ? null
                                                 : () {
@@ -919,7 +921,7 @@ class _LeagueCreationPaymentScreenState
                                             ),
                                           ),
                                           IconButton(
-                                            tooltip: 'Increase',
+                                            tooltip: l10n.tr('league_creation_payment_increase'),
                                             onPressed: _processing
                                                 ? null
                                                 : () {
@@ -961,7 +963,7 @@ class _LeagueCreationPaymentScreenState
                                       ),
                                       const SizedBox(height: 12),
                                       Text(
-                                        'Discount percent (for users)',
+                                        l10n.tr('league_creation_payment_discount_percent_label'),
                                         style: theme.textTheme.bodyMedium
                                             ?.copyWith(
                                           color:
@@ -1008,7 +1010,7 @@ class _LeagueCreationPaymentScreenState
                                       ),
                                       const SizedBox(height: 12),
                                       Text(
-                                        'Coupon code type (optional)',
+                                        l10n.tr('league_creation_payment_coupon_code_type_label'),
                                         style: theme.textTheme.bodyMedium
                                             ?.copyWith(
                                           color:
@@ -1020,7 +1022,7 @@ class _LeagueCreationPaymentScreenState
                                       Row(
                                         children: [
                                           ChoiceChip(
-                                            label: const Text('Random',
+                                            label: Text(l10n.tr('league_creation_payment_coupon_type_random'),
                                                 style: TextStyle(
                                                     fontWeight:
                                                         FontWeight.w800)),
@@ -1046,7 +1048,7 @@ class _LeagueCreationPaymentScreenState
                                           ),
                                           const SizedBox(width: 10),
                                           ChoiceChip(
-                                            label: const Text('Custom',
+                                            label: Text(l10n.tr('league_creation_payment_coupon_type_custom'),
                                                 style: TextStyle(
                                                     fontWeight:
                                                         FontWeight.w800)),
@@ -1083,17 +1085,17 @@ class _LeagueCreationPaymentScreenState
                                           ],
                                           decoration: InputDecoration(
                                             labelText:
-                                                'Custom name (example: BARCA)',
+                                                l10n.tr('league_creation_payment_custom_name_label'),
                                             prefixIcon: const Icon(Icons.edit),
                                             errorText: customInvalid
-                                                ? 'Invalid name (no "/" and max 24 chars).'
+                                                ? l10n.tr('league_creation_payment_custom_name_invalid')
                                                 : null,
                                           ),
                                           onChanged: (_) => setState(() {}),
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
-                                          'Custom name is used for display/preview; it must not contain "/".',
+                                          l10n.tr('league_creation_payment_custom_name_hint'),
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
                                             color:
@@ -1103,7 +1105,7 @@ class _LeagueCreationPaymentScreenState
                                         ),
                                       ],
                                       Text(
-                                        'Preview: $preview',
+                                        "${l10n.tr('league_creation_payment_preview_prefix')} $preview",
                                         style:
                                             theme.textTheme.bodySmall?.copyWith(
                                           color:
@@ -1130,7 +1132,7 @@ class _LeagueCreationPaymentScreenState
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Summary',
+                                    l10n.tr('league_creation_payment_summary_title'),
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       color: AppTheme.primaryText(brightness),
                                       fontWeight: FontWeight.w900,
@@ -1140,27 +1142,27 @@ class _LeagueCreationPaymentScreenState
                                   _kv(
                                     context,
                                     premiumUpgrade
-                                        ? '${_selectedUpgradePlan.displayName} plan fee'
-                                        : 'League creation fee',
+                                        ? '${_selectedUpgradePlan.displayName} ${l10n.tr('league_creation_payment_plan_fee_suffix')}'
+                                        : l10n.tr('league_creation_payment_creation_fee_label'),
                                     '${_money(baseFee)} ${premiumUpgrade ? premiumCurrency : currency}',
                                   ),
                                   if (premiumUpgrade)
                                     _kv(
                                       context,
-                                      'Duration',
+                                      l10n.tr('league_creation_payment_duration_label'),
                                       _selectedUpgradeDuration.displayName,
                                     ),
                                   if (!premiumUpgrade) ...[
                                     _kv(
                                       context,
-                                      'Coupons subtotal (organizer pays)',
+                                      l10n.tr('league_creation_payment_coupons_subtotal_label'),
                                       '${_money(rawCouponSubtotal)} $currency',
                                     ),
                                     _kv(
                                       context,
                                       bulkDiscountApplied
-                                          ? 'Bulk discount (${_money(plan.couponDiscountPercent)}%)'
-                                          : 'Bulk discount',
+                                          ? "${l10n.tr('league_creation_payment_bulk_discount_label')} (${_money(plan.couponDiscountPercent)}%)"
+                                          : l10n.tr('league_creation_payment_bulk_discount_label'),
                                       bulkDiscountApplied
                                           ? '- ${_money(rawCouponSubtotal - discountedCouponSubtotal)} $currency'
                                           : '—',
@@ -1169,7 +1171,7 @@ class _LeagueCreationPaymentScreenState
                                   const Divider(),
                                   _kvStrong(
                                     context,
-                                    'Total payable now',
+                                    l10n.tr('league_creation_payment_total_payable_label'),
                                     '${_money(total)} ${premiumUpgrade ? premiumCurrency : currency}',
                                   ),
                                 ],
@@ -1211,8 +1213,8 @@ class _LeagueCreationPaymentScreenState
                                                 ScaffoldMessenger.of(context)
                                                     .showSnackBar(
                                                   SnackBar(
-                                                    content: const Text(
-                                                        'Select at least 1 coupon to buy.'),
+                                                    content: Text(
+                                                        l10n.tr('league_creation_payment_select_coupon_min')),
                                                     backgroundColor: Theme.of(context)
                                                         .colorScheme
                                                         .error,
@@ -1322,7 +1324,7 @@ class _LeagueCreationPaymentScreenState
                                           )
                                         : Text(
                                             premiumUpgrade
-                                                ? 'Upgrade Now'
+                                                ? l10n.tr('league_creation_payment_upgrade_now')
                                                 : l10n.tr(
                                                     'league_creation_payment_pay_continue',
                                                   ),

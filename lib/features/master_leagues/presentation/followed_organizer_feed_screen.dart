@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
@@ -108,7 +109,7 @@ class _FollowedOrganizerFeedScreenState
         _loading = false;
         _items   = const <OrganizerFeedEvent>[];
         _error   =
-            'Unable to load organizer updates right now.';
+            context.l10n.tr('followed_organizer_feed_load_error');
       });
     }
   }
@@ -146,7 +147,7 @@ class _FollowedOrganizerFeedScreenState
   }
 
   String _formatWhen(int ms) {
-    if (ms <= 0) return 'Unknown time';
+    if (ms <= 0) return context.l10n.tr('followed_organizer_feed_unknown_time');
     try {
       return DateTime.fromMillisecondsSinceEpoch(ms)
           .toLocal()
@@ -154,7 +155,7 @@ class _FollowedOrganizerFeedScreenState
           .split('.')
           .first;
     } catch (_) {
-      return 'Unknown time';
+      return context.l10n.tr('followed_organizer_feed_unknown_time');
     }
   }
 
@@ -179,17 +180,18 @@ class _FollowedOrganizerFeedScreenState
         FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n       = context.l10n;
 
     return GlassScaffold(
       appBar: AppBar(
-        title:           const Text('Followed Organizer Feed'),
+        title:           Text(l10n.tr('followed_organizer_feed_title')),
         backgroundColor: Colors.transparent,
         elevation:       0,
         // Explicit leading — prevents shell navigator from
         // intercepting back on web
         leading: IconButton(
           icon:     const Icon(Icons.arrow_back),
-          tooltip:  'Back',
+          tooltip:  l10n.tr('common_back'),
           onPressed: _safePop,
         ),
       ),
@@ -215,11 +217,10 @@ class _FollowedOrganizerFeedScreenState
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(
                           maxWidth: 480),
-                      child: const EmptyState(
-                        title:   'Sign in required',
+                      child: EmptyState(
+                        title:   l10n.tr('followed_organizer_feed_signin_required_title'),
                         message:
-                            'Please sign in to view updates '
-                            'from organizers you follow.',
+                            l10n.tr('followed_organizer_feed_signin_required_message'),
                         icon: Icons.dynamic_feed_rounded,
                       ),
                     ),
@@ -256,7 +257,7 @@ class _FollowedOrganizerFeedScreenState
                                 CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Organizer Feed',
+                                l10n.tr('followed_organizer_feed_header_title'),
                                 style: theme.textTheme
                                     .titleLarge
                                     ?.copyWith(
@@ -270,9 +271,7 @@ class _FollowedOrganizerFeedScreenState
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Latest updates from the '
-                                'organizer workspaces '
-                                'you follow.',
+                                l10n.tr('followed_organizer_feed_header_subtitle'),
                                 style: theme.textTheme
                                     .bodyMedium
                                     ?.copyWith(
@@ -323,12 +322,10 @@ class _FollowedOrganizerFeedScreenState
 
                         // ── Empty ────────────────────────────────────
                         else if (_items.isEmpty)
-                          const EmptyState(
-                            title: 'No updates yet',
+                          EmptyState(
+                            title: l10n.tr('followed_organizer_feed_empty_title'),
                             message:
-                                'Follow organizer workspaces '
-                                'to see their latest activity '
-                                'here.',
+                                l10n.tr('followed_organizer_feed_empty_message'),
                             icon: Icons.dynamic_feed_rounded,
                           )
 
@@ -494,7 +491,7 @@ class _FeedItemCard extends StatelessWidget {
                         label: item.actorName
                                 .trim()
                                 .isEmpty
-                            ? 'Organizer'
+                            ? context.l10n.tr('followed_organizer_feed_actor_fallback')
                             : item.actorName.trim(),
                         icon:  Icons.person_outline_rounded,
                         color: AppTheme.limeAccentDark,

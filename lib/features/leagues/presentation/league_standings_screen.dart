@@ -81,15 +81,14 @@ class _LeagueStandingsScreenState
         return l10n.tr('add_teams_group_g');
       case 'Group H':
         return l10n.tr('add_teams_group_h');
-      // World Cup 2026 additional groups (I through L).
       case 'Group I':
-        return 'Group I';
+        return l10n.tr('add_teams_group_i');
       case 'Group J':
-        return 'Group J';
+        return l10n.tr('add_teams_group_j');
       case 'Group K':
-        return 'Group K';
+        return l10n.tr('add_teams_group_k');
       case 'Group L':
-        return 'Group L';
+        return l10n.tr('add_teams_group_l');
       default:
         return groupId;
     }
@@ -327,10 +326,16 @@ class _LeagueStandingsScreenState
               (id.isEmpty ? '' : (_teamImageUrls[id] ?? '')).trim();
 
           final bool idLooksUid = _looksLikeFirebaseUid(id);
-          final displayLabel =
-              name.isNotEmpty ? name : (idLooksUid ? 'TEAM' : id);
-          final tooltipLabel =
-              name.isNotEmpty ? name : (idLooksUid ? 'Team' : id);
+          final displayLabel = name.isNotEmpty
+              ? name
+              : (idLooksUid
+                  ? context.l10n.tr('standings_team_fallback_upper')
+                  : id);
+          final tooltipLabel = name.isNotEmpty
+              ? name
+              : (idLooksUid
+                  ? context.l10n.tr('standings_team_fallback')
+                  : id);
 
           return Tooltip(
             message: tooltipLabel,
@@ -707,7 +712,8 @@ class _LeagueStandingsScreenState
             children: [
               dot(const Color(0xFF22C55E).withOpacity(0.55)),
               const SizedBox(width: 6),
-              Text('Qualified (Top 2)', style: labelStyle),
+              Text(context.l10n.tr('standings_legend_qualified_top2'),
+                  style: labelStyle),
             ],
           ),
           if (is2026)
@@ -716,7 +722,10 @@ class _LeagueStandingsScreenState
               children: [
                 dot(const Color(0xFFF59E0B).withOpacity(0.55)),
                 const SizedBox(width: 6),
-                Text('Potential Best 3rd (8 of 12)', style: labelStyle),
+                Text(
+                    context.l10n
+                        .tr('standings_legend_potential_best_3rd'),
+                    style: labelStyle),
               ],
             ),
           Row(
@@ -724,7 +733,8 @@ class _LeagueStandingsScreenState
             children: [
               dot(Colors.red.withOpacity(0.45)),
               const SizedBox(width: 6),
-              Text('Eliminated', style: labelStyle),
+              Text(context.l10n.tr('standings_legend_eliminated'),
+                  style: labelStyle),
             ],
           ),
         ],

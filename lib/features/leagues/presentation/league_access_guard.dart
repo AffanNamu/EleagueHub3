@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -77,6 +78,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final st = ref.watch(leagueAccessControllerProvider(widget.leagueId));
     final decision = st.decision;
 
@@ -106,7 +108,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                   const SizedBox(width: 14),
                   Expanded(
                     child: Text(
-                      'Verifying access…',
+                      l10n.tr('league_access_verifying'),
                       style: TextStyle(
                         color: cs.onSurface.withOpacity(0.72),
                         fontWeight: FontWeight.w900,
@@ -121,12 +123,17 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
       ),
     );
 
-    final leagueName = decision?.leagueName ?? 'this league';
+    final leagueName =
+        decision?.leagueName ?? l10n.tr('league_access_this_league_fallback');
     final isClassic = decision?.isClassicLeague == true;
 
     final err = (st.errorMessage ?? '').trim();
     final deny = (decision?.denyMessage ?? '').trim();
-    final message = err.isNotEmpty ? err : (deny.isNotEmpty ? deny : 'You don’t have access yet.');
+    final message = err.isNotEmpty
+        ? err
+        : (deny.isNotEmpty
+            ? deny
+            : l10n.tr('league_access_no_access_yet_message'));
 
     final gate = GlassScaffold(
       body: Center(
@@ -158,7 +165,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                   ),
                   const SizedBox(height: 14),
                   Text(
-                    'Access Required',
+                    l10n.tr('league_access_required_title'),
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w900,
                       letterSpacing: -0.3,
@@ -187,7 +194,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                         border: Border.all(color: cs.primary.withOpacity(0.18)),
                       ),
                       child: Text(
-                        'Classic league: participants enter free. Viewers can still unlock access by paying or using a coupon.',
+                        l10n.tr('league_access_classic_free_notice'),
                         style: TextStyle(
                           color: cs.onSurface.withOpacity(0.70),
                           fontWeight: FontWeight.w800,
@@ -212,7 +219,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'Unlock $leagueName',
+                          '${l10n.tr('league_access_unlock_prefix')}$leagueName',
                           style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
                         ),
                         const SizedBox(height: 8),
@@ -222,8 +229,8 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                           builder: (context, snap) {
                             final plan = snap.data;
                             final feeLine = (plan == null)
-                                ? 'Entry fee: loading…'
-                                : 'Entry fee: ${_money(plan.currency, plan.accessFee)}';
+                                ? l10n.tr('league_access_entry_fee_loading')
+                                : '${l10n.tr('league_access_entry_fee_prefix')}${_money(plan.currency, plan.accessFee)}';
 
                             return Text(
                               feeLine,
@@ -244,19 +251,21 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                                   await ref.read(leagueAccessControllerProvider(widget.leagueId).notifier).payToUnlock(context);
                                   final after = ref.read(leagueAccessControllerProvider(widget.leagueId));
                                   if (after.decision?.allowed == true) {
-                                    _toast('Access unlocked.');
+                                    _toast(l10n.tr('league_access_unlocked_toast'));
                                   }
                                 },
                           icon: const Icon(Icons.payments_outlined),
                           label: Text(
-                            st.busy ? 'Processing…' : 'Pay league entry fee',
+                            st.busy
+                                ? l10n.tr('league_access_processing')
+                                : l10n.tr('league_access_pay_entry_fee'),
                             style: const TextStyle(fontWeight: FontWeight.w900),
                           ),
                         ),
                         const SizedBox(height: 14),
 
                         Text(
-                          'Or redeem a coupon',
+                          l10n.tr('league_access_or_redeem_coupon'),
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w900,
                             color: cs.onSurface.withOpacity(0.70),
@@ -269,7 +278,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                           textCapitalization: TextCapitalization.characters,
                           decoration: InputDecoration(
                             prefixIcon: const Icon(Icons.confirmation_number_outlined),
-                            hintText: 'Enter coupon code',
+                            hintText: l10n.tr('league_access_enter_coupon_code_hint'),
                             filled: true,
                             fillColor: cs.onSurface.withOpacity(0.06),
                             border: OutlineInputBorder(
@@ -290,7 +299,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                             final after = ref.read(leagueAccessControllerProvider(widget.leagueId));
                             if (after.decision?.allowed == true) {
                               _couponCtrl.clear();
-                              _toast('Coupon redeemed. Access unlocked.');
+                              _toast(l10n.tr('league_access_coupon_redeemed_toast'));
                             }
                           },
                         ),
@@ -303,11 +312,11 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                                   final after = ref.read(leagueAccessControllerProvider(widget.leagueId));
                                   if (after.decision?.allowed == true) {
                                     _couponCtrl.clear();
-                                    _toast('Coupon redeemed. Access unlocked.');
+                                    _toast(l10n.tr('league_access_coupon_redeemed_toast'));
                                   }
                                 },
                           icon: const Icon(Icons.verified_outlined),
-                          label: const Text('Apply coupon', style: TextStyle(fontWeight: FontWeight.w900)),
+                          label: Text(l10n.tr('league_access_apply_coupon'), style: const TextStyle(fontWeight: FontWeight.w900)),
                         ),
                       ],
                     ),
@@ -328,7 +337,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                                   }
                                 },
                           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 16),
-                          label: const Text('Back', style: TextStyle(fontWeight: FontWeight.w900)),
+                          label: Text(l10n.tr('common_back'), style: const TextStyle(fontWeight: FontWeight.w900)),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -340,7 +349,7 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                                   await ref.read(leagueAccessControllerProvider(widget.leagueId).notifier).check(force: true);
                                 },
                           icon: const Icon(Icons.refresh_rounded, size: 18),
-                          label: const Text('Retry', style: TextStyle(fontWeight: FontWeight.w900)),
+                          label: Text(l10n.tr('common_retry'), style: const TextStyle(fontWeight: FontWeight.w900)),
                         ),
                       ),
                     ],

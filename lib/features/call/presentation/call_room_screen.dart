@@ -19,6 +19,83 @@ String _trOr(AppLocalizations l10n, String key, String fallback) {
   return v == key ? fallback : v;
 }
 
+/// The default quick messages, localized. Reuses the same translation keys
+/// as the in-app quick message picker (see live_view_screen.dart) so the
+/// Android overlay (which has no BuildContext of its own) shows the same
+/// localized text.
+List<String> _localizedDefaultQuickMessages(AppLocalizations l10n) {
+  return <String>[
+    _trOr(l10n, 'live_view_quick_focus', 'Focus!'),
+    _trOr(l10n, 'live_view_quick_calm_down', 'Calm down'),
+    _trOr(l10n, 'live_view_quick_we_got_this', 'We got this'),
+    _trOr(l10n, 'live_view_quick_one_more_goal', 'One more goal!'),
+    _trOr(l10n, 'live_view_quick_dont_give_up', 'Don’t give up'),
+    _trOr(l10n, 'live_view_quick_sorry', 'Sorry'),
+    _trOr(l10n, 'live_view_quick_unlucky', 'Unlucky'),
+    _trOr(l10n, 'live_view_quick_what_a_goal', 'What a goal!'),
+    _trOr(l10n, 'live_view_quick_ref', 'Ref??'),
+  ];
+}
+
+/// Resolves a single semantic error key (see [CallSessionErrorKey]) to
+/// localized display text.
+String _callErrorKeyToText(AppLocalizations l10n, String key) {
+  switch (key) {
+    case CallSessionErrorKey.signInRequired:
+      return _trOr(l10n, 'call_error_sign_in_required', 'Please sign in to use voice rooms.');
+    case CallSessionErrorKey.invalidRoomCode:
+      return _trOr(l10n, 'call_error_invalid_room_code', 'Room code must be exactly 8 letters/numbers.');
+    case CallSessionErrorKey.networkIssue:
+      return _trOr(l10n, 'call_error_network_issue', 'Network issue. Please check your connection.');
+    case CallSessionErrorKey.connectionTimeout:
+      return _trOr(l10n, 'call_error_connection_timeout', 'Connection timed out. Please try again.');
+    case CallSessionErrorKey.permissionDenied:
+      return _trOr(l10n, 'call_error_permission_denied', 'Permission denied. Please check app permissions.');
+    case CallSessionErrorKey.authFailed:
+      return _trOr(l10n, 'call_error_auth_failed', 'Authentication failed. Please sign in again.');
+    case CallSessionErrorKey.roomConnectFailed:
+      return _trOr(l10n, 'call_error_room_connect_failed', 'Could not connect to voice room. Please try again.');
+    case CallSessionErrorKey.reconnectGiveUp:
+      return _trOr(l10n, 'call_error_reconnect_give_up', 'Could not reconnect. Please rejoin manually.');
+    case CallSessionErrorKey.unknown:
+    default:
+      return _trOr(l10n, 'call_error_unknown', 'Something went wrong. Please try again.');
+  }
+}
+
+/// Resolves the full (possibly composite) error text for [state].
+String _callErrorText(AppLocalizations l10n, CallSessionState state) {
+  final key = state.errorKey;
+  final arg = state.errorArg;
+
+  if (key == CallSessionErrorKey.reconnectingWithReason) {
+    String reasonText;
+    if (arg != null && arg.startsWith('raw|')) {
+      reasonText = arg.substring('raw|'.length);
+    } else if (arg != null && arg.startsWith('key|')) {
+      reasonText = _callErrorKeyToText(l10n, arg.substring('key|'.length));
+    } else {
+      reasonText = _callErrorKeyToText(l10n, CallSessionErrorKey.unknown);
+    }
+    return '${_trOr(l10n, 'call_error_reconnecting_prefix', 'Reconnecting... ')}$reasonText';
+  }
+
+  if (key == CallSessionErrorKey.connectionLostReconnecting) {
+    final parts = (arg ?? '').split('/');
+    final attempt = parts.isNotEmpty ? parts[0] : '';
+    final max = parts.length > 1 ? parts[1] : '';
+    return '${_trOr(l10n, 'call_error_connection_lost_prefix', 'Connection lost. Reconnecting (attempt ')}'
+        '$attempt${_trOr(l10n, 'call_error_connection_lost_infix', '/')}$max'
+        '${_trOr(l10n, 'call_error_connection_lost_suffix', ')...')}';
+  }
+
+  if (key == CallSessionErrorKey.raw) {
+    return arg ?? _callErrorKeyToText(l10n, CallSessionErrorKey.unknown);
+  }
+
+  return _callErrorKeyToText(l10n, key);
+}
+
 class CallRoomScreen extends ConsumerStatefulWidget {
   const CallRoomScreen({super.key});
 
@@ -299,7 +376,9 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
-          content: Text('Permission request failed: $e'),
+          content: Text(
+            '${_trOr(l10n, 'call_room_permission_request_failed_prefix', 'Permission request failed: ')}$e',
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -317,7 +396,12 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     final granted = await _requestCallPermissions();
     if (!granted || !mounted) return;
 
-    await ctrl.createAndJoin();
+    final l10n = context.l10n;
+    await ctrl.createAndJoin(
+      notificationTitle: _trOr(l10n, 'call_room_notification_title', 'Voice room'),
+      notificationTextPrefix:
+          _trOr(l10n, 'call_room_notification_text_prefix', 'Room '),
+    );
   }
 
   Future<void> _handleJoinRoom() async {
@@ -327,9 +411,11 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
 
     if (code.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           behavior: SnackBarBehavior.floating,
-          content: Text('Please enter a room code'),
+          content: Text(
+            _trOr(context.l10n, 'call_room_enter_room_code', 'Please enter a room code'),
+          ),
         ),
       );
       return;
@@ -341,7 +427,13 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     final granted = await _requestCallPermissions();
     if (!granted || !mounted) return;
 
-    await ctrl.joinByCode(code);
+    final l10n = context.l10n;
+    await ctrl.joinByCode(
+      code,
+      notificationTitle: _trOr(l10n, 'call_room_notification_title', 'Voice room'),
+      notificationTextPrefix:
+          _trOr(l10n, 'call_room_notification_text_prefix', 'Room '),
+    );
   }
 
   @override
@@ -370,7 +462,9 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
       });
     }
 
-    final quickList = ref.watch(overlayQuickMessagesProvider);
+    final quickList = ref.watch(
+      overlayQuickMessagesProvider(_localizedDefaultQuickMessages(l10n)),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(OverlayPlatform.setOverlayQuickMessages(quickList));
     });
@@ -490,7 +584,11 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Create or join with 8-character code',
+                        _trOr(
+                          l10n,
+                          'call_room_create_or_join_heading',
+                          'Create or join with 8-character code',
+                        ),
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w900,
                           color: AppTheme.primaryText(brightness),
@@ -499,15 +597,23 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                       const SizedBox(height: 8),
                       Text(
                         _overlayEnabled
-                            ? 'Create a room to get an 8-character code. Share it with your friend to join. Keep talking using the floating overlay over other apps.'
-                            : 'Create a room to get an 8-character code. Share it with your friend to join. Enable the floating overlay from the top-right button for premium quick controls.',
+                            ? _trOr(
+                                l10n,
+                                'call_room_create_join_body_overlay_on',
+                                'Create a room to get an 8-character code. Share it with your friend to join. Keep talking using the floating overlay over other apps.',
+                              )
+                            : _trOr(
+                                l10n,
+                                'call_room_create_join_body_overlay_off',
+                                'Create a room to get an 8-character code. Share it with your friend to join. Enable the floating overlay from the top-right button for premium quick controls.',
+                              ),
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: AppTheme.secondaryText(brightness),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 12),
-                      if (st.error.isNotEmpty) ...[
+                      if (st.hasError) ...[
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -552,7 +658,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                               ],
                               Expanded(
                                 child: Text(
-                                  st.error,
+                                  _callErrorText(l10n, st),
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: st.reconnecting
                                         ? warning
@@ -628,9 +734,13 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                             !_requestingPermissions,
                         textCapitalization: TextCapitalization.characters,
                         maxLength: 8,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           counterText: '',
-                          hintText: 'Enter 8-character code',
+                          hintText: _trOr(
+                            l10n,
+                            'call_room_enter_code_hint',
+                            'Enter 8-character code',
+                          ),
                         ),
                         onChanged: (v) {
                           final next = v
@@ -686,7 +796,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                           Expanded(
                             child: Text(
                               st.connected
-                                  ? '${_trOr(l10n, 'call_room_connected', 'Connected')} • Code: ${st.callId}'
+                                  ? '${_trOr(l10n, 'call_room_connected', 'Connected')}${_trOr(l10n, 'call_room_connected_code_suffix', ' • Code: ')}${st.callId}'
                                   : st.reconnecting
                                       ? _trOr(l10n, 'call_room_reconnecting',
                                           'Reconnecting...')

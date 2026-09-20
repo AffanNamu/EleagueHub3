@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../data/status_repository.dart';
 import '../models/user_status.dart';
@@ -29,7 +30,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen>
   bool _loading = true;
   String? _error;
   List<UserStatus> _items = const [];
-  String _displayName = 'User';
+  String _displayName = '';
 
   int _index = 0;
   late final AnimationController _progress;
@@ -111,15 +112,16 @@ class _StatusViewerScreenState extends State<StatusViewerScreen>
 
   Future<void> _confirmDelete() async {
     _progress.stop();
+    final l10n = context.l10n;
     final current = _items[_index];
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete this status?'),
-        content: const Text('This cannot be undone.'),
+        title: Text(l10n.tr('status_viewer_delete_dialog_title')),
+        content: Text(l10n.tr('status_viewer_delete_dialog_message')),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Delete')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(l10n.tr('status_viewer_delete_dialog_cancel'))),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(l10n.tr('status_viewer_delete_dialog_confirm'))),
         ],
       ),
     );
@@ -153,6 +155,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -162,15 +165,15 @@ class _StatusViewerScreenState extends State<StatusViewerScreen>
                 ? _MessageState(message: _error!, onClose: () => Navigator.of(context).maybePop())
                 : _items.isEmpty
                     ? _MessageState(
-                        message: 'No active status right now.',
+                        message: l10n.tr('status_viewer_no_active'),
                         onClose: () => Navigator.of(context).maybePop(),
                       )
-                    : _buildViewer(),
+                    : _buildViewer(l10n),
       ),
     );
   }
 
-  Widget _buildViewer() {
+  Widget _buildViewer(AppLocalizations l10n) {
     final current = _items[_index];
 
     return GestureDetector(
@@ -242,7 +245,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen>
               children: [
                 Expanded(
                   child: Text(
-                    _displayName,
+                    _displayName.trim().isEmpty ? l10n.tr('status_viewer_author_fallback') : _displayName,
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,

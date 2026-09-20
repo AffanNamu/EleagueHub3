@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/country/country_resolver_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -108,12 +109,13 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
     final bool showingManualSearch = _searched;
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Search Teams'),
+        title: Text(l10n.tr('user_search_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -126,7 +128,7 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
                 controller: _controller,
                 onChanged: _onChanged,
                 decoration: InputDecoration(
-                  hintText: 'Search by team name…',
+                  hintText: l10n.tr('user_search_hint'),
                   prefixIcon: const Icon(Icons.search_rounded),
                   suffixIcon: _controller.text.isEmpty
                       ? null
@@ -143,8 +145,8 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
             if (_loading) const LinearProgressIndicator(minHeight: 2),
             Expanded(
               child: showingManualSearch
-                  ? _buildSearchResults(brightness)
-                  : _buildNearbySection(brightness),
+                  ? _buildSearchResults(l10n, brightness)
+                  : _buildNearbySection(l10n, brightness),
             ),
           ],
         ),
@@ -152,11 +154,11 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
     );
   }
 
-  Widget _buildSearchResults(Brightness brightness) {
+  Widget _buildSearchResults(AppLocalizations l10n, Brightness brightness) {
     if (_results.isEmpty) {
       return Center(
         child: Text(
-          'No teams found.',
+          l10n.tr('user_search_no_teams_found'),
           style: TextStyle(
             color: AppTheme.secondaryText(brightness),
             fontWeight: FontWeight.w600,
@@ -172,7 +174,7 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
     );
   }
 
-  Widget _buildNearbySection(Brightness brightness) {
+  Widget _buildNearbySection(AppLocalizations l10n, Brightness brightness) {
     return RefreshIndicator(
       onRefresh: _loadNearby,
       child: ListView(
@@ -185,7 +187,9 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  _nearbyCountry.isEmpty ? 'Teams Near You' : 'Teams in $_nearbyCountry',
+                  _nearbyCountry.isEmpty
+                      ? l10n.tr('user_search_nearby_title_default')
+                      : '${l10n.tr('user_search_nearby_title_country_prefix')}$_nearbyCountry',
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 15,
@@ -197,7 +201,7 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Automatically shown based on your region. Use the search box above to find a specific team.',
+            l10n.tr('user_search_nearby_subtitle'),
             style: TextStyle(
               color: AppTheme.secondaryText(brightness),
               fontSize: 12,
@@ -216,7 +220,7 @@ class _UserSearchScreenState extends State<UserSearchScreen> {
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Center(
                 child: Text(
-                  'No nearby teams found yet. Try using the search box above.',
+                  l10n.tr('user_search_nearby_empty'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: AppTheme.secondaryText(brightness),
@@ -318,7 +322,7 @@ class _TeamTileState extends State<_TeamTile> {
     // Team ID, per the requirement that the ID must not appear here.
     final resolvedName = entry.displayName.isNotEmpty
         ? entry.displayName
-        : (entry.usernameLower.isNotEmpty ? '@${entry.usernameLower}' : 'Team');
+        : (entry.usernameLower.isNotEmpty ? '@${entry.usernameLower}' : context.l10n.tr('user_search_team_fallback'));
 
     return Glass(
       borderRadius: 16,
@@ -399,7 +403,7 @@ class _FollowSmallButton extends StatelessWidget {
         ),
         child: busy
             ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-            : const Text('Following', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+            : Text(context.l10n.tr('user_search_following_button'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
       );
     }
 
@@ -419,7 +423,7 @@ class _FollowSmallButton extends StatelessWidget {
               height: 14,
               child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkText),
             )
-          : const Text('Follow', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+          : Text(context.l10n.tr('user_search_follow_button'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
     );
   }
 }

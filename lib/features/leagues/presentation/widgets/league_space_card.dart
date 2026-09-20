@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:eleaguehub3/core/locale/app_localizations.dart';
 import 'package:eleaguehub3/core/theme/app_theme.dart';
 import 'package:eleaguehub3/core/widgets/glass.dart';
 import 'package:eleaguehub3/features/leagues/data/spaces_firebase.dart';
@@ -78,7 +79,7 @@ class LeagueSpaceCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isLive ? 'LIVE SPACE' : 'SPACE OFFLINE',
+                      isLive ? context.l10n.tr('league_space_card_live') : context.l10n.tr('league_space_card_offline'),
                       style: TextStyle(
                         color: isLive
                             ? AppTheme.primaryText(brightness)
@@ -90,8 +91,8 @@ class LeagueSpaceCard extends StatelessWidget {
                     ),
                     Text(
                       isLive
-                          ? 'Join the conversation now'
-                          : 'No active discussion',
+                          ? context.l10n.tr('league_space_card_join_now')
+                          : context.l10n.tr('league_space_card_no_discussion'),
                       style: TextStyle(
                         color: AppTheme.secondaryText(brightness),
                         fontSize: 11,

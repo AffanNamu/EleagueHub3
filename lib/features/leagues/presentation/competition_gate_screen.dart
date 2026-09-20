@@ -17,6 +17,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/analytics/link_analytics_service.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/route_resolver.dart';
 import '../../../core/seo/web_meta_updater.dart';
 import '../../../core/widgets/content_unavailable_screen.dart';
@@ -59,7 +60,8 @@ class _CompetitionGateScreenState extends State<CompetitionGateScreen> {
         if (name.isNotEmpty) {
           WebMetaUpdater.applyEntityMeta(
             title: '$name | eSportlyic',
-            description: 'Join $name on eSportlyic.',
+            description:
+                '${context.l10n.tr('competition_gate_join_prefix')}$name${context.l10n.tr('competition_gate_join_suffix')}',
             imageUrl: (data['leagueImageUrl'] as String? ?? '').trim(),
           );
         }
@@ -89,8 +91,8 @@ class _CompetitionGateScreenState extends State<CompetitionGateScreen> {
           );
         }
         if (snap.data != true) {
-          return const ContentUnavailableScreen(
-            message: 'This competition is unavailable.',
+          return ContentUnavailableScreen(
+            message: context.l10n.tr('competition_gate_unavailable_message'),
           );
         }
         return LeagueDetailScreen(leagueId: widget.competitionId.trim());

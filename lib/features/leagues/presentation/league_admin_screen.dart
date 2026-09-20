@@ -173,10 +173,14 @@ class _LeagueAdminScreenState
   }
 
   String _couponSubtitleFromLeague(League league) {
-    if (!league.couponsEnabled) return 'Not enabled';
+    final l10n = context.l10n;
+    if (!league.couponsEnabled) {
+      return l10n.tr('league_admin_coupons_not_enabled');
+    }
     final pct = league.couponDiscountPercent;
     final qty = league.couponCount;
-    return 'Discount $pct% • Purchased: $qty';
+    return '${l10n.tr('league_admin_coupon_subtitle_prefix')}$pct'
+        '${l10n.tr('league_admin_coupon_subtitle_mid')}$qty';
   }
 
   String _groupDisplayName(
@@ -359,7 +363,7 @@ class _LeagueAdminScreenState
     );
 
     if (!isOwnerByRules) {
-      _snack('Only the organizer can manage rewards.');
+      _snack(l10n.tr('league_admin_organizer_manage_rewards_only'));
       return;
     }
 
@@ -392,7 +396,7 @@ class _LeagueAdminScreenState
     if (_processingUpgradePayment) return;
 
     if (!_canManageCoupons(league)) {
-      _snack('Only the organizer can purchase add-ons.');
+      _snack(context.l10n.tr('league_admin_organizer_purchase_addons_only'));
       return;
     }
 
@@ -409,13 +413,11 @@ class _LeagueAdminScreenState
 
     // ── Step 2: validate before touching payment ──────────────────────────
     if (wantedCount <= 0) {
-      _snack(
-          'Please enter a coupon count greater than 0.');
+      _snack(context.l10n.tr('league_admin_coupon_count_must_be_positive'));
       return;
     }
     if (wantedDiscount <= 0 || wantedDiscount > 100) {
-      _snack(
-          'Please enter a discount between 1% and 100%.');
+      _snack(context.l10n.tr('league_admin_discount_must_be_1_to_100'));
       return;
     }
 
@@ -451,7 +453,7 @@ class _LeagueAdminScreenState
 
       // ── Step 4: handle null / cancelled ──────────────────────────────
       if (result == null) {
-        _snack('Payment cancelled.');
+        _snack(context.l10n.tr('league_admin_payment_cancelled'));
         return;
       }
 
@@ -460,7 +462,7 @@ class _LeagueAdminScreenState
         _snack(
           result.errorMessage?.trim().isNotEmpty == true
               ? result.errorMessage!
-              : 'Payment failed.',
+              : context.l10n.tr('league_admin_payment_failed'),
         );
         return;
       }
@@ -488,8 +490,7 @@ class _LeagueAdminScreenState
         // Payment succeeded but we have nothing to credit —
         // this should not happen after validation, but guard anyway.
         _snack(
-          'Payment recorded but coupon count was 0. '
-          'Please contact support with your receipt: '
+          '${context.l10n.tr('league_admin_zero_coupon_credit_prefix')}'
           '${result.receiptId ?? result.transactionId}',
         );
         return;
@@ -532,18 +533,19 @@ class _LeagueAdminScreenState
             .timeout(const Duration(seconds: 20));
       } catch (_) {
         if (mounted) {
-          _snack(
-            "Purchase saved, but couldn't update coupon "
-            'config right now. Please refresh.',
-          );
+          _snack(context.l10n
+              .tr('league_admin_coupon_config_update_failed'));
         }
       }
 
       await _loadLeague();
       if (!mounted) return;
       _snack(
-        'Purchase successful! '
-        'Added $addCoupons coupons at $discountToApply% discount.',
+        '${context.l10n.tr('league_admin_purchase_success_prefix')}'
+        '$addCoupons'
+        '${context.l10n.tr('league_admin_purchase_success_mid')}'
+        '$discountToApply'
+        '${context.l10n.tr('league_admin_purchase_success_suffix')}',
       );
     } catch (e) {
       if (!mounted) return;
@@ -608,7 +610,8 @@ class _LeagueAdminScreenState
                               CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Coupon Purchase Options',
+                              context.l10n.tr(
+                                  'league_admin_coupon_purchase_options_title'),
                               style: theme
                                   .textTheme.titleMedium
                                   ?.copyWith(
@@ -618,8 +621,8 @@ class _LeagueAdminScreenState
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Set how many coupons to buy and '
-                              'the discount % participants receive.',
+                              context.l10n.tr(
+                                  'league_admin_coupon_purchase_options_subtitle'),
                               style: theme.textTheme.bodySmall
                                   ?.copyWith(
                                 color:
@@ -637,12 +640,13 @@ class _LeagueAdminScreenState
                                     .digitsOnly,
                               ],
                               decoration:
-                                  const InputDecoration(
-                                labelText:
-                                    'Number of coupons',
-                                prefixIcon:
+                                  InputDecoration(
+                                labelText: context.l10n.tr(
+                                    'league_admin_coupon_count_label'),
+                                prefixIcon: const
                                     Icon(Icons.numbers),
-                                hintText: 'e.g. 20',
+                                hintText: context.l10n
+                                    .tr('league_admin_coupon_count_hint'),
                               ),
                               onChanged: (_) =>
                                   setS(() => errorText = null),
@@ -657,12 +661,13 @@ class _LeagueAdminScreenState
                                     .digitsOnly,
                               ],
                               decoration:
-                                  const InputDecoration(
-                                labelText:
-                                    'Discount % (1–100)',
-                                prefixIcon: Icon(
+                                  InputDecoration(
+                                labelText: context.l10n.tr(
+                                    'league_admin_coupon_discount_label'),
+                                prefixIcon: const Icon(
                                     Icons.percent_rounded),
-                                hintText: 'e.g. 20',
+                                hintText: context.l10n
+                                    .tr('league_admin_coupon_count_hint'),
                               ),
                               onChanged: (_) =>
                                   setS(() => errorText = null),
@@ -687,8 +692,8 @@ class _LeagueAdminScreenState
                                     onPressed: () =>
                                         Navigator.of(ctx)
                                             .pop(null),
-                                    child: const Text(
-                                        'Cancel'),
+                                    child: Text(
+                                      context.l10n.tr('common_cancel')),
                                   ),
                                 ),
                                 const SizedBox(width: 12),
@@ -712,16 +717,16 @@ class _LeagueAdminScreenState
 
                                       if (count <= 0) {
                                         setS(
-                                          () => errorText =
-                                              'Coupon count must be greater than 0.',
+                                          () => errorText = context.l10n.tr(
+                                              'league_admin_coupon_count_must_be_positive'),
                                         );
                                         return;
                                       }
                                       if (discount <= 0 ||
                                           discount > 100) {
                                         setS(
-                                          () => errorText =
-                                              'Discount must be between 1% and 100%.',
+                                          () => errorText = context.l10n.tr(
+                                              'league_admin_discount_must_be_1_to_100'),
                                         );
                                         return;
                                       }
@@ -731,8 +736,8 @@ class _LeagueAdminScreenState
                                     },
                                     icon: const Icon(
                                         Icons.payment_rounded),
-                                    label: const Text(
-                                        'Proceed to Pay'),
+                                    label: Text(context.l10n
+                                        .tr('league_admin_proceed_to_pay')),
                                   ),
                                 ),
                               ],
@@ -772,7 +777,8 @@ class _LeagueAdminScreenState
     );
 
     if (!isOwnerByRules) {
-      _snack('Only the organizer/admin can adjust points.');
+      _snack(
+          context.l10n.tr('league_admin_organizer_adjust_points_only'));
       return;
     }
 
@@ -814,8 +820,8 @@ class _LeagueAdminScreenState
                   (selectedTeamId ?? '').trim();
               if (teamId.isEmpty) {
                 setStateSheet(
-                    () => errorText =
-                        'Please select a team.');
+                    () => errorText = context.l10n
+                        .tr('league_admin_select_a_team'));
                 return;
               }
 
@@ -824,8 +830,8 @@ class _LeagueAdminScreenState
                       0;
               if (p <= 0) {
                 setStateSheet(
-                  () => errorText =
-                      'Points must be greater than 0.',
+                  () => errorText = context.l10n
+                      .tr('league_admin_points_must_be_positive'),
                 );
                 return;
               }
@@ -833,8 +839,8 @@ class _LeagueAdminScreenState
               final reason = reasonCtrl.text.trim();
               if (reason.isEmpty) {
                 setStateSheet(
-                    () =>
-                        errorText = 'Reason is required.');
+                    () => errorText = context.l10n
+                        .tr('league_admin_reason_required'));
                 return;
               }
 
@@ -877,7 +883,10 @@ class _LeagueAdminScreenState
                     type == PointAdjustmentType.addition
                         ? '+'
                         : '-';
-                _snack('Adjusted $teamName: $sign$p pts');
+                _snack(
+                    '${context.l10n.tr('league_admin_adjusted_team_prefix')}$teamName'
+                    '${context.l10n.tr('league_admin_adjusted_team_mid')}$sign$p'
+                    '${context.l10n.tr('league_admin_adjusted_team_suffix')}');
               } catch (e) {
                 setStateSheet(
                   () => errorText =
@@ -946,7 +955,8 @@ class _LeagueAdminScreenState
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              'Admin Point Adjustments',
+                              context.l10n.tr(
+                                  'league_admin_point_adjustments_title'),
                               style: theme.textTheme
                                   .titleMedium
                                   ?.copyWith(
@@ -1016,7 +1026,8 @@ class _LeagueAdminScreenState
                                         .symmetric(
                                         vertical: 12),
                                     child: Text(
-                                      'No teams yet. Add teams first.',
+                                      context.l10n.tr(
+                                          'league_admin_no_teams_add_first'),
                                       style: theme.textTheme
                                           .bodySmall
                                           ?.copyWith(
@@ -1049,14 +1060,16 @@ class _LeagueAdminScreenState
                                         typeChip(
                                           PointAdjustmentType
                                               .addition,
-                                          'Add',
+                                          context.l10n.tr(
+                                              'league_admin_points_add'),
                                         ),
                                         const SizedBox(
                                             width: 10),
                                         typeChip(
                                           PointAdjustmentType
                                               .deduction,
-                                          'Deduct',
+                                          context.l10n.tr(
+                                              'league_admin_points_deduct'),
                                         ),
                                       ],
                                     ),
@@ -1100,9 +1113,10 @@ class _LeagueAdminScreenState
                                                     null;
                                               }),
                                       decoration:
-                                          const InputDecoration(
-                                        labelText: 'Team',
-                                        prefixIcon: Icon(Icons
+                                          InputDecoration(
+                                        labelText: context.l10n
+                                            .tr('league_admin_team_label'),
+                                        prefixIcon: const Icon(Icons
                                             .shield_outlined),
                                       ),
                                     ),
@@ -1119,11 +1133,13 @@ class _LeagueAdminScreenState
                                             .digitsOnly,
                                       ],
                                       decoration:
-                                          const InputDecoration(
-                                        labelText: 'Points',
-                                        prefixIcon: Icon(Icons
+                                          InputDecoration(
+                                        labelText: context.l10n
+                                            .tr('league_admin_points_label'),
+                                        prefixIcon: const Icon(Icons
                                             .exposure_plus_1_outlined),
-                                        hintText: 'e.g. 3',
+                                        hintText: context.l10n
+                                            .tr('league_admin_points_hint'),
                                       ),
                                     ),
                                     const SizedBox(
@@ -1132,14 +1148,14 @@ class _LeagueAdminScreenState
                                       controller: reasonCtrl,
                                       maxLines: 3,
                                       decoration:
-                                          const InputDecoration(
-                                        labelText:
-                                            'Reason (required)',
-                                        prefixIcon: Icon(
+                                          InputDecoration(
+                                        labelText: context.l10n.tr(
+                                            'league_admin_reason_required_label'),
+                                        prefixIcon: const Icon(
                                             Icons
                                                 .notes_outlined),
-                                        hintText:
-                                            'Explain why this adjustment is being applied',
+                                        hintText: context.l10n.tr(
+                                            'league_admin_reason_hint'),
                                       ),
                                     ),
                                     if (errorText !=
@@ -1172,8 +1188,9 @@ class _LeagueAdminScreenState
                                                     : () => Navigator.of(
                                                             ctx)
                                                         .pop(),
-                                            child: const Text(
-                                                'Close'),
+                                            child: Text(context
+                                                .l10n
+                                                .tr('common_close')),
                                           ),
                                         ),
                                         const SizedBox(
@@ -1205,9 +1222,9 @@ class _LeagueAdminScreenState
                                                 : const Icon(
                                                     Icons
                                                         .check_circle_outline),
-                                            label:
-                                                const Text(
-                                                    'Apply'),
+                                            label: Text(
+                                                context.l10n.tr(
+                                                    'league_admin_apply')),
                                           ),
                                         ),
                                       ],
@@ -1219,7 +1236,8 @@ class _LeagueAdminScreenState
                                             .withOpacity(
                                                 0.12)),
                                     Text(
-                                      'Adjustment History (Audit Log)',
+                                      context.l10n.tr(
+                                          'league_admin_adjustment_history_title'),
                                       style: theme.textTheme
                                           .titleSmall
                                           ?.copyWith(
@@ -1286,7 +1304,8 @@ class _LeagueAdminScreenState
                                           if (docs.isEmpty) {
                                             return Center(
                                               child: Text(
-                                                'No adjustments yet.',
+                                                context.l10n.tr(
+                                                    'league_admin_no_adjustments_yet'),
                                                 style: theme
                                                     .textTheme
                                                     .bodySmall
@@ -1385,7 +1404,7 @@ class _LeagueAdminScreenState
                                                       when),
                                                 if (adjustedBy
                                                     .isNotEmpty)
-                                                  'by $adjustedBy',
+                                                  '${context.l10n.tr('league_admin_by_prefix')}$adjustedBy',
                                               ];
 
                                               return ListTile(
@@ -1508,7 +1527,7 @@ class _LeagueAdminScreenState
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Coupons',
+                          context.l10n.tr('league_admin_coupons_tile_title'),
                           style: theme
                               .textTheme.titleMedium
                               ?.copyWith(
@@ -1581,7 +1600,8 @@ class _LeagueAdminScreenState
                                             .symmetric(
                                                 vertical: 8),
                                     child: Text(
-                                      'No coupon configuration yet.',
+                                      context.l10n.tr(
+                                          'league_admin_no_coupon_config_yet'),
                                       textAlign:
                                           TextAlign.center,
                                       style: theme.textTheme
@@ -1604,8 +1624,8 @@ class _LeagueAdminScreenState
                                           onPressed: () =>
                                               Navigator.of(ctx)
                                                   .pop(),
-                                          child: const Text(
-                                              'Close'),
+                                          child: Text(context.l10n
+                                              .tr('common_close')),
                                         ),
                                       ),
                                       const SizedBox(
@@ -1620,8 +1640,8 @@ class _LeagueAdminScreenState
                                           },
                                           icon: const Icon(Icons
                                               .add_shopping_cart),
-                                          label: const Text(
-                                              'Buy / enable'),
+                                          label: Text(context.l10n
+                                              .tr('league_admin_buy_or_enable')),
                                         ),
                                       ),
                                     ],
@@ -1639,20 +1659,21 @@ class _LeagueAdminScreenState
                               crossAxisAlignment:
                                   CrossAxisAlignment.start,
                               children: [
-                                _kv('Currency',
+                                _kv(context.l10n.tr('league_admin_kv_currency'),
                                     cfg.currency, theme, cs),
                                 _kv(
-                                    'Unit price',
+                                    context.l10n.tr('league_admin_kv_unit_price'),
                                     '${money(cfg.unitPrice)} ${cfg.currency}',
                                     theme,
                                     cs),
                                 _kv(
-                                    'Effective unit',
+                                    context.l10n
+                                        .tr('league_admin_kv_effective_unit'),
                                     '${money(cfg.effectiveUnit)} ${cfg.currency}',
                                     theme,
                                     cs),
                                 _kv(
-                                  'Threshold',
+                                  context.l10n.tr('league_admin_kv_threshold'),
                                   cfg.threshold == null
                                       ? '\u2014'
                                       : '${money(cfg.threshold!)} ${cfg.currency}',
@@ -1660,29 +1681,34 @@ class _LeagueAdminScreenState
                                   cs,
                                 ),
                                 _kv(
-                                    'Threshold discount',
+                                    context.l10n.tr(
+                                        'league_admin_kv_threshold_discount'),
                                     '${money(cfg.thresholdDiscountPercent)}%',
                                     theme,
                                     cs),
                                 const Divider(),
                                 _kv(
-                                    'Discount',
+                                    context.l10n.tr('league_admin_kv_discount'),
                                     '${cfg.discountPercent}%',
                                     theme,
                                     cs),
                                 _kv(
-                                    'Users pay (at redemption)',
+                                    context.l10n.tr(
+                                        'league_admin_kv_users_pay_at_redemption'),
                                     '$usersPay%',
                                     theme,
                                     cs),
                                 const Divider(),
-                                _kv('Purchased (total)',
+                                _kv(
+                                    context.l10n
+                                        .tr('league_admin_kv_purchased_total'),
                                     '${cfg.qtyTotal}', theme,
                                     cs),
-                                _kv('Remaining',
+                                _kv(context.l10n.tr('league_admin_kv_remaining'),
                                     '${cfg.qtyRemaining}',
                                     theme, cs),
-                                _kv('Redeemed', '$redeemed',
+                                _kv(context.l10n.tr('league_admin_kv_redeemed'),
+                                    '$redeemed',
                                     theme, cs),
                                 const SizedBox(height: 16),
                                 Row(
@@ -1692,8 +1718,8 @@ class _LeagueAdminScreenState
                                         onPressed: () =>
                                             Navigator.of(ctx)
                                                 .pop(),
-                                        child: const Text(
-                                            'Close'),
+                                        child: Text(context.l10n
+                                            .tr('common_close')),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
@@ -1707,8 +1733,8 @@ class _LeagueAdminScreenState
                                         },
                                         icon: const Icon(Icons
                                             .add_shopping_cart),
-                                        label: const Text(
-                                            'Buy more / adjust'),
+                                        label: Text(context.l10n.tr(
+                                            'league_admin_buy_more_or_adjust')),
                                       ),
                                     ),
                                   ],
@@ -1721,8 +1747,8 @@ class _LeagueAdminScreenState
                                   },
                                   icon: const Icon(Icons
                                       .confirmation_number_outlined),
-                                  label: const Text(
-                                      'Manage coupon codes'),
+                                  label: Text(context.l10n.tr(
+                                      'league_admin_manage_coupon_codes')),
                                 ),
                               ],
                             );
@@ -1747,8 +1773,8 @@ class _LeagueAdminScreenState
     if (league == null) return;
 
     if (!_canManageCoupons(league)) {
-      _snack(
-          'Only the organizer can manage coupon codes.');
+      _snack(context.l10n
+          .tr('league_admin_organizer_manage_coupon_codes_only'));
       return;
     }
 
@@ -1790,7 +1816,8 @@ class _LeagueAdminScreenState
                         league.id)
                     .timeout(const Duration(seconds: 15));
                 if (!mounted) return;
-                _snack('Coupon config initialized.');
+                _snack(context.l10n
+                    .tr('league_admin_coupon_config_initialized'));
               } catch (e) {
                 setStateSheet(
                   () => errorText =
@@ -1823,8 +1850,8 @@ class _LeagueAdminScreenState
                   final raw = customCtrl.text.trim();
                   if (raw.isEmpty) {
                     setStateSheet(
-                        () => errorText =
-                            'Enter a custom code');
+                        () => errorText = context.l10n
+                            .tr('league_admin_enter_custom_code'));
                     return;
                   }
                   final generated = await svc
@@ -1839,8 +1866,9 @@ class _LeagueAdminScreenState
                           const Duration(seconds: 20));
                   if (!mounted) return;
                   _snack(generated.isEmpty
-                      ? 'No code generated'
-                      : 'Generated: ${generated.first}');
+                      ? context.l10n
+                          .tr('league_admin_no_code_generated')
+                      : '${context.l10n.tr('league_admin_generated_code_prefix')}${generated.first}');
                   return;
                 }
 
@@ -1849,8 +1877,8 @@ class _LeagueAdminScreenState
                         0;
                 if (cnt <= 0) {
                   setStateSheet(
-                      () => errorText =
-                          'Enter a positive number');
+                      () => errorText = context.l10n
+                          .tr('league_admin_enter_positive_number'));
                   return;
                 }
 
@@ -1865,7 +1893,7 @@ class _LeagueAdminScreenState
                         const Duration(seconds: 25));
                 if (!mounted) return;
                 _snack(
-                    'Generated ${generated.length} codes');
+                    '${context.l10n.tr('league_admin_generated_codes_prefix')}${generated.length}${context.l10n.tr('league_admin_generated_codes_suffix')}');
               } catch (e) {
                 setStateSheet(
                   () => errorText =
@@ -1929,7 +1957,8 @@ class _LeagueAdminScreenState
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              'Coupon Codes',
+                              context.l10n
+                                  .tr('league_admin_coupon_codes_sheet_title'),
                               style: theme.textTheme
                                   .titleMedium
                                   ?.copyWith(
@@ -2000,7 +2029,8 @@ class _LeagueAdminScreenState
                                         const SizedBox(
                                             width: 10),
                                         Text(
-                                          'Loading coupon config...',
+                                          context.l10n.tr(
+                                              'league_admin_loading_coupon_config'),
                                           style: theme
                                               .textTheme
                                               .bodySmall
@@ -2044,7 +2074,8 @@ class _LeagueAdminScreenState
                                               .start,
                                       children: [
                                         Text(
-                                          'Coupon config missing',
+                                          context.l10n.tr(
+                                              'league_admin_coupon_config_missing'),
                                           style: theme
                                               .textTheme
                                               .bodyMedium
@@ -2058,7 +2089,8 @@ class _LeagueAdminScreenState
                                         const SizedBox(
                                             height: 6),
                                         Text(
-                                          'Initialize config to enable code generation (organizer only).',
+                                          context.l10n.tr(
+                                              'league_admin_initialize_config_message'),
                                           style: theme
                                               .textTheme
                                               .bodySmall
@@ -2087,9 +2119,9 @@ class _LeagueAdminScreenState
                                             icon: const Icon(
                                                 Icons
                                                     .build_circle_outlined),
-                                            label:
-                                                const Text(
-                                                    'Initialize'),
+                                            label: Text(
+                                                context.l10n.tr(
+                                                    'league_admin_initialize')),
                                           ),
                                         ),
                                       ],
@@ -2138,8 +2170,9 @@ class _LeagueAdminScreenState
                                       Expanded(
                                         child: Text(
                                           soldOut
-                                              ? 'No coupons remaining (sold out)'
-                                              : 'Remaining: $remaining (Total purchased: $total)',
+                                              ? context.l10n.tr(
+                                                  'league_admin_coupons_sold_out')
+                                              : '${context.l10n.tr('league_admin_remaining_prefix')}$remaining${context.l10n.tr('league_admin_remaining_mid')}$total${context.l10n.tr('league_admin_remaining_suffix')}',
                                           style: theme
                                               .textTheme
                                               .bodySmall
@@ -2163,7 +2196,8 @@ class _LeagueAdminScreenState
                             Row(
                               children: [
                                 modeChip(
-                                  label: 'Random',
+                                  label: context.l10n
+                                      .tr('league_admin_mode_random'),
                                   selected: !customMode,
                                   onTap: () =>
                                       setStateSheet(() {
@@ -2173,7 +2207,8 @@ class _LeagueAdminScreenState
                                 ),
                                 const SizedBox(width: 10),
                                 modeChip(
-                                  label: 'Custom',
+                                  label: context.l10n
+                                      .tr('league_admin_mode_custom'),
                                   selected: customMode,
                                   onTap: () =>
                                       setStateSheet(() {
@@ -2194,10 +2229,10 @@ class _LeagueAdminScreenState
                                           TextInputType
                                               .number,
                                       decoration:
-                                          const InputDecoration(
-                                        labelText:
-                                            'How many random codes?',
-                                        prefixIcon: Icon(
+                                          InputDecoration(
+                                        labelText: context.l10n.tr(
+                                            'league_admin_how_many_random_codes'),
+                                        prefixIcon: const Icon(
                                             Icons.numbers),
                                       ),
                                     ),
@@ -2220,14 +2255,15 @@ class _LeagueAdminScreenState
                                           )
                                         : const Icon(
                                             Icons.add),
-                                    label: const Text(
-                                        'Generate'),
+                                    label: Text(context.l10n
+                                        .tr('league_admin_generate')),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                'Random codes are one-time use and reduce qtyRemaining by 1 per code.',
+                                context.l10n.tr(
+                                    'league_admin_random_codes_hint'),
                                 style: theme
                                     .textTheme.bodySmall
                                     ?.copyWith(
@@ -2243,13 +2279,13 @@ class _LeagueAdminScreenState
                                     child: TextField(
                                       controller: customCtrl,
                                       decoration:
-                                          const InputDecoration(
-                                        labelText:
-                                            'Custom code (single)',
+                                          InputDecoration(
+                                        labelText: context.l10n.tr(
+                                            'league_admin_custom_code_label'),
                                         prefixIcon:
-                                            Icon(Icons.edit),
-                                        hintText:
-                                            'BARCA (creates: ESL_BARCA_<DISCOUNT>%)',
+                                            const Icon(Icons.edit),
+                                        hintText: context.l10n.tr(
+                                            'league_admin_custom_code_hint'),
                                       ),
                                     ),
                                   ),
@@ -2271,8 +2307,8 @@ class _LeagueAdminScreenState
                                           )
                                         : const Icon(
                                             Icons.check),
-                                    label: const Text(
-                                        'Create'),
+                                    label: Text(context.l10n
+                                        .tr('league_admin_create')),
                                   ),
                                 ],
                               ),
@@ -2336,7 +2372,8 @@ class _LeagueAdminScreenState
                                   if (docs.isEmpty) {
                                     return Center(
                                       child: Text(
-                                        'No codes yet.',
+                                        context.l10n
+                                            .tr('league_admin_no_codes_yet'),
                                         style: theme.textTheme
                                             .bodySmall
                                             ?.copyWith(
@@ -2397,8 +2434,10 @@ class _LeagueAdminScreenState
                                         ),
                                         subtitle: Text(
                                           isUsed
-                                              ? 'Used'
-                                              : 'Unused',
+                                              ? context.l10n
+                                                  .tr('league_admin_code_used')
+                                              : context.l10n.tr(
+                                                  'league_admin_code_unused'),
                                           style: theme
                                               .textTheme
                                               .bodySmall
@@ -2412,7 +2451,8 @@ class _LeagueAdminScreenState
                                           ),
                                         ),
                                         trailing: IconButton(
-                                          tooltip: 'Copy',
+                                          tooltip: context.l10n
+                                              .tr('league_admin_copy'),
                                           icon: Icon(
                                             Icons.copy,
                                             color: onSurface
@@ -2432,7 +2472,7 @@ class _LeagueAdminScreenState
                                               return;
                                             }
                                             _snack(
-                                                'Copied: $code');
+                                                '${context.l10n.tr('league_admin_copied_prefix')}$code');
                                           },
                                         ),
                                       );
@@ -2445,7 +2485,7 @@ class _LeagueAdminScreenState
                             FilledButton(
                               onPressed: () =>
                                   Navigator.of(ctx).pop(),
-                              child: const Text('Close'),
+                              child: Text(context.l10n.tr('common_close')),
                             ),
                           ],
                         ),
@@ -2828,10 +2868,12 @@ class _LeagueAdminScreenState
       valueListenable:
           ConnectivityService.instance.isConnected,
       builder: (context, online, _) {
-        final title = online ? 'Online' : 'Offline';
+        final title = online
+            ? l10n.tr('league_admin_status_online')
+            : l10n.tr('league_admin_status_offline');
         final subtitle = online
-            ? 'All changes are saved to the server instantly.'
-            : 'You appear to be offline. Some actions may not work.';
+            ? l10n.tr('league_admin_status_online_subtitle')
+            : l10n.tr('league_admin_status_offline_subtitle');
         final statusIcon =
             online ? Icons.wifi : Icons.wifi_off;
         final statusColor = online ? success : warning;
@@ -2899,8 +2941,8 @@ class _LeagueAdminScreenState
             context,
             Icons.payments_outlined,
             _processingUpgradePayment
-                ? 'Processing payment...'
-                : 'Buy coupons / set discount',
+                ? l10n.tr('league_admin_processing_payment')
+                : l10n.tr('league_admin_buy_coupons_set_discount'),
             _couponSubtitleFromLeague(league),
             onTap: _processingUpgradePayment
                 ? null
@@ -2910,18 +2952,18 @@ class _LeagueAdminScreenState
           _buildSettingsTile(
             context,
             Icons.confirmation_number_outlined,
-            'Coupons',
+            l10n.tr('league_admin_coupons_tile_title'),
             league.couponsEnabled
                 ? _couponSubtitleFromLeague(league)
-                : 'Not enabled',
+                : l10n.tr('league_admin_coupons_not_enabled'),
             onTap: _showCouponsConfigSheet,
           ),
         if (league != null && _canManageCoupons(league))
           _buildSettingsTile(
             context,
             Icons.qr_code,
-            'Coupon Codes',
-            'Generate and manage one-time codes',
+            l10n.tr('league_admin_coupon_codes_tile_title'),
+            l10n.tr('league_admin_coupon_codes_tile_subtitle'),
             onTap: _showCouponCodesSheet,
           ),
         if (league != null)
@@ -2930,8 +2972,8 @@ class _LeagueAdminScreenState
           _buildSettingsTile(
             context,
             Icons.exposure_outlined,
-            'Point Adjustments',
-            'Add/deduct points with a required reason (audit logged)',
+            l10n.tr('league_admin_point_adjustments_title'),
+            l10n.tr('league_admin_point_adjustments_tile_subtitle'),
             onTap: _showPointAdjustmentsSheet,
           ),
         _buildSettingsTile(
@@ -3024,10 +3066,10 @@ class _LeagueAdminScreenState
           context,
           Icons.delete_forever,
           _deletingLeague
-              ? 'Deleting…'
+              ? l10n.tr('league_admin_deleting')
               : l10n.tr('league_admin_delete_league'),
           _deletingLeague
-              ? 'Please wait'
+              ? l10n.tr('league_admin_please_wait')
               : l10n.tr(
                   'league_admin_delete_league_subtitle'),
           isDestructive: true,
@@ -3060,14 +3102,14 @@ class _LeagueAdminScreenState
 
         final title = done
             ? (hasRewards
-                ? 'Manage Rewards'
-                : 'Add Rewards')
-            : 'Rewards';
+                ? context.l10n.tr('league_admin_manage_rewards')
+                : context.l10n.tr('league_admin_add_rewards'))
+            : context.l10n.tr('league_admin_rewards');
         final subtitle = done
             ? (hasRewards
-                ? '🏆 Rewards Available'
-                : 'No rewards yet — create prizes for positions')
-            : 'Checking rewards...';
+                ? context.l10n.tr('league_admin_rewards_available')
+                : context.l10n.tr('league_admin_no_rewards_yet'))
+            : context.l10n.tr('league_admin_checking_rewards');
 
         return _buildSettingsTile(
           context,
@@ -3508,8 +3550,7 @@ class _LeagueAdminScreenState
       remoteOwnerUid: _remoteOwnerUid,
     );
     if (!isOwnerByRules) {
-      _snack(
-          'Only the organizer can send announcements.');
+      _snack(l10n.tr('league_admin_organizer_send_announcements_only'));
       return;
     }
 
@@ -3962,7 +4003,7 @@ class _LeagueAdminScreenState
                       : const Icon(Icons.delete_forever),
                   label: Text(
                     deleting
-                        ? 'Deleting…'
+                        ? l10n.tr('league_admin_deleting')
                         : l10n.tr('league_admin_delete'),
                   ),
                 ),

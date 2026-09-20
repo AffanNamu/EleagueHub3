@@ -63,6 +63,14 @@ class LocalLiveViewerSession {
   MediaStream? _remoteScreenStream;
   MediaStream? _remoteCameraStream;
 
+  // NOTE (i18n): LocalLiveViewerSession is the legacy LAN/WebRTC viewer path.
+  // It is not currently constructed by any presentation-layer screen (the
+  // active live-viewing flow uses LiveKit via live_view_screen.dart), so the
+  // UserFriendlyException/error.value strings below are not actually shown
+  // to end users today. This class has no BuildContext, and threading a
+  // localized string through would require reviving/wiring a caller for
+  // this legacy path, which is a larger refactor than this pass covers, so
+  // these strings are left as English for now.
   Future<void> _requireSignedInAndOnline() async {
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {

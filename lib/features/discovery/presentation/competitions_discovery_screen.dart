@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -15,12 +16,13 @@ class CompetitionsDiscoveryScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
     final competitionsAsync = ref.watch(publicCompetitionsProvider);
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Competitions'),
+        title: Text(l10n.tr('competitions_discovery_appbar_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -34,7 +36,7 @@ class CompetitionsDiscoveryScreen extends ConsumerWidget {
                 Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text(
-                    'Unable to load competitions right now.',
+                    l10n.tr('competitions_discovery_load_error'),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Theme.of(context).colorScheme.error, fontWeight: FontWeight.w700),
                   ),
@@ -52,7 +54,7 @@ class CompetitionsDiscoveryScreen extends ConsumerWidget {
                           Icon(Icons.emoji_events_outlined, size: 40, color: AppTheme.secondaryText(brightness)),
                           const SizedBox(height: 12),
                           Text(
-                            'No public competitions yet.',
+                            l10n.tr('competitions_discovery_empty'),
                             style: TextStyle(color: AppTheme.secondaryText(brightness), fontWeight: FontWeight.w700),
                           ),
                         ],
@@ -81,6 +83,7 @@ class _CompetitionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
     return InkWell(
@@ -120,7 +123,7 @@ class _CompetitionTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${league.footballCategory.badgeLabel} • ${league.maxTeams} teams • ${league.season}',
+                    '${league.footballCategory.badgeLabel} • ${league.maxTeams} ${l10n.tr('competitions_discovery_teams_suffix')} • ${league.season}',
                     style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                 ],

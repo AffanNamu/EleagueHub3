@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
@@ -130,7 +131,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     if (dn.isNotEmpty) return dn;
     final email = (_user.email ?? '').trim();
     if (email.isNotEmpty) return email.split('@').first;
-    return 'Player';
+    return context.l10n.tr('global_chat_default_player_name');
   }
 
   String _fallbackPhoto() => (_user.photoURL ?? '').trim();
@@ -189,7 +190,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         });
       }
 
-      _toast('Request submitted');
+      _toast(context.l10n.tr('global_chat_request_submitted'));
       if (mounted) setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
@@ -199,11 +200,11 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   Future<void> _sendText() async {
     if (_chatBlocked) {
-      _toast('You are banned from Global Chat.', error: true);
+      _toast(context.l10n.tr('global_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in Global Chat.', error: true);
+      _toast(context.l10n.tr('global_chat_muted_message'), error: true);
       return;
     }
     if (_isSelecting) return;
@@ -242,11 +243,11 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   Future<void> _pickAndSendImage() async {
     if (_chatBlocked) {
-      _toast('You are banned from Global Chat.', error: true);
+      _toast(context.l10n.tr('global_chat_banned_message'), error: true);
       return;
     }
     if (_chatReadOnly) {
-      _toast('You are muted in Global Chat.', error: true);
+      _toast(context.l10n.tr('global_chat_muted_message'), error: true);
       return;
     }
     if (_sending || _isSelecting) return;
@@ -265,7 +266,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       }
       if (!pick.isSuccess) {
         if (mounted) setState(() => _sending = false);
-        final msg = (pick.errorMessage ?? 'Could not pick image.').trim();
+        final msg =
+            (pick.errorMessage ?? context.l10n.tr('global_chat_pick_image_failed')).trim();
         _toast(msg, error: true);
         return;
       }
@@ -306,11 +308,11 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   Future<void> _softDeleteSelected(ChatMessage msg) async {
     if (!_canDeleteMessage(msg)) {
-      _toast('You can only delete your own messages.', error: true);
+      _toast(context.l10n.tr('global_chat_delete_own_only'), error: true);
       return;
     }
     if (msg.deleted) {
-      _toast('Already deleted');
+      _toast(context.l10n.tr('global_chat_already_deleted'));
       _selectedMessageId.value = null;
       return;
     }
@@ -323,7 +325,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         deletedBy: _user.uid,
       );
       _selectedMessageId.value = null;
-      _toast('Message deleted');
+      _toast(context.l10n.tr('global_chat_message_deleted'));
     } catch (e) {
       _toastErr(e);
     }
@@ -331,11 +333,11 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   Future<void> _pinSelected(ChatMessage msg) async {
     if (!_canPinMessage(msg)) {
-      _toast('You do not have permission to pin messages.', error: true);
+      _toast(context.l10n.tr('global_chat_pin_permission_denied'), error: true);
       return;
     }
     if (msg.deleted) {
-      _toast('Cannot pin a deleted message.', error: true);
+      _toast(context.l10n.tr('global_chat_cannot_pin_deleted'), error: true);
       _selectedMessageId.value = null;
       return;
     }
@@ -349,7 +351,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         unpinPrevious: false,
       );
       _selectedMessageId.value = null;
-      _toast('Pinned');
+      _toast(context.l10n.tr('global_chat_pinned'));
     } catch (e) {
       _toastErr(e);
     }
@@ -357,7 +359,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
   Future<void> _copySelected(ChatMessage msg) async {
     if (msg.deleted) {
-      _toast('Nothing to copy', error: true);
+      _toast(context.l10n.tr('global_chat_nothing_to_copy'), error: true);
       _selectedMessageId.value = null;
       return;
     }
@@ -371,13 +373,13 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                 : ''));
 
     if (txt.isEmpty) {
-      _toast('Nothing to copy', error: true);
+      _toast(context.l10n.tr('global_chat_nothing_to_copy'), error: true);
       _selectedMessageId.value = null;
       return;
     }
 
     await Clipboard.setData(ClipboardData(text: txt));
-    _toast('Copied');
+    _toast(context.l10n.tr('global_chat_copied'));
     _selectedMessageId.value = null;
   }
 
@@ -385,7 +387,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     final key = _messageKeys[messageId];
     final ctx = key?.currentContext;
     if (ctx == null) {
-      _toast('Message not loaded yet');
+      _toast(context.l10n.tr('global_chat_message_not_loaded'));
       return;
     }
     Scrollable.ensureVisible(
@@ -408,7 +410,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
           if (!selecting) {
             return AppBar(
-              title: const Text('Global Chat'),
+              title: Text(context.l10n.tr('global_chat_title')),
             );
           }
 
@@ -417,27 +419,27 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
           return AppBar(
             leading: IconButton(
-              tooltip: 'Cancel selection',
+              tooltip: context.l10n.tr('global_chat_cancel_selection_tooltip'),
               onPressed: () => _selectedMessageId.value = null,
               icon: const Icon(Icons.close_rounded),
             ),
-            title: const Text('1 selected'),
+            title: Text(context.l10n.tr('global_chat_one_selected')),
             actions: [
               IconButton(
-                tooltip: 'Copy',
+                tooltip: context.l10n.tr('common_copy'),
                 onPressed:
                     selectedMsg == null ? null : () => _copySelected(selectedMsg),
                 icon: const Icon(Icons.copy_rounded),
               ),
               if (selectedMsg != null && _canDeleteMessage(selectedMsg))
                 IconButton(
-                  tooltip: 'Delete',
+                  tooltip: context.l10n.tr('global_chat_delete_tooltip'),
                   onPressed: () => _softDeleteSelected(selectedMsg),
                   icon: const Icon(Icons.delete_outline_rounded),
                 ),
               if (selectedMsg != null && _canPinMessage(selectedMsg))
                 IconButton(
-                  tooltip: 'Pin',
+                  tooltip: context.l10n.tr('global_chat_pin_tooltip'),
                   onPressed: () => _pinSelected(selectedMsg),
                   icon: const Icon(Icons.push_pin_outlined),
                 ),
@@ -469,7 +471,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'You are banned from Global Chat. You can no longer send messages here.',
+                  context.l10n.tr('global_chat_banned_full_message'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.error,
                     fontWeight: FontWeight.w800,
@@ -500,7 +502,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'You are muted in Global Chat. You can read messages but cannot send new ones.',
+                  context.l10n.tr('global_chat_muted_full_message'),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: const Color(0xFFF59E0B),
                     fontWeight: FontWeight.w800,
@@ -579,7 +581,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                               foregroundColor: AppTheme.darkText,
                             ),
                             onPressed: () => setState(() {}),
-                            child: const Text('Retry'),
+                            child: Text(context.l10n.tr('common_retry')),
                           ),
                         ],
                       ),
@@ -592,7 +594,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
               if (msgs.isEmpty) {
                 return Center(
                   child: Text(
-                    'No messages yet',
+                    context.l10n.tr('global_chat_no_messages'),
                     style: TextStyle(
                       color: AppTheme.secondaryText(
                         Theme.of(context).brightness,
@@ -768,7 +770,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Access required',
+                                  context.l10n.tr('global_chat_access_required_title'),
                                   style: Theme.of(context)
                                       .textTheme
                                       .titleMedium
@@ -781,10 +783,10 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                                 const SizedBox(height: 8),
                                 Text(
                                   pending
-                                      ? 'Your request is pending admin approval.'
+                                      ? context.l10n.tr('global_chat_pending_message')
                                       : rejected
-                                          ? 'Your request was rejected. You can request again.'
-                                          : 'Request access to join the global public chatroom.',
+                                          ? context.l10n.tr('global_chat_rejected_message')
+                                          : context.l10n.tr('global_chat_request_prompt'),
                                   style: TextStyle(
                                     color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w700,
@@ -805,7 +807,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                                         icon:
                                             const Icon(Icons.lock_open_rounded),
                                         label: Text(
-                                          pending ? 'Pending…' : 'Request access',
+                                          pending
+                                              ? context.l10n.tr('global_chat_pending_button')
+                                              : context.l10n.tr('global_chat_request_access_button'),
                                           style: const TextStyle(
                                             fontWeight: FontWeight.w900,
                                           ),
@@ -816,7 +820,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                                 ),
                                 const SizedBox(height: 10),
                                 Text(
-                                  'Only approved users can read and send messages.',
+                                  context.l10n.tr('global_chat_approved_only_note'),
                                   style: TextStyle(
                                     color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w700,

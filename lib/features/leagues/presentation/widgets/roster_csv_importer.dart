@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 
@@ -70,9 +71,11 @@ bool _looksLikeFirebaseUid(String input) {
   return t.length > 20;
 }
 
-String _displayInput(String raw) {
+String _displayInput(BuildContext context, String raw) {
   final t = raw.trim();
-  if (_looksLikeFirebaseUid(t)) return 'Firebase UID (hidden)';
+  if (_looksLikeFirebaseUid(t)) {
+    return context.l10n.tr('roster_csv_firebase_uid_hidden');
+  }
   return t;
 }
 
@@ -101,8 +104,10 @@ Future<void> showRosterCsvImportFlow({
     if (bytes == null || bytes.isEmpty) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not read file. Please pick a different CSV.'),
+        SnackBar(
+          content: Text(
+            context.l10n.tr('roster_csv_read_error'),
+          ),
         ),
       );
       return;
@@ -124,7 +129,7 @@ Future<void> showRosterCsvImportFlow({
     if (rows.isEmpty) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No rows found in CSV.')),
+        SnackBar(content: Text(context.l10n.tr('roster_csv_no_rows_found'))),
       );
       return;
     }
@@ -144,7 +149,11 @@ Future<void> showRosterCsvImportFlow({
   } catch (e) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('CSV import failed: $e')),
+      SnackBar(
+        content: Text(
+          '${context.l10n.tr('roster_csv_import_failed_prefix')}$e',
+        ),
+      ),
     );
   }
 }
@@ -223,7 +232,8 @@ Future<void> _showImportPreviewSheet({
       if (!context.mounted) return;
       setModalState(() {
         validating = false;
-        error = 'Validation failed: $e';
+        error =
+            '${context.l10n.tr('roster_csv_validation_failed_prefix')}$e';
       });
     }
   }
@@ -326,7 +336,7 @@ Future<void> _showImportPreviewSheet({
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Import Roster',
+                                      ctx.l10n.tr('roster_csv_import_roster_title'),
                                       style: theme.textTheme.titleMedium
                                           ?.copyWith(
                                         fontWeight: FontWeight.w900,
@@ -376,21 +386,24 @@ Future<void> _showImportPreviewSheet({
                               children: [
                                 _StatusChip(
                                   icon: Icons.list_alt_rounded,
-                                  label: '${stateRows.length} Rows',
+                                  label:
+                                      '${stateRows.length}${ctx.l10n.tr('roster_csv_status_rows_suffix')}',
                                   color: subtleText,
                                   bg: chipBg,
                                 ),
                                 const SizedBox(width: 8),
                                 _StatusChip(
                                   icon: Icons.verified_rounded,
-                                  label: '$okCount OK',
+                                  label:
+                                      '$okCount${ctx.l10n.tr('roster_csv_status_ok_suffix')}',
                                   color: success,
                                   bg: success.withOpacity(0.10),
                                 ),
                                 const SizedBox(width: 8),
                                 _StatusChip(
                                   icon: Icons.cloud_off_rounded,
-                                  label: '$okCsvCount CSV',
+                                  label:
+                                      '$okCsvCount${ctx.l10n.tr('roster_csv_status_csv_suffix')}',
                                   color: info,
                                   bg: info.withOpacity(0.10),
                                 ),
@@ -398,7 +411,8 @@ Future<void> _showImportPreviewSheet({
                                 if (notFoundCount > 0) ...[
                                   _StatusChip(
                                     icon: Icons.close_rounded,
-                                    label: '$notFoundCount Missing',
+                                    label:
+                                        '$notFoundCount${ctx.l10n.tr('roster_csv_status_missing_suffix')}',
                                     color: Theme.of(context).colorScheme.error,
                                     bg: Theme.of(context)
                                         .colorScheme
@@ -410,7 +424,8 @@ Future<void> _showImportPreviewSheet({
                                 if (offlineCount > 0)
                                   _StatusChip(
                                     icon: Icons.wifi_off_rounded,
-                                    label: '$offlineCount Offline',
+                                    label:
+                                        '$offlineCount${ctx.l10n.tr('roster_csv_status_offline_suffix')}',
                                     color: warning,
                                     bg: warning.withOpacity(0.12),
                                   ),
@@ -426,7 +441,7 @@ Future<void> _showImportPreviewSheet({
                                       ? null
                                       : Icons.verified_rounded,
                                   isLoading: validating,
-                                  label: 'Validate',
+                                  label: ctx.l10n.tr('roster_csv_validate_button'),
                                   color: AppTheme.limeAccentDark,
                                   onPressed: validating
                                       ? null
@@ -437,7 +452,7 @@ Future<void> _showImportPreviewSheet({
                               Expanded(
                                 child: _GlassActionButton(
                                   icon: Icons.close_rounded,
-                                  label: 'Close',
+                                  label: ctx.l10n.tr('roster_csv_close_button'),
                                   color: subtleText,
                                   outlined: true,
                                   onPressed: () => Navigator.of(ctx).pop(),
@@ -470,7 +485,9 @@ Future<void> _showImportPreviewSheet({
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      'Some rows could not be verified. Reconnect and tap Validate again.',
+                                      ctx.l10n.tr(
+                                        'roster_csv_offline_hint',
+                                      ),
                                       style: TextStyle(
                                         color: subtleText,
                                         fontSize: 12,
@@ -576,7 +593,7 @@ Future<void> _showImportPreviewSheet({
                                         ),
                                         const SizedBox(width: 10),
                                         Text(
-                                          'Add valid ($totalValid) to preview',
+                                          '${ctx.l10n.tr('roster_csv_add_valid_prefix')}$totalValid${ctx.l10n.tr('roster_csv_add_valid_suffix')}',
                                           style: TextStyle(
                                             color:
                                                 (validating || totalValid == 0)
@@ -633,7 +650,7 @@ class _RosterRowCard extends StatelessWidget {
     final isOffline = row.status == RosterRowStatus.offline;
 
     final rawInput = row.input.trim();
-    final displayInput = _displayInput(rawInput);
+    final displayInput = _displayInput(context, rawInput);
     final isHiddenUid = displayInput != rawInput;
 
     final IconData icon;
@@ -649,36 +666,39 @@ class _RosterRowCard extends StatelessWidget {
       bgColor = success.withOpacity(0.12);
 
       title = row.resolved!.teamName;
-      subtitle =
-          isHiddenUid ? 'Verified • UID hidden' : 'Verified • $displayInput';
+      subtitle = isHiddenUid
+          ? context.l10n.tr('roster_csv_subtitle_verified_uid_hidden')
+          : '${context.l10n.tr('roster_csv_subtitle_verified_prefix')}$displayInput';
     } else if (isOkCsv) {
       icon = Icons.cloud_off_rounded;
       iconColor = info;
       bgColor = info.withOpacity(0.10);
 
       title = row.resolved!.teamName;
-      subtitle = isHiddenUid ? 'CSV OK • UID hidden' : 'CSV OK • $displayInput';
+      subtitle = isHiddenUid
+          ? context.l10n.tr('roster_csv_subtitle_csv_ok_uid_hidden')
+          : '${context.l10n.tr('roster_csv_subtitle_csv_ok_prefix')}$displayInput';
     } else if (isPending) {
       icon = Icons.hourglass_empty_rounded;
       iconColor = AppTheme.secondaryText(brightness);
       bgColor = AppTheme.searchBackground(brightness);
 
       title = displayInput;
-      subtitle = 'Pending validation';
+      subtitle = context.l10n.tr('roster_csv_subtitle_pending');
     } else if (isOffline) {
       icon = Icons.wifi_off_rounded;
       iconColor = warning;
       bgColor = warning.withOpacity(0.12);
 
       title = displayInput;
-      subtitle = 'Offline (cannot verify)';
+      subtitle = context.l10n.tr('roster_csv_subtitle_offline');
     } else {
       icon = Icons.close_rounded;
       iconColor = Theme.of(context).colorScheme.error;
       bgColor = Theme.of(context).colorScheme.error.withOpacity(0.10);
 
       title = displayInput;
-      subtitle = 'No profile found';
+      subtitle = context.l10n.tr('roster_csv_subtitle_no_profile');
     }
 
     return Glass(

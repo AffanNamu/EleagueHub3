@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -65,7 +66,7 @@ class _CouponScreenState extends ConsumerState<CouponScreen> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Redeem Coupon'),
+        title: Text(context.l10n.tr('coupon_screen_title')),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -90,7 +91,7 @@ class _CouponScreenState extends ConsumerState<CouponScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Enter Coupon Code',
+                      context.l10n.tr('coupon_screen_enter_code_title'),
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: AppTheme.primaryText(brightness),
@@ -99,7 +100,7 @@ class _CouponScreenState extends ConsumerState<CouponScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Apply a valid coupon to unlock league access.',
+                      context.l10n.tr('coupon_screen_enter_code_subtitle'),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: AppTheme.secondaryText(brightness),
                         fontWeight: FontWeight.w700,
@@ -137,9 +138,9 @@ class _CouponScreenState extends ConsumerState<CouponScreen> {
                                   color: AppTheme.darkText,
                                 ),
                               )
-                            : const Text(
-                                'Apply Coupon',
-                                style: TextStyle(fontWeight: FontWeight.w900),
+                            : Text(
+                                context.l10n.tr('coupon_screen_apply_button'),
+                                style: const TextStyle(fontWeight: FontWeight.w900),
                               ),
                       ),
                     ),

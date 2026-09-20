@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../models/chat_message.dart';
 import 'chat_image_media.dart';
@@ -63,7 +64,7 @@ class ChatBubble extends StatelessWidget {
     Widget content;
     if (message.deleted) {
       content = Text(
-        'This message was deleted',
+        context.l10n.tr('chat_bubble_deleted_message'),
         style: TextStyle(
           color: AppTheme.secondaryText(brightness),
           fontWeight: FontWeight.w800,
@@ -154,10 +155,10 @@ class ChatBubble extends StatelessWidget {
                 if (message.isReply)
                   _ReplyQuote(
                     senderName: message.replyToSenderName.trim().isEmpty
-                        ? 'Message'
+                        ? context.l10n.tr('chat_bubble_reply_fallback')
                         : message.replyToSenderName.trim(),
                     preview: message.replyToText.trim().isEmpty
-                        ? 'Message'
+                        ? context.l10n.tr('chat_bubble_reply_fallback')
                         : message.replyToText.trim(),
                   ),
                 content,
@@ -345,10 +346,10 @@ class _CodeBubble extends StatelessWidget {
                 await Clipboard.setData(ClipboardData(text: code));
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
+                  SnackBar(
                     behavior: SnackBarBehavior.floating,
-                    content: Text('Copied'),
-                    duration: Duration(seconds: 1),
+                    content: Text(context.l10n.tr('chat_bubble_copied')),
+                    duration: const Duration(seconds: 1),
                   ),
                 );
               },
@@ -357,9 +358,9 @@ class _CodeBubble extends StatelessWidget {
                 size: 16,
                 color: AppTheme.limeAccentDark,
               ),
-              label: const Text(
-                'Copy',
-                style: TextStyle(
+              label: Text(
+                context.l10n.tr('common_copy'),
+                style: const TextStyle(
                   color: AppTheme.limeAccentDark,
                   fontWeight: FontWeight.w900,
                   fontSize: 12,

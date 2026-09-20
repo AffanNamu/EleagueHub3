@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/config/payment_platform_config.dart';
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
@@ -327,12 +328,12 @@ class _OrganizerVerificationApplicationScreenState
       final pickResult = await SafeImagePicker.pickImage();
       if (pickResult.wasCancelled) return;
       if (!pickResult.isSuccess) {
-        _snack(pickResult.errorMessage ?? 'Could not pick image.', error: true);
+        _snack(pickResult.errorMessage ?? context.l10n.tr('organizer_verification_error_pick_image'), error: true);
         return;
       }
       final picked = pickResult.file!;
       if (picked.size > _maxLogoBytes) {
-        _snack('Logo image must be under 5 MB.', error: true);
+        _snack(context.l10n.tr('organizer_verification_error_logo_too_large'), error: true);
         return;
       }
       final url = await _uploadToCloudinary(picked);
@@ -367,7 +368,7 @@ class _OrganizerVerificationApplicationScreenState
       return;
     }
     if (!_agreed) {
-      _snack('Please confirm you understand the non-refundable fee.', error: true);
+      _snack(context.l10n.tr('organizer_verification_error_confirm_fee'), error: true);
       return;
     }
 
@@ -382,7 +383,7 @@ class _OrganizerVerificationApplicationScreenState
           application: application,
         );
         if (!mounted) return;
-        _snack('Application resubmitted for review.');
+        _snack(context.l10n.tr('organizer_verification_success_resubmitted'));
         Navigator.of(context).pop(true);
         return;
       }
@@ -399,7 +400,7 @@ class _OrganizerVerificationApplicationScreenState
 
       if (!mounted) return;
       if (!payment.success) {
-        _snack(payment.errorMessage ?? 'Payment failed.', error: true);
+        _snack(payment.errorMessage ?? context.l10n.tr('organizer_verification_error_payment_failed'), error: true);
         return;
       }
 
@@ -412,7 +413,7 @@ class _OrganizerVerificationApplicationScreenState
       );
 
       if (!mounted) return;
-      _snack('Verification application submitted for review.');
+      _snack(context.l10n.tr('organizer_verification_success_submitted'));
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
@@ -443,7 +444,9 @@ class _OrganizerVerificationApplicationScreenState
 
         return GlassScaffold(
           appBar: AppBar(
-            title: Text(_isResubmission ? 'Resubmit Application' : 'Get Verified'),
+            title: Text(_isResubmission
+                ? context.l10n.tr('organizer_verification_title_resubmit')
+                : context.l10n.tr('organizer_verification_title_new')),
             backgroundColor: Colors.transparent,
             elevation: 0,
           ),
@@ -479,8 +482,8 @@ class _OrganizerVerificationApplicationScreenState
               const SizedBox(height: 12),
               Text(
                 approved
-                    ? 'This organizer is already verified.'
-                    : 'A verification application is already pending review.',
+                    ? context.l10n.tr('organizer_verification_blocked_approved')
+                    : context.l10n.tr('organizer_verification_blocked_pending'),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: AppTheme.primaryText(brightness),
@@ -495,6 +498,7 @@ class _OrganizerVerificationApplicationScreenState
   }
 
   Widget _buildForm(Brightness brightness) {
+    final l10n = context.l10n;
     final steps = [
       _buildOrgIdentityStep(brightness),
       _buildApplicantStep(brightness),
@@ -502,12 +506,12 @@ class _OrganizerVerificationApplicationScreenState
       _buildAdditionalInfoStep(brightness),
       _buildReviewStep(brightness),
     ];
-    const titles = [
-      'Organization Identity',
-      'Applicant Information',
-      'Branding',
-      'Additional Information',
-      'Review & Submit',
+    final titles = [
+      l10n.tr('organizer_verification_step_org_identity'),
+      l10n.tr('organizer_verification_step_applicant_info'),
+      l10n.tr('organizer_verification_step_branding'),
+      l10n.tr('organizer_verification_step_additional_info'),
+      l10n.tr('organizer_verification_step_review'),
     ];
 
     return Column(
@@ -537,7 +541,9 @@ class _OrganizerVerificationApplicationScreenState
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              'Step ${_stepIndex + 1} of ${steps.length} \u00b7 ${titles[_stepIndex]}',
+              '${l10n.tr('organizer_verification_step_progress_prefix')} ${_stepIndex + 1} '
+              '${l10n.tr('organizer_verification_step_progress_of')} ${steps.length} '
+              '\u00b7 ${titles[_stepIndex]}',
               style: TextStyle(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
@@ -562,7 +568,7 @@ class _OrganizerVerificationApplicationScreenState
                     onPressed: _submitting
                         ? null
                         : () => setState(() => _stepIndex -= 1),
-                    child: const Text('Back'),
+                    child: Text(l10n.tr('common_back')),
                   ),
                 ),
               if (_stepIndex > 0) const SizedBox(width: 12),
@@ -590,8 +596,10 @@ class _OrganizerVerificationApplicationScreenState
                         )
                       : Text(
                           _stepIndex < steps.length - 1
-                              ? 'Continue'
-                              : (_isResubmission ? 'Resubmit' : 'Continue to Payment'),
+                              ? l10n.tr('common_continue')
+                              : (_isResubmission
+                                  ? l10n.tr('organizer_verification_button_resubmit')
+                                  : l10n.tr('organizer_verification_button_continue_to_payment')),
                           style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                 ),
@@ -626,11 +634,12 @@ class _OrganizerVerificationApplicationScreenState
   }
 
   Widget _buildOrgIdentityStep(Brightness brightness) {
+    final l10n = context.l10n;
     return _card(brightness, children: [
-      _field(_orgNameCtrl, 'Organization / Organizer name *'),
+      _field(_orgNameCtrl, l10n.tr('organizer_verification_field_org_name')),
       DropdownButtonFormField<String>(
         value: _orgType,
-        decoration: const InputDecoration(labelText: 'Organization type *'),
+        decoration: InputDecoration(labelText: l10n.tr('organizer_verification_field_org_type')),
         items: kOrganizerTypes
             .map((t) => DropdownMenuItem(value: t, child: Text(t)))
             .toList(),
@@ -639,33 +648,35 @@ class _OrganizerVerificationApplicationScreenState
       const SizedBox(height: 12),
       DropdownButtonFormField<String>(
         value: _orgCountry.isEmpty ? null : _orgCountry,
-        decoration: const InputDecoration(labelText: 'Country *'),
+        decoration: InputDecoration(labelText: l10n.tr('organizer_verification_field_country')),
         items: kOrganizerVerificationCountries
             .map((c) => DropdownMenuItem(value: c.$1, child: Text(c.$2)))
             .toList(),
         onChanged: (v) => setState(() => _orgCountry = v ?? ''),
       ),
       const SizedBox(height: 12),
-      _field(_orgRegionCtrl, 'State / Region'),
-      _field(_orgCityCtrl, 'City'),
+      _field(_orgRegionCtrl, l10n.tr('organizer_verification_field_state_region')),
+      _field(_orgCityCtrl, l10n.tr('organizer_verification_field_city')),
     ]);
   }
 
   Widget _buildApplicantStep(Brightness brightness) {
+    final l10n = context.l10n;
     return _card(brightness, children: [
-      _field(_applicantNameCtrl, "Applicant's full name *"),
-      _field(_applicantRoleCtrl, 'Role / position in organization *'),
-      _field(_contactEmailCtrl, 'Official contact email *', keyboardType: TextInputType.emailAddress),
-      _field(_contactPhoneCtrl, 'Official phone / contact', keyboardType: TextInputType.phone),
-      _field(_websiteCtrl, 'Website'),
-      _field(_socialLinkCtrl, 'Official social media / online presence'),
+      _field(_applicantNameCtrl, l10n.tr('organizer_verification_field_applicant_name')),
+      _field(_applicantRoleCtrl, l10n.tr('organizer_verification_field_applicant_role')),
+      _field(_contactEmailCtrl, l10n.tr('organizer_verification_field_contact_email'), keyboardType: TextInputType.emailAddress),
+      _field(_contactPhoneCtrl, l10n.tr('organizer_verification_field_contact_phone'), keyboardType: TextInputType.phone),
+      _field(_websiteCtrl, l10n.tr('organizer_verification_field_website')),
+      _field(_socialLinkCtrl, l10n.tr('organizer_verification_field_social_link')),
     ]);
   }
 
   Widget _buildBrandingStep(Brightness brightness) {
+    final l10n = context.l10n;
     return _card(brightness, children: [
       Text(
-        'Official organization logo *',
+        l10n.tr('organizer_verification_branding_logo_label'),
         style: TextStyle(
           color: AppTheme.primaryText(brightness),
           fontWeight: FontWeight.w800,
@@ -673,7 +684,7 @@ class _OrganizerVerificationApplicationScreenState
       ),
       const SizedBox(height: 6),
       Text(
-        'If approved, this becomes your official verified identity across eSportlyic.',
+        l10n.tr('organizer_verification_branding_logo_hint'),
         style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 12),
       ),
       const SizedBox(height: 14),
@@ -702,22 +713,26 @@ class _OrganizerVerificationApplicationScreenState
       Center(
         child: TextButton(
           onPressed: _uploadingLogo ? null : _pickAndUploadLogo,
-          child: Text(_logoUrl.isEmpty ? 'Upload logo' : 'Change logo'),
+          child: Text(_logoUrl.isEmpty
+              ? l10n.tr('organizer_verification_branding_upload_logo')
+              : l10n.tr('organizer_verification_branding_change_logo')),
         ),
       ),
     ]);
   }
 
   Widget _buildAdditionalInfoStep(Brightness brightness) {
+    final l10n = context.l10n;
     return _card(brightness, children: [
-      _field(_orgDescriptionCtrl, 'What does your organization do? *', maxLines: 4),
-      _field(_competitionTypesCtrl, 'What type of competitions/events do you organize?', maxLines: 3),
-      _field(_verificationReasonCtrl, 'Why do you want organizer verification? *', maxLines: 4),
-      _field(_supportingLinksCtrl, 'Supporting links / documents (optional)', maxLines: 3),
+      _field(_orgDescriptionCtrl, l10n.tr('organizer_verification_field_org_description'), maxLines: 4),
+      _field(_competitionTypesCtrl, l10n.tr('organizer_verification_field_competition_types'), maxLines: 3),
+      _field(_verificationReasonCtrl, l10n.tr('organizer_verification_field_verification_reason'), maxLines: 4),
+      _field(_supportingLinksCtrl, l10n.tr('organizer_verification_field_supporting_links'), maxLines: 3),
     ]);
   }
 
   Widget _buildReviewStep(Brightness brightness) {
+    final l10n = context.l10n;
     // FIXED (bug #5): prefer the live, already-localized Google Play
     // Store price string when we have one; only fall back to manually
     // formatting _feeAmount/_feeCurrency (RemotePricingService's value)
@@ -725,12 +740,12 @@ class _OrganizerVerificationApplicationScreenState
     final feeLabel = _feeFormatted != null
         ? _feeFormatted!
         : (_feeAmount == null
-            ? 'Loading fee\u2026'
+            ? l10n.tr('organizer_verification_loading_fee')
             : '${_feeAmount!.toStringAsFixed(2)} $_feeCurrency');
 
     return _card(brightness, children: [
       Text(
-        'Review',
+        l10n.tr('organizer_verification_review_title'),
         style: TextStyle(
           color: AppTheme.primaryText(brightness),
           fontWeight: FontWeight.w900,
@@ -738,17 +753,17 @@ class _OrganizerVerificationApplicationScreenState
         ),
       ),
       const SizedBox(height: 10),
-      _reviewRow(brightness, 'Organization', _orgNameCtrl.text),
-      _reviewRow(brightness, 'Type', _orgType),
+      _reviewRow(brightness, l10n.tr('organizer_verification_review_org_label'), _orgNameCtrl.text),
+      _reviewRow(brightness, l10n.tr('organizer_verification_review_type_label'), _orgType),
       _reviewRow(
         brightness,
-        'Country',
+        l10n.tr('organizer_verification_review_country_label'),
         kOrganizerVerificationCountries
             .firstWhere((c) => c.$1 == _orgCountry, orElse: () => ('', '\u2014'))
             .$2,
       ),
-      _reviewRow(brightness, 'Applicant', _applicantNameCtrl.text),
-      _reviewRow(brightness, 'Contact email', _contactEmailCtrl.text),
+      _reviewRow(brightness, l10n.tr('organizer_verification_review_applicant_label'), _applicantNameCtrl.text),
+      _reviewRow(brightness, l10n.tr('organizer_verification_review_contact_email_label'), _contactEmailCtrl.text),
       const SizedBox(height: 16),
       Container(
         padding: const EdgeInsets.all(14),
@@ -769,7 +784,7 @@ class _OrganizerVerificationApplicationScreenState
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Important \u2014 Non-Refundable Verification Fee',
+                    l10n.tr('organizer_verification_fee_warning_title'),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.error,
                       fontWeight: FontWeight.w900,
@@ -780,12 +795,8 @@ class _OrganizerVerificationApplicationScreenState
             ),
             const SizedBox(height: 8),
             Text(
-              'The Verified Organizer application requires a one-time '
-              '$feeLabel verification fee. This fee is non-refundable, '
-              'including if your application is rejected, withdrawn, '
-              'incomplete, or fails verification requirements. Payment '
-              'does not guarantee approval. Your application will be '
-              'reviewed by eSportlyic after payment.',
+              '${l10n.tr('organizer_verification_fee_notice_prefix')} '
+              '$feeLabel ${l10n.tr('organizer_verification_fee_notice_suffix')}',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.error,
                 fontWeight: FontWeight.w600,
@@ -808,9 +819,9 @@ class _OrganizerVerificationApplicationScreenState
                       padding: const EdgeInsets.only(top: 12),
                       child: Text(
                         _isResubmission
-                            ? 'I understand this resubmission will be reviewed again by eSportlyic.'
-                            : 'I understand the $feeLabel verification fee is non-refundable '
-                                'and that payment does not guarantee approval.',
+                            ? l10n.tr('organizer_verification_agree_resubmit_text')
+                            : '${l10n.tr('organizer_verification_agree_fee_prefix')} $feeLabel '
+                                '${l10n.tr('organizer_verification_agree_fee_suffix')}',
                         style: TextStyle(
                           color: AppTheme.primaryText(brightness),
                           fontWeight: FontWeight.w700,

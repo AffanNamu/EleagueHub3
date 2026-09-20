@@ -135,7 +135,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  'Exit app?',
+                  _trOr(context.l10n, 'home_exit_dialog_title', 'Exit app?'),
                   textAlign: TextAlign.center,
                   style: theme.textTheme.titleLarge?.copyWith(
                     color: AppTheme.primaryText(brightness),
@@ -144,7 +144,11 @@ class _HomeShellState extends ConsumerState<HomeShell>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Are you sure you want to close the app?',
+                  _trOr(
+                    context.l10n,
+                    'home_exit_dialog_message',
+                    'Are you sure you want to close the app?',
+                  ),
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: AppTheme.secondaryText(brightness),
@@ -158,9 +162,9 @@ class _HomeShellState extends ConsumerState<HomeShell>
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () => Navigator.of(ctx).pop(false),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                        child: Text(
+                          _trOr(context.l10n, 'home_exit_dialog_cancel', 'Cancel'),
+                          style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
                     ),
@@ -172,9 +176,9 @@ class _HomeShellState extends ConsumerState<HomeShell>
                           foregroundColor: AppTheme.darkText,
                         ),
                         onPressed: () => Navigator.of(ctx).pop(true),
-                        child: const Text(
-                          'Exit',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                        child: Text(
+                          _trOr(context.l10n, 'home_exit_dialog_confirm', 'Exit'),
+                          style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
                     ),
@@ -199,7 +203,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     final tabTitles = [
       l10n.homeTabHome,
       l10n.homeTabLeagues,
-      'Discover',
+      _trOr(l10n, 'home_tab_discover', 'Discover'),
       l10n.homeTabMarketplace,
       l10n.homeTabProfile,
     ];
@@ -280,7 +284,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
                     _CenterNavBarItem(
                       icon: Icons.explore_outlined,
                       selectedIcon: Icons.explore,
-                      label: 'Discover',
+                      label: _trOr(l10n, 'home_tab_discover', 'Discover'),
                       selected: _index == 2,
                       onTap: () => _onDestinationSelected(2),
                     ),
@@ -603,8 +607,12 @@ class _HomeTab extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Manage leagues, jump into live matches, '
-                          'follow organizers, and explore premium experiences.',
+                          _trOr(
+                            l10n,
+                            'home_hero_subtitle',
+                            'Manage leagues, jump into live matches, '
+                                'follow organizers, and explore premium experiences.',
+                          ),
                           style: TextStyle(
                             color: secondary,
                             fontWeight: FontWeight.w600,
@@ -662,8 +670,12 @@ class _HomeTab extends StatelessWidget {
               Expanded(
                 child: _QuickActionCard(
                   icon: Icons.live_tv_rounded,
-                  title: 'Live Match',
-                  subtitle: 'Join or host live match sessions',
+                  title: _trOr(l10n, 'home_quick_live_match_title', 'Live Match'),
+                  subtitle: _trOr(
+                    l10n,
+                    'home_quick_live_match_subtitle',
+                    'Join or host live match sessions',
+                  ),
                   gradient: brightness == Brightness.dark
                       ? [
                           const Color(0xFF38BDF8).withOpacity(0.16),
@@ -690,7 +702,11 @@ class _HomeTab extends StatelessWidget {
             'home_quick_master_leagues_title',
             'Organizer Workspace',
           ),
-          subtitle: 'Create and manage premium competition hubs',
+          subtitle: _trOr(
+            l10n,
+            'home_quick_master_leagues_subtitle',
+            'Create and manage premium competition hubs',
+          ),
           gradient: brightness == Brightness.dark
               ? [
                   AppTheme.limeAccentDark.withOpacity(0.10),
@@ -763,8 +779,12 @@ class _HomeTab extends StatelessWidget {
             children: [
               _ExploreRow(
                 icon: Icons.travel_explore_rounded,
-                title: 'Organizer Discovery',
-                subtitle: 'Featured, verified, and active organizers',
+                title: _trOr(l10n, 'home_explore_organizer_discovery', 'Organizer Discovery'),
+                subtitle: _trOr(
+                  l10n,
+                  'home_explore_organizer_discovery_sub',
+                  'Featured, verified, and active organizers',
+                ),
                 onTap: () =>
                     _navigate(context, '/organizer-discovery'),
                 secondaryColor: tertiary,
@@ -792,8 +812,12 @@ class _HomeTab extends StatelessWidget {
                   color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.dynamic_feed_rounded,
-                title: 'Organizer Feed',
-                subtitle: 'Latest updates from organizers you follow',
+                title: _trOr(l10n, 'home_explore_organizer_feed', 'Organizer Feed'),
+                subtitle: _trOr(
+                  l10n,
+                  'home_explore_organizer_feed_sub',
+                  'Latest updates from organizers you follow',
+                ),
                 onTap: () =>
                     _navigate(context, '/organizer-feed'),
                 secondaryColor: tertiary,
@@ -833,8 +857,12 @@ class _HomeTab extends StatelessWidget {
                   color: AppTheme.cardBorder(brightness), height: 1),
               _ExploreRow(
                 icon: Icons.search_rounded,
-                title: 'Find Teams',
-                subtitle: 'Search public profiles & squads',
+                title: _trOr(l10n, 'home_explore_find_teams', 'Find Teams'),
+                subtitle: _trOr(
+                  l10n,
+                  'home_explore_find_teams_sub',
+                  'Search public profiles & squads',
+                ),
                 onTap: () => _navigate(context, '/search'),
                 secondaryColor: tertiary,
                 chevronColor: faint,
@@ -965,6 +993,7 @@ class _FollowedOrganizerFeedPreviewState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final t = theme.textTheme;
@@ -979,7 +1008,7 @@ class _FollowedOrganizerFeedPreviewState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Followed Organizer Feed',
+              _trOr(l10n, 'home_organizer_feed_preview_title', 'Followed Organizer Feed'),
               style: t.titleMedium?.copyWith(
                 fontWeight: FontWeight.w900,
                 color: AppTheme.primaryText(brightness),
@@ -987,7 +1016,11 @@ class _FollowedOrganizerFeedPreviewState
             ),
             const SizedBox(height: 10),
             Text(
-              'Sign in to see updates from organizers you follow.',
+              _trOr(
+                l10n,
+                'home_organizer_feed_preview_signed_out',
+                'Sign in to see updates from organizers you follow.',
+              ),
               style: t.bodySmall?.copyWith(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
@@ -1010,7 +1043,7 @@ class _FollowedOrganizerFeedPreviewState
             children: [
               Expanded(
                 child: Text(
-                  'Followed Organizer Feed',
+                  _trOr(l10n, 'home_organizer_feed_preview_title', 'Followed Organizer Feed'),
                   style: t.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
                     color: AppTheme.primaryText(brightness),
@@ -1024,9 +1057,9 @@ class _FollowedOrganizerFeedPreviewState
                   } catch (_) {}
                 },
                 icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                label: const Text(
-                  'Open',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                label: Text(
+                  _trOr(l10n, 'home_organizer_feed_preview_open', 'Open'),
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
             ],
@@ -1039,7 +1072,11 @@ class _FollowedOrganizerFeedPreviewState
             )
           else if (_hasError)
             Text(
-              'Unable to load organizer updates right now.',
+              _trOr(
+                l10n,
+                'home_organizer_feed_preview_error',
+                'Unable to load organizer updates right now.',
+              ),
               style: t.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.error,
                 fontWeight: FontWeight.w800,
@@ -1047,8 +1084,12 @@ class _FollowedOrganizerFeedPreviewState
             )
           else if (_items.isEmpty)
             Text(
-              'No followed organizer updates yet. Follow organizer '
-              'workspaces to see their latest activity here.',
+              _trOr(
+                l10n,
+                'home_organizer_feed_preview_empty',
+                'No followed organizer updates yet. Follow organizer '
+                    'workspaces to see their latest activity here.',
+              ),
               style: t.bodySmall?.copyWith(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,

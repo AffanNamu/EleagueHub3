@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/plan_status_service.dart';
 import '../../../core/services/rewarded_ad_manager.dart';
 import '../../../core/theme/app_theme.dart';
@@ -113,10 +114,9 @@ class _MasterLeaguesListScreenState
     // Ad actively closed/skipped before the reward was earned — don't
     // drop the user into the workspace list; send them back out.
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text(
-          'Watch the full ad to open Organizer Workspace. '
-          'Please try again.',
+          context.l10n.tr('master_leagues_list_ad_required_message'),
         ),
         behavior: SnackBarBehavior.floating,
       ),
@@ -272,7 +272,7 @@ class _MasterLeaguesListScreenState
   Future<void> _openInlineUpgrade() async {
     final ok = await LeaguePremiumUpgradeHelper.openUpgradeFlow(
       context,
-      leagueName: 'Organizer Plan',
+      leagueName: context.l10n.tr('master_leagues_list_organizer_plan_name'),
     );
     if (!mounted) return;
     if (ok) {
@@ -285,8 +285,9 @@ class _MasterLeaguesListScreenState
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:  Text('Plan upgraded successfully.'),
+        SnackBar(
+          content:  Text(
+              context.l10n.tr('master_leagues_list_upgrade_success_message')),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -296,18 +297,22 @@ class _MasterLeaguesListScreenState
   // ── helpers ────────────────────────────────────────────────────────────────
 
   String _planStatusText(
+    AppLocalizations l10n,
     MasterLeaguePlan? plan,
     UserPlanSubscription? sub,
   ) {
     if (plan == null || sub == null) {
-      return 'No active plan detected.';
+      return l10n.tr('master_leagues_list_no_active_plan');
     }
     if (plan.isFree) {
-      return 'Active plan: ${plan.displayName} (Free)';
+      return '${l10n.tr('master_leagues_list_active_plan_prefix')} '
+          '${plan.displayName} '
+          '${l10n.tr('master_leagues_list_active_plan_free_suffix')}';
     }
-    return 'Active plan: ${plan.displayName} • '
+    return '${l10n.tr('master_leagues_list_active_plan_prefix')} '
+        '${plan.displayName} • '
         '${sub.duration.displayName} • '
-        '${sub.daysRemaining} days remaining';
+        '${sub.daysRemaining} ${l10n.tr('master_leagues_list_days_remaining_suffix')}';
   }
 
   // ── build ──────────────────────────────────────────────────────────────────
@@ -316,6 +321,7 @@ class _MasterLeaguesListScreenState
   Widget build(BuildContext context) {
     final theme      = Theme.of(context);
     final brightness = theme.brightness;
+    final l10n       = context.l10n;
 
     if (_rewardGateInProgress) {
       return GlassScaffold(
@@ -327,7 +333,7 @@ class _MasterLeaguesListScreenState
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
                 Text(
-                  'Loading...',
+                  l10n.tr('master_leagues_list_loading'),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
@@ -350,12 +356,12 @@ class _MasterLeaguesListScreenState
 
     return GlassScaffold(
       appBar: AppBar(
-        title:           const Text('Master Leagues'),
+        title:           Text(l10n.tr('master_leagues_list_title')),
         backgroundColor: Colors.transparent,
         elevation:       0,
         actions: [
           IconButton(
-            tooltip:  'Create Master League',
+            tooltip:  l10n.tr('master_leagues_list_create_tooltip'),
             onPressed: _checkingCreateAccess ? null : _handleCreateTap,
             icon: _checkingCreateAccess
                 ? const SizedBox(
@@ -386,7 +392,7 @@ class _MasterLeaguesListScreenState
                   ),
                 )
               : const Icon(Icons.add),
-          label: const Text('Create'),
+          label: Text(l10n.tr('master_leagues_list_create_fab_label')),
         ),
       ),
       body: SafeArea(
@@ -459,17 +465,16 @@ class _MasterLeaguesListScreenState
 
                           _sectionTitle(
                             context,
-                            title:    'Created by You',
+                            title:    l10n.tr('master_leagues_list_created_by_you_title'),
                             subtitle:
-                                'Master Leagues you own and manage.',
+                                l10n.tr('master_leagues_list_created_by_you_subtitle'),
                           ),
                           _buildResponsiveList(
                             context,
                             items:       _created,
-                            emptyTitle:  'No Master Leagues yet',
+                            emptyTitle:  l10n.tr('master_leagues_list_empty_created_title'),
                             emptyMessage:
-                                'You have not created any organizer '
-                                'workspace yet.',
+                                l10n.tr('master_leagues_list_empty_created_message'),
                             emptyIcon:  Icons.hub_rounded,
                             isDesktop:  isDesktop,
                           ),
@@ -477,18 +482,16 @@ class _MasterLeaguesListScreenState
 
                           _sectionTitle(
                             context,
-                            title:    'Joined Workspaces',
+                            title:    l10n.tr('master_leagues_list_joined_title'),
                             subtitle:
-                                'Master Leagues where you are a '
-                                'member, admin, or moderator.',
+                                l10n.tr('master_leagues_list_joined_subtitle'),
                           ),
                           _buildResponsiveList(
                             context,
                             items:       _joined,
-                            emptyTitle:  'No joined workspaces',
+                            emptyTitle:  l10n.tr('master_leagues_list_empty_joined_title'),
                             emptyMessage:
-                                'When you are added to an organizer '
-                                'workspace, it will appear here.',
+                                l10n.tr('master_leagues_list_empty_joined_message'),
                             emptyIcon:  Icons.groups_outlined,
                             isDesktop:  isDesktop,
                           ),
@@ -513,6 +516,7 @@ class _MasterLeaguesListScreenState
   // without a manual refresh.
 
   Widget _buildUserIdentityRow(Brightness brightness) {
+    final l10n = context.l10n;
     final uid =
         FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) return const SizedBox.shrink();
@@ -535,7 +539,7 @@ class _MasterLeaguesListScreenState
             ),
             const SizedBox(width: 6),
             Text(
-              'Loading...',
+              l10n.tr('master_leagues_list_loading'),
               style: TextStyle(
                 color:      AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
@@ -558,7 +562,7 @@ class _MasterLeaguesListScreenState
               ?.trim();
           name = (authName != null && authName.isNotEmpty)
               ? authName
-              : 'You';
+              : l10n.tr('common_you');
         }
 
         // Determine badge label for the tooltip shown next to the name.
@@ -567,9 +571,9 @@ class _MasterLeaguesListScreenState
         final String? badgeLabel = profile == null
             ? null
             : profile.isOrganizerVerified
-                ? 'Elite Organizer'
+                ? l10n.tr('master_leagues_list_badge_elite_organizer')
                 : profile.isGreenVerified
-                    ? 'Pro Verified'
+                    ? l10n.tr('master_leagues_list_badge_pro_verified')
                     : null;
 
         return Padding(
@@ -584,7 +588,7 @@ class _MasterLeaguesListScreenState
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
-                  'Signed in as $name',
+                  '${l10n.tr('master_leagues_list_signed_in_as_prefix')} $name',
                   style: TextStyle(
                     color:      AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
@@ -632,6 +636,7 @@ class _MasterLeaguesListScreenState
     // plan status text reflects the Firestore profile immediately after
     // a Google Play purchase — before the claims-based providers update.
     final profileAsync = ref.watch(currentUserProfileStreamProvider);
+    final l10n = context.l10n;
 
     return Glass(
       borderRadius: 30,
@@ -643,7 +648,7 @@ class _MasterLeaguesListScreenState
         children: [
           _buildUserIdentityRow(brightness),
           Text(
-            'Organizer Workspaces',
+            l10n.tr('master_leagues_list_header_title'),
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight:    FontWeight.w900,
               letterSpacing: -0.35,
@@ -652,8 +657,7 @@ class _MasterLeaguesListScreenState
           ),
           const SizedBox(height: 8),
           Text(
-            'Create and manage Master Leagues for your organizer '
-            'brand, competitions, staff, and announcements.',
+            l10n.tr('master_leagues_list_header_subtitle'),
             style: theme.textTheme.bodyMedium?.copyWith(
               color:      AppTheme.secondaryText(brightness),
               height:     1.35,
@@ -688,7 +692,7 @@ class _MasterLeaguesListScreenState
                       ? '∞'
                       : '${plan?.maxMasterLeagues ?? '?'}';
               return Text(
-                'Workspaces: $count / $maxLabel',
+                '${l10n.tr('master_leagues_list_workspaces_count_prefix')} $count / $maxLabel',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color:      AppTheme.secondaryText(brightness),
                   fontWeight: FontWeight.w800,
@@ -737,10 +741,10 @@ class _MasterLeaguesListScreenState
                   onPressed: _openInlineUpgrade,
                   icon: const Icon(
                       Icons.workspace_premium_rounded),
-                  label: const Text(
-                    'Upgrade Plan',
+                  label: Text(
+                    l10n.tr('master_leagues_list_upgrade_plan_button'),
                     style:
-                        TextStyle(fontWeight: FontWeight.w900),
+                        const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
               );
@@ -760,10 +764,12 @@ class _MasterLeaguesListScreenState
     required AsyncValue<UserPlanSubscription?> subAsync,
     required AsyncValue<UserProfile?> profileAsync,
   }) {
+    final l10n = context.l10n;
+
     // While loading, show spinner text.
     if (planAsync.isLoading) {
       return Text(
-        'Checking active plan...',
+        l10n.tr('master_leagues_list_checking_plan'),
         style: theme.textTheme.bodySmall?.copyWith(
           color:      AppTheme.secondaryText(brightness),
           fontWeight: FontWeight.w800,
@@ -786,7 +792,7 @@ class _MasterLeaguesListScreenState
 
     if (plan == null) {
       return Text(
-        'No active plan detected.',
+        l10n.tr('master_leagues_list_no_active_plan'),
         style: theme.textTheme.bodySmall?.copyWith(
           color:      AppTheme.secondaryText(brightness),
           fontWeight: FontWeight.w800,
@@ -795,7 +801,7 @@ class _MasterLeaguesListScreenState
     }
 
     return Text(
-      _planStatusText(plan, sub),
+      _planStatusText(l10n, plan, sub),
       style: theme.textTheme.bodySmall?.copyWith(
         color:      AppTheme.limeAccentDark,
         fontWeight: FontWeight.w900,
@@ -820,6 +826,8 @@ class _MasterLeaguesListScreenState
       return const SizedBox.shrink();
     }
 
+    final l10n = context.l10n;
+
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Container(
@@ -832,8 +840,11 @@ class _MasterLeaguesListScreenState
           ),
         ),
         child: Text(
-          'Your ${sub.plan.displayName} plan expires in '
-          '${sub.daysRemaining} days. Renew to keep access.',
+          '${l10n.tr('master_leagues_list_expiry_warning_prefix')} '
+          '${sub.plan.displayName} '
+          '${l10n.tr('master_leagues_list_expiry_warning_middle')} '
+          '${sub.daysRemaining} '
+          '${l10n.tr('master_leagues_list_expiry_warning_suffix')}',
           style: theme.textTheme.bodySmall?.copyWith(
             color:      const Color(0xFFF59E0B),
             fontWeight: FontWeight.w900,

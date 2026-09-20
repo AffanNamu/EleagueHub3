@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/app_router.dart';
 import '../../../core/services/cloudinary_upload_service.dart';
 import '../../../core/services/connectivity_service.dart';
@@ -65,7 +66,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   static const _gameGroups = <_GameGroup>[
     _GameGroup(
-      label: '⚽ Console / PC',
+      label: 'auth_onboarding_game_group_console_pc',
       icon: Icons.sports_esports,
       games: [
         'EA Sports FC 25',
@@ -78,7 +79,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ],
     ),
     _GameGroup(
-      label: '📱 Mobile',
+      label: 'auth_onboarding_game_group_mobile',
       icon: Icons.smartphone,
       games: [
         'EA Sports FC Mobile',
@@ -145,9 +146,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _usernameStatus = _UsernameFieldStatus.invalid;
         _usernameError = raw.length < UsernameUtils.minLength ||
                 raw.length > UsernameUtils.maxLength
-            ? 'Must be ${UsernameUtils.minLength}-'
-                '${UsernameUtils.maxLength} characters.'
-            : 'Lowercase letters, numbers, and underscores only.';
+            ? "${context.l10n.tr('auth_onboarding_username_length_error_prefix')}"
+                "${UsernameUtils.minLength}-${UsernameUtils.maxLength}"
+                "${context.l10n.tr('auth_onboarding_username_length_error_suffix')}"
+            : context.l10n.tr('auth_onboarding_username_format_error');
       });
       return;
     }
@@ -155,7 +157,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (UsernameUtils.isReserved(raw)) {
       setState(() {
         _usernameStatus = _UsernameFieldStatus.invalid;
-        _usernameError = 'That username is reserved.';
+        _usernameError = context.l10n.tr('auth_onboarding_username_reserved_error');
       });
       return;
     }
@@ -179,7 +181,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _usernameStatus = available
             ? _UsernameFieldStatus.available
             : _UsernameFieldStatus.taken;
-        _usernameError = available ? null : 'That username is taken.';
+        _usernameError = available
+            ? null
+            : context.l10n.tr('auth_onboarding_username_taken_error');
       });
     } catch (e) {
       if (!mounted || token != _usernameCheckToken) return;
@@ -213,7 +217,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
       if (!pickResult.isSuccess) {
         setState(() {
-          _imageError = pickResult.errorMessage ?? 'Could not pick image.';
+          _imageError = pickResult.errorMessage ??
+              context.l10n.tr('auth_onboarding_pick_image_failed');
         });
         return;
       }
@@ -223,7 +228,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       if (picked.size > _maxImageBytes) {
         setState(() {
           _imageError =
-              'Image too large. Please select an image under 5 MB.';
+              context.l10n.tr('auth_onboarding_image_too_large_error');
         });
         return;
       }
@@ -240,7 +245,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       setState(() => _uploadedImageUrl = secureUrl);
     } on PlatformException catch (e) {
       if (!mounted) return;
-      setState(() => _imageError = e.message ?? 'Could not pick image.');
+      setState(() => _imageError =
+          e.message ?? context.l10n.tr('auth_onboarding_pick_image_failed'));
     } catch (e) {
       if (!mounted) return;
       setState(() => _imageError = '$e');
@@ -263,12 +269,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     final teamName = _teamNameCtrl.text.trim();
     if (teamName.isEmpty) {
-      _snack('Please enter your club or gamer name.');
+      _snack(context.l10n.tr('auth_onboarding_team_name_required'));
       return;
     }
 
     if (!_usernameIsReady) {
-      _snack('Please choose an available username.');
+      _snack(context.l10n.tr('auth_onboarding_username_not_ready'));
       return;
     }
 
@@ -438,11 +444,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionTitle('Select Your Main Football Game'),
+        _sectionTitle(context.l10n.tr('auth_onboarding_select_game_title')),
         ..._gameGroups.map((group) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _groupHeader(group.label, group.icon),
+                _groupHeader(context.l10n.tr(group.label), group.icon),
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
@@ -495,11 +501,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionTitle('Username'),
+        _sectionTitle(context.l10n.tr('auth_onboarding_username_section_title')),
         const SizedBox(height: 4),
         Text(
-          'This is how other players find and mention you. '
-          'Required, and it can\'t be changed by anyone else once it\'s yours.',
+          context.l10n.tr('auth_onboarding_username_description'),
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
@@ -515,8 +520,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             FilteringTextInputFormatter.allow(RegExp(r'[a-z0-9_]')),
           ],
           decoration: InputDecoration(
-            labelText: 'Choose a username',
-            hintText: 'Example: galaxy_fc',
+            labelText: context.l10n.tr('auth_onboarding_username_label'),
+            hintText: context.l10n.tr('auth_onboarding_username_hint'),
             prefixText: '@',
             suffixIcon: suffix,
             errorText: _usernameError,
@@ -532,12 +537,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionTitle('Profile / Team Photo'),
+        _sectionTitle(context.l10n.tr('auth_onboarding_photo_section_title')),
         const SizedBox(height: 4),
         Text(
-          'This also becomes your team\'s identity image around '
-          'eSportlyic. Optional — you can add or change it later from '
-          'your profile.',
+          context.l10n.tr('auth_onboarding_photo_description'),
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
@@ -597,11 +600,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               if (_uploadedImageUrl != null)
                 TextButton(
                   onPressed: _uploadingImage ? null : _removePickedImage,
-                  child: const Text('Remove photo'),
+                  child: Text(context.l10n.tr('auth_onboarding_remove_photo')),
                 )
               else
                 Text(
-                  'Tap to add a photo, or skip this step.',
+                  context.l10n.tr('auth_onboarding_photo_hint'),
                   style: TextStyle(
                     fontSize: 12,
                     color: AppTheme.secondaryText(brightness),
@@ -638,7 +641,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     const lastStep = 4;
 
     return GlassScaffold(
-      appBar: AppBar(title: const Text('Welcome to eSportlyic')),
+      appBar: AppBar(title: Text(context.l10n.tr('auth_onboarding_appbar_title'))),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -682,18 +685,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                   )
                                 : Text(
                                     _step == lastStep
-                                        ? 'Complete Setup'
+                                        ? context.l10n
+                                            .tr('auth_onboarding_complete_setup')
                                         : (_step == 1 &&
                                                 _uploadedImageUrl == null
-                                            ? 'Skip'
-                                            : 'Continue'),
+                                            ? context.l10n
+                                                .tr('auth_onboarding_skip')
+                                            : context.l10n
+                                                .tr('common_continue')),
                                   ),
                           ),
                           const SizedBox(width: 12),
                           TextButton(
                             onPressed: _saving ? null : details.onStepCancel,
-                            child:
-                                Text(_step == 0 ? 'Close' : 'Back'),
+                            child: Text(
+                              _step == 0
+                                  ? context.l10n.tr('auth_onboarding_close')
+                                  : context.l10n.tr('common_back'),
+                            ),
                           ),
                         ],
                       ),
@@ -738,20 +747,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     // Step 0 – Identity (team/gamer name + username)
                     _stepCard(
                       context: context,
-                      title: 'Identity',
-                      subtitle:
-                          'Create your football gaming identity on eSportlyic.',
+                      title: context.l10n.tr('auth_onboarding_step_identity_title'),
+                      subtitle: context.l10n
+                          .tr('auth_onboarding_step_identity_subtitle'),
                       active: _step >= 0,
                       content: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _sectionTitle('Club / Gamer Name'),
+                          _sectionTitle(context.l10n.tr('auth_onboarding_club_name_section_title')),
                           const SizedBox(height: 12),
                           TextField(
                             controller: _teamNameCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Enter your club or gamer name',
-                              hintText: 'Example: Galaxy FC',
+                            decoration: InputDecoration(
+                              labelText: context.l10n.tr('auth_onboarding_club_name_label'),
+                              hintText: context.l10n.tr('auth_onboarding_club_name_hint'),
                             ),
                             onChanged: (_) => setState(() {}),
                           ),
@@ -764,8 +773,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     // Step 1 – Profile / Team Photo (optional)
                     _stepCard(
                       context: context,
-                      title: 'Profile Photo',
-                      subtitle: 'Optional — add it now or later.',
+                      title: context.l10n.tr('auth_onboarding_step_photo_title'),
+                      subtitle:
+                          context.l10n.tr('auth_onboarding_step_photo_subtitle'),
                       active: _step >= 1,
                       content: _imageStep(),
                     ),
@@ -773,9 +783,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     // Step 2 – Football Platform (all 14 games)
                     _stepCard(
                       context: context,
-                      title: 'Football Platform',
-                      subtitle:
-                          'Choose the football game you mainly compete in.',
+                      title: context.l10n.tr('auth_onboarding_step_platform_title'),
+                      subtitle: context.l10n
+                          .tr('auth_onboarding_step_platform_subtitle'),
                       active: _step >= 2,
                       content: _gamePicker(),
                     ),
@@ -783,23 +793,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     // Step 3 – Experience Level
                     _stepCard(
                       context: context,
-                      title: 'Experience Level',
-                      subtitle:
-                          'Help us personalize tournaments and matchmaking.',
+                      title: context.l10n.tr('auth_onboarding_step_experience_title'),
+                      subtitle: context.l10n
+                          .tr('auth_onboarding_step_experience_subtitle'),
                       active: _step >= 3,
                       content: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _sectionTitle('How Experienced Are You?'),
+                          _sectionTitle(context.l10n.tr('auth_onboarding_experience_question')),
                           const SizedBox(height: 14),
                           Wrap(
                             spacing: 10,
                             runSpacing: 10,
                             children: [
-                              'Beginner',
-                              'Intermediate',
-                              'Professional',
-                              'Tournament Organizer',
+                              context.l10n
+                                  .tr('auth_onboarding_experience_beginner'),
+                              context.l10n.tr(
+                                  'auth_onboarding_experience_intermediate'),
+                              context.l10n.tr(
+                                  'auth_onboarding_experience_professional'),
+                              context.l10n.tr(
+                                  'auth_onboarding_experience_tournament_organizer'),
                             ]
                                 .map(
                                   (lvl) => _choiceChip(
@@ -818,22 +832,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     // Step 4 – Goal
                     _stepCard(
                       context: context,
-                      title: 'Your Goal',
+                      title: context.l10n.tr('auth_onboarding_step_goal_title'),
                       subtitle:
-                          'Tell us what you want to achieve on eSportlyic.',
+                          context.l10n.tr('auth_onboarding_step_goal_subtitle'),
                       active: _step >= lastStep,
                       content: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _sectionTitle('What Brings You Here?'),
+                          _sectionTitle(context.l10n.tr('auth_onboarding_goal_question')),
                           const SizedBox(height: 12),
                           TextField(
                             minLines: 3,
                             maxLines: 5,
-                            decoration: const InputDecoration(
-                              labelText: 'Your goal',
+                            decoration: InputDecoration(
+                              labelText: context.l10n.tr('auth_onboarding_goal_label'),
                               hintText:
-                                  'Example: Compete in tournaments, grow my club, organize leagues, stream matches...',
+                                  context.l10n.tr('auth_onboarding_goal_hint'),
                             ),
                             onChanged: (v) => _goal = v.trim(),
                           ),
@@ -854,6 +868,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 // ─── Data model ──────────────────────────────────────────────────────────────
 
 /// Immutable descriptor for a labelled group of games.
+/// [label] holds an l10n key, resolved via `context.l10n.tr(...)` at
+/// display time rather than a literal string.
 class _GameGroup {
   const _GameGroup({
     required this.label,

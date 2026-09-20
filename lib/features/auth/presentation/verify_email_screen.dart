@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/locale/app_localizations.dart';
 import '../../../core/routing/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_text_field.dart';
@@ -71,7 +72,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     if (_lastResendAt != null) {
       final diff = now.difference(_lastResendAt!);
       if (diff.inSeconds < 20) {
-        _showSnack('Please wait a moment before resending.');
+        _showSnack(context.l10n.tr('verify_email_resend_wait'));
         return;
       }
     }
@@ -80,7 +81,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     try {
       await _auth.sendEmailVerification();
       _lastResendAt = DateTime.now();
-      _showSnack('Verification email sent. Check your inbox (and spam).');
+      _showSnack(context.l10n.tr('verify_email_sent_message'));
     } catch (e) {
       _showSnack('$e');
     } finally {
@@ -107,10 +108,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
 
       final u = FirebaseAuth.instance.currentUser;
       if (u != null && u.emailVerified) {
-        _showSnack('Email verified. Welcome!');
+        _showSnack(context.l10n.tr('verify_email_verified_welcome'));
       } else {
         _showSnack(
-          'Verification applied. If you still see this screen, tap “I verified, continue”.',
+          context.l10n.tr('verify_email_applied_message'),
         );
       }
     } catch (e) {
@@ -126,17 +127,17 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       await authRouterRefresh.refreshAuthUser();
       final u = FirebaseAuth.instance.currentUser;
       if (u == null) {
-        _showSnack('You are signed out.');
+        _showSnack(context.l10n.tr('verify_email_signed_out'));
         return;
       }
       if (!u.emailVerified) {
         _showSnack(
-          'Not verified yet. Please open the email and follow the verification link, then try again.',
+          context.l10n.tr('verify_email_not_verified_yet'),
         );
         return;
       }
 
-      _showSnack('Verified. Continuing…');
+      _showSnack(context.l10n.tr('verify_email_verified_continuing'));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -163,11 +164,11 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: const Text('Verify your email'),
+        title: Text(context.l10n.tr('verify_email_appbar_title')),
         actions: [
           TextButton(
             onPressed: _submitting ? null : _signOut,
-            child: const Text('Sign out'),
+            child: Text(context.l10n.tr('verify_email_sign_out_button')),
           ),
         ],
       ),
@@ -192,7 +193,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      'Confirm your email to continue',
+                      context.l10n.tr('verify_email_heading'),
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: AppTheme.primaryText(brightness),
@@ -202,8 +203,8 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     const SizedBox(height: 6),
                     Text(
                       email.isEmpty
-                          ? 'We sent a verification email using Firebase Authentication.'
-                          : 'We sent a verification email to:\n$email',
+                          ? context.l10n.tr('verify_email_sent_generic')
+                          : "${context.l10n.tr('verify_email_sent_to_prefix')}$email",
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: AppTheme.secondaryText(brightness),
                         height: 1.35,
@@ -212,7 +213,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Option A: Tap the link in the email.\nOption B: Copy the link (or code) and paste it below.',
+                      context.l10n.tr('verify_email_options_instructions'),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: AppTheme.secondaryText(brightness),
                         height: 1.35,
@@ -222,12 +223,12 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     const SizedBox(height: 14),
                     AppTextField(
                       controller: _codeOrLink,
-                      label: 'Verification code or link',
-                      hint: 'Paste here (contains oobCode=...)',
+                      label: context.l10n.tr('verify_email_code_label'),
+                      hint: context.l10n.tr('verify_email_code_hint'),
                       enabled: !_submitting,
                       prefixIcon: const Icon(Icons.vpn_key_outlined),
                       suffixIcon: IconButton(
-                        tooltip: 'Paste',
+                        tooltip: context.l10n.tr('common_paste'),
                         onPressed: _submitting ? null : _paste,
                         icon: const Icon(Icons.content_paste),
                       ),
@@ -240,7 +241,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                         Expanded(
                           child: OutlinedButton(
                             onPressed: _submitting ? null : _resend,
-                            child: const Text('Resend email'),
+                            child: Text(context.l10n.tr('verify_email_resend_button')),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -260,7 +261,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                                       color: AppTheme.darkText,
                                     ),
                                   )
-                                : const Text('Verify'),
+                                : Text(context.l10n.tr('verify_email_verify_button')),
                           ),
                         ),
                       ],
@@ -270,7 +271,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                       width: double.infinity,
                       child: TextButton(
                         onPressed: _submitting ? null : _verifiedContinue,
-                        child: const Text('I verified, continue'),
+                        child: Text(context.l10n.tr('verify_email_continue_button')),
                       ),
                     ),
                   ],

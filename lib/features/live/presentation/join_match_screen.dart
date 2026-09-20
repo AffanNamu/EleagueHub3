@@ -49,7 +49,7 @@ class _JoinMatchScreenState extends ConsumerState<JoinMatchScreen> {
   Future<bool> _ensureSignedInAndOnline() async {
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
-      _showSnack('Please sign in and try again.');
+      _showSnack(context.l10n.tr('join_match_sign_in_and_try_again'));
       if (mounted) context.go('/login');
       return false;
     }

@@ -1,6 +1,7 @@
 //chat/presentation/widgets/PinnedMessage
 import 'package:flutter/material.dart';
 
+import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../models/chat_message.dart';
 
@@ -38,7 +39,7 @@ class PinnedMessageBar extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Pinned',
+                      context.l10n.tr('chat_pinned_bar_label'),
                       style: theme.textTheme.labelMedium?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: cs.primary,
