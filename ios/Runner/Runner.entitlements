@@ -21,16 +21,6 @@
 		<string>Default</string>
 	</array>
 
-	<!-- App Group placeholder for sharing data between the main app
-	     and the ReplayKit Broadcast Upload Extension (for the
-	     in-app-overlay + screen-recording redesign). Create this
-	     exact group ID in Apple Developer portal → Identifiers →
-	     App Groups before this will build with a real profile. -->
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.com.eleaguehub.app</string>
-	</array>
-
 	<!-- Universal Links (Android App Links equivalent) for Universal
 	     Sharing deep links — /u/{username}, /leagues/{id}, /team/{id},
 	     /post/{id}, /master-leagues/{id}, /join. Requires
