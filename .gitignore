@@ -95,3 +95,6 @@ AuthKey_*
 encoded_keystore.txt
 GoogleService-Info.plist
 GoogleService-Info.plist.b64
+
+# Supabase CLI local cache
+supabase/.temp/
