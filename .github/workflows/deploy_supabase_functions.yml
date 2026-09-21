@@ -15,15 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      # Project ref must match supabase/config.toml's project_id.
+      # Run the CLI via `npx` rather than the supabase/setup-cli marketplace
+      # action, so this workflow only depends on actions/checkout and node
+      # (both preinstalled on ubuntu-latest) -- avoids relying on a
+      # third-party action being allow-listed for this repo/org.
       - name: Link Supabase project
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: supabase link --project-ref rswbkehnqhznwhbbcvvp
+        run: npx --yes supabase@latest link --project-ref rswbkehnqhznwhbbcvvp
 
       # Deploy every function directory under supabase/functions/ (loop
       # instead of a hardcoded list, so a newly added function gets
@@ -39,5 +38,5 @@ jobs:
           for dir in supabase/functions/*/; do
             fn=$(basename "$dir")
             echo "── Deploying $fn ──"
-            supabase functions deploy "$fn"
+            npx --yes supabase@latest functions deploy "$fn"
           done
