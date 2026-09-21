@@ -17,7 +17,15 @@ export default async function NotificationsPage() {
     );
   }
 
-  const recentSends = await listAuditLogsByAction('notification.send');
+  let recentSends: Awaited<ReturnType<typeof listAuditLogsByAction>> = [];
+  try {
+    recentSends = await listAuditLogsByAction('notification.send');
+  } catch (err) {
+    // Don't let a missing/still-building audit_logs index take down the
+    // whole Send Notification page -- the form itself doesn't depend on
+    // this history list.
+    console.error('[NotificationsPage] listAuditLogsByAction failed', err);
+  }
 
   return (
     <div className="space-y-4">

@@ -59,12 +59,16 @@ export async function listAuditLogs(limit = 200): Promise<AuditLogEntry[]> {
 }
 
 /**
- * Exact-action lookup (an equality filter + a single orderBy on a
- * different field, so no composite index needs configuring) -- used to
- * derive a feature's own history from the shared audit trail instead of
- * standing up a dedicated collection for it. Every action string used
- * this way is a single literal (e.g. 'notification.send'), not a
- * prefix, so it only ever returns exact matches.
+ * Exact-action lookup -- used to derive a feature's own history from the
+ * shared audit trail instead of standing up a dedicated collection for
+ * it. Every action string used this way is a single literal (e.g.
+ * 'notification.send'), not a prefix, so it only ever returns exact
+ * matches. NOTE: an equality filter plus an orderBy on a different field
+ * DOES require a composite index in Firestore (action ASC, createdAtMs
+ * DESC -- see firestore.indexes.json) despite this only being two
+ * "simple" clauses; a caller adding a new action string doesn't need a
+ * new index (Firestore doesn't index by literal value), but the index
+ * itself must exist and be deployed for this function to work at all.
  */
 export async function listAuditLogsByAction(action: string, limit = 50): Promise<AuditLogEntry[]> {
   const snap = await adminDb
