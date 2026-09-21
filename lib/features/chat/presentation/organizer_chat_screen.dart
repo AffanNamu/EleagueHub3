@@ -17,6 +17,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
+import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -105,6 +106,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
     _resolveChatEligibility();
     _watchModerationState();
 
+    PushMessagingService.instance
+        .subscribeToOrganizerChatTopic(widget.masterLeagueId);
     PushMessagingService.instance
         .setActiveLeagueChat('organizer:${widget.masterLeagueId}');
   }
@@ -416,6 +419,40 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
   String _newMessageId() =>
       FirebaseFirestore.instance.collection('_ids').doc().id;
 
+  String _previewForOutgoing({
+    required String type,
+    required String text,
+    required String imageUrl,
+    required String voiceUrl,
+  }) {
+    final t = type.trim();
+    if (t == ChatMessageType.voice || voiceUrl.trim().isNotEmpty) {
+      return context.l10n.tr('league_chat_preview_voice_message');
+    }
+    if (t == ChatMessageType.image || imageUrl.trim().isNotEmpty) {
+      return context.l10n.tr('league_chat_preview_photo');
+    }
+    if (t == ChatMessageType.code) return context.l10n.tr('league_chat_preview_code_snippet');
+    final msg = text.trim();
+    if (msg.isEmpty) return context.l10n.tr('league_chat_preview_new_message');
+    return msg.length > 140 ? '${msg.substring(0, 140)}…' : msg;
+  }
+
+  Future<void> _notifyPush({
+    required String messageId,
+    required String preview,
+  }) async {
+    await SupabaseEdgeNotificationsService.instance.notifyOrganizerChatMessage(
+      masterLeagueId: widget.masterLeagueId,
+      workspaceName:
+          _workspaceNameResolved ? _workspaceName : context.l10n.tr('organizer_chat_default_title'),
+      messageId: messageId,
+      senderId: _user.uid.trim(),
+      senderName: _senderName().trim(),
+      preview: preview.trim(),
+    );
+  }
+
   Future<void> _sendText() async {
     if (_chatBlocked) {
       _toast(context.l10n.tr('organizer_chat_banned_message'), error: true);
@@ -451,6 +488,14 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         replyToText: reply?.replyPreview() ?? '',
         replyToType: reply?.type ?? '',
       );
+
+      final preview = _previewForOutgoing(
+        type: ChatMessageType.text,
+        text: raw,
+        imageUrl: '',
+        voiceUrl: '',
+      );
+      _notifyPush(messageId: messageId, preview: preview);
 
       _textCtrl.clear();
       _replyTo.value = null;
@@ -517,6 +562,14 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         replyToText: reply?.replyPreview() ?? '',
         replyToType: reply?.type ?? '',
       );
+
+      final preview = _previewForOutgoing(
+        type: ChatMessageType.image,
+        text: caption,
+        imageUrl: url,
+        voiceUrl: '',
+      );
+      _notifyPush(messageId: messageId, preview: preview);
 
       _textCtrl.clear();
       _replyTo.value = null;
@@ -679,6 +732,14 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         replyToText: reply?.replyPreview() ?? '',
         replyToType: reply?.type ?? '',
       );
+
+      final preview = _previewForOutgoing(
+        type: ChatMessageType.voice,
+        text: caption,
+        imageUrl: '',
+        voiceUrl: voiceUrl,
+      );
+      _notifyPush(messageId: messageId, preview: preview);
 
       _textCtrl.clear();
       _replyTo.value = null;

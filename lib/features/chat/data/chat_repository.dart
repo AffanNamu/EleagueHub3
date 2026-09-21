@@ -302,13 +302,16 @@ class ChatRepository {
     String text = '',
     String imageUrl = '',
     String voiceUrl = '',
+    String messageIdOverride = '',
     String replyToMessageId = '',
     String replyToSenderName = '',
     String replyToText = '',
     String replyToType = '',
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final doc = _globalChatCol.doc();
+    final doc = messageIdOverride.trim().isNotEmpty
+        ? _globalChatCol.doc(messageIdOverride.trim())
+        : _globalChatCol.doc();
 
     final safeName = senderName.trim().isEmpty ? 'Player' : senderName.trim();
     final safePhoto = senderPhoto.trim();

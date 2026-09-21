@@ -82,6 +82,106 @@ class SupabaseEdgeNotificationsService {
     }
   }
 
+  Future<void> notifyOrganizerChatMessage({
+    required String masterLeagueId,
+    required String workspaceName,
+    required String messageId,
+    required String senderId,
+    required String senderName,
+    required String preview,
+  }) async {
+    final uri = _edgeUri('organizer-chat-notify');
+    if (uri == null) return;
+
+    final anon = _supabaseAnonKey.trim();
+    if (anon.isEmpty) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final token = (await user.getIdToken()).toString().trim();
+    if (token.isEmpty) return;
+
+    try {
+      final resp = await http.post(
+        uri,
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+          'apikey': anon,
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(<String, dynamic>{
+          'masterLeagueId': masterLeagueId.trim(),
+          'workspaceName': workspaceName.trim(),
+          'messageId': messageId.trim(),
+          'senderId': senderId.trim(),
+          'senderName': senderName.trim(),
+          'preview': preview.trim(),
+        }),
+      );
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        if (kDebugMode) {
+          debugPrint(
+            'Organizer chat notify failed: ${resp.statusCode} ${resp.body}',
+          );
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Organizer chat notify exception: $e');
+      }
+    }
+  }
+
+  Future<void> notifyGlobalChatMessage({
+    required String messageId,
+    required String senderId,
+    required String senderName,
+    required String preview,
+  }) async {
+    final uri = _edgeUri('global-chat-notify');
+    if (uri == null) return;
+
+    final anon = _supabaseAnonKey.trim();
+    if (anon.isEmpty) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final token = (await user.getIdToken()).toString().trim();
+    if (token.isEmpty) return;
+
+    try {
+      final resp = await http.post(
+        uri,
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+          'apikey': anon,
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(<String, dynamic>{
+          'messageId': messageId.trim(),
+          'senderId': senderId.trim(),
+          'senderName': senderName.trim(),
+          'preview': preview.trim(),
+        }),
+      );
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        if (kDebugMode) {
+          debugPrint(
+            'Global chat notify failed: ${resp.statusCode} ${resp.body}',
+          );
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Global chat notify exception: $e');
+      }
+    }
+  }
+
   Future<void> notifyPrivateMessage({
     required String threadId,
     required String recipientId,

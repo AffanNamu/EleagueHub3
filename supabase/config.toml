@@ -31,3 +31,12 @@ verify_jwt = false
 
 [functions.league-chat-notify]
 verify_jwt = false
+
+[functions.organizer-chat-notify]
+verify_jwt = false
+
+[functions.global-chat-notify]
+verify_jwt = false
+
+[functions.private-chat-notify]
+verify_jwt = false

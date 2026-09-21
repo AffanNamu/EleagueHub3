@@ -20,6 +20,8 @@ class NotificationService {
   Stream<String> get onNotificationTap => _tapStream.stream;
 
   static const String _chatChannelId = 'league_chat_channel';
+  static const String _organizerChatChannelId = 'organizer_chat_channel';
+  static const String _globalChatChannelId = 'global_chat_channel';
   static const String _privateChatChannelId = 'private_chat_channel';
   static const String _annChannelId = 'league_announcements_channel';
   static const String _testChannelId = 'test_channel_id';
@@ -80,6 +82,28 @@ class NotificationService {
             _chatChannelId,
             'League Chat',
             description: 'Messages from league chatrooms',
+            importance: Importance.high,
+          ),
+        );
+      } catch (_) {}
+
+      try {
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _organizerChatChannelId,
+            'Organizer Chat',
+            description: 'Messages from organizer workspace chatrooms',
+            importance: Importance.high,
+          ),
+        );
+      } catch (_) {}
+
+      try {
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _globalChatChannelId,
+            'Global Chat',
+            description: 'Messages from the global chatroom',
             importance: Importance.high,
           ),
         );

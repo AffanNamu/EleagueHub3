@@ -40,41 +40,65 @@ class PushMessagingService {
     activeThreadId.value = v.isEmpty ? null : v;
   }
 
-  String _leagueTopic(String leagueId) => 'league_${leagueId.trim()}';
-  String _muteTopic(String uid, String leagueId) =>
-      'mute_${uid.trim()}_${leagueId.trim()}';
+  // Same topic-pair scheme used for every "room" type (league, organizer
+  // workspace, global chat): 'league_{key}' for the room broadcast and
+  // 'mute_{uid}_{key}' so a device can be excluded (e.g. the sender, or
+  // someone who muted that room) via an FCM condition on the sender side.
+  // The key just needs to be unique per room; organizer/global chat use
+  // a namespaced key ('organizer_{id}', 'global') so they can never
+  // collide with a real league id.
+  String _leagueTopic(String key) => 'league_${key.trim()}';
+  String _muteTopic(String uid, String key) =>
+      'mute_${uid.trim()}_${key.trim()}';
 
-  Future<void> subscribeToLeagueTopic(String leagueId) async {
-    final id = leagueId.trim();
-    if (id.isEmpty) return;
+  Future<void> _subscribeTopicPair(String key) async {
+    final k = key.trim();
+    if (k.isEmpty) return;
 
     try {
-      await _messaging.subscribeToTopic(_leagueTopic(id));
+      await _messaging.subscribeToTopic(_leagueTopic(k));
     } catch (_) {}
 
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isNotEmpty) {
       try {
-        await _messaging.subscribeToTopic(_muteTopic(uid, id));
+        await _messaging.subscribeToTopic(_muteTopic(uid, k));
       } catch (_) {}
     }
   }
 
-  Future<void> unsubscribeFromLeagueTopic(String leagueId) async {
-    final id = leagueId.trim();
-    if (id.isEmpty) return;
+  Future<void> _unsubscribeTopicPair(String key) async {
+    final k = key.trim();
+    if (k.isEmpty) return;
 
     try {
-      await _messaging.unsubscribeFromTopic(_leagueTopic(id));
+      await _messaging.unsubscribeFromTopic(_leagueTopic(k));
     } catch (_) {}
 
     final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isNotEmpty) {
       try {
-        await _messaging.unsubscribeFromTopic(_muteTopic(uid, id));
+        await _messaging.unsubscribeFromTopic(_muteTopic(uid, k));
       } catch (_) {}
     }
   }
+
+  Future<void> subscribeToLeagueTopic(String leagueId) =>
+      _subscribeTopicPair(leagueId);
+
+  Future<void> unsubscribeFromLeagueTopic(String leagueId) =>
+      _unsubscribeTopicPair(leagueId);
+
+  Future<void> subscribeToOrganizerChatTopic(String masterLeagueId) =>
+      _subscribeTopicPair('organizer_${masterLeagueId.trim()}');
+
+  Future<void> unsubscribeFromOrganizerChatTopic(String masterLeagueId) =>
+      _unsubscribeTopicPair('organizer_${masterLeagueId.trim()}');
+
+  Future<void> subscribeToGlobalChatTopic() => _subscribeTopicPair('global');
+
+  Future<void> unsubscribeFromGlobalChatTopic() =>
+      _unsubscribeTopicPair('global');
 
   /// Sets up message listeners and token syncing.
   /// Does NOT ask for notification permission — that is done lazily
