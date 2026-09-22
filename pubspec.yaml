@@ -130,13 +130,20 @@ dependency_overrides:
   # archive. Pinned to the last version before that reference was added.
   device_info_plus: 12.3.0
 
+# Default config, used by android.yml's plain `flutter pub run
+# flutter_launcher_icons` (no -f flag). Kept iOS-off here: android.yml's
+# checkout never runs `flutter create --platforms=ios .`, so
+# ios/Runner/Assets.xcassets/AppIcon.appiconset doesn't exist in that job
+# and an ios:true here would crash it trying to overwrite files that
+# aren't there. ios.yml instead runs flutter_launcher_icons with
+# -f flutter_launcher_icons-ios.yaml (ios:true, android:false), after its
+# own `flutter create --platforms=ios .` has scaffolded Assets.xcassets.
 flutter_launcher_icons:
   android: true
-  ios: true
+  ios: false
   image_path: "assets/icon.png"
   adaptive_icon_background: "#000000"
   adaptive_icon_foreground: "assets/icon.png"
-  remove_alpha_ios: true
   min_sdk_android: 24
 
 flutter:
