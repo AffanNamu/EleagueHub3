@@ -489,20 +489,15 @@ jobs:
       # ─────────────────────────────────────────
       # 5. LAUNCHER ICON (mirrors android.yml step; reuses assets/icon.png)
       # ─────────────────────────────────────────
-      - name: Download launcher icon from Google Drive
+      - name: Verify launcher icon
         shell: bash
-        env:
-          ICON_FILE_ID: "1QCL_ln4EeCPBwiHZ8rNaqxE1hlIRl4TQ"
         run: |
           set -euo pipefail
-          mkdir -p assets
-          curl -fsSL --retry 3 --retry-delay 3 --max-time 60 \
-            -A "Mozilla/5.0 (Macintosh)" \
-            "https://drive.usercontent.google.com/download?id=${ICON_FILE_ID}&export=download&authuser=0&confirm=t" \
-            -o assets/icon.png || true
-          if [ ! -s assets/icon.png ]; then
-            echo "::warning::Icon download failed — flutter_launcher_icons will use whatever assets/icon.png already exists in the repo, if any."
+          if [ ! -s assets/icon.png ] || ! file assets/icon.png | grep -qE "PNG|image"; then
+            echo "::error::assets/icon.png is missing or not a valid image — it must be committed to the repo."
+            exit 1
           fi
+          file assets/icon.png
 
       - name: Generate launcher icons
         run: flutter pub run flutter_launcher_icons:main -f flutter_launcher_icons-ios.yaml || echo "::warning::flutter_launcher_icons step skipped/failed — verify iOS AppIcon.appiconset manually"
