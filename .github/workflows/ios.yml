@@ -492,7 +492,7 @@ jobs:
       - name: Download launcher icon from Google Drive
         shell: bash
         env:
-          ICON_FILE_ID: "1ynEFtKZCC-mQPegEQKw7QqjRU_KCYqA4"
+          ICON_FILE_ID: "1QCL_ln4EeCPBwiHZ8rNaqxE1hlIRl4TQ"
         run: |
           set -euo pipefail
           mkdir -p assets

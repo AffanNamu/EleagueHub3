@@ -22,7 +22,7 @@ jobs:
       CLOUDINARY_UNSIGNED_UPLOAD_PRESET: eSportlyic_unsigned
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-      ICON_FILE_ID: "1ynEFtKZCC-mQPegEQKw7QqjRU_KCYqA4"
+      ICON_FILE_ID: "1QCL_ln4EeCPBwiHZ8rNaqxE1hlIRl4TQ"
 
     steps:
       # ─────────────────────────────────────────
