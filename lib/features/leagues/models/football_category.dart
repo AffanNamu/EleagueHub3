@@ -66,6 +66,10 @@ extension FootballCategoryX on FootballCategory {
   String get badgeLabel => '$emoji $label';
 
   /// Icon used beside the category in League Details / chips.
+  ///
+  /// Each of the 6 categories gets its own distinct icon so they're
+  /// visually distinguishable at a glance (e.g. in Home's Browse by
+  /// Category row) instead of several categories sharing one icon.
   IconData get icon {
     switch (this) {
       case FootballCategory.localFootball:
@@ -73,13 +77,13 @@ extension FootballCategoryX on FootballCategory {
       case FootballCategory.eFootball:
         return Icons.sports_esports_rounded;
       case FootballCategory.eaSportsFC:
-        return Icons.sports_esports_rounded;
+        return Icons.sports_score_rounded;
       case FootballCategory.eaSportsFCMobile:
         return Icons.phone_iphone_rounded;
       case FootballCategory.dreamLeagueSoccer:
-        return Icons.sports_soccer_rounded;
+        return Icons.sports_rounded;
       case FootballCategory.totalFootball:
-        return Icons.sports_esports_rounded;
+        return Icons.stars_rounded;
     }
   }
 }
