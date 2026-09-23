@@ -381,6 +381,30 @@ class MasterLeaguesRepositoryFirebase {
     }
   }
 
+  /// Fetches follower user ids for fan-out (e.g. writing a personal-inbox
+  /// notification to each follower when the organizer posts). Capped at
+  /// 500 -- fine for this platform's current scale; a workspace with more
+  /// followers than that would need a server-side fan-out instead of a
+  /// client-driven one.
+  Future<List<String>> fetchFollowerUserIds(String masterLeagueId) async {
+    final id = masterLeagueId.trim();
+    if (id.isEmpty) return const <String>[];
+
+    try {
+      final snap = await _followersCol(id)
+          .limit(500)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 15));
+
+      return snap.docs
+          .map((d) => (d.data()['userId'] as String? ?? d.id).trim())
+          .where((uid) => uid.isNotEmpty)
+          .toList(growable: false);
+    } catch (_) {
+      return const <String>[];
+    }
+  }
+
   Stream<int> watchFollowersCount(String masterLeagueId) {
     try {
       _requireAuthUid();

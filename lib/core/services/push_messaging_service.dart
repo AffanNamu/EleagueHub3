@@ -223,6 +223,26 @@ class PushMessagingService {
             payloadRoute: route.isNotEmpty ? route : null,
           );
         } catch (_) {}
+      } else if (type == 'organizer_announcement') {
+        final actorId = (data['actorId'] ?? '').toString().trim();
+        final actorName =
+            (data['actorName'] ?? 'An organizer').toString().trim();
+        final route = (data['route'] ?? '').toString().trim();
+        final title =
+            (m.notification?.title ?? actorName).toString().trim();
+        final body =
+            (m.notification?.body ?? 'Posted an update.').toString().trim();
+
+        try {
+          await NotificationService().showOrganizerFeedNotification(
+            notificationId: _stableIdFromString(
+              '${actorId}_${DateTime.now().millisecondsSinceEpoch}',
+            ),
+            title: title.isNotEmpty ? title : actorName,
+            message: body.isNotEmpty ? body : 'Posted an update.',
+            payloadRoute: route.isNotEmpty ? route : null,
+          );
+        } catch (_) {}
       }
     });
 

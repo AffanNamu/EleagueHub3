@@ -22,7 +22,9 @@ import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../../leagues/data/league_announcements_firebase.dart';
+import '../data/master_leagues_repository_firebase.dart';
 import '../data/organizer_feed_firebase.dart';
+import '../../social/data/personal_notifications_repository.dart';
 import '../../leagues/data/leagues_repository_local.dart';
 import '../../leagues/models/enums.dart';
 import '../../leagues/models/football_category.dart';
@@ -691,11 +693,53 @@ class _MasterLeagueDetailsScreenState
           title: title,
         ),
       );
+      unawaited(
+        _fanOutAnnouncementToFollowerInboxes(
+          masterLeagueId: ml.id,
+          actorName: authorName,
+          title: title,
+          message: message,
+        ),
+      );
       _snack(context.l10n.tr('master_league_details_announcement_posted_message'));
     } catch (e) {
       _snack('$e', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Best-effort: writes a personal-inbox notification (the same merged
+  /// bell/list new-follower notifications use) into every follower's
+  /// inbox. Fetches the follower list fresh each time rather than caching
+  /// it -- announcements are infrequent, so the extra read is cheap
+  /// compared to the risk of notifying a stale follower set.
+  Future<void> _fanOutAnnouncementToFollowerInboxes({
+    required String masterLeagueId,
+    required String actorName,
+    required String title,
+    required String message,
+  }) async {
+    try {
+      final followerIds =
+          await MasterLeaguesRepositoryFirebase().fetchFollowerUserIds(masterLeagueId);
+      final repo = PersonalNotificationsRepository();
+
+      await Future.wait(
+        followerIds.map(
+          (followerId) => repo.addOrganizerAnnouncementNotification(
+            targetUserId: followerId,
+            masterLeagueId: masterLeagueId,
+            actorId: _currentUid,
+            actorName: actorName,
+            title: title,
+            message: message,
+          ),
+        ),
+      );
+    } catch (_) {
+      // Never let a follower-notification failure surface to the poster --
+      // the announcement itself already succeeded by this point.
     }
   }
 

@@ -88,6 +88,20 @@ class DiscoveryHubScreen extends StatelessWidget {
               onTap: () => context.push('/organizer-discovery'),
             ),
             const SizedBox(height: 10),
+            // Not run through l10n.tr(): this repo's translation set is
+            // pre-generated across every supported language (see
+            // app_localizations_*.dart), and adding one new key here would
+            // only exist in English until a full translation pass — same
+            // documented, accepted interim state as the ~650 other
+            // hardcoded strings already in this codebase pending l10n.
+            _DiscoveryRow(
+              icon: Icons.dynamic_feed_rounded,
+              iconColor: const Color(0xFFEC4899),
+              title: 'Organizer Feed',
+              subtitle: 'Updates from organizers you follow',
+              onTap: () => context.push('/organizer-feed'),
+            ),
+            const SizedBox(height: 10),
             _DiscoveryRow(
               icon: Icons.groups_rounded,
               iconColor: const Color(0xFF2DD4BF),
