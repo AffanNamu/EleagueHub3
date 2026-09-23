@@ -47,6 +47,11 @@ class PushMessagingService {
   // The key just needs to be unique per room; organizer/global chat use
   // a namespaced key ('organizer_{id}', 'global') so they can never
   // collide with a real league id.
+  int _stableIdFromString(String s) {
+    final h = s.hashCode;
+    return h < 0 ? -h : h;
+  }
+
   String _leagueTopic(String key) => 'league_${key.trim()}';
   String _muteTopic(String uid, String key) =>
       'mute_${uid.trim()}_${key.trim()}';
@@ -199,6 +204,22 @@ class PushMessagingService {
             senderName: senderName.isNotEmpty ? senderName : 'Someone',
             messagePreview: preview.isNotEmpty ? preview : 'New message',
             messageId: messageId.isNotEmpty ? messageId : null,
+            payloadRoute: route.isNotEmpty ? route : null,
+          );
+        } catch (_) {}
+      } else if (type == 'new_follower') {
+        final actorId = (data['actorId'] ?? '').toString().trim();
+        final actorName = (data['actorName'] ?? 'Someone').toString().trim();
+        final route = (data['route'] ?? '').toString().trim();
+
+        try {
+          await NotificationService().showNewFollowerNotification(
+            notificationId: _stableIdFromString(
+              actorId.isNotEmpty
+                  ? actorId
+                  : '${myUid}_${DateTime.now().millisecondsSinceEpoch}',
+            ),
+            actorName: actorName.isNotEmpty ? actorName : 'Someone',
             payloadRoute: route.isNotEmpty ? route : null,
           );
         } catch (_) {}

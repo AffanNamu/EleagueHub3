@@ -1005,9 +1005,10 @@ service cloud.firestore {
             // caller wraps it in try/catch, so a rules mismatch here is
             // invisible until someone actually checks whether "seen"
             // state persists).
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastSeenAnnouncementAtMs','lastSeenHomeAnnouncementAtMs'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastSeenAnnouncementAtMs','lastSeenHomeAnnouncementAtMs','lastSeenPersonalNotificationAtMs'])
             && (!('lastSeenAnnouncementAtMs' in request.resource.data) || isNumericMs(request.resource.data.lastSeenAnnouncementAtMs))
             && (!('lastSeenHomeAnnouncementAtMs' in request.resource.data) || isNumericMs(request.resource.data.lastSeenHomeAnnouncementAtMs))
+            && (!('lastSeenPersonalNotificationAtMs' in request.resource.data) || isNumericMs(request.resource.data.lastSeenPersonalNotificationAtMs))
           )
 
           || (
@@ -1273,6 +1274,31 @@ service cloud.firestore {
           && (request.resource.data.userId == targetId);
         allow delete: if signedIn() && request.auth.uid == userId;
         allow update: if false;
+      }
+
+      // Personal notifications (new follower, organizer announcements from
+      // workspaces you follow, etc) — an Instagram/Twitter-style per-user
+      // inbox, separate from platform_announcements (admin broadcast).
+      // Created by the ACTOR (the follower, the organizer posting), not
+      // the inbox owner, so create is gated on actorId matching the
+      // caller rather than userId — same shape as /followers/{followerId}
+      // above. Read/delete stay owner-only.
+      match /notifications/{notifId} {
+        allow get, list: if signedIn() && request.auth.uid == userId;
+        allow create: if signedIn()
+          && (request.resource.data.actorId is string)
+          && (request.resource.data.actorId == request.auth.uid)
+          && (request.resource.data.type is string)
+          && (request.resource.data.type.size() <= 40)
+          && (request.resource.data.title is string) && (request.resource.data.title.size() <= 200)
+          && (request.resource.data.message is string) && (request.resource.data.message.size() <= 500)
+          && (request.resource.data.createdAtMs is int)
+          && (!('actorName' in request.resource.data) || (request.resource.data.actorName is string && request.resource.data.actorName.size() <= 120))
+          && (!('actorAvatarUrl' in request.resource.data) || (request.resource.data.actorAvatarUrl is string && request.resource.data.actorAvatarUrl.size() <= 2000))
+          && (!('imageUrl' in request.resource.data) || (request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() <= 2000))
+          && (!('route' in request.resource.data) || (request.resource.data.route is string && request.resource.data.route.size() <= 300));
+        allow update: if false;
+        allow delete: if signedIn() && request.auth.uid == userId;
       }
 
       match /blocked_users/{targetId} {

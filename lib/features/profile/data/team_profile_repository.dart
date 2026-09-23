@@ -6,7 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../core/services/country/country_resolver_service.dart';
+import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../auth/data/user_profile_repository.dart';
+import '../../social/data/personal_notifications_repository.dart';
 import '../../search/data/user_search_repository.dart';
 import '../models/game_id.dart';
 import '../models/recent_match.dart';
@@ -400,9 +402,9 @@ class TeamProfileRepository {
 
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      await _firestore.runTransaction((txn) async {
+      final didFollow = await _firestore.runTransaction<bool>((txn) async {
         final existing = await txn.get(followerRef);
-        if (existing.exists) return;
+        if (existing.exists) return false;
 
         txn.set(followerRef, {'userId': authUid, 'followedAtMs': now});
         txn.set(followingRef, {'userId': target, 'followedAtMs': now});
@@ -424,10 +426,47 @@ class TeamProfileRepository {
           {'followingCount': selfFollowing + 1},
           SetOptions(merge: true),
         );
+
+        return true;
       }).timeout(const Duration(seconds: 20));
+
+      if (didFollow) {
+        unawaited(_notifyNewFollower(targetUserId: target, actorId: authUid));
+      }
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
+  }
+
+  /// Best-effort: writes a personal-inbox notification for the target user
+  /// and triggers a real FCM push via the follow-notify Supabase Edge
+  /// Function. Never allowed to make follow() itself fail — a follow that
+  /// "worked" but silently didn't notify is far better than a follow that
+  /// visibly failed over a notification hiccup.
+  Future<void> _notifyNewFollower({
+    required String targetUserId,
+    required String actorId,
+  }) async {
+    final actor = _auth.currentUser;
+    final actorName = (actor?.displayName ?? '').trim();
+    final actorAvatarUrl = (actor?.photoURL ?? '').trim();
+
+    try {
+      await PersonalNotificationsRepository().addNewFollowerNotification(
+        targetUserId: targetUserId,
+        actorId: actorId,
+        actorName: actorName,
+        actorAvatarUrl: actorAvatarUrl,
+      );
+    } catch (_) {}
+
+    try {
+      await SupabaseEdgeNotificationsService.instance.notifyNewFollower(
+        targetUserId: targetUserId,
+        actorId: actorId,
+        actorName: actorName,
+      );
+    } catch (_) {}
   }
 
   Future<void> unfollow(String targetUserId) async {

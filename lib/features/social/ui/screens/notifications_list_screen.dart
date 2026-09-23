@@ -1,12 +1,25 @@
 // lib/features/social/ui/screens/notifications_list_screen.dart
 //
-// Full list of recent platform announcements. Marks everything seen
-// (bumps the per-user read cursor) as soon as the screen opens — matches
-// the standard "opening the inbox clears the badge" convention.
+// Unified Instagram/Twitter-style inbox: merges platform_announcements
+// (admin broadcast, PlatformAnnouncementsRepository) and personal
+// notifications (new follower, organizer announcements from workspaces
+// you follow, ...; PersonalNotificationsRepository) into one
+// chronologically-sorted list. The two stay separate collections/streams
+// at the data layer (very different security shape — one is public
+// broadcast, the other per-user private) and are only merged here, at
+// render time.
+//
+// Marks everything seen (bumps both per-user read cursors) as soon as the
+// screen opens — matches the standard "opening the inbox clears the
+// badge" convention.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../../../../core/locale/app_localizations.dart';
+import '../../../../core/routing/app_router.dart';
+import '../../data/personal_notifications_repository.dart';
 import '../../data/platform_announcements_repository.dart';
 
 class NotificationsListScreen extends StatefulWidget {
@@ -17,13 +30,64 @@ class NotificationsListScreen extends StatefulWidget {
       _NotificationsListScreenState();
 }
 
+/// Renders either kind of inbox entry through one shared shape, so the
+/// list below doesn't need to branch per-type beyond picking the leading
+/// icon/avatar and building createdAtMs for the merge-sort.
+class _InboxEntry {
+  const _InboxEntry({
+    required this.createdAtMs,
+    required this.leading,
+    required this.title,
+    required this.message,
+    required this.route,
+  });
+
+  final int createdAtMs;
+  final Widget leading;
+  final String title;
+  final String message;
+  final String route;
+}
+
 class _NotificationsListScreenState extends State<NotificationsListScreen> {
-  final _repo = PlatformAnnouncementsRepository();
+  final _announcementsRepo = PlatformAnnouncementsRepository();
+  final _personalRepo = PersonalNotificationsRepository();
+
+  List<PlatformAnnouncement> _announcements = const <PlatformAnnouncement>[];
+  List<PersonalNotification> _personal = const <PersonalNotification>[];
+  bool _loadedOnce = false;
+
+  StreamSubscription<List<PlatformAnnouncement>>? _announcementsSub;
+  StreamSubscription<List<PersonalNotification>>? _personalSub;
 
   @override
   void initState() {
     super.initState();
-    _repo.markAllSeen();
+    _announcementsRepo.markAllSeen();
+    _personalRepo.markAllSeen();
+
+    _announcementsSub = _announcementsRepo.watchRecent().listen((items) {
+      if (!mounted) return;
+      setState(() {
+        _announcements = items;
+        _loadedOnce = true;
+      });
+    });
+
+    _personalSub = _personalRepo.watchRecent().listen((items) {
+      if (!mounted) return;
+      setState(() {
+        _personal = items;
+        _loadedOnce = true;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _announcementsSub?.cancel();
+    _personalSub?.cancel();
+    super.dispose();
   }
 
   Color _severityColor(String severity) {
@@ -50,6 +114,67 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
     }
   }
 
+  IconData _personalTypeIcon(String type) {
+    switch (type) {
+      case 'new_follower':
+        return Icons.person_add_alt_1_rounded;
+      case 'organizer_announcement':
+        return Icons.campaign_outlined;
+      default:
+        return Icons.notifications_outlined;
+    }
+  }
+
+  Widget _personalLeading(PersonalNotification item) {
+    final avatar = item.actorAvatarUrl.trim();
+    if (avatar.isNotEmpty) {
+      return CircleAvatar(
+        radius: 18,
+        backgroundImage: NetworkImage(avatar),
+        onBackgroundImageError: (_, __) {},
+        child: avatar.isEmpty
+            ? Icon(_personalTypeIcon(item.type), size: 18)
+            : null,
+      );
+    }
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: const Color(0xFF4C6FFF).withOpacity(0.15),
+      child: Icon(
+        _personalTypeIcon(item.type),
+        size: 18,
+        color: const Color(0xFF4C6FFF),
+      ),
+    );
+  }
+
+  List<_InboxEntry> _mergedEntries() {
+    final entries = <_InboxEntry>[
+      ..._announcements.map(
+        (a) => _InboxEntry(
+          createdAtMs: a.createdAtMs,
+          leading: Icon(_severityIcon(a.severity),
+              color: _severityColor(a.severity), size: 20),
+          title: a.title,
+          message: a.message,
+          route: '',
+        ),
+      ),
+      ..._personal.map(
+        (n) => _InboxEntry(
+          createdAtMs: n.createdAtMs,
+          leading: _personalLeading(n),
+          title: n.title,
+          message: n.message,
+          route: n.route,
+        ),
+      ),
+    ];
+
+    entries.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+    return entries;
+  }
+
   String _relativeTime(AppLocalizations l10n, int ms) {
     if (ms <= 0) return '';
     final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
@@ -66,15 +191,13 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final items = _mergedEntries();
+
     return Scaffold(
       appBar: AppBar(title: Text(l10n.tr('notifications_list_appbar_title'))),
-      body: StreamBuilder<List<PlatformAnnouncement>>(
-        stream: _repo.watchRecent(),
-        builder: (context, snapshot) {
-          final items = snapshot.data ?? const <PlatformAnnouncement>[];
-
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              items.isEmpty) {
+      body: Builder(
+        builder: (context) {
+          if (!_loadedOnce && items.isEmpty) {
             return const Center(child: CircularProgressIndicator());
           }
 
@@ -96,48 +219,54 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final item = items[index];
-              final color = _severityColor(item.severity);
+              const color = Color(0xFF4C6FFF);
 
-              return Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: color.withOpacity(0.3)),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(_severityIcon(item.severity), color: color, size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.title,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
+              return InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: item.route.trim().isEmpty
+                    ? null
+                    : () => appRouter.go(item.route.trim()),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: color.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      item.leading,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            item.message,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _relativeTime(l10n, item.createdAtMs),
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey,
+                            const SizedBox(height: 3),
+                            Text(
+                              item.message,
+                              style: const TextStyle(fontSize: 13),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 6),
+                            Text(
+                              _relativeTime(l10n, item.createdAtMs),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               );
             },

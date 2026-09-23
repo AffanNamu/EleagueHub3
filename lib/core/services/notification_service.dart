@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 class NotificationService {
   NotificationService._internal();
@@ -26,6 +29,7 @@ class NotificationService {
   static const String _annChannelId = 'league_announcements_channel';
   static const String _testChannelId = 'test_channel_id';
   static const String _organizerFeedChannelId = 'organizer_feed_channel';
+  static const String _newFollowerChannelId = 'new_follower_channel';
 
   /// Call this ONLY when user explicitly enables notifications in settings
   /// or when user first interacts with a feature that needs notifications.
@@ -137,6 +141,17 @@ class NotificationService {
             _organizerFeedChannelId,
             'Organizer Feed',
             description: 'Updates from organizers you follow',
+            importance: Importance.high,
+          ),
+        );
+      } catch (_) {}
+
+      try {
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _newFollowerChannelId,
+            'New Followers',
+            description: 'Someone started following you',
             importance: Importance.high,
           ),
         );
@@ -263,6 +278,77 @@ class NotificationService {
       notificationId,
       title,
       message,
+      details,
+      payload:
+          (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
+    );
+  }
+
+  /// Downloads a remote image to a local temp file for use with Android's
+  /// BigPictureStyleInformation, which requires a local file path (not a
+  /// URL). Returns null on any failure so callers can gracefully fall back
+  /// to a text-only notification instead of losing the notification
+  /// entirely over a bad/unreachable image URL.
+  Future<String?> _downloadToLocalFile(String url, String cacheKey) async {
+    final u = url.trim();
+    if (u.isEmpty) return null;
+
+    try {
+      final dir = await getTemporaryDirectory();
+      final ext = u.contains('.png') ? 'png' : 'jpg';
+      final file = File('${dir.path}/notif_$cacheKey.$ext');
+
+      final resp = await http.get(Uri.parse(u)).timeout(const Duration(seconds: 8));
+      if (resp.statusCode < 200 || resp.statusCode >= 300) return null;
+
+      await file.writeAsBytes(resp.bodyBytes, flush: true);
+      return file.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> showNewFollowerNotification({
+    required int notificationId,
+    required String actorName,
+    String? actorAvatarUrl,
+    String? payloadRoute,
+  }) async {
+    if (!_initialized) {
+      await init();
+    }
+
+    final name = actorName.trim().isEmpty ? 'Someone' : actorName.trim();
+    final body = '$name started following you.';
+
+    final localImagePath = actorAvatarUrl == null
+        ? null
+        : await _downloadToLocalFile(actorAvatarUrl, 'follow_$notificationId');
+
+    final androidDetails = AndroidNotificationDetails(
+      _newFollowerChannelId,
+      'New Followers',
+      channelDescription: 'Someone started following you',
+      importance: Importance.high,
+      priority: Priority.high,
+      styleInformation: localImagePath != null
+          ? BigPictureStyleInformation(
+              FilePathAndroidBitmap(localImagePath),
+              largeIcon: FilePathAndroidBitmap(localImagePath),
+              contentTitle: 'New follower',
+              summaryText: body,
+            )
+          : const BigTextStyleInformation(''),
+      largeIcon:
+          localImagePath != null ? FilePathAndroidBitmap(localImagePath) : null,
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+
+    await _plugin.show(
+      notificationId,
+      'New follower',
+      body,
       details,
       payload:
           (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
