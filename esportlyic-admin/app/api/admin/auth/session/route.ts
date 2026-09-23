@@ -1,21 +1,21 @@
 // app/api/admin/auth/session/route.ts
 //
 // Exchanges a Firebase ID token (from client-side sign-in) for an
-// HttpOnly session cookie, AFTER verifying the signed-in user is either
-// the super admin or listed in app/admins.pricingAdmins[]. This is the
-// single choke point that decides who gets into the admin workspace —
-// deliberately server-side only, using firebase-admin, so it cannot be
-// bypassed by editing client code.
+// HttpOnly session cookie, AFTER verifying the signed-in user actually
+// has admin access — super admin, legacy app/admins.pricingAdmins[], OR
+// a granular admin_users/{uid} role assignment (see resolveIdentity() in
+// adminAuthService.ts, the single shared source of truth for all three
+// tiers — this route used to check only the first two, which locked out
+// every admin added purely through the newer role-based system). This
+// is the single choke point that decides who gets into the admin
+// workspace — deliberately server-side only, using firebase-admin, so
+// it cannot be bypassed by editing client code.
 
 import { NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { SUPER_ADMIN_UID, SESSION_COOKIE_NAME } from '@/lib/auth/adminAuthService';
+import { adminAuth } from '@/lib/firebase-admin';
+import { resolveIdentity, SESSION_COOKIE_NAME } from '@/lib/auth/adminAuthService';
 
 const SESSION_EXPIRES_IN_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
-
-function looksLikeFirebaseUid(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 20;
-}
 
 export async function POST(request: Request) {
   let idToken: string | undefined;
@@ -32,25 +32,18 @@ export async function POST(request: Request) {
   }
 
   let uid: string;
+  let email: string | null;
   try {
     const decoded = await adminAuth.verifyIdToken(idToken, true);
     uid = decoded.uid;
+    email = decoded.email ?? null;
   } catch {
     return NextResponse.json({ error: 'Invalid or expired sign-in. Please try again.' }, { status: 401 });
   }
 
-  const isSuperAdmin = uid === SUPER_ADMIN_UID;
+  const identity = await resolveIdentity(uid, email);
 
-  let isPlatformAdmin = isSuperAdmin;
-  if (!isPlatformAdmin) {
-    const adminsSnap = await adminDb.collection('app').doc('admins').get();
-    const pricingAdmins = adminsSnap.exists ? adminsSnap.data()?.pricingAdmins : undefined;
-    if (Array.isArray(pricingAdmins)) {
-      isPlatformAdmin = pricingAdmins.filter(looksLikeFirebaseUid).map((v) => v.trim()).includes(uid);
-    }
-  }
-
-  if (!isPlatformAdmin) {
+  if (!identity.isSuperAdmin && !identity.isLegacyFullAccess && !identity.isPlatformAdmin) {
     return NextResponse.json(
       { error: 'This account does not have access to the operations workspace.' },
       { status: 403 },

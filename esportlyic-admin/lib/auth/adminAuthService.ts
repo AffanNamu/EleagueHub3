@@ -15,6 +15,19 @@
 //
 // A uid can be in BOTH (2) and (3) — legacy full access always wins in
 // that case, since it's a superset of any role's permissions.
+//
+// resolveIdentity() is exported (not just used internally here) because
+// app/api/admin/auth/session/route.ts -- the login gate that decides who
+// even gets a session cookie -- needs the exact same three-tier check.
+// It used to duplicate only tier (1)+(2) inline and never knew about
+// tier (3) at all, which meant a user granted access ONLY via a granular
+// admin_users/{uid} role assignment could authenticate with Firebase
+// (correct password) but always got rejected at session creation with
+// "This account does not have access to the operations workspace" --
+// silently locking out every granular-role admin who wasn't also added
+// to the legacy pricingAdmins[] array. Sharing this one function is what
+// keeps the login gate and the permission checks from drifting apart
+// again.
 
 import 'server-only';
 
@@ -51,7 +64,7 @@ async function fetchLegacyPricingAdminUids(): Promise<Set<string>> {
   return new Set(list.filter(looksLikeFirebaseUid).map((v: string) => v.trim()));
 }
 
-async function resolveIdentity(uid: string, email: string | null): Promise<AdminIdentity> {
+export async function resolveIdentity(uid: string, email: string | null): Promise<AdminIdentity> {
   if (uid === SUPER_ADMIN_UID) {
     return {
       uid,
