@@ -31,6 +31,7 @@ import '../logic/coupon_config_service.dart'
     hide UserFriendlyException;
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
+import '../models/football_category.dart';
 import '../models/league.dart';
 import '../models/league_announcement.dart';
 import '../models/league_format.dart';
@@ -2930,12 +2931,214 @@ class _LeagueAdminScreenState
     );
   }
 
+  void _showChangeFootballCategorySheet(League league) {
+    FootballCategory selected = league.footballCategory;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setStateSheet) {
+            final theme = Theme.of(ctx);
+            final cs = theme.colorScheme;
+            final onSurface = cs.onSurface;
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                ).add(const EdgeInsets.all(16)),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 620),
+                    child: Glass(
+                      borderRadius: 28,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 16,
+                          horizontal: 16,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Change Football Category',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: onSurface,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Pick the category that actually matches this '
+                              'league. This changes how it appears '
+                              'everywhere — Discover, Home, and search.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: onSurface.withOpacity(0.70),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: FootballCategory.values.map((c) {
+                                return FootballCategoryChip(
+                                  category: c,
+                                  selected: c == selected,
+                                  dense: true,
+                                  onTap: () =>
+                                      setStateSheet(() => selected = c),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextButton(
+                                    onPressed: () =>
+                                        Navigator.of(ctx).pop(),
+                                    child: Text(
+                                        context.l10n.tr('common_cancel')),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed:
+                                        selected == league.footballCategory
+                                            ? null
+                                            : () {
+                                                Navigator.of(ctx).pop();
+                                                _confirmAndSaveFootballCategory(
+                                                  league,
+                                                  selected,
+                                                );
+                                              },
+                                    child: const Text('Save'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _confirmAndSaveFootballCategory(
+    League league,
+    FootballCategory newCategory,
+  ) {
+    final l10n = context.l10n;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+        final onSurface = cs.onSurface;
+
+        final dialogBg = theme.brightness == Brightness.light
+            ? Colors.white.withOpacity(0.92)
+            : cs.surface;
+
+        bool saving = false;
+
+        return StatefulBuilder(
+          builder: (ctx, setStateDialog) {
+            return AlertDialog(
+              backgroundColor: dialogBg,
+              title: Text(
+                'Change Football Category?',
+                style: TextStyle(
+                    color: onSurface, fontWeight: FontWeight.w900),
+              ),
+              content: Text(
+                'This league will now be shown as '
+                '${newCategory.badgeLabel} everywhere in the app — '
+                'Discover, Home, and search.',
+                style: TextStyle(
+                  color: onSurface.withOpacity(0.72),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed:
+                      saving ? null : () => Navigator.of(ctx).pop(),
+                  child: Text(l10n.tr('common_cancel')),
+                ),
+                FilledButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          setStateDialog(() => saving = true);
+                          try {
+                            final updated = league.copyWith(
+                              footballCategory: newCategory,
+                              updatedAtMs:
+                                  DateTime.now().millisecondsSinceEpoch,
+                            );
+                            await _repo
+                                .saveLeague(updated)
+                                .timeout(const Duration(seconds: 20));
+
+                            if (!mounted) return;
+                            setState(() => _league = updated);
+                            Navigator.of(ctx).pop();
+                            _snack('Football category updated.');
+                          } catch (e) {
+                            if (!mounted) return;
+                            Navigator.of(ctx).pop();
+                            _snack(UserFriendlyError.toMessage(
+                              e is Object ? e : Exception('unknown'),
+                            ));
+                          } finally {
+                            if (ctx.mounted) {
+                              setStateDialog(() => saving = false);
+                            }
+                          }
+                        },
+                  child: const Text('Change'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildSettingsList(BuildContext context) {
     final l10n = context.l10n;
     final league = _league;
 
     return ListView(
       children: [
+        if (league != null && _canManageCoupons(league))
+          _buildSettingsTile(
+            context,
+            Icons.sports_soccer_outlined,
+            // New settings UI; plain English per this app's existing
+            // pattern for brand-new strings that have no l10n key yet.
+            'Football Category',
+            'Currently: ${league.footballCategory.badgeLabel} • Tap to change',
+            onTap: () => _showChangeFootballCategorySheet(league),
+          ),
         if (league != null && _canManageCoupons(league))
           _buildSettingsTile(
             context,
