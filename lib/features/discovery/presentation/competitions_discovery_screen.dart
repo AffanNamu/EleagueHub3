@@ -9,20 +9,77 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../leagues/models/league.dart';
 import '../../leagues/models/football_category.dart';
+import '../../leagues/models/league_format.dart';
 import '../data/discovery_providers.dart';
 
 class CompetitionsDiscoveryScreen extends ConsumerWidget {
   const CompetitionsDiscoveryScreen({super.key});
+
+  /// Reads an optional ?category=<FootballCategory.name> or
+  /// ?format=<LeagueFormat.name> query param (set when navigating in
+  /// from a Home category/type tile) and filters the already-fetched
+  /// recent-public-leagues list client-side. Deliberately not a
+  /// separate server query: adding a second equality filter alongside
+  /// isPrivate == false would still be index-free, but combined with
+  /// this screen's existing orderBy(updatedAtMs) it would need a new
+  /// composite index per category/format -- filtering the same capped
+  /// list client-side avoids that entirely.
+  List<League> _applyFilter(List<League> leagues, Uri uri) {
+    final categoryParam = uri.queryParameters['category'];
+    final formatParam = uri.queryParameters['format'];
+
+    if (categoryParam != null) {
+      final match = FootballCategory.values
+          .where((c) => c.name == categoryParam)
+          .toList();
+      if (match.isNotEmpty) {
+        return leagues.where((l) => l.footballCategory == match.first).toList();
+      }
+    }
+
+    if (formatParam != null) {
+      final match =
+          LeagueFormat.values.where((f) => f.name == formatParam).toList();
+      if (match.isNotEmpty) {
+        return leagues.where((l) => l.format == match.first).toList();
+      }
+    }
+
+    return leagues;
+  }
+
+  String? _filterTitle(AppLocalizations l10n, Uri uri) {
+    final categoryParam = uri.queryParameters['category'];
+    if (categoryParam != null) {
+      final match = FootballCategory.values
+          .where((c) => c.name == categoryParam)
+          .toList();
+      if (match.isNotEmpty) return match.first.label;
+    }
+
+    final formatParam = uri.queryParameters['format'];
+    if (formatParam != null) {
+      final match =
+          LeagueFormat.values.where((f) => f.name == formatParam).toList();
+      if (match.isNotEmpty) return l10n.tr(match.first.l10nKey);
+    }
+
+    return null;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
     final competitionsAsync = ref.watch(publicCompetitionsProvider);
+    final uri = GoRouterState.of(context).uri;
+    final filterTitle = _filterTitle(l10n, uri);
 
     return GlassScaffold(
       appBar: AppBar(
-        title: Text(l10n.tr('competitions_discovery_appbar_title')),
+        title: Text(
+          filterTitle ?? l10n.tr('competitions_discovery_appbar_title'),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -43,7 +100,8 @@ class CompetitionsDiscoveryScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            data: (leagues) {
+            data: (allLeagues) {
+              final leagues = _applyFilter(allLeagues, uri);
               if (leagues.isEmpty) {
                 return ListView(
                   children: [

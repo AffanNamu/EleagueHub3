@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,11 +8,12 @@ import '../../../core/routing/home_shell_tab_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../discovery/data/discovery_providers.dart';
 import '../../discovery/presentation/discovery_hub_screen.dart';
+import '../../leagues/models/football_category.dart';
+import '../../leagues/models/league_format.dart';
 import '../../leagues/presentation/leagues_list_screen.dart';
 import '../../marketplace/presentation/marketplace_list_screen.dart';
-import '../../master_leagues/data/organizer_feed_firebase.dart';
-import '../../master_leagues/domain/organizer_feed_event.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../social/ui/widgets/notification_bell_button.dart';
 import 'widgets/home_content_widgets.dart';
@@ -526,7 +526,6 @@ class _HomeTab extends StatelessWidget {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final t = theme.textTheme;
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     final isWeb = kIsWeb;
 
     final secondary = AppTheme.secondaryText(brightness);
@@ -753,8 +752,8 @@ class _HomeTab extends StatelessWidget {
 
         const SizedBox(height: 22),
 
-        // ── Organizer feed preview ───────────────────────────────────────
-        _FollowedOrganizerFeedPreview(uid: uid),
+        // ── Browse competitions by category / type ─────────────────────
+        const _BrowseCompetitionsSection(),
 
       ],
     );
@@ -762,285 +761,314 @@ class _HomeTab extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _FollowedOrganizerFeedPreview
+// _BrowseCompetitionsSection — real categories/types, real counts.
+//
+// "Browse by category" uses this app's actual FootballCategory enum
+// (exactly the 6 supported categories, see football_category.dart) — not
+// a generic games list. "Browse by type" uses this app's actual
+// LeagueFormat enum (Classic/Group/Series/World Cup/Direct Knockout, see
+// league_format.dart). Counts come from footballCategoryCountsProvider /
+// leagueFormatCountsProvider (discovery_providers.dart) — real Firestore
+// count() aggregations over public leagues, not placeholder numbers.
+// Tapping a tile pushes into CompetitionsDiscoveryScreen pre-filtered to
+// that category/type.
 // ---------------------------------------------------------------------------
 
-class _FollowedOrganizerFeedPreview extends StatefulWidget {
-  const _FollowedOrganizerFeedPreview({required this.uid});
-  final String uid;
+class _BrowseCompetitionsSection extends ConsumerWidget {
+  const _BrowseCompetitionsSection();
 
-  @override
-  State<_FollowedOrganizerFeedPreview> createState() =>
-      _FollowedOrganizerFeedPreviewState();
-}
+  static const Map<FootballCategory, Color> _categoryColors = {
+    FootballCategory.localFootball: Color(0xFF22C55E),
+    FootballCategory.eFootball: AppTheme.limeAccentDark,
+    FootballCategory.eaSportsFC: Color(0xFF3B82F6),
+    FootballCategory.eaSportsFCMobile: Color(0xFF8B5CF6),
+    FootballCategory.dreamLeagueSoccer: Color(0xFFF59E0B),
+    FootballCategory.totalFootball: Color(0xFF14B8A6),
+  };
 
-class _FollowedOrganizerFeedPreviewState
-    extends State<_FollowedOrganizerFeedPreview> {
-  late final OrganizerFeedFirebase _feed;
+  static const Map<LeagueFormat, Color> _formatColors = {
+    LeagueFormat.classic: Color(0xFFF59E0B),
+    LeagueFormat.uclGroup: Color(0xFF3B82F6),
+    LeagueFormat.uclSwiss: Color(0xFF8B5CF6),
+    LeagueFormat.worldCup: Color(0xFF22C55E),
+    LeagueFormat.directKnockout: Color(0xFFEF4444),
+  };
 
-  bool _loading = true;
-  List<OrganizerFeedEvent> _items = const <OrganizerFeedEvent>[];
-  bool _hasError = false;
+  static const Map<LeagueFormat, IconData> _formatIcons = {
+    LeagueFormat.classic: Icons.leaderboard_rounded,
+    LeagueFormat.uclGroup: Icons.groups_rounded,
+    LeagueFormat.uclSwiss: Icons.shuffle_rounded,
+    LeagueFormat.worldCup: Icons.public_rounded,
+    LeagueFormat.directKnockout: Icons.account_tree_rounded,
+  };
 
-  @override
-  void initState() {
-    super.initState();
-    _feed = OrganizerFeedFirebase();
-    _load();
-  }
+  static const Map<LeagueFormat, String> _formatSubtitles = {
+    LeagueFormat.classic: 'Season format',
+    LeagueFormat.uclGroup: 'Groups + knockout',
+    LeagueFormat.uclSwiss: 'Swiss system',
+    LeagueFormat.worldCup: 'FIFA-style',
+    LeagueFormat.directKnockout: 'Fast & intense',
+  };
 
-  @override
-  void didUpdateWidget(
-      covariant _FollowedOrganizerFeedPreview oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.uid != widget.uid) _load();
-  }
-
-  Future<void> _load() async {
-    final uid = widget.uid.trim();
-    if (uid.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _items = const <OrganizerFeedEvent>[];
-        _hasError = false;
-      });
-      return;
-    }
-
-    if (mounted) setState(() => _loading = true);
-
+  void _openCategory(BuildContext context, FootballCategory? category) {
     try {
-      final items =
-          await _feed.fetchFollowedOrganizerFeedOnce(uid);
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _items = items.take(4).toList(growable: false);
-        _hasError = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _items = const <OrganizerFeedEvent>[];
-        _hasError = true;
-      });
-    }
+      GoRouter.of(context).push(
+        category == null
+            ? '/discovery/competitions'
+            : '/discovery/competitions?category=${category.name}',
+      );
+    } catch (_) {}
   }
 
-  IconData _feedIcon(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'announcement':
-        return Icons.campaign_outlined;
-      case 'competition_created':
-        return Icons.emoji_events_outlined;
-      case 'verification_approved':
-        return Icons.verified_rounded;
-      case 'verification_renewed':
-        return Icons.refresh_rounded;
-      default:
-        return Icons.bolt_rounded;
-    }
-  }
-
-  Color _feedColor(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'announcement':
-        return const Color(0xFF8B5CF6);
-      case 'competition_created':
-        return const Color(0xFF22C55E);
-      case 'verification_approved':
-        return const Color(0xFF1D9BF0);
-      case 'verification_renewed':
-        return const Color(0xFF14B8A6);
-      default:
-        return const Color(0xFF64748B);
-    }
+  void _openFormat(BuildContext context, LeagueFormat format) {
+    try {
+      GoRouter.of(context).push(
+        '/discovery/competitions?format=${format.name}',
+      );
+    } catch (_) {}
   }
 
   @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
     final t = theme.textTheme;
 
-    if (widget.uid.isEmpty) {
-      return Glass(
-        borderRadius: 24,
-        padding: const EdgeInsets.all(16),
-        fill: AppTheme.cardColor(brightness),
-        borderColor: AppTheme.cardBorder(brightness),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    final categoryCountsAsync = ref.watch(footballCategoryCountsProvider);
+    final formatCountsAsync = ref.watch(leagueFormatCountsProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
+            Icon(Icons.sports_esports_rounded,
+                color: AppTheme.limeAccentDark, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Browse by Category',
+                style: t.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.primaryText(brightness),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => _openCategory(context, null),
+              child: const Text(
+                'See All',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          height: 108,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: FootballCategory.values.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, i) {
+              final category = FootballCategory.values[i];
+              final count = categoryCountsAsync.maybeWhen(
+                data: (counts) => counts[category],
+                orElse: () => null,
+              );
+              return _CategoryTile(
+                category: category,
+                color: _categoryColors[category]!,
+                count: count,
+                onTap: () => _openCategory(context, category),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            Icon(Icons.apps_rounded, color: AppTheme.limeAccentDark, size: 20),
+            const SizedBox(width: 8),
             Text(
-              _trOr(l10n, 'home_organizer_feed_preview_title', 'Followed Organizer Feed'),
+              'Browse by Type',
               style: t.titleMedium?.copyWith(
                 fontWeight: FontWeight.w900,
                 color: AppTheme.primaryText(brightness),
               ),
             ),
-            const SizedBox(height: 10),
-            Text(
-              _trOr(
-                l10n,
-                'home_organizer_feed_preview_signed_out',
-                'Sign in to see updates from organizers you follow.',
+          ],
+        ),
+        const SizedBox(height: 10),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 2.6,
+          children: LeagueFormat.values.map((format) {
+            final count = formatCountsAsync.maybeWhen(
+              data: (counts) => counts[format],
+              orElse: () => null,
+            );
+            return _FormatTile(
+              format: format,
+              color: _formatColors[format]!,
+              icon: _formatIcons[format]!,
+              subtitle: _formatSubtitles[format]!,
+              count: count,
+              onTap: () => _openFormat(context, format),
+            );
+          }).toList(growable: false),
+        ),
+      ],
+    );
+  }
+}
+
+class _CategoryTile extends StatelessWidget {
+  const _CategoryTile({
+    required this.category,
+    required this.color,
+    required this.count,
+    required this.onTap,
+  });
+
+  final FootballCategory category;
+  final Color color;
+  final int? count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 92,
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: AppTheme.cardColor(brightness),
+          border: Border.all(color: AppTheme.cardBorder(brightness)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withOpacity(0.16),
+                border: Border.all(color: color.withOpacity(0.4)),
               ),
-              style: t.bodySmall?.copyWith(
-                color: AppTheme.secondaryText(brightness),
+              child: Icon(category.icon, color: color, size: 22),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              category.label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+                color: AppTheme.primaryText(brightness),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              count == null ? '—' : '$count Tournaments',
+              style: TextStyle(
+                fontSize: 9,
                 fontWeight: FontWeight.w700,
+                color: AppTheme.secondaryText(brightness),
               ),
             ),
           ],
         ),
-      );
-    }
+      ),
+    );
+  }
+}
 
-    return Glass(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(16),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _trOr(l10n, 'home_organizer_feed_preview_title', 'Followed Organizer Feed'),
-                  style: t.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: AppTheme.primaryText(brightness),
-                  ),
-                ),
+class _FormatTile extends StatelessWidget {
+  const _FormatTile({
+    required this.format,
+    required this.color,
+    required this.icon,
+    required this.subtitle,
+    required this.count,
+    required this.onTap,
+  });
+
+  final LeagueFormat format;
+  final Color color;
+  final IconData icon;
+  final String subtitle;
+  final int? count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: AppTheme.cardColor(brightness),
+          border: Border.all(color: AppTheme.cardBorder(brightness)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withOpacity(0.16),
               ),
-              TextButton.icon(
-                onPressed: () {
-                  try {
-                    GoRouter.of(context).push('/organizer-feed');
-                  } catch (_) {}
-                },
-                icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                label: Text(
-                  _trOr(l10n, 'home_organizer_feed_preview_open', 'Open'),
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.all(8),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_hasError)
-            Text(
-              _trOr(
-                l10n,
-                'home_organizer_feed_preview_error',
-                'Unable to load organizer updates right now.',
-              ),
-              style: t.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.error,
-                fontWeight: FontWeight.w800,
-              ),
-            )
-          else if (_items.isEmpty)
-            Text(
-              _trOr(
-                l10n,
-                'home_organizer_feed_preview_empty',
-                'No followed organizer updates yet. Follow organizer '
-                    'workspaces to see their latest activity here.',
-              ),
-              style: t.bodySmall?.copyWith(
-                color: AppTheme.secondaryText(brightness),
-                fontWeight: FontWeight.w700,
-                height: 1.35,
-              ),
-            )
-          else
-            Column(
-              children: _items.map((item) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: InkWell(
-                    onTap: () {
-                      try {
-                        if (item.leagueId.trim().isNotEmpty) {
-                          GoRouter.of(context).push(
-                            '/leagues/${item.leagueId.trim()}',
-                          );
-                          return;
-                        }
-                        if (item.masterLeagueId.trim().isNotEmpty) {
-                          GoRouter.of(context).push(
-                            '/master-leagues/'
-                            '${item.masterLeagueId.trim()}',
-                          );
-                        }
-                      } catch (_) {}
-                    },
-                    borderRadius: BorderRadius.circular(18),
-                    child: Glass(
-                      borderRadius: 18,
-                      padding: const EdgeInsets.all(12),
-                      fill: AppTheme.cardColor(brightness),
-                      borderColor: AppTheme.cardBorder(brightness),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _feedIcon(item.type),
-                            color: _feedColor(item.type),
-                            size: 18,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  item.title,
-                                  style: t.bodyMedium?.copyWith(
-                                    color: AppTheme.primaryText(
-                                        brightness),
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  item.message,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: t.bodySmall?.copyWith(
-                                    color: AppTheme.secondaryText(
-                                        brightness),
-                                    fontWeight: FontWeight.w700,
-                                    height: 1.25,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            color:
-                                AppTheme.secondaryText(brightness),
-                          ),
-                        ],
-                      ),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    format.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                      color: AppTheme.primaryText(brightness),
                     ),
                   ),
-                );
-              }).toList(growable: false),
+                  Text(
+                    count == null ? subtitle : '$count active',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.secondaryText(brightness),
+                    ),
+                  ),
+                ],
+              ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
