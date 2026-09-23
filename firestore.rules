@@ -2261,8 +2261,16 @@ service cloud.firestore {
     }
 
     match /app_config/{docId} {
-      allow get, list: if (docId == 'pricing');
-      allow create, update: if (docId == 'pricing') && isPricingAdmin();
+      // 'app_update' backs the mobile-app-only force/optional update
+      // gate (see AuthRouterRefresh in lib/core/routing/app_router.dart)
+      // -- public read so a signed-out install can still be checked,
+      // same as pricing. In practice esportlyic-admin's Settings > App
+      // Updates page writes this via the Admin SDK (which bypasses these
+      // rules entirely); isSuperAdmin() here is only a backstop against
+      // a direct client write.
+      allow get, list: if (docId == 'pricing') || (docId == 'app_update');
+      allow create, update: if (docId == 'pricing' && isPricingAdmin())
+        || (docId == 'app_update' && isSuperAdmin());
       allow delete: if false;
     }
 

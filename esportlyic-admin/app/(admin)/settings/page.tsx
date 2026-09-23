@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Tags, Activity } from 'lucide-react';
+import { Tags, Activity, Smartphone } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
@@ -22,6 +22,13 @@ export default async function SettingsHubPage() {
       icon: Activity,
       title: 'System Health',
       description: 'Live backlog alerts, pending queue counts, and build/version info.',
+      visible: hasPermission(identity, 'settings.manage'),
+    },
+    {
+      href: '/settings/app-updates',
+      icon: Smartphone,
+      title: 'App Updates',
+      description: 'Publish the latest mobile build and decide whether it’s a skippable nudge or a forced update.',
       visible: hasPermission(identity, 'settings.manage'),
     },
   ].filter((link) => link.visible);

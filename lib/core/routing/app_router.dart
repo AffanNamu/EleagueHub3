@@ -6,10 +6,12 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../features/auth/data/user_profile_repository.dart';
 import '../../features/auth/presentation/account_suspended_screen.dart';
 import '../../features/auth/presentation/bootstrap_screen.dart';
+import '../../features/auth/presentation/force_update_screen.dart';
 import '../../features/auth/presentation/forgot_password_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/onboarding_screen.dart';
@@ -75,6 +77,7 @@ import '../../features/team/presentation/team_profile_gate_screen.dart';
 import '../../web_app/presentation/web_desktop_session_store.dart';
 import '../../web_app/presentation/web_desktop_shell_screen.dart';
 import '../../web_app/presentation/web_pairing_screen.dart';
+import '../services/app_update_config.dart';
 import '../services/connectivity_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass.dart';
@@ -800,6 +803,16 @@ enum _ProfileState { unknown, checking, missing, exists }
 
 class AuthRouterRefresh extends ChangeNotifier {
   AuthRouterRefresh() {
+    // Mobile-app-only: watches app_config/app_update (written from the
+    // esportlyic-admin dashboard's Settings > App Updates page) and
+    // compares it against this install's own build number. Independent
+    // of sign-in state -- an outdated build should be caught before or
+    // after login alike -- so this starts unconditionally here rather
+    // than inside the authStateChanges listener below.
+    if (!kIsWeb) {
+      unawaited(_watchAppUpdate());
+    }
+
     _authSub =
         FirebaseAuth.instance.authStateChanges().listen((user) {
       final prevUserId = _user?.uid;
@@ -863,6 +876,10 @@ class AuthRouterRefresh extends ChangeNotifier {
   bool _isSuspended = false;
   String _suspensionReason = '';
 
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _appUpdateSub;
+  int _installedBuildNumber = 0;
+  AppUpdateConfig? _appUpdateConfig;
+
   bool get isSignedIn => _user != null;
 
   // Live-enforced account suspension: a super-admin-only, Admin-SDK-only
@@ -875,6 +892,60 @@ class AuthRouterRefresh extends ChangeNotifier {
   bool get isSuspended => isSignedIn && _isSuspended;
 
   String get suspensionReason => _suspensionReason;
+
+  // True only when: mobile (never web), a config doc exists, this
+  // install's own build number is behind it, AND the admin dashboard
+  // marked that release as forced. Optional (non-forced) updates never
+  // set this -- see pendingOptionalUpdate below instead.
+  bool get forceUpdateRequired {
+    if (kIsWeb) return false;
+    final cfg = _appUpdateConfig;
+    if (cfg == null) return false;
+    return cfg.forceUpdate && _installedBuildNumber < cfg.latestBuildNumber;
+  }
+
+  AppUpdateConfig? get forceUpdateInfo => forceUpdateRequired ? _appUpdateConfig : null;
+
+  // Non-null only for a skippable update (config exists, behind, and NOT
+  // marked forced). Whether the user already dismissed this exact build
+  // is tracked by the caller (HomeShell), not here.
+  AppUpdateConfig? get pendingOptionalUpdate {
+    if (kIsWeb) return null;
+    final cfg = _appUpdateConfig;
+    if (cfg == null) return null;
+    if (cfg.forceUpdate) return null;
+    if (_installedBuildNumber >= cfg.latestBuildNumber) return null;
+    return cfg;
+  }
+
+  Future<void> _watchAppUpdate() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      _installedBuildNumber = int.tryParse(packageInfo.buildNumber.trim()) ?? 0;
+    } catch (_) {
+      // Fail open: without a known build number we can never conclude
+      // we're behind, so forceUpdateRequired/pendingOptionalUpdate just
+      // stay false/null rather than risk locking everyone out.
+      return;
+    }
+
+    _appUpdateSub = FirebaseFirestore.instance
+        .collection('app_config')
+        .doc('app_update')
+        .snapshots()
+        .listen((snap) {
+      final data = snap.data();
+      final next = data == null ? null : AppUpdateConfig.fromMap(data);
+      _appUpdateConfig = next;
+      notifyListeners();
+    }, onError: (_) {
+      // Fail open on a read error -- same reasoning as the suspension
+      // listener above: a transient permission/connectivity hiccup must
+      // never itself become a reason to block the whole app.
+      _appUpdateConfig = null;
+      notifyListeners();
+    });
+  }
 
   void _watchSuspension(String uid) {
     _suspensionSub?.cancel();
@@ -1065,6 +1136,7 @@ class AuthRouterRefresh extends ChangeNotifier {
     _authSub.cancel();
     _connSub.cancel();
     _suspensionSub?.cancel();
+    _appUpdateSub?.cancel();
     super.dispose();
   }
 }
@@ -1132,6 +1204,15 @@ final appRouter = GoRouter(
   debugLogDiagnostics: kDebugMode,
   redirect: (context, state) {
     final loc = state.matchedLocation;
+
+    // Checked before everything else, including public routes and
+    // shared-link deep links: a build the admin dashboard has marked
+    // force-update never gets to render anything else. No-op on web
+    // (forceUpdateRequired is hardcoded false there).
+    if (authRouterRefresh.forceUpdateRequired) {
+      if (loc == '/force-update') return null;
+      return '/force-update';
+    }
 
     if (_publicRoutes.contains(loc)) return null;
     if (_isPublicShareRoute(loc)) return null;
@@ -1323,6 +1404,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/account-suspended',
       builder: (context, state) => const AccountSuspendedScreen(),
+    ),
+    GoRoute(
+      path: '/force-update',
+      builder: (context, state) => const ForceUpdateScreen(),
     ),
     GoRoute(
       path: '/onboarding',

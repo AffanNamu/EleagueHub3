@@ -2,8 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/persistence/prefs_service.dart';
+import '../../../core/routing/app_router.dart';
 import '../../../core/routing/home_shell_tab_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -61,6 +64,68 @@ class _HomeShellState extends ConsumerState<HomeShell>
     _built[_index] = true;
 
     homeShellTabIndexNotifier.addListener(_handleExternalTabChange);
+
+    // Skippable ("optional") app-update nudge -- forced updates never
+    // reach here at all, since the router redirects to /force-update
+    // before any route (including this one) can build. Shown once per
+    // build number: dismissing it writes the skipped build number to
+    // prefs so it doesn't nag again until a newer one is published.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeShowOptionalUpdateNudge();
+    });
+  }
+
+  static const _skippedUpdateBuildKey = 'app_update_skipped_build';
+
+  void _maybeShowOptionalUpdateNudge() {
+    if (!mounted) return;
+    final info = authRouterRefresh.pendingOptionalUpdate;
+    if (info == null) return;
+
+    final prefs = ref.read(prefsServiceProvider);
+    final skipped = prefs.getInt(_skippedUpdateBuildKey) ?? 0;
+    if (skipped >= info.latestBuildNumber) return;
+
+    final theme = Theme.of(context);
+    final versionLabel =
+        info.latestVersionName.trim().isNotEmpty ? 'v${info.latestVersionName.trim()}' : 'A new version';
+    final notes = info.releaseNotes.trim();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Update Available'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('$versionLabel of the app is available.', style: theme.textTheme.bodyMedium),
+            if (notes.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(notes, style: theme.textTheme.bodySmall),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              prefs.setInt(_skippedUpdateBuildKey, info.latestBuildNumber);
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Later'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final uri = Uri.tryParse(info.storeUrlForThisPlatform.trim());
+              if (uri == null) return;
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            child: const Text('Update Now'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
