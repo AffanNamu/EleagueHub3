@@ -1,0 +1,18 @@
+# iOS-only launcher icon config, used by .github/workflows/ios.yml via
+# `flutter pub run flutter_launcher_icons:main -f ios_launcher_icons_config.yaml`
+# after that workflow's `flutter create --platforms=ios .` has scaffolded
+# ios/Runner/Assets.xcassets. See pubspec.yaml's flutter_launcher_icons
+# section for why this is split out instead of set globally there.
+#
+# NOT named flutter_launcher_icons-*.yaml on purpose: the package
+# auto-discovers ANY file matching that pattern as a "flavor" and
+# processes it on every invocation regardless of -f, which crashed
+# android.yml's plain `flutter pub run flutter_launcher_icons` call
+# (it tried to build this iOS config against a checkout that never
+# scaffolds ios/Runner.xcodeproj). Confirmed via a real CI failure:
+# PathNotFoundException: ios/Runner.xcodeproj/project.pbxproj.
+flutter_launcher_icons:
+  android: false
+  ios: true
+  image_path: "assets/icon.png"
+  remove_alpha_ios: true

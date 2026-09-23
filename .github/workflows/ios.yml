@@ -500,7 +500,7 @@ jobs:
           file assets/icon.png
 
       - name: Generate launcher icons
-        run: flutter pub run flutter_launcher_icons:main -f flutter_launcher_icons-ios.yaml || echo "::warning::flutter_launcher_icons step skipped/failed — verify iOS AppIcon.appiconset manually"
+        run: flutter pub run flutter_launcher_icons:main -f ios_launcher_icons_config.yaml || echo "::warning::flutter_launcher_icons step skipped/failed — verify iOS AppIcon.appiconset manually"
 
       # ─────────────────────────────────────────
       # 6. APPLE CODE SIGNING

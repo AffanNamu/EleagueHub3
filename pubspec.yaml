@@ -136,8 +136,12 @@ dependency_overrides:
 # ios/Runner/Assets.xcassets/AppIcon.appiconset doesn't exist in that job
 # and an ios:true here would crash it trying to overwrite files that
 # aren't there. ios.yml instead runs flutter_launcher_icons with
-# -f flutter_launcher_icons-ios.yaml (ios:true, android:false), after its
+# -f ios_launcher_icons_config.yaml (ios:true, android:false), after its
 # own `flutter create --platforms=ios .` has scaffolded Assets.xcassets.
+# That file is deliberately NOT named flutter_launcher_icons-*.yaml —
+# the package auto-discovers and processes any file matching that
+# pattern as a "flavor" on every invocation regardless of -f, which is
+# exactly what crashed android.yml before this rename.
 flutter_launcher_icons:
   android: true
   ios: false
