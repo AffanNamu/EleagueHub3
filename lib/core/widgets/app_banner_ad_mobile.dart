@@ -1,0 +1,124 @@
+// ---------------------------------------------------------------------------
+// MOBILE IMPLEMENTATION
+// Compiled only on dart:io platforms (Android / iOS / desktop).
+// See app_banner_ad.dart for the conditional-export entry point.
+// ---------------------------------------------------------------------------
+
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+
+// ── Ad unit IDs ──────────────────────────────────────────────────────────────
+//
+// TODO(ads): These are Google's official, publicly documented TEST banner
+// ad unit IDs -- https://developers.google.com/admob/android/test-ads and
+// https://developers.google.com/admob/ios/test-ads. They only ever serve
+// Google's clearly-labeled test creative and earn no real revenue. Before
+// shipping a release build, create a Banner ad unit for this app in the
+// AdMob console (same ca-app-pub-9284565371998347 account already used by
+// the rewarded ad unit IDs in rewarded_ad_manager_mobile.dart) and replace
+// these two constants with the real ones.
+const String _bannerAndroidTestId = 'ca-app-pub-3940256099942544/6300978111';
+const String _bannerIOSTestId = 'ca-app-pub-3940256099942544/2934735716';
+
+String get _bannerAdUnitId => defaultTargetPlatform == TargetPlatform.iOS
+    ? _bannerIOSTestId
+    : _bannerAndroidTestId;
+
+bool get _adsSupported =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS);
+
+/// A standard, full-width, adaptive-height AdMob banner -- the same
+/// "anchored adaptive banner" format most free mobile apps use, sized to
+/// the device's own width rather than a fixed 320x50 box. Renders nothing
+/// (zero-height) until an ad has actually loaded, and again if it fails to
+/// load, so a no-fill / offline moment never leaves a broken placeholder
+/// box on screen.
+class AppBannerAd extends StatefulWidget {
+  const AppBannerAd({super.key});
+
+  @override
+  State<AppBannerAd> createState() => _AppBannerAdState();
+}
+
+class _AppBannerAdState extends State<AppBannerAd> {
+  BannerAd? _bannerAd;
+  bool _requested = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_requested) {
+      _requested = true;
+      unawaited(_load());
+    }
+  }
+
+  Future<void> _load() async {
+    if (!_adsSupported) return;
+
+    final width = MediaQuery.of(context).size.width.truncate();
+    // NOTE: intentionally NOT using getLargeAnchoredAdaptiveBannerAdSize
+    // (the analyzer's suggested "replacement") -- despite the deprecation
+    // message, that calls a genuinely different, visibly taller native
+    // banner format (confirmed in the plugin's own source: the two
+    // methods hit different platform-channel calls,
+    // AdSize#getAnchoredAdaptiveBannerAdSize vs
+    // AdSize#getLargeAnchoredAdaptiveBannerAdSize), not just a renamed
+    // equivalent. This keeps the standard, compact adaptive banner size
+    // that matches how most apps' bottom banners actually look.
+    // ignore: deprecated_member_use
+    final size = await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
+      width,
+    );
+    if (!mounted || size == null) return;
+
+    final ad = BannerAd(
+      adUnitId: _bannerAdUnitId,
+      size: size,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (loadedAd) {
+          if (!mounted) {
+            loadedAd.dispose();
+            return;
+          }
+          setState(() => _bannerAd = loadedAd as BannerAd);
+        },
+        onAdFailedToLoad: (failedAd, error) {
+          failedAd.dispose();
+          if (kDebugMode) {
+            debugPrint('[AppBannerAd] onAdFailedToLoad: $error');
+          }
+          // No retry loop here on purpose -- the next time this widget
+          // rebuilds fresh (e.g. the user leaves and returns to the tab
+          // holding it) a new load is attempted anyway.
+        },
+      ),
+    );
+
+    await ad.load();
+  }
+
+  @override
+  void dispose() {
+    _bannerAd?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ad = _bannerAd;
+    if (ad == null) return const SizedBox.shrink();
+
+    return SizedBox(
+      width: ad.size.width.toDouble(),
+      height: ad.size.height.toDouble(),
+      child: AdWidget(ad: ad),
+    );
+  }
+}

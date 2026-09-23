@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,7 +9,9 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/routing/app_router.dart';
 import '../../../core/routing/home_shell_tab_controller.dart';
+import '../../../core/services/plan_status_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_banner_ad.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../discovery/data/discovery_providers.dart';
@@ -291,17 +294,29 @@ class _HomeShellState extends ConsumerState<HomeShell>
         ),
         body: SafeArea(
           bottom: false,
-          child: Stack(
-            children: List.generate(_tabs.length, (i) {
-              final built = _built[i];
-              return Offstage(
-                offstage: _index != i,
-                child: TickerMode(
-                  enabled: _index == i,
-                  child: built ? _tabs[i] : const SizedBox.shrink(),
+          child: Column(
+            children: [
+              Expanded(
+                child: Stack(
+                  children: List.generate(_tabs.length, (i) {
+                    final built = _built[i];
+                    return Offstage(
+                      offstage: _index != i,
+                      child: TickerMode(
+                        enabled: _index == i,
+                        child: built ? _tabs[i] : const SizedBox.shrink(),
+                      ),
+                    );
+                  }),
                 ),
-              );
-            }),
+              ),
+              // Standard persistent banner ad, visible across every tab,
+              // sitting just above the nav bar -- the same placement
+              // convention most free mobile apps use. Hidden entirely for
+              // Pro/Elite users (see _HomeBannerAdSlot) and on web/desktop
+              // (AppBannerAd is a no-op there).
+              const _HomeBannerAdSlot(),
+            ],
           ),
         ),
         // FIXED: was Flutter's stock Material NavigationBar/
@@ -379,6 +394,53 @@ class _HomeShellState extends ConsumerState<HomeShell>
         ),
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _HomeBannerAdSlot
+// ---------------------------------------------------------------------------
+
+/// Wraps [AppBannerAd] with the product policy for where it shows: never
+/// for a signed-in user with an active Pro/Elite plan (the standard
+/// "paying users don't see ads" rule), and shown by default otherwise --
+/// including while the plan check is still in flight or fails, matching
+/// the fail-open direction used everywhere else ads appear in this app
+/// (see RewardedAdManager) so a transient Firestore hiccup never quietly
+/// costs ad revenue from a free user for the rest of the session.
+class _HomeBannerAdSlot extends StatefulWidget {
+  const _HomeBannerAdSlot();
+
+  @override
+  State<_HomeBannerAdSlot> createState() => _HomeBannerAdSlotState();
+}
+
+class _HomeBannerAdSlotState extends State<_HomeBannerAdSlot> {
+  bool _hideForPaidPlan = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // ignore: discarded_futures
+    _checkPlan();
+  }
+
+  Future<void> _checkPlan() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) return;
+
+    try {
+      final paid = await PlanStatusService.instance.isPaidPlanActive(uid);
+      if (mounted && paid) setState(() => _hideForPaidPlan = true);
+    } catch (_) {
+      // Fail open -- see class doc comment.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hideForPaidPlan) return const SizedBox.shrink();
+    return const AppBannerAd();
   }
 }
 
