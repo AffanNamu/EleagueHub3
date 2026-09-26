@@ -1,8 +1,17 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      forceDarkAllowed="false" on both themes below: some OEM Android skins
+      (MIUI, OneUI, etc.) apply an automatic color-inversion "smart dark
+      mode" to apps that don't opt out, which can visibly corrupt this
+      app's own light/dark rendering on those specific devices only.
+      Flutter draws its own UI, so it never needs Android's heuristic.
+    -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
     </style>
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
     </style>
 </resources>
