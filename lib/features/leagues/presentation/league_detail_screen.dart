@@ -43,6 +43,7 @@ import '../../highlights/data/highlights_feed_repository_firebase.dart';
 import '../../highlights/domain/match_highlight.dart';
 import '../../highlights/presentation/league_highlights_section.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
+import 'league_participants_screen.dart';
 import '../data/leagues_repository_local.dart';
 import '../data/models/reward_model.dart';
 import '../data/services/reward_firestore_service.dart';
@@ -909,6 +910,16 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                         spaceLive,
                         currentUserId,
                       ),
+                      if (isOwner) ...[
+                        const SizedBox(height: 16),
+                        _adminToolsCard(
+                          context,
+                          league,
+                          fixtures,
+                          teams,
+                          knockouts,
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       _rewardsPreviewCard(
                           context, league, isOwner),
@@ -1495,6 +1506,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     );
   }
 
+  /// Normal-participant surface: things every joined user (and any
+  /// visitor) wants to do -- start/join the League Space, jump to
+  /// Fixtures/Standings/Teams/Chatroom, and (if the format has one) view
+  /// the knockout bracket. Nothing here is organizer-only; see
+  /// _adminToolsCard for that, rendered as its own separate section.
   Widget _quickActions(
     BuildContext context,
     League league,
@@ -1509,16 +1525,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;
-
-    final isSwiss = league.format == LeagueFormat.uclSwiss;
-    final isGroup = league.format == LeagueFormat.uclGroup;
-    final isWorldCup = league.format == LeagueFormat.worldCup; // NEW
-    final isDirectKnockout =
-        league.format == LeagueFormat.directKnockout;
     final hasKnockouts = knockouts.isNotEmpty;
-
-    void showNeedKnockoutsSnack() =>
-        _toastWarn(l10n.tr('league_details_need_knockouts_first'));
 
     return Glass(
       padding: const EdgeInsets.all(20),
@@ -1528,7 +1535,11 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            l10n.tr('league_details_menu_title'),
+            // Reference calls this section "Quick Actions" -- plain
+            // English rather than repointing the already-translated
+            // 'league_details_menu_title' ("League Menu") key across
+            // every language file for a label-only change.
+            'Quick Actions',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               color: AppTheme.primaryText(brightness),
@@ -1543,33 +1554,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
             spaceLive,
             currentUserId,
           ),
-          if (canChat) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(
-                      color: AppTheme.cardBorder(brightness)),
-                  foregroundColor: AppTheme.limeAccentDark,
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: () =>
-                    _onOpenLeagueChatroom(league),
-                icon: const Icon(Icons.forum_outlined),
-                label: Text(
-                  context.l10n.tr('league_details_league_chatroom'),
-                  style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12),
-                ),
-              ),
-            ),
-          ],
           const SizedBox(height: 16),
           Row(
             children: [
@@ -1595,6 +1579,41 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   onTap: () => context.push(
                       '/leagues/${widget.leagueId}/standings'),
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _actionButton(
+                  icon: Icons.groups_rounded,
+                  // New quick action; no l10n key yet, plain English
+                  // per this app's existing pattern for brand-new
+                  // strings. Read-only roster view -- same screen
+                  // League Admin already uses for "View Participants",
+                  // now reachable without organizer permissions too.
+                  label: 'Teams',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => LeagueParticipantsScreen(
+                        leagueId: widget.leagueId,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: canChat
+                    ? _actionButton(
+                        icon: Icons.forum_outlined,
+                        label: context.l10n
+                            .tr('league_details_league_chatroom'),
+                        onTap: () =>
+                            _onOpenLeagueChatroom(league),
+                      )
+                    : const SizedBox.shrink(),
               ),
             ],
           ),
@@ -1653,42 +1672,153 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                 ),
               ),
           ],
-          if (isOwner) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.limeAccent,
-                  foregroundColor: AppTheme.darkText,
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(12)),
+        ],
+      ),
+    );
+  }
+
+  /// Organizer-only surface, rendered as its own separate card (only
+  /// when isOwner) rather than mixed into _quickActions -- every
+  /// control here is exactly what League Admin already exposes, just
+  /// no longer visually indistinguishable from the normal-participant
+  /// actions above. Ownership itself is still verified the same way it
+  /// always was (isOwner, computed in build() from
+  /// membership.role/league.organizerUid) and every route pushed here
+  /// is still subject to that screen's own Firestore-rule-enforced
+  /// permission checks -- moving buttons around a layout never grants
+  /// access on its own.
+  Widget _adminToolsCard(
+    BuildContext context,
+    League league,
+    List<FixtureMatch> fixtures,
+    List<Team> teams,
+    List<KnockoutMatch> knockouts,
+  ) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+
+    final isSwiss = league.format == LeagueFormat.uclSwiss;
+    final isGroup = league.format == LeagueFormat.uclGroup;
+    final isWorldCup = league.format == LeagueFormat.worldCup;
+    final isDirectKnockout =
+        league.format == LeagueFormat.directKnockout;
+    final hasKnockouts = knockouts.isNotEmpty;
+
+    void showNeedKnockoutsSnack() =>
+        _toastWarn(l10n.tr('league_details_need_knockouts_first'));
+
+    return Glass(
+      padding: const EdgeInsets.all(20),
+      fill: AppTheme.cardColor(brightness),
+      borderColor: AppTheme.cardBorder(brightness),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  // Plain English heading, new section -- organizer-only,
+                  // matches the reference's "Admin Tools" grouping.
+                  'Admin Tools',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: AppTheme.primaryText(brightness),
+                    fontSize: 16,
+                  ),
                 ),
-                icon: const Icon(Icons.edit_note),
-                label: Text(
-                  l10n.tr(
-                      'league_details_manage_league_scores'),
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w900),
-                ),
-                onPressed: () async {
-                  await context.push(
-                      '/leagues/${widget.leagueId}/admin-scores');
-                  if (!mounted) return;
-                  _reloadScreen();
-                },
               ),
+              _pill('ADMIN', AppTheme.limeAccentDark),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.limeAccent,
+                foregroundColor: AppTheme.darkText,
+                padding: const EdgeInsets.symmetric(
+                    vertical: 16),
+                shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.edit_note),
+              label: Text(
+                l10n.tr(
+                    'league_details_manage_league_scores'),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w900),
+              ),
+              onPressed: () async {
+                await context.push(
+                    '/leagues/${widget.leagueId}/admin-scores');
+                if (!mounted) return;
+                _reloadScreen();
+              },
             ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                    color: AppTheme.cardBorder(brightness)),
+                foregroundColor: AppTheme.limeAccentDark,
+                padding: const EdgeInsets.symmetric(
+                    vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.settings),
+              label: Text(
+                l10n.tr(
+                    'league_details_league_settings_admin'),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12),
+              ),
+              onPressed: () => context
+                  .push('/leagues/${widget.leagueId}/admin'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                    color: AppTheme.cardBorder(brightness)),
+                foregroundColor: AppTheme.limeAccentDark,
+                padding: const EdgeInsets.symmetric(
+                    vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.rule_rounded),
+              label: Text(
+                context.l10n.tr('league_details_competition_rules'),
+                style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12),
+              ),
+              onPressed: () => context.push(
+                  '/leagues/${widget.leagueId}/rules-editor'),
+            ),
+          ),
+          if (isSwiss) ...[
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(
-                      color: AppTheme.cardBorder(brightness)),
+                  side: const BorderSide(
+                      color: AppTheme.limeAccentDark),
                   foregroundColor: AppTheme.limeAccentDark,
                   padding: const EdgeInsets.symmetric(
                       vertical: 14),
@@ -1696,25 +1826,27 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       borderRadius:
                           BorderRadius.circular(12)),
                 ),
-                icon: const Icon(Icons.settings),
+                icon: const Icon(Icons.emoji_events),
                 label: Text(
                   l10n.tr(
-                      'league_details_league_settings_admin'),
+                      'league_details_generate_knockout_swiss'),
                   style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 12),
                 ),
-                onPressed: () => context
-                    .push('/leagues/${widget.leagueId}/admin'),
+                onPressed: () => _generateSwissKnockouts(
+                    context, league, teams, fixtures),
               ),
             ),
+          ],
+          if (isGroup) ...[
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(
-                      color: AppTheme.cardBorder(brightness)),
+                  side: const BorderSide(
+                      color: AppTheme.limeAccentDark),
                   foregroundColor: AppTheme.limeAccentDark,
                   padding: const EdgeInsets.symmetric(
                       vertical: 14),
@@ -1722,193 +1854,137 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       borderRadius:
                           BorderRadius.circular(12)),
                 ),
-                icon: const Icon(Icons.rule_rounded),
+                icon: const Icon(
+                    Icons.emoji_events_outlined),
                 label: Text(
-                  context.l10n.tr('league_details_competition_rules'),
+                  l10n.tr(
+                      'league_details_generate_knockout_groups'),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12),
+                ),
+                onPressed: () => _generateGroupKnockouts(
+                    context, league),
+              ),
+            ),
+          ],
+
+          // ── World Cup knockout generation ───────────────────────────
+          if (isWorldCup) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(
+                      color: AppTheme.limeAccentDark),
+                  foregroundColor: AppTheme.limeAccentDark,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.public_rounded),
+                label: Text(
+                  context.l10n.tr('league_details_generate_world_cup_knockouts'),
                   style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 12),
                 ),
-                onPressed: () => context.push(
-                    '/leagues/${widget.leagueId}/rules-editor'),
+                onPressed: () => _generateWorldCupKnockouts(
+                    context, league),
               ),
             ),
-            if (isSwiss) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(
-                        color: AppTheme.limeAccentDark),
-                    foregroundColor: AppTheme.limeAccentDark,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.emoji_events),
-                  label: Text(
-                    l10n.tr(
-                        'league_details_generate_knockout_swiss'),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12),
-                  ),
-                  onPressed: () => _generateSwissKnockouts(
-                      context, league, teams, fixtures),
-                ),
-              ),
-            ],
-            if (isGroup) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(
-                        color: AppTheme.limeAccentDark),
-                    foregroundColor: AppTheme.limeAccentDark,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(
-                      Icons.emoji_events_outlined),
-                  label: Text(
-                    l10n.tr(
-                        'league_details_generate_knockout_groups'),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12),
-                  ),
-                  onPressed: () => _generateGroupKnockouts(
-                      context, league),
-                ),
-              ),
-            ],
+          ],
 
-            // ── NEW: World Cup knockout generation ───────────────────────────
-            if (isWorldCup) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(
-                        color: AppTheme.limeAccentDark),
-                    foregroundColor: AppTheme.limeAccentDark,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.public_rounded),
-                  label: Text(
-                    context.l10n.tr('league_details_generate_world_cup_knockouts'),
-                    style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12),
-                  ),
-                  onPressed: () => _generateWorldCupKnockouts(
-                      context, league),
+          // ── Direct Knockout bracket generation ──────────────────────
+          if (isDirectKnockout) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(
+                      color: AppTheme.limeAccentDark),
+                  foregroundColor: AppTheme.limeAccentDark,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(12)),
                 ),
-              ),
-            ],
-
-            // ── NEW: Direct Knockout bracket generation ──────────────────────
-            if (isDirectKnockout) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(
-                        color: AppTheme.limeAccentDark),
-                    foregroundColor: AppTheme.limeAccentDark,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.bolt_rounded),
-                  label: Text(
-                    context.l10n.tr('league_details_generate_bracket'),
-                    style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12),
-                  ),
-                  onPressed: () => _generateDirectKnockoutBracket(
-                      context, league),
+                icon: const Icon(Icons.bolt_rounded),
+                label: Text(
+                  context.l10n.tr('league_details_generate_bracket'),
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12),
                 ),
+                onPressed: () => _generateDirectKnockoutBracket(
+                    context, league),
               ),
-            ],
+            ),
+          ],
 
-            // MODIFIED: Include World Cup + Direct Knockout in KO viewing/admin row visibility.
-            if (isSwiss || isGroup || isWorldCup || isDirectKnockout) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        foregroundColor: hasKnockouts
-                            ? AppTheme.limeAccentDark
-                            : AppTheme
-                                .secondaryText(brightness),
-                      ),
-                      onPressed: hasKnockouts
-                          ? () => context.push(
-                              '/leagues/${widget.leagueId}/knockout')
-                          : showNeedKnockoutsSnack,
-                      icon: const Icon(
-                          Icons.account_tree_outlined,
-                          size: 18),
-                      label: Text(
-                        l10n.tr(
-                            'league_details_view_knockout_bracket'),
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 12),
-                      ),
+          if (isSwiss || isGroup || isWorldCup || isDirectKnockout) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: hasKnockouts
+                          ? AppTheme.limeAccentDark
+                          : AppTheme
+                              .secondaryText(brightness),
+                    ),
+                    onPressed: hasKnockouts
+                        ? () => context.push(
+                            '/leagues/${widget.leagueId}/knockout')
+                        : showNeedKnockoutsSnack,
+                    icon: const Icon(
+                        Icons.account_tree_outlined,
+                        size: 18),
+                    label: Text(
+                      l10n.tr(
+                          'league_details_view_knockout_bracket'),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        foregroundColor: hasKnockouts
-                            ? AppTheme.limeAccentDark
-                            : AppTheme
-                                .secondaryText(brightness),
-                      ),
-                      onPressed: hasKnockouts
-                          ? () async {
-                              await context.push(
-                                  '/leagues/${widget.leagueId}/knockout-admin');
-                              if (!mounted) return;
-                              _reloadScreen();
-                            }
-                          : showNeedKnockoutsSnack,
-                      icon: const Icon(Icons.sports_score,
-                          size: 18),
-                      label: Text(
-                        l10n.tr(
-                            'league_details_manage_ko_scores'),
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 12),
-                      ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: hasKnockouts
+                          ? AppTheme.limeAccentDark
+                          : AppTheme
+                              .secondaryText(brightness),
+                    ),
+                    onPressed: hasKnockouts
+                        ? () async {
+                            await context.push(
+                                '/leagues/${widget.leagueId}/knockout-admin');
+                            if (!mounted) return;
+                            _reloadScreen();
+                          }
+                        : showNeedKnockoutsSnack,
+                    icon: const Icon(Icons.sports_score,
+                        size: 18),
+                    label: Text(
+                      l10n.tr(
+                          'league_details_manage_ko_scores'),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12),
                     ),
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ],
         ],
       ),
