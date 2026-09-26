@@ -1,14 +1,10 @@
 //lib/features/auth/data/auth_service.dart
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
-import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 /// User-safe exception: if UI shows `$e`, it will still be a friendly message.
 class UserFriendlyException implements Exception {
@@ -168,7 +164,7 @@ class AuthService {
 
       return result;
     } catch (e, stackTrace) {
-      debugPrint('GOOGLE_AUTH: ERROR — ${e.runtimeType}: $e');
+      debugPrint('GOOGLE_AUTH: ERROR — ${e.runtimeType}:$e');
       debugPrint('GOOGLE_AUTH: STACK — $stackTrace');
 
       // Re-throw UserFriendlyException as-is
@@ -176,8 +172,8 @@ class AuthService {
 
       // Show the REAL error for debugging (temporary — remove after fixing)
       if (e is FirebaseAuthException) {
-        debugPrint('GOOGLE_AUTH: FirebaseAuth code: ${e.code}, message: ${e.message}');
-        throw UserFriendlyException('Google sign-in failed: ${e.code} — ${e.message}');
+        debugPrint('GOOGLE_AUTH: FirebaseAuth code: ${e.code}, message:${e.message}');
+        throw UserFriendlyException('Google sign-in failed: ${e.code} —${e.message}');
       }
 
       // Show platform exceptions (this is where error code 10 appears)
@@ -193,87 +189,33 @@ class AuthService {
   // platform gate on this button).
   // ────────────────────────────────────────────────────────────────────────────
 
-  static const _nonceCharset =
-      '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
-
-  /// A cryptographically secure random nonce. Firebase's Apple OAuth
-  /// credential requires the RAW nonce here and the SHA-256 hash of it
-  /// sent to Apple, to prove the ID token we get back was issued for
-  /// this exact sign-in attempt (replay protection).
-  String _generateNonce([int length = 32]) {
-    final random = Random.secure();
-    return List.generate(length, (_) => _nonceCharset[random.nextInt(_nonceCharset.length)]).join();
-  }
-
-  String _sha256OfString(String input) {
-    return sha256.convert(utf8.encode(input)).toString();
-  }
-
   Future<UserCredential> signInWithApple() async {
     try {
       debugPrint('APPLE_AUTH: Starting Apple Sign-In...');
 
-      final rawNonce = _generateNonce();
-      final hashedNonce = _sha256OfString(rawNonce);
-
-      final appleCredential = await SignInWithApple.getAppleIDCredential(
-        scopes: [
-          AppleIDAuthorizationScopes.email,
-          AppleIDAuthorizationScopes.fullName,
-        ],
-        nonce: hashedNonce,
-      ).timeout(const Duration(seconds: 60));
-
-      if (appleCredential.identityToken == null) {
-        debugPrint('APPLE_AUTH: CRITICAL — identityToken is null!');
-        throw const UserFriendlyException(
-          'Apple Sign-In configuration error. Please contact support.',
-        );
-      }
-
-      final oauthCredential = OAuthProvider('apple.com').credential(
-        idToken: appleCredential.identityToken,
-        rawNonce: rawNonce,
-      );
+      final provider = AppleAuthProvider();
+      provider.addScope('email');
+      provider.addScope('name'); // Firebase automatically handles mapping this to user.displayName
 
       debugPrint('APPLE_AUTH: Signing into Firebase...');
-      final result = await _auth.signInWithCredential(oauthCredential).timeout(const Duration(seconds: 25));
+      // signInWithProvider natively manages the iOS bottom sheet, nonces, and the secure token exchange.
+      // This bypasses the OAuthProvider iOS bridge bug entirely.
+      final result = await _auth.signInWithProvider(provider).timeout(const Duration(seconds: 60));
       debugPrint('APPLE_AUTH: SUCCESS — uid: ${result.user?.uid}');
-
-      // Apple only ever returns the user's name on the FIRST authorization
-      // this app is granted for that Apple ID — never again on subsequent
-      // sign-ins, even from the same device. Unlike Google's credential
-      // flow, Firebase does NOT auto-populate displayName from Apple's
-      // token, so this is the only chance to capture it; every later
-      // sign-in must rely on whatever got saved here.
-      final fullName = '${appleCredential.givenName ?? ''} ${appleCredential.familyName ?? ''}'.trim();
-      if (fullName.isNotEmpty && (result.user?.displayName ?? '').trim().isEmpty) {
-        try {
-          await result.user?.updateDisplayName(fullName);
-          await result.user?.reload();
-        } catch (e) {
-          debugPrint('APPLE_AUTH: updateDisplayName failed (non-fatal): $e');
-        }
-      }
 
       return result;
     } catch (e, stackTrace) {
-      debugPrint('APPLE_AUTH: ERROR — ${e.runtimeType}: $e');
+      debugPrint('APPLE_AUTH: ERROR — ${e.runtimeType}:$e');
       debugPrint('APPLE_AUTH: STACK — $stackTrace');
 
       if (e is UserFriendlyException) rethrow;
 
-      if (e is SignInWithAppleAuthorizationException) {
-        if (e.code == AuthorizationErrorCode.canceled) {
+      if (e is FirebaseAuthException) {
+        if (e.code == 'canceled' || e.code == 'web-context-cancelled') {
           throw const UserFriendlyException('Sign-in was cancelled.');
         }
-        debugPrint('APPLE_AUTH: authorization error code: ${e.code}, message: ${e.message}');
-        throw UserFriendlyException('Apple sign-in failed: ${e.message}');
-      }
-
-      if (e is FirebaseAuthException) {
-        debugPrint('APPLE_AUTH: FirebaseAuth code: ${e.code}, message: ${e.message}');
-        throw UserFriendlyException('Apple sign-in failed: ${e.code} — ${e.message}');
+        debugPrint('APPLE_AUTH: FirebaseAuth code: ${e.code}, message:${e.message}');
+        throw UserFriendlyException('Apple sign-in failed: ${e.code} —${e.message}');
       }
 
       debugPrint('APPLE_AUTH: Raw error for debugging: $e');
