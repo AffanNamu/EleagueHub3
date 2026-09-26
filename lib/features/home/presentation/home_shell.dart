@@ -992,7 +992,11 @@ class _BrowseCompetitionsSection extends ConsumerWidget {
         ),
         const SizedBox(height: 6),
         SizedBox(
-          height: 108,
+          // Tall enough for a 2-line category label (some, like "EA SPORTS
+          // FC Mobile"/"Dream League Soccer", always wrap) plus the count
+          // line, even at this app's max clamped text-scale factor (1.3x,
+          // see app.dart) -- 108 clipped/overflowed at that scale.
+          height: 130,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: FootballCategory.values.length,
