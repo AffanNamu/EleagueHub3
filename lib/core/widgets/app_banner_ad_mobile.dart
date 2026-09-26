@@ -10,22 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-// ── Ad unit IDs ──────────────────────────────────────────────────────────────
-//
-// TODO(ads): These are Google's official, publicly documented TEST banner
-// ad unit IDs -- https://developers.google.com/admob/android/test-ads and
-// https://developers.google.com/admob/ios/test-ads. They only ever serve
-// Google's clearly-labeled test creative and earn no real revenue. Before
-// shipping a release build, create a Banner ad unit for this app in the
-// AdMob console (same ca-app-pub-9284565371998347 account already used by
-// the rewarded ad unit IDs in rewarded_ad_manager_mobile.dart) and replace
-// these two constants with the real ones.
-const String _bannerAndroidTestId = 'ca-app-pub-3940256099942544/6300978111';
-const String _bannerIOSTestId = 'ca-app-pub-3940256099942544/2934735716';
-
-String get _bannerAdUnitId => defaultTargetPlatform == TargetPlatform.iOS
-    ? _bannerIOSTestId
-    : _bannerAndroidTestId;
+import '../config/ad_config.dart';
 
 bool get _adsSupported =>
     !kIsWeb &&
@@ -78,7 +63,7 @@ class _AppBannerAdState extends State<AppBannerAd> {
     if (!mounted || size == null) return;
 
     final ad = BannerAd(
-      adUnitId: _bannerAdUnitId,
+      adUnitId: AdConfig.bannerAdUnitId,
       size: size,
       request: const AdRequest(),
       listener: BannerAdListener(
