@@ -1809,10 +1809,40 @@ class _LeaguesListScreenState
                                           FontWeight.w600,
                                     ),
                                   ),
+                                  // Compact stand-in for the old
+                                  // full-sentence status line -- only
+                                  // shown for the one state that's
+                                  // actually actionable (the user is
+                                  // blocked and needs to know why).
+                                  // Premium/free-access-active/still-
+                                  // checking no longer get a dedicated
+                                  // line here; the button to the right
+                                  // covers all of those uniformly.
+                                  if (!_isLoading &&
+                                      !_checkingPlan &&
+                                      _freeLimitReached) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      // Compact replacement for the
+                                      // deleted full-sentence status
+                                      // line; no l10n key yet, plain
+                                      // English per this app's
+                                      // existing pattern for brand-new
+                                      // strings.
+                                      'Free limit reached',
+                                      style: const TextStyle(
+                                        color: _premiumAmber,
+                                        fontSize: 10.5,
+                                        fontWeight:
+                                            FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
-                            if (!widget.showAppBar)
+                            if (!widget.showAppBar) ...[
+                              const SizedBox(width: 4),
                               IconButton(
                                 tooltip:
                                     l10n.tr('common_refresh'),
@@ -1822,125 +1852,50 @@ class _LeaguesListScreenState
                                 icon: const Icon(
                                     Icons.refresh_rounded),
                               ),
+                            ],
+                            if (!_isLoading) ...[
+                              const SizedBox(width: 4),
+                              if (_checkingPlan)
+                                const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child:
+                                      CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              else
+                                _CompactUpgradePill(
+                                  isProcessing:
+                                      _planUpgradeInProgress,
+                                  isUrgent: _freeLimitReached,
+                                  icon: isAndroidBilling
+                                      ? Icons
+                                          .shopping_bag_outlined
+                                      : Icons
+                                          .payments_outlined,
+                                  label: _planUpgradeInProgress
+                                      ? l10n.tr(
+                                          'leagues_list_processing_ellipsis')
+                                      : (_freeLimitReached
+                                          ? (isAndroidBilling
+                                              ? l10n.tr(
+                                                  'leagues_list_upgrade_on_play')
+                                              : l10n.tr(
+                                                  'leagues_list_upgrade_plan'))
+                                          : (isAndroidBilling
+                                              ? l10n.tr(
+                                                  'leagues_list_view_plans_play')
+                                              : l10n.tr(
+                                                  'leagues_list_view_plans'))),
+                                  onPressed:
+                                      _planUpgradeInProgress
+                                          ? null
+                                          : _openInlinePlanChooser,
+                                ),
+                            ],
                           ],
                         ),
-                        if (!_isLoading) ...[
-                          const SizedBox(height: 8),
-                          if (_checkingPlan)
-                            Text(
-                              l10n.tr(
-                                  'leagues_list_checking_access_ellipsis'),
-                              style: TextStyle(
-                                color: AppTheme.secondaryText(
-                                    brightness),
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w800,
-                                height: 1.28,
-                              ),
-                            )
-                          else if (_isPremiumUser)
-                            Text(
-                              '${l10n.tr('leagues_list_paid_plan_active_prefix')}'
-                              '$_freeLeagueListLimit'
-                              '${l10n.tr('leagues_list_paid_plan_active_suffix')}',
-                              style: TextStyle(
-                                color: AppTheme.greenText(
-                                    brightness),
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w800,
-                                height: 1.28,
-                              ),
-                            )
-                          else if (_freeLimitReached)
-                            Text(
-                              '${l10n.tr('leagues_list_free_limit_reached_prefix')}'
-                              '$_createdLeagueCount'
-                              '${l10n.tr('leagues_list_free_limit_reached_mid')}'
-                              '$_freeLeagueListLimit'
-                              '${l10n.tr('leagues_list_free_limit_reached_suffix')}',
-                              style: const TextStyle(
-                                color: _premiumAmber,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w800,
-                                height: 1.28,
-                              ),
-                            )
-                          else
-                            Text(
-                              '${l10n.tr('leagues_list_free_access_active_prefix')}'
-                              '$_createdLeagueCount'
-                              '${l10n.tr('leagues_list_free_access_active_mid')}'
-                              '$_freeLeagueListLimit'
-                              '${l10n.tr('leagues_list_free_access_active_suffix')}',
-                              style: TextStyle(
-                                color: AppTheme.secondaryText(
-                                    brightness),
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w800,
-                                height: 1.28,
-                              ),
-                            ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 42,
-                            child: FilledButton.icon(
-                              onPressed: _planUpgradeInProgress
-                                  ? null
-                                  : _openInlinePlanChooser,
-                              style: FilledButton.styleFrom(
-                                backgroundColor:
-                                    _freeLimitReached
-                                        ? _premiumAmber
-                                        : AppTheme.limeAccent,
-                                foregroundColor:
-                                    AppTheme.darkText,
-                                padding:
-                                    const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                              ),
-                              icon: _planUpgradeInProgress
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child:
-                                          CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: AppTheme.darkText,
-                                      ),
-                                    )
-                                  : Icon(
-                                      isAndroidBilling
-                                          ? Icons
-                                              .shopping_bag_outlined
-                                          : Icons
-                                              .payments_outlined,
-                                      size: 18,
-                                    ),
-                              label: Text(
-                                _planUpgradeInProgress
-                                    ? l10n.tr(
-                                        'leagues_list_processing_ellipsis')
-                                    : (_freeLimitReached
-                                        ? (isAndroidBilling
-                                            ? l10n.tr(
-                                                'leagues_list_upgrade_on_play')
-                                            : l10n.tr(
-                                                'leagues_list_upgrade_plan'))
-                                        : (isAndroidBilling
-                                            ? l10n.tr(
-                                                'leagues_list_view_plans_play')
-                                            : l10n.tr(
-                                                'leagues_list_view_plans'))),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -3668,6 +3623,60 @@ class _CardBadge extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Compact, auto-width pill replacing the old full-width 42px "View
+/// Plans"/"Upgrade" button -- same handler, same state-dependent label
+/// and color, just sized to its content instead of the whole card width.
+class _CompactUpgradePill extends StatelessWidget {
+  const _CompactUpgradePill({
+    required this.label,
+    required this.icon,
+    required this.isProcessing,
+    required this.isUrgent,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool isProcessing;
+  final bool isUrgent;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: isUrgent
+            ? _LeaguesListScreenState._premiumAmber
+            : AppTheme.limeAccent,
+        foregroundColor: AppTheme.darkText,
+        minimumSize: const Size(0, 34),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 12, vertical: 6),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(999),
+        ),
+        visualDensity: VisualDensity.compact,
+        textStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      icon: isProcessing
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.darkText,
+              ),
+            )
+          : Icon(icon, size: 15),
+      label: Text(label),
     );
   }
 }
