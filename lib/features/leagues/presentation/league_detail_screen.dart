@@ -1652,28 +1652,6 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   textAlign: TextAlign.center,
                 ),
               ),
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                  vertical: 12, horizontal: 12),
-              decoration: BoxDecoration(
-                color: AppTheme.searchBackground(brightness),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppTheme.searchOutline(brightness),
-                ),
-              ),
-              child: Text(
-                l10n.tr(
-                    'league_details_view_only_banner'),
-                style: TextStyle(
-                  color: AppTheme.secondaryText(brightness),
-                  fontWeight: FontWeight.w700,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
           ],
           if (isOwner) ...[
             const SizedBox(height: 12),

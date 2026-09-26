@@ -1844,8 +1844,8 @@ class _LeaguesListScreenState
                               '$_freeLeagueListLimit'
                               '${l10n.tr('leagues_list_paid_plan_active_suffix')}',
                               style: TextStyle(
-                                color:
-                                    AppTheme.limeAccentDark,
+                                color: AppTheme.greenText(
+                                    brightness),
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
                                 height: 1.28,

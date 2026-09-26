@@ -387,6 +387,23 @@ class AppTheme {
         : lightIconCircle;
   }
 
+  /// Semantic color for GREEN BODY TEXT (status lines, inline labels --
+  /// anything read as a sentence, not a button/icon/border/glow).
+  ///
+  /// limeAccentDark (#84CC16) reads at only ~1.8:1 contrast against a
+  /// white background, badly failing WCAG's 4.5:1 minimum for text --
+  /// this is why things like the "Paid plan active" status line have
+  /// been hard to read in light mode. limeAccentDark itself is untouched
+  /// and still correct for icons, borders, and glows, and for text on a
+  /// dark background (where the same color already has strong contrast
+  /// against navy) -- only the light-mode TEXT case needed a darker
+  /// green, so that's the only thing this helper changes.
+  static Color greenText(Brightness brightness) {
+    return brightness == Brightness.dark
+        ? limeAccentDark
+        : const Color(0xFF3F6212); // Tailwind lime-800, ~7:1 on white
+  }
+
   static List<BoxShadow> fabGlow(Brightness brightness) {
     return [
       BoxShadow(
