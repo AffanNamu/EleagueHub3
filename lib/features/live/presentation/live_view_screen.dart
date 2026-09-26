@@ -793,7 +793,12 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
           children: [
             LayoutBuilder(
               builder: (context, constraints) {
-                final isWide = constraints.maxWidth > 700;
+                // Device-class check (shortestSide), not available width --
+                // a phone in landscape can easily exceed 700 logical px of
+                // width, which would wrongly squeeze the video stream into
+                // the tablet side-panel layout on an ordinary phone.
+                final isWide =
+                    MediaQuery.of(context).size.shortestSide >= 600;
                 return Padding(
                   padding: const EdgeInsets.all(16),
                   child: isWide

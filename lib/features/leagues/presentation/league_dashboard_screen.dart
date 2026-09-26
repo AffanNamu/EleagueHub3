@@ -75,7 +75,11 @@ class _LeagueDashboardScreenState extends State<LeagueDashboardScreen> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final isTablet = constraints.maxWidth > 600;
+            // Device-class check (shortestSide), not available width -- a
+            // phone in landscape can easily exceed 600 logical px of
+            // width, which would wrongly switch it into the tablet
+            // side-by-side layout.
+            final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
 
             return Column(
               children: [

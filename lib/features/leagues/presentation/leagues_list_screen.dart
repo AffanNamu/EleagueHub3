@@ -2055,7 +2055,12 @@ class _LeaguesListScreenState
     final viewerUid = _effectiveUserId.trim();
     final authUid = _authUidOrEmpty();
 
-    final cardHeight = isTablet ? 250.0 : 250.0;
+    // Tablet cards sit in a 2-column grid, so each one is roughly half as
+    // wide as a phone's single-column card -- the same title/subtitle text
+    // wraps to more lines there, so it needs more height, not the same
+    // fixed value the two branches used to share (that was dead code: an
+    // isTablet check whose branches never actually differed).
+    final cardHeight = isTablet ? 290.0 : 250.0;
     final showWorkspaceAction =
         _selectedTab == _LeagueViewTab.master;
     final extraActionHeight =
