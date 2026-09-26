@@ -1665,7 +1665,13 @@ class _LeaguesListScreenState
 
     final media = MediaQuery.of(context);
     final screenWidth = media.size.width;
-    final isTablet = screenWidth >= 600;
+    // shortestSide, not raw width -- a regular phone rotated to landscape
+    // can easily exceed 600 logical px of *width* (e.g. a 390dp-wide phone
+    // becomes ~850dp wide sideways), which wrongly flipped this into the
+    // 2-column tablet layout the flip card's fixed-size decorations were
+    // never designed to shrink into. shortestSide stays constant across
+    // rotation, matching Android's own tablet/phone definition.
+    final isTablet = media.size.shortestSide >= 600;
     final fabBottomOffset =
         kBottomNavigationBarHeight + media.padding.bottom + 16;
 
