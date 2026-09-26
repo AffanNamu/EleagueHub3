@@ -39,4 +39,19 @@ class AdConfig {
   static String get bannerAdUnitId => defaultTargetPlatform == TargetPlatform.iOS
       ? _bannerIOSTest
       : _bannerAndroid;
+
+  // ── Rewarded ───────────────────────────────────────────────────────────
+
+  /// Real production Android rewarded ad unit (same account as above).
+  static const String _rewardedAndroid =
+      'ca-app-pub-9284565371998347/5830580550';
+
+  /// Real production iOS rewarded ad unit (same account as above -- unlike
+  /// banner, a real iOS unit already exists for this placement).
+  static const String _rewardedIOS =
+      'ca-app-pub-9284565371998347/8933717622';
+
+  static String get rewardedAdUnitId => defaultTargetPlatform == TargetPlatform.iOS
+      ? _rewardedIOS
+      : _rewardedAndroid;
 }

@@ -17,12 +17,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-// ── Ad unit IDs ──────────────────────────────────────────────────────────────
-
-// Your real production Android Ad Unit ID
-const String _rewardedAndroid = 'ca-app-pub-9284565371998347/5830580550';
-// Your real production iOS Ad Unit ID (rewarded interstitial)
-const String _rewardedIOS     = 'ca-app-pub-9284565371998347/8933717622';
+import '../config/ad_config.dart';
 
 const Duration _loadTimeout = Duration(seconds: 30);
 
@@ -43,10 +38,7 @@ bool get _adsSupported =>
     (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS);
 
-String get _adUnitId =>
-    defaultTargetPlatform == TargetPlatform.iOS
-        ? _rewardedIOS
-        : _rewardedAndroid;
+String get _adUnitId => AdConfig.rewardedAdUnitId;
 
 // ── Public API (identical signatures to stub) ─────────────────────────────────
 
