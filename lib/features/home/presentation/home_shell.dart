@@ -23,6 +23,7 @@ import '../../marketplace/presentation/marketplace_list_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../social/ui/widgets/notification_bell_button.dart';
 import 'widgets/home_content_widgets.dart';
+import 'widgets/home_dashboard_widgets.dart';
 import 'widgets/top_bar_profile_avatar_button.dart';
 
 String _trOr(AppLocalizations l10n, String key, String fallback) {
@@ -878,6 +879,12 @@ class _HomeTab extends StatelessWidget {
           ),
 
         const SizedBox(height: 22),
+
+        // ── Coming Up Next / Your Standings / Latest Highlights ─────────
+        // Real data only across the leagues the viewer already belongs
+        // to -- each piece quietly renders nothing when there's none yet
+        // (a brand-new account, or no team/highlight uploaded so far).
+        const HomeDashboardSection(),
 
         // ── Browse competitions by category / type ─────────────────────
         const _BrowseCompetitionsSection(),
