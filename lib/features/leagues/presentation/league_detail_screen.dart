@@ -43,6 +43,7 @@ import '../../highlights/data/highlights_feed_repository_firebase.dart';
 import '../../highlights/domain/match_highlight.dart';
 import '../../highlights/presentation/league_highlights_section.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
+import 'add_teams_screen.dart';
 import 'league_participants_screen.dart';
 import '../data/leagues_repository_local.dart';
 import '../data/models/reward_model.dart';
@@ -1757,6 +1758,40 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                     '/leagues/${widget.leagueId}/admin-scores');
                 if (!mounted) return;
                 _reloadScreen();
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                    color: AppTheme.cardBorder(brightness)),
+                foregroundColor: AppTheme.limeAccentDark,
+                padding: const EdgeInsets.symmetric(
+                    vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.groups_rounded),
+              label: Text(
+                l10n.tr('league_admin_manage_teams_title'),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12),
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AddTeamsScreen(
+                      leagueId: widget.leagueId,
+                      format: league.format,
+                    ),
+                  ),
+                );
               },
             ),
           ),
