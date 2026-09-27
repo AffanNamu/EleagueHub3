@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 
+import '../../../core/services/plan_status_service.dart';
+import '../../../core/services/rate_limit_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../marketplace/data/cloudinary_upload_service.dart';
 import '../models/chat_message.dart';
@@ -182,6 +184,30 @@ class ChatRepository {
     }
   }
 
+  /// Writes a chat message doc, applying the shared free-tier daily cap
+  /// (RateLimitService.freeChatMessagesPerDay, combined across every chat
+  /// surface) for non-paid senders. Paid (Pro/Elite) senders write
+  /// directly with no cap. The actual enforcement is firestore.rules
+  /// (rateLimitOk) -- this just builds the write the rules expect.
+  Future<void> _sendChatMessage({
+    required String senderId,
+    required DocumentReference<Map<String, dynamic>> doc,
+    required Map<String, dynamic> data,
+  }) async {
+    final isPaid = await PlanStatusService.instance.isPaidPlanActive(senderId);
+    if (isPaid) {
+      await doc.set(data, SetOptions(merge: false));
+      return;
+    }
+
+    await RateLimitService.runWithLimit(
+      uid: senderId,
+      kind: RateLimitService.kindChatMessages,
+      maxPerDay: RateLimitService.freeChatMessagesPerDay,
+      writeMore: (tx) => tx.set(doc, data),
+    );
+  }
+
   Future<void> sendLeagueMessage({
     required String leagueId,
     required String senderId,
@@ -208,8 +234,10 @@ class ChatRepository {
     final safeName = senderName.trim().isEmpty ? 'Player' : senderName.trim();
     final safePhoto = senderPhoto.trim();
 
-    await doc.set(
-      <String, dynamic>{
+    await _sendChatMessage(
+      senderId: senderId,
+      doc: doc,
+      data: <String, dynamic>{
         'messageId': doc.id,
         'senderId': senderId.trim(),
         'senderName': safeName,
@@ -234,7 +262,6 @@ class ChatRepository {
         'replyToText': replyToText.trim(),
         'replyToType': replyToType.trim(),
       },
-      SetOptions(merge: false),
     );
   }
 
@@ -264,8 +291,10 @@ class ChatRepository {
     final safeName = senderName.trim().isEmpty ? 'Player' : senderName.trim();
     final safePhoto = senderPhoto.trim();
 
-    await doc.set(
-      <String, dynamic>{
+    await _sendChatMessage(
+      senderId: senderId,
+      doc: doc,
+      data: <String, dynamic>{
         'messageId': doc.id,
         'senderId': senderId.trim(),
         'senderName': safeName,
@@ -290,7 +319,6 @@ class ChatRepository {
         'replyToText': replyToText.trim(),
         'replyToType': replyToType.trim(),
       },
-      SetOptions(merge: false),
     );
   }
 
@@ -316,8 +344,10 @@ class ChatRepository {
     final safeName = senderName.trim().isEmpty ? 'Player' : senderName.trim();
     final safePhoto = senderPhoto.trim();
 
-    await doc.set(
-      <String, dynamic>{
+    await _sendChatMessage(
+      senderId: senderId,
+      doc: doc,
+      data: <String, dynamic>{
         'messageId': doc.id,
         'senderId': senderId.trim(),
         'senderName': safeName,
@@ -340,7 +370,6 @@ class ChatRepository {
         'replyToText': replyToText.trim(),
         'replyToType': replyToType.trim(),
       },
-      SetOptions(merge: false),
     );
   }
 

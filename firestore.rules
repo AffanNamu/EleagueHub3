@@ -195,6 +195,63 @@ service cloud.firestore {
         );
     }
 
+    // ── Free-tier daily rate limiting ───────────────────────────────────────
+    // A per-user, per-kind rolling 24h usage counter, stored at
+    // users/{uid}/rateLimits/{kind} (e.g. kind == 'chatMessages' or
+    // 'feedPosts'). windowStart is a Firestore server timestamp (written
+    // via FieldValue.serverTimestamp() on a fresh window, then copied back
+    // verbatim on every later write in that same window) rather than a
+    // client-computed epoch-ms int -- comparing a client clock value
+    // against request.time (the server's own commit time) would almost
+    // never match exactly given normal network latency/clock skew, which
+    // would make every "fresh window" write fail. Using request.time /
+    // FieldValue.serverTimestamp() for equality is the same pattern this
+    // file already uses for chat's own createdAt == request.time check.
+    // The document can only ever progress one of two ways:
+    //   - start a fresh window: count becomes 1, windowStart pinned to
+    //     request.time -- only allowed when no prior window exists, or the
+    //     prior one is more than 24h old.
+    //   - continue the current window: count increases by exactly 1,
+    //     windowStart unchanged -- only allowed while under 24h old.
+    // rateLimitOk() (used by the actual create rules this gates) further
+    // requires the document to have actually changed in this same write,
+    // so a client can never bypass the cap by simply omitting the counter
+    // update from its batch and relying on a stale, still-low count.
+    function rateLimitDocPath(uid, kind) {
+      return /databases/$(database)/documents/users/$(uid)/rateLimits/$(kind);
+    }
+
+    function rateLimitWriteValid(uid, kind) {
+      let path = rateLimitDocPath(uid, kind);
+      let dayMs = 86400000;
+      let newData = request.resource.data;
+      return signedIn() && (request.auth.uid == uid)
+        && newData.keys().hasOnly(['windowStart', 'count'])
+        && (newData.windowStart is timestamp) && (newData.count is int)
+        && (
+          (
+            (!exists(path) || (request.time.toMillis() - get(path).data.get('windowStart', request.time).toMillis()) > dayMs)
+            && newData.count == 1
+            && newData.windowStart == request.time
+          )
+          || (
+            exists(path)
+            && ((request.time.toMillis() - get(path).data.get('windowStart', request.time).toMillis()) <= dayMs)
+            && newData.windowStart == get(path).data.get('windowStart', request.time)
+            && newData.count == get(path).data.get('count', 0) + 1
+          )
+        );
+    }
+
+    function rateLimitOk(uid, kind, maxCount) {
+      let path = rateLimitDocPath(uid, kind);
+      let beforeCount = exists(path) ? get(path).data.get('count', 0) : -1;
+      let beforeStart = exists(path) ? get(path).data.get('windowStart', request.time) : null;
+      let afterCount = getAfter(path).data.get('count', -1);
+      let afterStart = getAfter(path).data.get('windowStart', null);
+      return (afterCount != beforeCount || afterStart != beforeStart) && (afterCount <= maxCount);
+    }
+
     function freeBasicMasterLeagueCreate(masterLeagueId) {
       return signedIn()
         && ('plan' in request.resource.data)
@@ -566,6 +623,13 @@ service cloud.firestore {
           || (request.resource.data.type == 'code' && request.resource.data.text.size() > 0 && request.resource.data.imageUrl == '' && request.resource.data.voiceUrl == '')
           || (request.resource.data.type == 'image' && request.resource.data.imageUrl.size() > 10 && request.resource.data.voiceUrl == '')
           || (request.resource.data.type == 'voice' && request.resource.data.voiceUrl.size() > 10 && request.resource.data.imageUrl == '')
+        )
+        // Free (no Pro/Elite plan) senders are capped at 2 chat messages
+        // per rolling 24h, combined across league/organizer/global/DM chat
+        // (shared 'chatMessages' rate-limit kind). See rateLimitOk().
+        && (
+          isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite')
+          || rateLimitOk(request.auth.uid, 'chatMessages', 2)
         );
     }
 
@@ -622,6 +686,13 @@ service cloud.firestore {
           || (request.resource.data.type == 'code' && request.resource.data.text.size() > 0 && request.resource.data.imageUrl == '' && request.resource.data.voiceUrl == '')
           || (request.resource.data.type == 'image' && request.resource.data.imageUrl.size() > 10 && request.resource.data.voiceUrl == '')
           || (request.resource.data.type == 'voice' && request.resource.data.voiceUrl.size() > 10 && request.resource.data.imageUrl == '')
+        )
+        // Free (no Pro/Elite plan) senders are capped at 2 chat messages
+        // per rolling 24h, combined across league/organizer/global/DM chat
+        // (shared 'chatMessages' rate-limit kind). See rateLimitOk().
+        && (
+          isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite')
+          || rateLimitOk(request.auth.uid, 'chatMessages', 2)
         );
     }
 
@@ -1317,6 +1388,16 @@ service cloud.firestore {
           && (request.resource.data.blockedAtMs is int);
         allow delete: if signedIn() && request.auth.uid == blockerId;
         allow update: if false;
+      }
+
+      // Free-tier daily usage counters (e.g. 'chatMessages', 'feedPosts')
+      // -- see rateLimitWriteValid()/rateLimitOk() below for the rolling
+      // 24h window mechanics these documents enforce.
+      match /rateLimits/{kind} {
+        allow get: if signedIn() && request.auth.uid == userId;
+        allow list: if false;
+        allow create, update: if rateLimitWriteValid(userId, kind);
+        allow delete: if false;
       }
 
       match /statuses/{statusId} {
@@ -2602,7 +2683,13 @@ service cloud.firestore {
       allow get, list: if true;
 
       allow create: if signedIn()
-        && (isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite'))
+        // Free (no Pro/Elite plan) users may also post now, capped at 2
+        // per rolling 24h via the batched rateLimits/feedPosts counter
+        // write (see rateLimitOk()) -- Pro/Elite/superadmin stay unlimited.
+        && (
+          isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite')
+          || rateLimitOk(request.auth.uid, 'feedPosts', 2)
+        )
         && request.resource.data.keys().hasOnly([
           'postId','authorId','authorDisplayName','authorPhotoUrl','createdAtMs',
           'text','mediaUrl','audioUrl','postType','leagueId','leagueName',
@@ -2822,7 +2909,14 @@ service cloud.firestore {
                (request.resource.data.type == 'image' && request.resource.data.imageUrl.size() > 10) ||
                (request.resource.data.type == 'voice' && request.resource.data.voiceUrl.size() > 10)
              )
-          && notBlockedEitherWay(otherParticipant(parentThread().participantIds));
+          && notBlockedEitherWay(otherParticipant(parentThread().participantIds))
+          // Free (no Pro/Elite plan) senders are capped at 2 chat messages
+          // per rolling 24h, combined across league/organizer/global/DM
+          // chat (shared 'chatMessages' rate-limit kind). See rateLimitOk().
+          && (
+            isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite')
+            || rateLimitOk(request.auth.uid, 'chatMessages', 2)
+          );
 
         allow update, delete: if false;
       }

@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../core/services/plan_status_service.dart';
+import '../../../core/services/rate_limit_service.dart';
 import '../models/public_post.dart';
 import '../models/public_post_comment.dart';
 
@@ -56,7 +58,8 @@ class PublicFeedRepository {
       switch (e.code) {
         case 'permission-denied':
           throw const PublicFeedRepositoryException(
-            'You do not have permission to do that. A Pro or Elite plan is required to post.',
+            'You do not have permission to do that. Free accounts can post up '
+            'to 2 times per day -- Pro and Elite plans have no daily limit.',
           );
         case 'unavailable':
         case 'deadline-exceeded':
@@ -98,7 +101,7 @@ class PublicFeedRepository {
       final ref = _postsCol.doc();
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      await ref.set(<String, dynamic>{
+      final postData = <String, dynamic>{
         'postId': ref.id,
         'authorId': authUid,
         'authorDisplayName': authorDisplayName.trim(),
@@ -117,7 +120,27 @@ class PublicFeedRepository {
         'likeCount': 0,
         'commentCount': 0,
         'deleted': false,
-      }).timeout(const Duration(seconds: 20));
+      };
+
+      // Free (no Pro/Elite plan) accounts can now post too, capped at
+      // RateLimitService.freeFeedPostsPerDay per rolling 24h -- enforced
+      // for real by firestore.rules (rateLimitOk), this client-side plan
+      // check just avoids the extra round-trip/transaction for paid users,
+      // who have no cap.
+      final isPaid =
+          await PlanStatusService.instance.isPaidPlanActive(authUid);
+      if (isPaid) {
+        await ref.set(postData).timeout(const Duration(seconds: 20));
+      } else {
+        await RateLimitService.runWithLimit(
+          uid: authUid,
+          kind: RateLimitService.kindFeedPosts,
+          maxPerDay: RateLimitService.freeFeedPostsPerDay,
+          writeMore: (tx) => tx.set(ref, postData),
+        ).timeout(const Duration(seconds: 20));
+      }
+    } on RateLimitExceededException catch (e) {
+      throw PublicFeedRepositoryException(e.message);
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }

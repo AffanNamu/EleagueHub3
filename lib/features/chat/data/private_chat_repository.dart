@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../../core/services/plan_status_service.dart';
+import '../../../core/services/rate_limit_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../marketplace/data/cloudinary_upload_service.dart';
 import '../../profile/data/team_profile_repository.dart';
@@ -336,28 +338,43 @@ class PrivateChatRepository {
       final threadRef = _threads.doc(threadId);
       final msgRef = threadRef.collection('messages').doc();
 
-      final batch = _firestore.batch();
-      batch.set(msgRef, <String, dynamic>{
+      final messageData = <String, dynamic>{
         'senderId': authUid,
         'type': 'text',
         'text': trimmed,
         'imageUrl': '',
         'voiceUrl': '',
         'createdAtMs': now,
-      });
+      };
+      final threadUpdate = <String, dynamic>{
+        'lastMessage': trimmed,
+        'lastMessageAtMs': now,
+        'lastSenderId': authUid,
+      };
 
-      batch.set(
-        threadRef,
-        <String, dynamic>{
-          'lastMessage': trimmed,
-          'lastMessageAtMs': now,
-          'lastSenderId': authUid,
-        },
-        SetOptions(merge: true),
-      );
-
-      await batch.commit().timeout(const Duration(seconds: 15));
+      // Free (no Pro/Elite plan) senders share the same daily chat-message
+      // cap as league/organizer/global chat (RateLimitService), enforced
+      // for real by firestore.rules. Paid senders write directly, no cap.
+      final isPaid = await PlanStatusService.instance.isPaidPlanActive(authUid);
+      if (isPaid) {
+        final batch = _firestore.batch();
+        batch.set(msgRef, messageData);
+        batch.set(threadRef, threadUpdate, SetOptions(merge: true));
+        await batch.commit().timeout(const Duration(seconds: 15));
+      } else {
+        await RateLimitService.runWithLimit(
+          uid: authUid,
+          kind: RateLimitService.kindChatMessages,
+          maxPerDay: RateLimitService.freeChatMessagesPerDay,
+          writeMore: (tx) {
+            tx.set(msgRef, messageData);
+            tx.set(threadRef, threadUpdate, SetOptions(merge: true));
+          },
+        ).timeout(const Duration(seconds: 15));
+      }
       return msgRef.id;
+    } on RateLimitExceededException catch (e) {
+      throw PrivateChatException(e.message);
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
