@@ -1,7 +1,12 @@
 // Web-only implementation (safe because it is imported ONLY on web via
 // conditional import in ua_detector.dart).
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:js_util' as js_util;
+//
+// Uses dart:js_interop (+ dart:js_interop_unsafe) rather than the older
+// dart:js_util -- the CI web build currently pins an older Flutter/Dart
+// SDK where dart:js_util still exists, but a newer local SDK no longer
+// has it, so this was one Flutter bump away from breaking the build.
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 
 /// Detect a "real mobile browser" using BOTH width + user-agent.
 ///
@@ -20,8 +25,9 @@ bool isRealMobileBrowser(double width) {
   if (width >= 900) return false;
 
   try {
-    final navigator = js_util.getProperty<Object>(js_util.globalThis, 'navigator');
-    final ua = js_util.getProperty<String>(navigator, 'userAgent').toLowerCase();
+    final navigator = globalContext.getProperty('navigator'.toJS) as JSObject;
+    final userAgent = navigator.getProperty('userAgent'.toJS) as JSString;
+    final ua = userAgent.toDart.toLowerCase();
 
     // ChromeOS / Chromebook -> always desktop
     if (ua.contains('cros')) return false;
