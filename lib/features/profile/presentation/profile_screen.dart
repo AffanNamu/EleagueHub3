@@ -1881,6 +1881,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             width: 170,
             child: Text(
               k,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w700,
@@ -2177,12 +2179,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          l10n.tr('profile_username_checking_message'),
-                          style: TextStyle(
-                            color: AppTheme.secondaryText(brightness),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                        Expanded(
+                          child: Text(
+                            l10n.tr('profile_username_checking_message'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppTheme.secondaryText(brightness),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],
@@ -2196,12 +2202,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           color: Color(0xFF22C55E),
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          l10n.tr('profile_username_available_message'),
-                          style: const TextStyle(
-                            color: Color(0xFF22C55E),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                        Expanded(
+                          child: Text(
+                            l10n.tr('profile_username_available_message'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF22C55E),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ],

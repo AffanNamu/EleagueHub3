@@ -847,6 +847,8 @@ class _OrganizerVerificationApplicationScreenState
           SizedBox(
             width: 110,
             child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                     color: AppTheme.secondaryText(brightness),
                     fontWeight: FontWeight.w700,
