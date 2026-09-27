@@ -1734,10 +1734,33 @@ class _LeaguesListScreenState
           child: ConstrainedBox(
             constraints: BoxConstraints(
                 maxWidth: isTablet ? 900 : 600),
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
+            // FIXED: the header content (info card, tab switcher, filter
+            // chips) and the league grid used to be two separately-
+            // scrolling regions -- a fixed-height Column above an
+            // Expanded(GridView.builder(shrinkWrap: true, ...)) that only
+            // got whatever screen height was left over. On a shorter
+            // device (or with a larger system font size inflating the
+            // header's height), that leftover Expanded region could shrink
+            // below a single card's fixed mainAxisExtent, so only one card
+            // (or a clipped sliver of it) could ever render, with no way
+            // to scroll further into the grid to reveal the rest -- the
+            // grid's own tiny viewport was the actual scrollable, not the
+            // page. Merging everything into one CustomScrollView (the
+            // header as a SliverToBoxAdapter, the grid as a real
+            // SliverGrid) means there is only ever ONE scrollable region
+            // spanning the whole page, so every card is always reachable
+            // by scrolling regardless of how much vertical space the
+            // header above it needs on a given device.
+            child: CustomScrollView(
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
                 Padding(
                   padding: EdgeInsets.fromLTRB(
                     16,
@@ -1997,44 +2020,43 @@ class _LeaguesListScreenState
                   ),
                 ),
                 const SizedBox(height: 6),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration:
-                        const Duration(milliseconds: 200),
-                    child: _isLoading
-                        ? Center(
-                            child: Column(
-                              mainAxisSize:
-                                  MainAxisSize.min,
-                              children: [
-                                CircularProgressIndicator(
-                                  color:
-                                      AppTheme.limeAccentDark,
-                                ),
-                                const SizedBox(height: 14),
-                                Text(
-                                  l10n.tr(
-                                      'leagues_list_loading_leagues'),
-                                  style: TextStyle(
-                                    color:
-                                        AppTheme.secondaryText(
-                                            brightness),
-                                    fontWeight:
-                                        FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : filtered.isEmpty
-                            ? _buildEmptyState(context)
-                            : _buildLeagueGrid(
-                                context,
-                                filtered,
-                                isTablet,
-                              ),
+                    ],
                   ),
                 ),
+                if (_isLoading)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(
+                            color: AppTheme.limeAccentDark,
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            l10n.tr('leagues_list_loading_leagues'),
+                            style: TextStyle(
+                              color:
+                                  AppTheme.secondaryText(brightness),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (filtered.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _buildEmptyState(context),
+                  )
+                else
+                  _buildLeagueGridSliver(
+                    context,
+                    filtered,
+                    isTablet,
+                  ),
               ],
             ),
           ),
@@ -2043,7 +2065,7 @@ class _LeaguesListScreenState
     );
   }
 
-  Widget _buildLeagueGrid(
+  Widget _buildLeagueGridSliver(
     BuildContext context,
     List<League> leagues,
     bool isTablet,
@@ -2067,14 +2089,7 @@ class _LeaguesListScreenState
         showWorkspaceAction ? 52.0 : 0.0;
     final mainAxisExtent = cardHeight + extraActionHeight;
 
-    return GridView.builder(
-      shrinkWrap: true,
-      itemCount: leagues.length,
-      keyboardDismissBehavior:
-          ScrollViewKeyboardDismissBehavior.onDrag,
-      physics: const BouncingScrollPhysics(
-        parent: AlwaysScrollableScrollPhysics(),
-      ),
+    return SliverPadding(
       padding: EdgeInsets.fromLTRB(
         16,
         8,
@@ -2084,13 +2099,15 @@ class _LeaguesListScreenState
             kBottomNavigationBarHeight +
             80,
       ),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: isTablet ? 2 : 1,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        mainAxisExtent: mainAxisExtent,
-      ),
-      itemBuilder: (context, index) {
+      sliver: SliverGrid(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: isTablet ? 2 : 1,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          mainAxisExtent: mainAxisExtent,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
         final league = leagues[index];
 
         final bool isOwner = _isOwnerForViewer(
@@ -2439,7 +2456,10 @@ class _LeaguesListScreenState
             ],
           ],
         );
-      },
+          },
+          childCount: leagues.length,
+        ),
+      ),
     );
   }
 
