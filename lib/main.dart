@@ -30,6 +30,17 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   } catch (_) {}
+
+  // Every chat-notify payload is now data-only (see the Supabase edge
+  // functions' notes on why), so the OS never auto-renders anything for
+  // it on its own -- this headless isolate has to build the local
+  // notification itself, same as the foreground onMessage listener does.
+  try {
+    await PushMessagingService.showLocalNotificationForData(
+      message.data,
+      notification: message.notification,
+    );
+  } catch (_) {}
 }
 
 Future<void> main() async {

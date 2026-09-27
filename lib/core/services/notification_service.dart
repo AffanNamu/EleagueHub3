@@ -1,10 +1,61 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+
+import '../../firebase_options.dart';
+import 'notification_reply_handler.dart';
+
+/// Action id for the inline "Reply" button (Android RemoteInput) attached to
+/// chat notifications, letting a user answer directly from the notification
+/// shade without opening the app. Must be a top-level const (not a class
+/// member) since the background response handler below is a standalone
+/// entry-point function running in its own isolate.
+const String kReplyNotificationActionId = 'reply_action';
+
+/// Registered as `onDidReceiveBackgroundNotificationResponse`. Runs in a
+/// separate headless isolate when the notification is acted on while the
+/// app is backgrounded/terminated -- must stay synchronous (`void`, not
+/// `Future<void>`), so any real work is fired off without awaiting here.
+@pragma('vm:entry-point')
+void notificationBackgroundResponseHandler(NotificationResponse response) {
+  if (response.actionId != kReplyNotificationActionId) return;
+
+  final replyText = (response.input ?? '').trim();
+  if (replyText.isEmpty) return;
+
+  final payload = (response.payload ?? '').trim();
+  if (payload.isEmpty || !payload.startsWith('{')) return;
+
+  Map<String, dynamic>? data;
+  try {
+    final decoded = jsonDecode(payload);
+    if (decoded is Map) data = Map<String, dynamic>.from(decoded);
+  } catch (_) {
+    return;
+  }
+  if (data == null) return;
+
+  unawaited(_replyInBackgroundIsolate(data, replyText));
+}
+
+Future<void> _replyInBackgroundIsolate(
+  Map<String, dynamic> data,
+  String replyText,
+) async {
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (_) {}
+
+  await NotificationReplyHandler.handle(data, replyText);
+}
 
 class NotificationService {
   NotificationService._internal();
@@ -46,13 +97,22 @@ class NotificationService {
     try {
       await dyn.initialize(
         initSettings,
-        onDidReceiveNotificationResponse: (NotificationResponse resp) {
-          final payload = (resp.payload ?? '').trim();
-          if (payload.isNotEmpty) _tapStream.add(payload);
-        },
+        onDidReceiveNotificationResponse: _handleForegroundResponse,
+        onDidReceiveBackgroundNotificationResponse:
+            notificationBackgroundResponseHandler,
       );
       ok = true;
     } catch (_) {}
+
+    if (!ok) {
+      try {
+        await dyn.initialize(
+          initSettings,
+          onDidReceiveNotificationResponse: _handleForegroundResponse,
+        );
+        ok = true;
+      } catch (_) {}
+    }
 
     if (!ok) {
       try {
@@ -196,6 +256,46 @@ class NotificationService {
   int _stableIdFromString(String s) {
     final h = s.hashCode;
     return h < 0 ? -h : h;
+  }
+
+  /// Handles a tap or an inline Reply submission while the app is in the
+  /// foreground. A background tap/reply is handled separately by the
+  /// top-level [notificationBackgroundResponseHandler] entry-point, which
+  /// runs in its own isolate and has no access to this instance.
+  void _handleForegroundResponse(NotificationResponse resp) {
+    final payload = (resp.payload ?? '').trim();
+    if (payload.isEmpty) return;
+
+    if (resp.actionId == kReplyNotificationActionId) {
+      final replyText = (resp.input ?? '').trim();
+      if (replyText.isEmpty) return;
+      final data = _decodeChatPayload(payload);
+      if (data == null) return;
+      NotificationReplyHandler.handle(data, replyText);
+      return;
+    }
+
+    final route = _routeFromPayload(payload);
+    if (route.isNotEmpty) _tapStream.add(route);
+  }
+
+  Map<String, dynamic>? _decodeChatPayload(String payload) {
+    if (!payload.startsWith('{')) return null;
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
+  }
+
+  /// Older notification types (announcements, new follower, organizer feed,
+  /// test) still pass a bare route string as their payload; the four chat
+  /// message types pass JSON (needed to carry reply context) with the route
+  /// nested under a `route` key.
+  String _routeFromPayload(String payload) {
+    final data = _decodeChatPayload(payload);
+    if (data != null) return (data['route'] ?? '').toString().trim();
+    return payload;
   }
 
   Future<void> showTestNotification() async {
@@ -355,6 +455,19 @@ class NotificationService {
     );
   }
 
+  /// Inline reply input shown as a text field under the Reply action.
+  /// Android-only -- iOS custom actions with text input would need a native
+  /// Notification Content Extension, not added here.
+  List<AndroidNotificationAction> get _replyActions => [
+        const AndroidNotificationAction(
+          kReplyNotificationActionId,
+          'Reply',
+          allowGeneratedReplies: false,
+          inputs: [AndroidNotificationActionInput()],
+          cancelNotification: true,
+        ),
+      ];
+
   Future<void> showLeagueChatMessageNotification({
     required String leagueId,
     required String leagueName,
@@ -386,6 +499,7 @@ class NotificationService {
       ticker: 'New message',
       styleInformation: BigTextStyleInformation(body),
       groupKey: 'league_chat_${leagueId.trim()}',
+      actions: _replyActions,
     );
 
     final details = NotificationDetails(android: androidDetails);
@@ -396,18 +510,121 @@ class NotificationService {
           : '${leagueId}_${DateTime.now().millisecondsSinceEpoch}',
     );
 
-    await _plugin.show(
-      id,
-      title,
-      body,
-      details,
-      payload:
-          (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
+    final route = (payloadRoute ?? '').trim();
+    final payload = jsonEncode({
+      'type': 'league_chat',
+      'route': route,
+      'leagueId': leagueId.trim(),
+      'leagueName': title,
+    });
+
+    await _plugin.show(id, title, body, details, payload: payload);
+  }
+
+  Future<void> showOrganizerChatMessageNotification({
+    required String masterLeagueId,
+    required String workspaceName,
+    required String senderName,
+    required String messagePreview,
+    String? messageId,
+    String? payloadRoute,
+  }) async {
+    if (!_initialized) {
+      await init();
+    }
+
+    final title =
+        workspaceName.trim().isEmpty ? 'Organizer Chat' : workspaceName.trim();
+    final bodySender =
+        senderName.trim().isEmpty ? 'Someone' : senderName.trim();
+    final bodyMsg = messagePreview.trim().isEmpty
+        ? 'New message'
+        : messagePreview.trim();
+    final body = '$bodySender: $bodyMsg';
+
+    final androidDetails = AndroidNotificationDetails(
+      _organizerChatChannelId,
+      'Organizer Chat',
+      channelDescription: 'Messages from organizer workspace chatrooms',
+      importance: Importance.max,
+      priority: Priority.high,
+      category: AndroidNotificationCategory.message,
+      ticker: 'New message',
+      styleInformation: BigTextStyleInformation(body),
+      groupKey: 'organizer_chat_${masterLeagueId.trim()}',
+      actions: _replyActions,
     );
+
+    final details = NotificationDetails(android: androidDetails);
+
+    final id = _stableIdFromString(
+      messageId?.trim().isNotEmpty == true
+          ? messageId!.trim()
+          : '${masterLeagueId}_${DateTime.now().millisecondsSinceEpoch}',
+    );
+
+    final route = (payloadRoute ?? '').trim();
+    final payload = jsonEncode({
+      'type': 'organizer_chat',
+      'route': route,
+      'masterLeagueId': masterLeagueId.trim(),
+      'leagueName': title,
+    });
+
+    await _plugin.show(id, title, body, details, payload: payload);
+  }
+
+  Future<void> showGlobalChatMessageNotification({
+    required String senderName,
+    required String messagePreview,
+    String? messageId,
+    String? payloadRoute,
+  }) async {
+    if (!_initialized) {
+      await init();
+    }
+
+    const title = 'Global Chat';
+    final bodySender =
+        senderName.trim().isEmpty ? 'Someone' : senderName.trim();
+    final bodyMsg = messagePreview.trim().isEmpty
+        ? 'New message'
+        : messagePreview.trim();
+    final body = '$bodySender: $bodyMsg';
+
+    final androidDetails = AndroidNotificationDetails(
+      _globalChatChannelId,
+      'Global Chat',
+      channelDescription: 'Messages from the global chatroom',
+      importance: Importance.max,
+      priority: Priority.high,
+      category: AndroidNotificationCategory.message,
+      ticker: 'New message',
+      styleInformation: BigTextStyleInformation(body),
+      groupKey: 'global_chat',
+      actions: _replyActions,
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+
+    final id = _stableIdFromString(
+      messageId?.trim().isNotEmpty == true
+          ? messageId!.trim()
+          : 'global_${DateTime.now().millisecondsSinceEpoch}',
+    );
+
+    final route = (payloadRoute ?? '').trim();
+    final payload = jsonEncode({
+      'type': 'global_chat',
+      'route': route,
+    });
+
+    await _plugin.show(id, title, body, details, payload: payload);
   }
 
   Future<void> showPrivateMessageNotification({
     required String threadId,
+    required String senderId,
     required String senderName,
     required String messagePreview,
     String? messageId,
@@ -430,6 +647,7 @@ class NotificationService {
       ticker: 'New message',
       styleInformation: BigTextStyleInformation(body),
       groupKey: 'private_chat_${threadId.trim()}',
+      actions: _replyActions,
     );
 
     final details = NotificationDetails(android: androidDetails);
@@ -440,13 +658,16 @@ class NotificationService {
           : '${threadId}_${DateTime.now().millisecondsSinceEpoch}',
     );
 
-    await _plugin.show(
-      id,
-      title,
-      body,
-      details,
-      payload:
-          (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
-    );
+    final route = (payloadRoute ?? '').trim();
+    // `senderId` here is the OTHER party in this thread -- i.e. the
+    // recipient of a reply typed from this notification.
+    final payload = jsonEncode({
+      'type': 'private_message',
+      'route': route,
+      'threadId': threadId.trim(),
+      'senderId': senderId.trim(),
+    });
+
+    await _plugin.show(id, title, body, details, payload: payload);
   }
 }

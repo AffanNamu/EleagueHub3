@@ -47,9 +47,148 @@ class PushMessagingService {
   // The key just needs to be unique per room; organizer/global chat use
   // a namespaced key ('organizer_{id}', 'global') so they can never
   // collide with a real league id.
-  int _stableIdFromString(String s) {
+  static int _stableIdFromString(String s) {
     final h = s.hashCode;
     return h < 0 ? -h : h;
+  }
+
+  /// Builds and shows the right local notification for an incoming FCM
+  /// `data` payload. Shared between the foreground [FirebaseMessaging.onMessage]
+  /// listener above and `firebaseMessagingBackgroundHandler` in main.dart,
+  /// which runs in a separate headless isolate when the app is backgrounded
+  /// or terminated -- both are needed since every chat-notify payload is now
+  /// data-only (see the Supabase edge functions' notes on this), so the OS
+  /// never auto-renders anything on its own.
+  static Future<void> showLocalNotificationForData(
+    Map<String, dynamic> data, {
+    RemoteNotification? notification,
+  }) async {
+    final type = (data['type'] ?? '').toString().trim();
+    final leagueId = (data['leagueId'] ?? '').toString().trim();
+    final senderId = (data['senderId'] ?? '').toString().trim();
+
+    if (type == 'league_chat' ||
+        (type.isEmpty &&
+            leagueId.isNotEmpty &&
+            (data['route'] ?? '').toString().trim().isNotEmpty)) {
+      final leagueName =
+          (data['leagueName'] ?? notification?.title ?? 'League')
+              .toString()
+              .trim();
+      final senderName = (data['senderName'] ?? '').toString().trim();
+      final preview =
+          (data['preview'] ?? notification?.body ?? 'New message')
+              .toString()
+              .trim();
+      final messageId = (data['messageId'] ?? '').toString().trim();
+      final route = (data['route'] ?? '').toString().trim();
+
+      try {
+        await NotificationService().showLeagueChatMessageNotification(
+          leagueId: leagueId.isNotEmpty ? leagueId : 'league',
+          leagueName: leagueName.isNotEmpty ? leagueName : 'League',
+          senderName: senderName.isNotEmpty ? senderName : 'Someone',
+          messagePreview: preview.isNotEmpty ? preview : 'New message',
+          messageId: messageId.isNotEmpty ? messageId : null,
+          payloadRoute: route.isNotEmpty ? route : null,
+        );
+      } catch (_) {}
+    } else if (type == 'private_message') {
+      final threadId = (data['threadId'] ?? '').toString().trim();
+      final senderName = (data['senderName'] ?? '').toString().trim();
+      final preview =
+          (data['preview'] ?? notification?.body ?? 'New message')
+              .toString()
+              .trim();
+      final messageId = (data['messageId'] ?? '').toString().trim();
+      final route = (data['route'] ?? '').toString().trim();
+
+      try {
+        await NotificationService().showPrivateMessageNotification(
+          threadId: threadId.isNotEmpty ? threadId : 'thread',
+          senderId: senderId,
+          senderName: senderName.isNotEmpty ? senderName : 'Someone',
+          messagePreview: preview.isNotEmpty ? preview : 'New message',
+          messageId: messageId.isNotEmpty ? messageId : null,
+          payloadRoute: route.isNotEmpty ? route : null,
+        );
+      } catch (_) {}
+    } else if (type == 'organizer_chat') {
+      final masterLeagueId = (data['masterLeagueId'] ?? '').toString().trim();
+      final workspaceName =
+          (data['leagueName'] ?? notification?.title ?? 'Organizer Chat')
+              .toString()
+              .trim();
+      final senderName = (data['senderName'] ?? '').toString().trim();
+      final preview =
+          (data['preview'] ?? notification?.body ?? 'New message')
+              .toString()
+              .trim();
+      final messageId = (data['messageId'] ?? '').toString().trim();
+      final route = (data['route'] ?? '').toString().trim();
+
+      try {
+        await NotificationService().showOrganizerChatMessageNotification(
+          masterLeagueId: masterLeagueId.isNotEmpty ? masterLeagueId : 'organizer',
+          workspaceName: workspaceName.isNotEmpty ? workspaceName : 'Organizer Chat',
+          senderName: senderName.isNotEmpty ? senderName : 'Someone',
+          messagePreview: preview.isNotEmpty ? preview : 'New message',
+          messageId: messageId.isNotEmpty ? messageId : null,
+          payloadRoute: route.isNotEmpty ? route : null,
+        );
+      } catch (_) {}
+    } else if (type == 'global_chat') {
+      final senderName = (data['senderName'] ?? '').toString().trim();
+      final preview =
+          (data['preview'] ?? notification?.body ?? 'New message')
+              .toString()
+              .trim();
+      final messageId = (data['messageId'] ?? '').toString().trim();
+      final route = (data['route'] ?? '').toString().trim();
+
+      try {
+        await NotificationService().showGlobalChatMessageNotification(
+          senderName: senderName.isNotEmpty ? senderName : 'Someone',
+          messagePreview: preview.isNotEmpty ? preview : 'New message',
+          messageId: messageId.isNotEmpty ? messageId : null,
+          payloadRoute: route.isNotEmpty ? route : null,
+        );
+      } catch (_) {}
+    } else if (type == 'new_follower') {
+      final actorId = (data['actorId'] ?? '').toString().trim();
+      final actorName = (data['actorName'] ?? 'Someone').toString().trim();
+      final route = (data['route'] ?? '').toString().trim();
+
+      try {
+        await NotificationService().showNewFollowerNotification(
+          notificationId: _stableIdFromString(
+            actorId.isNotEmpty
+                ? actorId
+                : 'anon_${DateTime.now().millisecondsSinceEpoch}',
+          ),
+          actorName: actorName.isNotEmpty ? actorName : 'Someone',
+          payloadRoute: route.isNotEmpty ? route : null,
+        );
+      } catch (_) {}
+    } else if (type == 'organizer_announcement') {
+      final actorId = (data['actorId'] ?? '').toString().trim();
+      final actorName = (data['actorName'] ?? 'An organizer').toString().trim();
+      final route = (data['route'] ?? '').toString().trim();
+      final title = (notification?.title ?? actorName).toString().trim();
+      final body =
+          (notification?.body ?? 'Posted an update.').toString().trim();
+
+      try {
+        await NotificationService().showOrganizerFeedNotification(
+          notificationId: _stableIdFromString(
+            '${actorId}_${DateTime.now().millisecondsSinceEpoch}',
+          ),
+          title: title.isNotEmpty ? title : actorName,
+          message: body.isNotEmpty ? body : 'Posted an update.',
+          payloadRoute: route.isNotEmpty ? route : null,
+        );
+      } catch (_) {}
+    }
   }
 
   String _leagueTopic(String key) => 'league_${key.trim()}';
@@ -145,105 +284,25 @@ class PushMessagingService {
     _onMessageSub = FirebaseMessaging.onMessage.listen((m) async {
       final data = m.data;
 
-      final type = (data['type'] ?? '').toString().trim();
       final leagueId = (data['leagueId'] ?? '').toString().trim();
       final senderId = (data['senderId'] ?? '').toString().trim();
+      final threadId = (data['threadId'] ?? '').toString().trim();
 
       if (leagueId.isNotEmpty &&
           activeLeagueChatId.value?.trim() == leagueId) {
+        return;
+      }
+      if (threadId.isNotEmpty && activeThreadId.value?.trim() == threadId) {
         return;
       }
 
       final myUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
       if (myUid.isNotEmpty && senderId.isNotEmpty && myUid == senderId) return;
 
-      if (type == 'league_chat' ||
-          (leagueId.isNotEmpty &&
-              (data['route'] ?? '').toString().trim().isNotEmpty)) {
-        final leagueName =
-            (data['leagueName'] ?? m.notification?.title ?? 'League')
-                .toString()
-                .trim();
-        final senderName = (data['senderName'] ?? '').toString().trim();
-        final preview =
-            (data['preview'] ?? m.notification?.body ?? 'New message')
-                .toString()
-                .trim();
-        final messageId = (data['messageId'] ?? '').toString().trim();
-        final route = (data['route'] ?? '').toString().trim();
-
-        try {
-          await NotificationService().showLeagueChatMessageNotification(
-            leagueId: leagueId.isNotEmpty ? leagueId : 'league',
-            leagueName: leagueName.isNotEmpty ? leagueName : 'League',
-            senderName: senderName.isNotEmpty ? senderName : 'Someone',
-            messagePreview: preview.isNotEmpty ? preview : 'New message',
-            messageId: messageId.isNotEmpty ? messageId : null,
-            payloadRoute: route.isNotEmpty ? route : null,
-          );
-        } catch (_) {}
-      } else if (type == 'private_message') {
-        final threadId = (data['threadId'] ?? '').toString().trim();
-
-        // Suppress the banner if the user is already inside this thread.
-        if (threadId.isNotEmpty && activeThreadId.value?.trim() == threadId) {
-          return;
-        }
-
-        final senderName = (data['senderName'] ?? '').toString().trim();
-        final preview =
-            (data['preview'] ?? m.notification?.body ?? 'New message')
-                .toString()
-                .trim();
-        final messageId = (data['messageId'] ?? '').toString().trim();
-        final route = (data['route'] ?? '').toString().trim();
-
-        try {
-          await NotificationService().showPrivateMessageNotification(
-            threadId: threadId.isNotEmpty ? threadId : 'thread',
-            senderName: senderName.isNotEmpty ? senderName : 'Someone',
-            messagePreview: preview.isNotEmpty ? preview : 'New message',
-            messageId: messageId.isNotEmpty ? messageId : null,
-            payloadRoute: route.isNotEmpty ? route : null,
-          );
-        } catch (_) {}
-      } else if (type == 'new_follower') {
-        final actorId = (data['actorId'] ?? '').toString().trim();
-        final actorName = (data['actorName'] ?? 'Someone').toString().trim();
-        final route = (data['route'] ?? '').toString().trim();
-
-        try {
-          await NotificationService().showNewFollowerNotification(
-            notificationId: _stableIdFromString(
-              actorId.isNotEmpty
-                  ? actorId
-                  : '${myUid}_${DateTime.now().millisecondsSinceEpoch}',
-            ),
-            actorName: actorName.isNotEmpty ? actorName : 'Someone',
-            payloadRoute: route.isNotEmpty ? route : null,
-          );
-        } catch (_) {}
-      } else if (type == 'organizer_announcement') {
-        final actorId = (data['actorId'] ?? '').toString().trim();
-        final actorName =
-            (data['actorName'] ?? 'An organizer').toString().trim();
-        final route = (data['route'] ?? '').toString().trim();
-        final title =
-            (m.notification?.title ?? actorName).toString().trim();
-        final body =
-            (m.notification?.body ?? 'Posted an update.').toString().trim();
-
-        try {
-          await NotificationService().showOrganizerFeedNotification(
-            notificationId: _stableIdFromString(
-              '${actorId}_${DateTime.now().millisecondsSinceEpoch}',
-            ),
-            title: title.isNotEmpty ? title : actorName,
-            message: body.isNotEmpty ? body : 'Posted an update.',
-            payloadRoute: route.isNotEmpty ? route : null,
-          );
-        } catch (_) {}
-      }
+      await PushMessagingService.showLocalNotificationForData(
+        data,
+        notification: m.notification,
+      );
     });
 
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) async {
