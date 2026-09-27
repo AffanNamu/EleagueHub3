@@ -34,6 +34,7 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/free_user_banner_ad.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
@@ -1182,44 +1183,55 @@ class _FixturesScreenState extends ConsumerState<FixturesScreen>
     final isTablet = width > 700;
 
     final mainBody = SafeArea(
-      child: _isLoading
-          ? Center(
-              child:
-                  CircularProgressIndicator(color: AppTheme.limeAccentDark),
-            )
-          : (_loadError != null
-              ? _buildLoadErrorState(_loadError!)
-              : Center(
-                  child: ConstrainedBox(
-                    constraints:
-                        BoxConstraints(maxWidth: isTablet ? 800 : 600),
-                    child: RefreshIndicator(
-                      onRefresh: _loadInitialData,
-                      color: AppTheme.limeAccentDark,
-                      backgroundColor: brightness == Brightness.light
-                          ? Colors.white.withOpacity(0.92)
-                          : cs.surface,
-                      child: Column(
-                        children: [
-                          // MODIFIED: show group selector for both UCL Group and World Cup.
-                          if ((_format == LeagueFormat.uclGroup ||
-                                  _format == LeagueFormat.worldCup) &&
-                              _groups.isNotEmpty)
-                            _buildGroupSelector(),
-                          if (_totalRounds > 0) _buildRoundSelector(_totalRounds),
-                          Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 16),
-                            child: SectionHeader(
-                              context.l10n.tr('fixtures_section_title'),
+      child: Column(
+        children: [
+          Expanded(
+            child: _isLoading
+                ? Center(
+                    child: CircularProgressIndicator(
+                        color: AppTheme.limeAccentDark),
+                  )
+                : (_loadError != null
+                    ? _buildLoadErrorState(_loadError!)
+                    : Center(
+                        child: ConstrainedBox(
+                          constraints:
+                              BoxConstraints(maxWidth: isTablet ? 800 : 600),
+                          child: RefreshIndicator(
+                            onRefresh: _loadInitialData,
+                            color: AppTheme.limeAccentDark,
+                            backgroundColor: brightness == Brightness.light
+                                ? Colors.white.withOpacity(0.92)
+                                : cs.surface,
+                            child: Column(
+                              children: [
+                                // MODIFIED: show group selector for both UCL Group and World Cup.
+                                if ((_format == LeagueFormat.uclGroup ||
+                                        _format == LeagueFormat.worldCup) &&
+                                    _groups.isNotEmpty)
+                                  _buildGroupSelector(),
+                                if (_totalRounds > 0)
+                                  _buildRoundSelector(_totalRounds),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16),
+                                  child: SectionHeader(
+                                    context.l10n.tr('fixtures_section_title'),
+                                  ),
+                                ),
+                                Expanded(child: _buildMatchesList()),
+                              ],
                             ),
                           ),
-                          Expanded(child: _buildMatchesList()),
-                        ],
-                      ),
-                    ),
-                  ),
-                )),
+                        ),
+                      )),
+          ),
+          // Free-tier banner ad, shown below the fixtures list regardless of
+          // load state -- matches the persistent-banner convention used on
+          // Home (see FreeUserBannerAd doc comment); hidden for Pro/Elite.
+          const FreeUserBannerAd(),
+        ],
+      ),
     );
 
     return WillPopScope(

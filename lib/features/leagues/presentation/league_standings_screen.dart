@@ -21,6 +21,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/widgets/free_user_banner_ad.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/section_header.dart';
@@ -411,78 +412,88 @@ class _LeagueStandingsScreenState
         ],
       ),
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _refresh,
-          color: cs.primary,
-          backgroundColor: theme.brightness == Brightness.light
-              ? Colors.white.withOpacity(0.92)
-              : cs.surface,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 700),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Glass(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SectionHeader(
-                          l10n.tr('standings_section_title')),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: leagueAsync.when(
-                          loading: () => Center(
-                            child: CircularProgressIndicator(
-                                color: cs.primary),
-                          ),
-                          error: (error, _) => _errorText(
-                            context,
-                            'standings_failed_load_league_prefix',
-                            error,
-                          ),
-                          data: (league) {
-                            switch (league.format) {
-                              // ── UCL Group (UNCHANGED) ──────────────────
-                              case LeagueFormat.uclGroup:
-                                return _buildGroupedStandings(
-                                  context: context,
-                                  expectedGroupCounts: const [4, 8],
-                                  showQualificationLegend: false,
-                                  worldCupFormat: null,
-                                );
+        child: Column(
+          children: [
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _refresh,
+                color: cs.primary,
+                backgroundColor: theme.brightness == Brightness.light
+                    ? Colors.white.withOpacity(0.92)
+                    : cs.surface,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 700),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Glass(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SectionHeader(
+                                l10n.tr('standings_section_title')),
+                            const SizedBox(height: 12),
+                            Expanded(
+                              child: leagueAsync.when(
+                                loading: () => Center(
+                                  child: CircularProgressIndicator(
+                                      color: cs.primary),
+                                ),
+                                error: (error, _) => _errorText(
+                                  context,
+                                  'standings_failed_load_league_prefix',
+                                  error,
+                                ),
+                                data: (league) {
+                                  switch (league.format) {
+                                    // ── UCL Group (UNCHANGED) ──────────────────
+                                    case LeagueFormat.uclGroup:
+                                      return _buildGroupedStandings(
+                                        context: context,
+                                        expectedGroupCounts: const [4, 8],
+                                        showQualificationLegend: false,
+                                        worldCupFormat: null,
+                                      );
 
-                              // ── World Cup (NEW) ────────────────────────
-                              case LeagueFormat.worldCup:
-                                return _buildGroupedStandings(
-                                  context: context,
-                                  // 8 groups (FIFA 2022) or 12 groups (FIFA 2026).
-                                  expectedGroupCounts: const [8, 12],
-                                  showQualificationLegend: true,
-                                  worldCupFormat:
-                                      league.settings.worldCupFormat,
-                                );
+                                    // ── World Cup (NEW) ────────────────────────
+                                    case LeagueFormat.worldCup:
+                                      return _buildGroupedStandings(
+                                        context: context,
+                                        // 8 groups (FIFA 2022) or 12 groups (FIFA 2026).
+                                        expectedGroupCounts: const [8, 12],
+                                        showQualificationLegend: true,
+                                        worldCupFormat:
+                                            league.settings.worldCupFormat,
+                                      );
 
-                              // ── UCL Swiss (UNCHANGED) ──────────────────
-                              case LeagueFormat.uclSwiss:
-                                return _buildSwissStandings(
-                                    context, league.settings);
+                                    // ── UCL Swiss (UNCHANGED) ──────────────────
+                                    case LeagueFormat.uclSwiss:
+                                      return _buildSwissStandings(
+                                          context, league.settings);
 
-                              // ── Classic (UNCHANGED) ────────────────────
-                              case LeagueFormat.classic:
-                              default:
-                                return _buildClassicStandings(
-                                    context);
-                            }
-                          },
+                                    // ── Classic (UNCHANGED) ────────────────────
+                                    case LeagueFormat.classic:
+                                    default:
+                                      return _buildClassicStandings(
+                                          context);
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+            // Free-tier banner ad, shown below the standings card regardless
+            // of load state -- matches the persistent-banner convention used
+            // on Home (see FreeUserBannerAd doc comment); hidden for Pro/Elite.
+            const FreeUserBannerAd(),
+          ],
         ),
       ),
     );
