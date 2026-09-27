@@ -142,6 +142,8 @@ class _ShareSheet extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: AppTheme.primaryText(brightness),
                 fontWeight: FontWeight.w800,

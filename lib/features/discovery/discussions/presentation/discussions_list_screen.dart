@@ -133,9 +133,13 @@ class _DiscussionsListScreenState extends State<DiscussionsListScreen> {
                                 ),
                               ),
                             ),
-                            Text(
-                              _timeAgo(l10n, thread.lastReplyAtMs),
-                              style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 11),
+                            Flexible(
+                              child: Text(
+                                _timeAgo(l10n, thread.lastReplyAtMs),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 11),
+                              ),
                             ),
                           ],
                         ),

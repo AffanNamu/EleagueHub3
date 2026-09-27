@@ -1033,6 +1033,8 @@ class _StatCard extends StatelessWidget {
         children: [
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: FontWeight.w900,
               fontSize: 18,
@@ -1042,6 +1044,8 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: FontWeight.w700,
               fontSize: 11,
@@ -1230,6 +1234,8 @@ class _TrophyShelf extends StatelessWidget {
                         isWinner
                             ? context.l10n.tr('public_profile_trophy_champion_label')
                             : '${context.l10n.tr('public_profile_trophy_place_prefix')}${t.position}${context.l10n.tr('public_profile_trophy_place_suffix')}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 11,

@@ -284,11 +284,15 @@ class _CommentTile extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    Text(
-                      _timeAgo(l10n, comment.createdAtMs),
-                      style: TextStyle(
-                        color: AppTheme.secondaryText(brightness),
-                        fontSize: 11,
+                    Flexible(
+                      child: Text(
+                        _timeAgo(l10n, comment.createdAtMs),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppTheme.secondaryText(brightness),
+                          fontSize: 11,
+                        ),
                       ),
                     ),
                   ],

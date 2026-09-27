@@ -448,9 +448,13 @@ class _PostCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Text(
-                _timeAgo(l10n, post.createdAtMs),
-                style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 12),
+              Flexible(
+                child: Text(
+                  _timeAgo(l10n, post.createdAtMs),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 12),
+                ),
               ),
               if (isOwner)
                 IconButton(
