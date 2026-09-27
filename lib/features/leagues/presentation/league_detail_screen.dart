@@ -1563,6 +1563,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   icon: Icons.list_alt,
                   label:
                       l10n.tr('league_details_fixtures'),
+                  accentColor: const Color(0xFF38BDF8),
                   onTap: () async {
                     await context.push(
                         '/leagues/${widget.leagueId}/fixtures');
@@ -1577,6 +1578,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   icon: Icons.leaderboard,
                   label: l10n
                       .tr('league_details_standings'),
+                  accentColor: const Color(0xFFF59E0B),
                   onTap: () => context.push(
                       '/leagues/${widget.leagueId}/standings'),
                 ),
@@ -1595,6 +1597,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                   // League Admin already uses for "View Participants",
                   // now reachable without organizer permissions too.
                   label: 'Teams',
+                  accentColor: Colors.purple,
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => LeagueParticipantsScreen(
@@ -1611,6 +1614,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                         icon: Icons.forum_outlined,
                         label: context.l10n
                             .tr('league_details_league_chatroom'),
+                        accentColor: AppTheme.limeAccentDark,
                         onTap: () =>
                             _onOpenLeagueChatroom(league),
                       )
@@ -1618,7 +1622,15 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ],
           ),
-          if (!isOwner) ...[
+          // FIXED: this used to render unconditionally for every
+          // non-owner regardless of league.format -- a Classic
+          // (round-robin, no elimination stage) league has no knockout
+          // concept at all, so every non-admin viewer of one always saw
+          // a nonsensical "Generate the knockout bracket first" message.
+          // _adminToolsCard already gates its own knockout-generation
+          // buttons on exactly these 4 formats (isSwiss/isGroup/
+          // isWorldCup/isDirectKnockout) -- this block now matches that.
+          if (!isOwner && league.format != LeagueFormat.classic) ...[
             const SizedBox(height: 12),
             if (hasKnockouts)
               SizedBox(
@@ -2414,6 +2426,7 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
+    required Color accentColor,
   }) {
     final theme = Theme.of(context);
     final brightness = theme.brightness;
@@ -2425,14 +2438,15 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         padding:
             const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: AppTheme.searchBackground(brightness),
+          color: accentColor.withOpacity(
+              brightness == Brightness.dark ? 0.12 : 0.08),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: AppTheme.searchOutline(brightness)),
+              color: accentColor.withOpacity(0.28)),
         ),
         child: Column(
           children: [
-            Icon(icon, color: AppTheme.limeAccentDark),
+            Icon(icon, color: accentColor),
             const SizedBox(height: 8),
             Text(
               label,
