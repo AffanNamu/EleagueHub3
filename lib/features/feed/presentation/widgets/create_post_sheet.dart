@@ -113,9 +113,9 @@ Future<bool?> showCreatePostSheet(
                 withData: true,
               );
               if (result != null && result.files.isNotEmpty) {
-                // Ensure file size is reasonable for audio (e.g., max 10MB)
+                // Ensure file size is reasonable for audio (max 5MB)
                 final file = result.files.first;
-                if (file.size > 10 * 1024 * 1024) {
+                if (file.size > 5 * 1024 * 1024) {
                    setSheetState(() => error = l10n.tr('create_post_audio_too_large'));
                    return;
                 }

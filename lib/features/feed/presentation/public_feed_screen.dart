@@ -10,7 +10,6 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
-import '../../master_leagues/logic/master_league_entitlement_service.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/public_feed_repository.dart';
 import '../models/public_post.dart';
@@ -19,26 +18,21 @@ import 'widgets/create_post_sheet.dart';
 
 enum _FeedTab { forYou, latest }
 
-/// Bundles what the feed screen needs about the signed-in user:
-/// their profile (for display name/photo when composing a post) and
-/// whether they're currently eligible to post.
+/// Bundles what the feed screen needs about the signed-in user: just
+/// their profile, for display name/photo when composing a post.
 ///
-/// FIXED (entitlement bug #1): `eligible` is now resolved via
-/// [MasterLeagueEntitlementService.getEntitlement], which checks the
-/// Firestore profile AND falls back to Auth custom claims
-/// (organizerPro/organizerProPlan) if the profile hasn't synced yet.
-/// Previously this screen read `UserProfile.activePlan` directly off
-/// the Firestore profile with no claims fallback -- the same gap that
-/// `MasterLeagueEntitlementService.activateAfterPayment()`'s own
-/// comments warn about ("best-effort local profile mirror ... if it
-/// fails, ... still works via the custom claim"). A Google Play user
-/// whose profile mirror write failed after a successful, verified
-/// purchase was claims-active everywhere else but got told here that
-/// they couldn't create a post.
+/// FIXED: this used to also gate the create-post FAB on an active
+/// Pro/Elite entitlement (`eligible`), a leftover from when posting was
+/// Pro/Elite-only. Free-tier posting (2/day, enforced server-side by
+/// firestore.rules + PublicFeedRepository.createPost's rate limiter)
+/// was added later, but this screen's FAB was never updated to match --
+/// it kept hiding the create-post button entirely for any signed-in
+/// user without a paid plan, even though they were now fully able to
+/// post. Any signed-in user can see the button now; the daily cap is
+/// still enforced, just server-side rather than by hiding the UI.
 class _FeedBootstrap {
-  const _FeedBootstrap({required this.account, required this.eligible});
+  const _FeedBootstrap({required this.account});
   final UserProfile? account;
-  final bool eligible;
 }
 
 class PublicFeedScreen extends StatefulWidget {
@@ -51,8 +45,6 @@ class PublicFeedScreen extends StatefulWidget {
 class _PublicFeedScreenState extends State<PublicFeedScreen> {
   final PublicFeedRepository _repo = PublicFeedRepository();
   final UserProfileRepository _userRepo = UserProfileRepository();
-  final MasterLeagueEntitlementService _entitlementService =
-      MasterLeagueEntitlementService();
 
   _FeedTab _tab = _FeedTab.forYou;
 
@@ -75,23 +67,10 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
   }
 
   Future<_FeedBootstrap> _loadBootstrap() async {
-    final results = await Future.wait<Object?>([
-      _userRepo.fetchByUserId(_selfUid),
-      _entitlementService.getEntitlement(),
-    ]);
-
-    final account = results[0] as UserProfile?;
-    final entitlement = results[1] as OrganizerProEntitlement;
-
-    final eligible = entitlement.active &&
-        entitlement.plan != null &&
-        !entitlement.plan!.isFree;
-
-    return _FeedBootstrap(account: account, eligible: eligible);
+    final account = await _userRepo.fetchByUserId(_selfUid);
+    return _FeedBootstrap(account: account);
   }
 
-  // NOTE: You will need to update `showCreatePostSheet` inside `create_post_sheet.dart` 
-  // to collect an `audioUrl` and pass it to the repository's `createPost` method!
   Future<void> _handleCreateTap(UserProfile? account) async {
     final displayName = _userRepo.displayNameForProfile(account, fallbackUserId: _selfUid);
     final result = await showCreatePostSheet(
@@ -181,12 +160,11 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
       body: SafeArea(
         child: FutureBuilder<_FeedBootstrap>(
           future: _selfUid.isEmpty
-              ? Future.value(const _FeedBootstrap(account: null, eligible: false))
+              ? Future.value(const _FeedBootstrap(account: null))
               : _loadBootstrap(),
           builder: (context, bootstrapSnap) {
             final bootstrap = bootstrapSnap.data;
             final account = bootstrap?.account;
-            final eligible = bootstrap?.eligible ?? false;
 
             return Stack(
               children: [
@@ -273,7 +251,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                     ),
                   ],
                 ),
-                if (eligible)
+                if (_selfUid.isNotEmpty)
                   Positioned(
                     right: 16,
                     bottom: 16,
