@@ -170,10 +170,8 @@ Deno.serve(async (req) => {
     const fcmReq = {
       message: {
         condition,
-        notification: {
-          title,
-          body: `${senderName}: ${preview}`,
-        },
+        // NOTE: deliberately data-only (no top-level `notification` block)
+        // -- see organizer-chat-notify's comment on this same shape for why.
         data: {
           type: "global_chat",
           route,
@@ -188,14 +186,15 @@ Deno.serve(async (req) => {
         },
         android: {
           priority: "high",
-          notification: {
-            channel_id: "global_chat_channel",
-            sound: "default",
-          },
         },
         apns: {
           headers: { "apns-priority": "10" },
-          payload: { aps: { sound: "default" } },
+          payload: {
+            aps: {
+              sound: "default",
+              alert: { title, body: `${senderName}: ${preview}` },
+            },
+          },
         },
       },
     };

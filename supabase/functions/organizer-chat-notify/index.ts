@@ -179,14 +179,24 @@ Deno.serve(async (req) => {
     const fcmReq = {
       message: {
         condition,
-        notification: {
-          title: workspaceName,
-          body: `${senderName}: ${preview}`,
-        },
+        // NOTE: deliberately data-only (no top-level `notification` block).
+        // A top-level `notification` makes Android/iOS auto-render the
+        // system notification directly, bypassing this app's own Dart
+        // code entirely -- which means no inline Reply action can ever be
+        // attached to it. Keeping this data-only routes every delivery
+        // (foreground AND background/terminated) through
+        // PushMessagingService's onMessage / main.dart's
+        // firebaseMessagingBackgroundHandler, which build the actual
+        // notification themselves via NotificationService, reply action
+        // included. apns.payload.aps.alert below replaces the old
+        // top-level notification for iOS, which doesn't get a custom
+        // action without a Notification Service Extension (not added
+        // here) but still shows a normal alert.
         data: {
           type: "organizer_chat",
           route,
           leagueId: activeChatKey,
+          masterLeagueId,
           leagueName: workspaceName,
           messageId,
           senderId,
@@ -195,14 +205,15 @@ Deno.serve(async (req) => {
         },
         android: {
           priority: "high",
-          notification: {
-            channel_id: "organizer_chat_channel",
-            sound: "default",
-          },
         },
         apns: {
           headers: { "apns-priority": "10" },
-          payload: { aps: { sound: "default" } },
+          payload: {
+            aps: {
+              sound: "default",
+              alert: { title: workspaceName, body: `${senderName}: ${preview}` },
+            },
+          },
         },
       },
     };

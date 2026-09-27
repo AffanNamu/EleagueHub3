@@ -248,10 +248,8 @@ Deno.serve(async (req) => {
     const buildMessage = (token: string) => ({
       message: {
         token,
-        notification: {
-          title: senderName,
-          body: preview,
-        },
+        // NOTE: deliberately data-only (no top-level `notification` block)
+        // -- see organizer-chat-notify's comment on this same shape for why.
         data: {
           type: "private_message",
           route,
@@ -263,14 +261,15 @@ Deno.serve(async (req) => {
         },
         android: {
           priority: "high",
-          notification: {
-            channel_id: "private_chat_channel",
-            sound: "default",
-          },
         },
         apns: {
           headers: { "apns-priority": "10" },
-          payload: { aps: { sound: "default" } },
+          payload: {
+            aps: {
+              sound: "default",
+              alert: { title: senderName, body: preview },
+            },
+          },
         },
       },
     });
