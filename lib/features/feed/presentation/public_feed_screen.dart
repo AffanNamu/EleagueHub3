@@ -414,38 +414,53 @@ class _PostCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: AppTheme.iconCircleBackground(brightness),
-                backgroundImage:
-                    post.authorPhotoUrl.isNotEmpty ? NetworkImage(post.authorPhotoUrl) : null,
-                child: post.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 18) : null,
+              InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () {
+                  try {
+                    GoRouter.of(context).push('/profile/${post.authorId}');
+                  } catch (_) {}
+                },
+                child: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppTheme.iconCircleBackground(brightness),
+                  backgroundImage:
+                      post.authorPhotoUrl.isNotEmpty ? NetworkImage(post.authorPhotoUrl) : null,
+                  child: post.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 18) : null,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        post.authorDisplayName.isEmpty ? l10n.tr('public_feed_author_fallback') : post.authorDisplayName,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          color: AppTheme.primaryText(brightness),
+                child: InkWell(
+                  onTap: () {
+                    try {
+                      GoRouter.of(context).push('/profile/${post.authorId}');
+                    } catch (_) {}
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          post.authorDisplayName.isEmpty ? l10n.tr('public_feed_author_fallback') : post.authorDisplayName,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: AppTheme.primaryText(brightness),
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    // NEW: shows the author's verified badge (Green for
-                    // Pro, Green + Organizer/gold for Elite) right after
-                    // their name, Twitter/Facebook-style. Reuses the
-                    // existing VerificationBadgeWidget + badgeStreamProvider
-                    // -- badges are already granted on plan purchase by
-                    // MasterLeaguePaymentService/GooglePlayBillingService,
-                    // so this is live, not computed from the post itself.
-                    VerificationBadgeWidget(userId: post.authorId, size: 15),
-                  ],
+                      // NEW: shows the author's verified badge (Green for
+                      // Pro, Green + Organizer/gold for Elite) right after
+                      // their name, Twitter/Facebook-style. Reuses the
+                      // existing VerificationBadgeWidget + badgeStreamProvider
+                      // -- badges are already granted on plan purchase by
+                      // MasterLeaguePaymentService/GooglePlayBillingService,
+                      // so this is live, not computed from the post itself.
+                      VerificationBadgeWidget(userId: post.authorId, size: 15),
+                    ],
+                  ),
                 ),
               ),
               Flexible(

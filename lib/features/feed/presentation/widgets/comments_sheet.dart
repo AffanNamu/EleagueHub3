@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/errors/user_friendly_error.dart';
 import '../../../../core/locale/app_localizations.dart';
@@ -248,18 +249,28 @@ class _CommentTile extends StatelessWidget {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
+    void openAuthorProfile() {
+      try {
+        GoRouter.of(context).push('/profile/${comment.authorId}');
+      } catch (_) {}
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        CircleAvatar(
-          radius: 15,
-          backgroundColor: AppTheme.iconCircleBackground(brightness),
-          backgroundImage: comment.authorPhotoUrl.isNotEmpty
-              ? NetworkImage(comment.authorPhotoUrl)
-              : null,
-          child: comment.authorPhotoUrl.isEmpty
-              ? const Icon(Icons.person_rounded, size: 15)
-              : null,
+        InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: openAuthorProfile,
+          child: CircleAvatar(
+            radius: 15,
+            backgroundColor: AppTheme.iconCircleBackground(brightness),
+            backgroundImage: comment.authorPhotoUrl.isNotEmpty
+                ? NetworkImage(comment.authorPhotoUrl)
+                : null,
+            child: comment.authorPhotoUrl.isEmpty
+                ? const Icon(Icons.person_rounded, size: 15)
+                : null,
+          ),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -274,14 +285,17 @@ class _CommentTile extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        comment.authorDisplayName.isEmpty ? l10n.tr('comments_sheet_author_fallback') : comment.authorDisplayName,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 12.5,
-                          color: AppTheme.primaryText(brightness),
+                      child: InkWell(
+                        onTap: openAuthorProfile,
+                        child: Text(
+                          comment.authorDisplayName.isEmpty ? l10n.tr('comments_sheet_author_fallback') : comment.authorDisplayName,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12.5,
+                            color: AppTheme.primaryText(brightness),
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Flexible(
