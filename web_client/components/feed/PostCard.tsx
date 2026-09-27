@@ -14,6 +14,9 @@ interface PostCardProps {
   // NEW: previously this button had no handler at all, so tapping it did
   // nothing — mirrors onLike/onDelete/onOpenLeague's shape.
   onComment: () => void;
+  // NEW: lets other users tap through to the post author's public profile,
+  // mirroring the mobile app's public_feed_screen.dart tap-through.
+  onOpenAuthor: () => void;
 }
 
 function timeAgo(ms: number) {
@@ -24,7 +27,7 @@ function timeAgo(ms: number) {
   return `${Math.floor(diff / 1440)}d`;
 }
 
-export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague, onComment }: PostCardProps) {
+export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague, onComment, onOpenAuthor }: PostCardProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -45,15 +48,15 @@ export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague, onComm
       {/* ── Header ── */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-[#1E293B] flex items-center justify-center overflow-hidden shrink-0 border border-white/5">
+          <button onClick={onOpenAuthor} className="w-10 h-10 rounded-full bg-[#1E293B] flex items-center justify-center overflow-hidden shrink-0 border border-white/5">
             {post.authorPhotoUrl ? (
               <img src={post.authorPhotoUrl} alt="Author" className="w-full h-full object-cover" />
             ) : (
               <ShieldCheck className="w-5 h-5 text-gray-500" />
             )}
-          </div>
+          </button>
           <div>
-            <h4 className="font-bold text-white text-sm leading-tight hover:underline cursor-pointer">
+            <h4 onClick={onOpenAuthor} className="font-bold text-white text-sm leading-tight hover:underline cursor-pointer">
               {post.authorDisplayName || 'User'}
             </h4>
             <p className="text-xs text-gray-500 font-semibold">{timeAgo(post.createdAtMs)}</p>

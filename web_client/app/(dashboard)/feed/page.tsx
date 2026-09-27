@@ -112,6 +112,7 @@ export default function PublicFeedScreen() {
               onDelete={() => authUid && deletePostWeb(post.postId, authUid)}
               onOpenLeague={() => router.push(`/leagues/${post.leagueId}`)}
               onComment={() => setActiveCommentsPostId(post.postId)}
+              onOpenAuthor={() => router.push(`/profile/${post.authorId}`)}
             />
           ))}
         </div>

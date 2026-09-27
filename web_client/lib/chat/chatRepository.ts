@@ -1,5 +1,12 @@
 import { collection, doc, setDoc, updateDoc, getDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import {
+  isPaidPlanActive,
+  runWithRateLimit,
+  RateLimitExceededError,
+  RATE_LIMIT_KIND_CHAT_MESSAGES,
+  FREE_CHAT_MESSAGES_PER_DAY,
+} from '@/lib/plans/rateLimitService';
 
 export interface ChatMessage {
   messageId: string;
@@ -56,7 +63,25 @@ export async function sendGlobalMessageWeb(payload: Partial<ChatMessage>) {
     replyToType: payload.replyToType || '',
   };
 
-  await setDoc(ref, messageData);
+  const senderId = messageData.senderId;
+  const isPaid = senderId ? await isPaidPlanActive(senderId) : false;
+
+  if (isPaid) {
+    await setDoc(ref, messageData);
+    return;
+  }
+
+  try {
+    await runWithRateLimit({
+      uid: senderId,
+      kind: RATE_LIMIT_KIND_CHAT_MESSAGES,
+      maxPerDay: FREE_CHAT_MESSAGES_PER_DAY,
+      writeMore: (tx) => tx.set(ref, messageData),
+    });
+  } catch (e) {
+    if (e instanceof RateLimitExceededError) throw new Error(e.message);
+    throw e;
+  }
 }
 
 export async function pinGlobalMessageWeb(messageId: string, pinnedBy: string, prevPinnedId: string | null) {

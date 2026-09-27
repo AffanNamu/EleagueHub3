@@ -1,5 +1,12 @@
 import { collection, doc, setDoc, updateDoc, getDoc, query, orderBy, limit, onSnapshot, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import {
+  isPaidPlanActive,
+  runWithRateLimit,
+  RateLimitExceededError,
+  RATE_LIMIT_KIND_FEED_POSTS,
+  FREE_FEED_POSTS_PER_DAY,
+} from '@/lib/plans/rateLimitService';
 
 export interface PublicPost {
   postId: string;
@@ -48,7 +55,7 @@ export async function createPostWeb({
   const newPostDoc = doc(postsRef);
   const now = Date.now();
 
-  await setDoc(newPostDoc, {
+  const postData = {
     postId: newPostDoc.id,
     authorId,
     authorDisplayName,
@@ -67,7 +74,25 @@ export async function createPostWeb({
     likeCount: 0,
     commentCount: 0,
     deleted: false,
-  });
+  };
+
+  const isPaid = await isPaidPlanActive(authorId);
+  if (isPaid) {
+    await setDoc(newPostDoc, postData);
+    return;
+  }
+
+  try {
+    await runWithRateLimit({
+      uid: authorId,
+      kind: RATE_LIMIT_KIND_FEED_POSTS,
+      maxPerDay: FREE_FEED_POSTS_PER_DAY,
+      writeMore: (tx) => tx.set(newPostDoc, postData),
+    });
+  } catch (e) {
+    if (e instanceof RateLimitExceededError) throw new Error(e.message);
+    throw e;
+  }
 }
 
 export async function toggleLikeWeb(postId: string, userId: string) {

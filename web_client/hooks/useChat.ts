@@ -1,9 +1,40 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { collection, doc, onSnapshot, orderBy, query, limit as fsLimit, where, setDoc, getDocs, updateDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, orderBy, query, limit as fsLimit, where, setDoc, getDocs, updateDoc, writeBatch, serverTimestamp, DocumentReference } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { ChatMessage } from '@/types/chat';
+import {
+  isPaidPlanActive,
+  runWithRateLimit,
+  RateLimitExceededError,
+  RATE_LIMIT_KIND_CHAT_MESSAGES,
+  FREE_CHAT_MESSAGES_PER_DAY,
+} from '@/lib/plans/rateLimitService';
+
+// Shared by every chat-message send site in this file: paid users write
+// directly (unlimited, as before); free users go through the same
+// transactional daily counter the mobile app uses, so both platforms are
+// gated by the exact same users/{uid}/rateLimits/chatMessages document.
+async function sendChatMessage(senderId: string, ref: DocumentReference, data: Record<string, unknown>) {
+  const isPaid = await isPaidPlanActive(senderId);
+  if (isPaid) {
+    await setDoc(ref, data);
+    return;
+  }
+
+  try {
+    await runWithRateLimit({
+      uid: senderId,
+      kind: RATE_LIMIT_KIND_CHAT_MESSAGES,
+      maxPerDay: FREE_CHAT_MESSAGES_PER_DAY,
+      writeMore: (tx) => tx.set(ref, data),
+    });
+  } catch (e) {
+    if (e instanceof RateLimitExceededError) throw new Error(e.message);
+    throw e;
+  }
+}
 
 export interface OrganizerChatMessage {
   messageId: string;
@@ -122,7 +153,7 @@ export function useOrganizerChat(masterLeagueId: string) {
       const ref = doc(organizerChatCol(masterLeagueId));
       const now = Date.now();
 
-      await setDoc(ref, {
+      await sendChatMessage(user.uid, ref, {
         messageId: ref.id,
         senderId: user.uid,
         senderName: user.displayName || 'User',
@@ -281,7 +312,7 @@ export function useChat(leagueId: string) {
     };
 
     try {
-      await setDoc(doc(leagueChatCol(leagueId), messageId), newMessage);
+      await sendChatMessage(user.uid, doc(leagueChatCol(leagueId), messageId), newMessage);
     } catch (err: any) {
       console.error("Failed to send message", err);
       throw err;
@@ -360,5 +391,5 @@ export async function sendLeagueImageMessageWeb(leagueId: string, imageUrl: stri
     deletedBy: '',
   };
 
-  await setDoc(doc(leagueChatCol(leagueId), messageId), newMessage);
+  await sendChatMessage(auth.currentUser.uid, doc(leagueChatCol(leagueId), messageId), newMessage);
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { subscribeToCommentsWeb, addCommentWeb, deleteCommentWeb, PublicPostComment } from '@/lib/feed/publicFeedRepository';
 import { Glass } from '@/components/ui/Glass';
@@ -23,6 +24,7 @@ interface CommentsModalProps {
 }
 
 export function CommentsModal({ postId, onClose }: CommentsModalProps) {
+  const router = useRouter();
   const [comments, setComments] = useState<PublicPostComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
@@ -89,12 +91,12 @@ export function CommentsModal({ postId, onClose }: CommentsModalProps) {
           ) : (
             comments.map((c) => (
               <div key={c.commentId} className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-[#1E293B] flex items-center justify-center overflow-hidden shrink-0">
+                <button onClick={() => router.push(`/profile/${c.authorId}`)} className="w-8 h-8 rounded-full bg-[#1E293B] flex items-center justify-center overflow-hidden shrink-0">
                   {c.authorPhotoUrl ? <img src={c.authorPhotoUrl} className="w-full h-full object-cover" /> : <User className="w-4 h-4 text-gray-500" />}
-                </div>
+                </button>
                 <div className="flex-1 bg-[#0B1221] border border-[#1E293B] rounded-2xl px-3 py-2">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-black text-white">{c.authorDisplayName || 'User'}</span>
+                    <span onClick={() => router.push(`/profile/${c.authorId}`)} className="text-xs font-black text-white hover:underline cursor-pointer">{c.authorDisplayName || 'User'}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-bold text-gray-500">{timeAgo(c.createdAtMs)}</span>
                       {c.authorId === selfUid && (

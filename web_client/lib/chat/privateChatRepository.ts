@@ -1,6 +1,13 @@
 import { collection, doc, getDoc, setDoc, query, where, orderBy, limit, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { detectPremiumUser } from '@/lib/leagues/leaguesRepository';
+import {
+  isPaidPlanActive,
+  runWithRateLimit,
+  RateLimitExceededError,
+  RATE_LIMIT_KIND_CHAT_MESSAGES,
+  FREE_CHAT_MESSAGES_PER_DAY,
+} from '@/lib/plans/rateLimitService';
 
 export interface PrivateThread {
   id: string;
@@ -99,22 +106,41 @@ export async function sendPrivateMessageWeb(
   if (type === 'image') lastMessagePreview = '📷 Photo';
   if (type === 'voice') lastMessagePreview = '🎤 Voice message';
 
-  const batch = writeBatch(db);
-
-  batch.set(msgRef, {
+  const messageData = {
     senderId,
     type,
     text,
     imageUrl,
     voiceUrl,
     createdAtMs: now,
-  });
-
-  batch.set(threadRef, {
+  };
+  const threadUpdate = {
     lastMessage: lastMessagePreview,
     lastMessageAtMs: now,
     lastSenderId: senderId,
-  }, { merge: true });
+  };
 
-  await batch.commit();
+  const isPaid = await isPaidPlanActive(senderId);
+  if (isPaid) {
+    const batch = writeBatch(db);
+    batch.set(msgRef, messageData);
+    batch.set(threadRef, threadUpdate, { merge: true });
+    await batch.commit();
+    return;
+  }
+
+  try {
+    await runWithRateLimit({
+      uid: senderId,
+      kind: RATE_LIMIT_KIND_CHAT_MESSAGES,
+      maxPerDay: FREE_CHAT_MESSAGES_PER_DAY,
+      writeMore: (tx) => {
+        tx.set(msgRef, messageData);
+        tx.set(threadRef, threadUpdate, { merge: true });
+      },
+    });
+  } catch (e) {
+    if (e instanceof RateLimitExceededError) throw new Error(e.message);
+    throw e;
+  }
 }
