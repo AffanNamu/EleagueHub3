@@ -96,12 +96,16 @@ class LeagueHighlightsSection extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                l10n.tr('league_highlights_open_to_watch'),
-                style: TextStyle(
-                  color: cs.onSurface.withOpacity(0.55),
-                  fontWeight: FontWeight.w700,
-                  fontSize: 11,
+              Flexible(
+                child: Text(
+                  l10n.tr('league_highlights_open_to_watch'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: cs.onSurface.withOpacity(0.55),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
                 ),
               ),
             ],

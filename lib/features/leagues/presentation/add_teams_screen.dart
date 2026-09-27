@@ -795,14 +795,18 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                                 brightness),
                                       ),
                                       const SizedBox(width: 8),
-                                      Text(
-                                        '${l10n.tr('add_teams_will_be_placed_in_prefix')}'
-                                        '${_groupDisplayName(l10n, _selectedGroup)}',
-                                        style: TextStyle(
-                                          color:
-                                              AppTheme.secondaryText(
-                                                  brightness),
-                                          fontSize: 12,
+                                      Expanded(
+                                        child: Text(
+                                          '${l10n.tr('add_teams_will_be_placed_in_prefix')}'
+                                          '${_groupDisplayName(l10n, _selectedGroup)}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color:
+                                                AppTheme.secondaryText(
+                                                    brightness),
+                                            fontSize: 12,
+                                          ),
                                         ),
                                       ),
                                     ],

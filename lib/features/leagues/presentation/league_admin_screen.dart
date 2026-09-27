@@ -2515,6 +2515,8 @@ class _LeagueAdminScreenState
             width: 160,
             child: Text(
               k,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: cs.onSurface.withOpacity(0.70),
                 fontWeight: FontWeight.w700,

@@ -1406,6 +1406,8 @@ class _LeagueCreationDashboardState
             width: 80,
             child: Text(
               label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: AppTheme.secondaryText(brightness),
                 fontWeight: FontWeight.w800,
