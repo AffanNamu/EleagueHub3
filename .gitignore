@@ -82,9 +82,13 @@ esportlyic-admin/.next/
 # (AuthKey_FHU84658L6.p8.txt, distribution.cer, ios_development.p12,
 # ios_distribution.p12, release-key.jks, upload-keystore.jks, and others
 # were found already committed on origin/main and removed -- see commit
-# message for the incident writeup.)
+# message for the incident writeup. ios_distribution.key, p8_text.txt,
+# p12_text.txt, and profile_text.txt were a second wave from the same
+# original commit that slipped past those rules -- same incident, caught
+# late; see this commit's message.)
 *.p8
 *.p8.txt
+*.key
 AuthKey_*
 *.p12
 *.cer
@@ -92,6 +96,7 @@ AuthKey_*
 *.mobileprovision
 *.jks
 *.keystore
+*_text.txt
 encoded_keystore.txt
 GoogleService-Info.plist
 GoogleService-Info.plist.b64
