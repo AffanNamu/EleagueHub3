@@ -314,7 +314,24 @@ class _HomeShellState extends ConsumerState<HomeShell>
               // convention most free mobile apps use. Hidden entirely for
               // Pro/Elite users (see FreeUserBannerAd) and on web/desktop
               // (AppBannerAd is a no-op there).
-              const FreeUserBannerAd(),
+              //
+              // extendBody: true on this Scaffold makes `body` occupy the
+              // FULL screen height, including the region the floating pill
+              // nav bar below visually sits on top of (that's what lets the
+              // tab content behind it show through the frosted Glass
+              // pill). Without this bottom padding the ad -- the last
+              // child of this Column -- would land in that exact same
+              // screen region and render underneath the opaque-ish nav
+              // bar, hidden behind it. The padding pushes the ad up by the
+              // nav bar's own reserved footprint (its fixed height + its
+              // bottom margin + the bottom safe-area inset it sits above)
+              // so it appears just above the bar instead.
+              Padding(
+                padding: EdgeInsets.only(
+                  bottom: 78 + 8 + MediaQuery.of(context).padding.bottom,
+                ),
+                child: const FreeUserBannerAd(),
+              ),
             ],
           ),
         ),
