@@ -30,6 +30,7 @@ jobs:
             FLUTTERWAVE_SECRET_KEY
             CLOUDINARY_API_KEY
             CLOUDINARY_API_SECRET
+            APPLE_SHARED_SECRET
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
@@ -44,6 +45,15 @@ jobs:
           # GitHub secrets regardless, out of caution.
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          # App Store Connect -> app -> Subscriptions -> App-Specific Shared
+          # Secret. Required by _verifyAppStoreReceipt() to call Apple's
+          # verifyReceipt endpoint. This was added to the worker's code
+          # (_activateOrganizerProAppStore) in an earlier commit but never
+          # added to this deploy workflow's secrets/env, so even with the
+          # GitHub secret set it was never actually reaching the deployed
+          # Worker -- every Apple purchase-activation call would 500 on
+          # _requireEnvString("APPLE_SHARED_SECRET") until this line existed.
+          APPLE_SHARED_SECRET: ${{ secrets.APPLE_SHARED_SECRET }}
 
       - name: Test worker endpoints
         working-directory: .
