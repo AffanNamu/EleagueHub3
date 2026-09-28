@@ -6,4 +6,8 @@ workers_dev = true
 [vars]
 LIVEKIT_URL = "wss://esportlyic-tnvub6ag.livekit.cloud"
 FIREBASE_PROJECT_ID = "esportlyic"
-ANDROID_PACKAGE_NAME = "com.eleaguehub.app" 
+ANDROID_PACKAGE_NAME = "com.eleaguehub.app"
+# Same cloud name already baked into the Flutter client's dart-defines
+# (CLOUDINARY_CLOUD_NAME) -- not secret, matches convention of the other
+# plain vars above.
+CLOUDINARY_CLOUD_NAME = "dbw9zpkxi"

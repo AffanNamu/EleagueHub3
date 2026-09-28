@@ -45,4 +45,10 @@ class BackendConfig {
     if (base.isEmpty) return null;
     return Uri.parse('$base/organizer-pro/activate');
   }
+
+  static Uri? cloudinarySignHighlightUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/cloudinary/sign-highlight');
+  }
 }

@@ -67,6 +67,8 @@ dependencies:
   marquee: ^2.2.3
   record: ^6.0.0
   just_audio: ^0.9.38
+  video_player: ^2.9.2
+  chewie: ^1.8.5
   path: ^1.9.0
   # ── Pinned below 9.1.0: 9.1.0 added FLTAdPreloader.h (Ad Preloading
   # APIs), whose FLTAd_Internal.h non-modularly #imports

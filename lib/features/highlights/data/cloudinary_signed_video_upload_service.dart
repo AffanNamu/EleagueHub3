@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../core/config/backend_config.dart';
+
 /// Result of a Cloudinary video upload.
 /// Fields chosen to populate Firestore highlight metadata.
 class CloudinaryVideoUploadResult {
@@ -65,11 +67,18 @@ class CloudinarySignedVideoUploadService {
         _cloudName =
             (cloudName ?? const String.fromEnvironment('CLOUDINARY_CLOUD_NAME'))
                 .trim(),
-        _apiKey =
-            (apiKey ?? const String.fromEnvironment('CLOUDINARY_API_KEY')).trim(),
-        _signEndpoint =
-            (signEndpoint ?? const String.fromEnvironment('CLOUDINARY_SIGN_ENDPOINT'))
-                .trim();
+        // NOTE: apiKey has no dart-define fallback anymore -- the signer
+        // (worker's /cloudinary/sign-highlight) always returns a real
+        // apiKey in its response (see _signParams below), so this local
+        // value is genuinely optional; Cloudinary's API key isn't secret
+        // (only the API SECRET is), it's just no longer needed client-side.
+        _apiKey = (apiKey ?? '').trim(),
+        // Reuses the same EH_WORKER_BASE_URL dart-define every other
+        // worker route derives from (see BackendConfig) instead of a
+        // dedicated CLOUDINARY_SIGN_ENDPOINT dart-define.
+        _signEndpoint = (signEndpoint ??
+                (BackendConfig.cloudinarySignHighlightUrl()?.toString() ?? ''))
+            .trim();
 
   final Dio _dio;
   final FirebaseAuth _auth;
@@ -82,12 +91,9 @@ class CloudinarySignedVideoUploadService {
     if (_cloudName.isEmpty) {
       throw StateError('Cloudinary cloud name missing (CLOUDINARY_CLOUD_NAME).');
     }
-    if (_apiKey.isEmpty) {
-      throw StateError('Cloudinary api key missing (CLOUDINARY_API_KEY).');
-    }
     if (_signEndpoint.isEmpty) {
       throw StateError(
-          'Cloudinary sign endpoint missing (CLOUDINARY_SIGN_ENDPOINT).');
+          'Cloudinary sign endpoint missing. Is EH_WORKER_BASE_URL configured?');
     }
   }
 
@@ -282,8 +288,15 @@ class CloudinarySignedVideoUploadService {
 
       // Abuse/dedup controls
       'overwrite': 'true',
-      'unique_filename': 'false',
-      'use_filename': 'false',
+      // NOTE: unique_filename/use_filename are deliberately NOT sent.
+      // Cloudinary's signature must cover every parameter in the actual
+      // request (everything except file/cloud_name/resource_type/api_key/
+      // signature) -- the signer only signs
+      // {timestamp, folder, public_id, overwrite} (see _signParams above),
+      // so sending extra unsigned params here would make Cloudinary reject
+      // the signature as invalid. They're also functionally no-ops here
+      // anyway: both only affect auto-generated filenames, and we always
+      // pass an explicit public_id.
 
       // Cost controls: do NOT add eager/streaming_profile/transformations.
     });

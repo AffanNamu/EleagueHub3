@@ -2551,6 +2551,150 @@ async function _activatePremium(env, verified, body) {
   };
 }
 
+// ── Cloudinary signed upload for match highlights ───────────────────────
+//
+// The Flutter client (cloudinary_signed_video_upload_service.dart) uploads
+// highlight clips straight to Cloudinary, which requires a per-upload
+// signature -- we never ship the Cloudinary API secret to the client.
+// This mirrors exactly the authorization chain firestore.rules already
+// enforces for creating a users/leagues/.../highlights doc
+// (highlightUploaderIsLeagueParticipant / highlightCreateIsValid), since a
+// Cloudinary upload happens entirely outside Firestore and bypasses those
+// rules -- so this endpoint has to independently re-derive and check the
+// same facts before it will sign anything:
+//   1. caller is a real Firebase user (ID token)
+//   2. caller has a leagues/{leagueId}/memberships/{uid} doc with a teamId
+//      -- NEVER trust a client-supplied teamId, always re-derive it here,
+//      exactly like the rules' get(memPath).data.get('teamId', '') does.
+//   3. leagues/{leagueId}/matches/{matchId} is finished
+//      (matchIsFinished in firestore.rules: isPlayed==true OR
+//      status=='FINISHED' OR matchStatus=='FINISHED')
+//   4. that teamId is the match's homeTeamId or awayTeamId
+//      (isParticipantTeam in firestore.rules)
+// Only then do we sign, and only for the exact folder/public_id shape
+// firestore.rules' highlightFieldsAreValid will later accept
+// (match_highlights/{leagueId}/{matchId}/{teamId} / {highlightId}).
+
+function _highlightMatchIsFinished(matchDocData) {
+  const d = matchDocData || {};
+  return d.isPlayed === true || d.status === "FINISHED" || d.matchStatus === "FINISHED";
+}
+
+function _highlightIsParticipantTeam(matchDocData, teamId) {
+  const d = matchDocData || {};
+  return d.homeTeamId === teamId || d.awayTeamId === teamId;
+}
+
+async function _sha1Hex(input) {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-1", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Matches _isSafeHighlightsFolder in cloudinary_signed_video_upload_service.dart:
+// exactly 4 segments, match_highlights/{leagueId}/{matchId}/{teamId}.
+function _parseHighlightFolder(folder) {
+  const f = String(folder || "").trim();
+  if (!f.startsWith("match_highlights/") || f.includes("..") || f.includes("\\")) return null;
+  const parts = f.split("/").filter((p) => p.trim().length > 0);
+  if (parts.length !== 4) return null;
+  return { leagueId: parts[1], matchId: parts[2], teamId: parts[3] };
+}
+
+// Request shape matches cloudinary_signed_video_upload_service.dart's
+// _signParams exactly: { "params": { timestamp, folder, public_id, overwrite } }.
+// The client computes folder/public_id itself (it needs them for the
+// upload regardless of who signs), so this endpoint's job is to
+// INDEPENDENTLY VERIFY the teamId embedded in that folder actually belongs
+// to the caller -- never just trust it -- before signing.
+async function _signHighlightUpload(env, verified, body) {
+  const uid = String(verified.uid || "").trim();
+  if (!uid) return { ok: false, status: 401, error: "Unauthenticated." };
+
+  const params = (body || {}).params;
+  if (!params || typeof params !== "object") {
+    return { ok: false, status: 400, error: "Missing params." };
+  }
+
+  const parsed = _parseHighlightFolder(params.folder);
+  if (!parsed) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Invalid folder. Expected match_highlights/{leagueId}/{matchId}/{teamId}.",
+    };
+  }
+  const { leagueId, matchId, teamId: claimedTeamId } = parsed;
+
+  const highlightId = String(params.public_id || "").trim();
+  if (!highlightId || highlightId.includes("/") || highlightId.includes("..") || highlightId.includes("\\")) {
+    return { ok: false, status: 400, error: "Invalid public_id." };
+  }
+
+  const memRes = await _firestoreGetDocSA(env, `leagues/${leagueId}/memberships/${uid}`);
+  if (!memRes.ok || !memRes.doc) {
+    return { ok: false, status: 403, error: "You are not a member of this league." };
+  }
+  const actualTeamId = String(_fromFirestoreDoc(memRes.doc).teamId || "").trim();
+  if (!actualTeamId) {
+    return { ok: false, status: 403, error: "You are not assigned to a team in this league." };
+  }
+  // Never trust the client-supplied folder's teamId segment on its own --
+  // it must match what we just looked up server-side for this uid.
+  if (actualTeamId !== claimedTeamId) {
+    return { ok: false, status: 403, error: "Folder does not match your team." };
+  }
+
+  const matchRes = await _firestoreGetDocSA(env, `leagues/${leagueId}/matches/${matchId}`);
+  if (!matchRes.ok || !matchRes.doc) {
+    return { ok: false, status: 404, error: "Match not found." };
+  }
+  const matchData = _fromFirestoreDoc(matchRes.doc);
+
+  if (!_highlightMatchIsFinished(matchData)) {
+    return { ok: false, status: 403, error: "Highlights can only be uploaded for finished matches." };
+  }
+  if (!_highlightIsParticipantTeam(matchData, actualTeamId)) {
+    return { ok: false, status: 403, error: "Your team did not play in this match." };
+  }
+
+  const apiKey = _requireEnvString(env, "CLOUDINARY_API_KEY");
+  const apiSecret = _requireEnvString(env, "CLOUDINARY_API_SECRET");
+  const cloudName = _requireEnvString(env, "CLOUDINARY_CLOUD_NAME");
+
+  // Fresh server timestamp -- the client blindly uses whatever timestamp
+  // we return (it does not reuse its own candidate value), so it's safe
+  // (and simpler) to mint our own here rather than trust theirs.
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = `match_highlights/${leagueId}/${matchId}/${actualTeamId}`;
+
+  // Cloudinary's classic signing algorithm: alphabetize every parameter
+  // that will actually be sent in the upload (excluding file/cloud_name/
+  // resource_type/api_key/signature), join as key=value pairs, append the
+  // API secret directly (no separator), SHA-1, hex-encode. MUST exactly
+  // match the params the client actually sends in the real multipart
+  // upload -- see uploadHighlightVideo's FormData (folder, public_id,
+  // overwrite, timestamp only; no unique_filename/use_filename).
+  const paramsToSign = { folder, overwrite: "true", public_id: highlightId, timestamp: String(timestamp) };
+  const stringToSign =
+    Object.keys(paramsToSign)
+      .sort()
+      .map((k) => `${k}=${paramsToSign[k]}`)
+      .join("&") + apiSecret;
+  const signature = await _sha1Hex(stringToSign);
+
+  return {
+    ok: true,
+    status: 200,
+    cloudName,
+    apiKey,
+    timestamp,
+    signature,
+  };
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -2768,6 +2912,35 @@ export default {
         console.error("[appstore/notifications] Unhandled:", e.message || String(e), e.stack || "");
         // Unexpected error -- non-200 so Apple retries.
         return jsonResponse({ error: "Internal error" }, 500);
+      }
+    }
+
+    if (url.pathname === "/cloudinary/sign-highlight" && request.method === "POST") {
+      try {
+        let verified;
+        try {
+          verified = await _verifyFirebaseIdToken(env, request);
+        } catch (e) {
+          return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+        }
+        if (!verified.ok) {
+          return jsonResponse({ error: verified.error }, verified.status || 401);
+        }
+
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON" }, 400);
+        }
+
+        const out = await _signHighlightUpload(env, verified, body || {});
+        return out.ok
+          ? jsonResponse(out, 200)
+          : jsonResponse({ error: out.error }, out.status || 400);
+      } catch (e) {
+        console.error("[cloudinary/sign-highlight] Unhandled:", e.message || String(e), e.stack || "");
+        return jsonResponse({ error: "Highlight sign error: " + (e.message || String(e)) }, 500);
       }
     }
 

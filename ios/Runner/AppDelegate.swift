@@ -24,6 +24,15 @@ import GoogleSignIn
     application.registerForRemoteNotifications()
 
     GeneratedPluginRegistrant.register(with: self)
+
+    // Highlights compression (iOS AVFoundation counterpart to Android's
+    // HighlightCompressionEngine.kt) -- mirrors exactly where
+    // MainActivity.configureFlutterEngine registers the Android side,
+    // right after plugin registration.
+    if let controller = window?.rootViewController as? FlutterViewController {
+      HighlightCompressionEngine.register(messenger: controller.binaryMessenger)
+    }
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../leagues/models/fixture_match.dart';
 import '../../leagues/models/team.dart';
 import '../domain/match_highlight.dart';
+import 'highlight_player_screen.dart';
 
 /// League highlights preview section intended for LeagueDetailScreen.
 ///
 /// Ultra-low-cost UI strategy:
 /// - Keep list small (<= 10).
 /// - Use lightweight thumbnails only (small width).
-/// - Open video externally (no in-app player package).
+/// - Play video in-app (HighlightPlayerScreen, video_player + chewie) --
+///   clips are already small/compressed, so a plain progressive player
+///   with normal buffering is smooth without needing HLS/adaptive streaming.
 class LeagueHighlightsSection extends StatelessWidget {
   const LeagueHighlightsSection({
     super.key,
@@ -29,7 +31,7 @@ class LeagueHighlightsSection extends StatelessWidget {
   final Map<String, Team> teamsById;
   final String? limitLabel;
 
-  Future<void> _openVideo(BuildContext context, String url) async {
+  Future<void> _openVideo(BuildContext context, String url, {String? title}) async {
     final l10n = context.l10n;
     final u = Uri.tryParse(url.trim());
     if (u == null) {
@@ -37,8 +39,7 @@ class LeagueHighlightsSection extends StatelessWidget {
       return;
     }
 
-    final ok = await launchUrl(u, mode: LaunchMode.externalApplication);
-    if (!ok) _snack(context, l10n.tr('league_highlights_open_video_failed'));
+    await openHighlightPlayer(context, videoUrl: url, title: title);
   }
 
   void _snack(BuildContext context, String msg) {
@@ -156,7 +157,13 @@ class LeagueHighlightsSection extends StatelessWidget {
                       highlight: h,
                       matchLabel: _matchLabel(l10n, matchesById[h.matchId]),
                       uploaderTeamName: _uploaderTeamName(l10n, h),
-                      onOpenVideo: h.secureUrl.trim().isEmpty ? null : () => _openVideo(context, h.secureUrl),
+                      onOpenVideo: h.secureUrl.trim().isEmpty
+                          ? null
+                          : () => _openVideo(
+                                context,
+                                h.secureUrl,
+                                title: _matchLabel(l10n, matchesById[h.matchId]),
+                              ),
                       onOpenMatch: () {
                         final matchId = h.matchId.trim();
                         if (matchId.isEmpty) return;

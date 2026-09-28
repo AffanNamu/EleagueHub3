@@ -28,6 +28,8 @@ jobs:
             FIREBASE_CLIENT_EMAIL
             FIREBASE_PRIVATE_KEY
             FLUTTERWAVE_SECRET_KEY
+            CLOUDINARY_API_KEY
+            CLOUDINARY_API_SECRET
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
@@ -35,6 +37,13 @@ jobs:
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
           FLUTTERWAVE_SECRET_KEY: ${{ secrets.FLUTTERWAVE_SECRET_KEY }}
+          # Cloudinary account credentials, for signing highlight video
+          # uploads server-side (/cloudinary/sign-highlight). The API key
+          # itself isn't secret per Cloudinary's own docs, but the API
+          # SECRET must never reach the client -- both live here as
+          # GitHub secrets regardless, out of caution.
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
 
       - name: Test worker endpoints
         working-directory: .

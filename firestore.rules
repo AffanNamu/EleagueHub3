@@ -517,8 +517,10 @@ service cloud.firestore {
 
     function highlightFieldsAreValid(matchId, highlightId) {
       let d = request.resource.data;
-      let maxBytes = 15 * 1024 * 1024;
-      let maxSeconds = 180;
+      // Kept in sync with VideoCompressionService.maxOutputBytes/maxDurationSeconds
+      // (lib/features/highlights/data/video_compression_service.dart).
+      let maxBytes = 20 * 1024 * 1024;
+      let maxSeconds = 90;
       return highlightHasOnlyAllowedKeys()
         && (d.matchId is string) && (d.matchId == matchId)
         && (d.leagueId is string) && (d.leagueId.size() > 0) && (d.leagueId.size() <= 200)

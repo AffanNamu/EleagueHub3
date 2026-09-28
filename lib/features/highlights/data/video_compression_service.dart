@@ -45,15 +45,24 @@ class CompressedVideoResult {
 /// Ultra-low-cost highlight compression policy:
 /// - Hard caps duration (reject if over limit)
 /// - Forces H.264 + AAC (native Android transcode)
-/// - Downscales to <= 720p (and may go lower to respect 15MB cap)
+/// - Downscales to <= 720p (and may go lower to respect maxOutputBytes)
 /// - Targets a bitrate computed from size cap so we don't exceed free-tier storage/bandwidth
 ///
 /// IMPORTANT COST RULE:
 /// - We intentionally avoid Cloudinary transformations/derived assets by compressing client-side.
 /// - This is CPU-expensive on the device, but it is zero-infra cost and saves Cloudinary usage.
+///
+/// QUALITY NOTE: the video bitrate is computed as (maxOutputBytes * 8) /
+/// durationSeconds -- so quality is a function of clip LENGTH, not just the
+/// byte cap. At the old 180s/15MB combination, a full-length clip computed
+/// to ~500kbps at 720p (visibly soft on fast motion); at 90s/20MB, a
+/// full-length clip computes to ~1.7Mbps at 720p (clearly better, and a
+/// short 20-30s clip -- what "highlight" actually implies -- comfortably
+/// hits the 2200kbps ceiling below). If clips still look soft, raise
+/// maxOutputBytes further before touching maxDurationSeconds again.
 class VideoCompressionService {
-  static const int maxOutputBytes = 15 * 1024 * 1024; // 15MB hard cap (policy)
-  static const int maxDurationSeconds = 180; // 3 minutes hard cap (policy)
+  static const int maxOutputBytes = 20 * 1024 * 1024; // 20MB hard cap (policy)
+  static const int maxDurationSeconds = 90; // 90s hard cap (policy) -- real "highlight" length
   static const int maxOutputHeight = 720;
 
   /// Audio policy: keep AAC at 128kbps when possible (requirement).
@@ -81,8 +90,8 @@ class VideoCompressionService {
       }
     }
 
-    if (!Platform.isAndroid) {
-      throw UnsupportedError('Video probing is currently implemented for Android only.');
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      throw UnsupportedError('Video probing is only implemented for Android and iOS.');
     }
 
     final res = await _ch.invokeMethod<dynamic>(
@@ -123,8 +132,8 @@ class VideoCompressionService {
     final input = inputPath.trim();
     if (input.isEmpty) throw StateError('Video path is empty.');
 
-    if (!Platform.isAndroid) {
-      throw UnsupportedError('Highlight compression is currently implemented for Android only.');
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      throw UnsupportedError('Highlight compression is only implemented for Android and iOS.');
     }
 
     final inputInfo = await probe(input);
