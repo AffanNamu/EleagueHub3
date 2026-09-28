@@ -103,3 +103,20 @@ GoogleService-Info.plist.b64
 
 # Supabase CLI local cache
 supabase/.temp/
+
+# ── Flutter build artifacts ──
+# Never tracked in this repo's history -- CI (ios.yml/android.yml)
+# regenerates all of these from scratch on every run via heredocs, so a
+# local `flutter analyze`/`flutter pub get` run (e.g. for verifying a
+# change in this environment) produces the same generated output the CI
+# runner would, which is noise here, not real source.
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/ephemeral/
+ios/Runner/GeneratedPluginRegistrant.h
+ios/Runner/GeneratedPluginRegistrant.m
