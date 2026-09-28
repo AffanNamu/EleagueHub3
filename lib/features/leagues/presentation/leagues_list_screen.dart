@@ -2082,7 +2082,43 @@ class _LeaguesListScreenState
     // wraps to more lines there, so it needs more height, not the same
     // fixed value the two branches used to share (that was dead code: an
     // isTablet check whose branches never actually differed).
-    final cardHeight = isTablet ? 290.0 : 250.0;
+    final baseCardHeight = isTablet ? 290.0 : 250.0;
+
+    // BUG: this grid gives every card a single FIXED height regardless of
+    // how much room its content actually needs -- but LeagueFlipCard's own
+    // action-chip row (QR / Flip / Details) switches to a taller, STACKED
+    // 2-row layout below 360 logical px of card width (see its own
+    // LayoutBuilder narrow check). That switch only fires on a narrower
+    // card -- a smaller/older phone, or any phone whose card ends up
+    // narrower because of a 2-column tablet grid on a smaller tablet --
+    // and the fixed height here was never widened to budget for that
+    // extra row. Combined with the card's other optional content (a
+    // 2-line title, home/away pill, rewards preview chip), that pushes
+    // the front face's Column past its fixed height and Flutter overflows
+    // it, which is what actually renders as "something blocking the
+    // card": the overflow warning stripes, on top of the card's own
+    // content, specifically on the narrower devices where this triggers.
+    final crossAxisCount = isTablet ? 2 : 1;
+    const gridHorizontalPadding = 16.0 + 16.0; // SliverPadding left+right
+    const crossAxisSpacing = 16.0;
+    final totalCrossAxisSpacing = crossAxisSpacing * (crossAxisCount - 1);
+    final cardWidth = (MediaQuery.of(context).size.width -
+            gridHorizontalPadding -
+            totalCrossAxisSpacing) /
+        crossAxisCount;
+    final narrowCard = cardWidth < 360;
+
+    // Second independent risk factor for the same overflow: a larger
+    // system accessibility text size (common on devices set up by, or
+    // for, older users) makes the title/distribution/subtitle text taller
+    // without this fixed-height budget growing to match. Clamped so an
+    // extreme scale setting can't blow the grid's row height out.
+    final textScale = MediaQuery.of(context).textScaleFactor.clamp(1.0, 1.3);
+    final textScaleBonus = (textScale - 1.0) * 90.0;
+
+    final cardHeight =
+        baseCardHeight + (narrowCard ? 48.0 : 0.0) + textScaleBonus;
+
     final showWorkspaceAction =
         _selectedTab == _LeagueViewTab.master;
     final extraActionHeight =
