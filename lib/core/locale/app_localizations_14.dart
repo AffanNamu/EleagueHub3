@@ -1417,6 +1417,7 @@ const Map<String, Map<String, String>> appLocalizationsPart14 = {
     'master_leagues_list_upgrade_plan_button': 'Upgrade Plan',
     'master_leagues_list_upgrade_success_message': 'Plan upgraded successfully.',
     'master_leagues_list_workspaces_count_prefix': 'Workspaces:',
+    'match_detail_choose_highlight_team_title': 'Which team is this highlight for?',
     'match_detail_could_not_open_video': 'Could not open video.',
     'match_detail_generate': 'Generate',
     'match_detail_highlights_after_completion': 'Highlights can be uploaded after the match is completed.',

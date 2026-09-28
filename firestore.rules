@@ -541,8 +541,16 @@ service cloud.firestore {
       let d = request.resource.data;
       let memPath = /databases/$(database)/documents/leagues/$(d.leagueId)/memberships/$(request.auth.uid);
       let matchPath = /databases/$(database)/documents/leagues/$(d.leagueId)/matches/$(matchId);
-      return signedIn() 
-        && exists(memPath) && get(memPath).data.get('teamId', '') == d.teamId
+      return signedIn()
+        // Either a genuine team member uploading their own team's
+        // highlight, or the league owner/organizer uploading on behalf of
+        // either team (they don't have to be assigned to one themselves)
+        // -- matches the analogous bypass in the Worker's
+        // /cloudinary/sign-highlight signer.
+        && (
+          (exists(memPath) && get(memPath).data.get('teamId', '') == d.teamId)
+          || canManageLeague(d.leagueId)
+        )
         && exists(matchPath) && matchIsFinished(get(matchPath).data) && isParticipantTeam(get(matchPath).data, d.teamId);
     }
 
@@ -559,7 +567,10 @@ service cloud.firestore {
       let isUploader = signedIn() && ('uploadedBy' in resource.data) && (resource.data.uploadedBy is string) && (resource.data.uploadedBy == request.auth.uid);
       let memPath = /databases/$(database)/documents/leagues/$(resource.data.leagueId)/memberships/$(request.auth.uid);
       let matchPath = /databases/$(database)/documents/leagues/$(resource.data.leagueId)/matches/$(matchId);
-      let stillAllowed = exists(memPath) && get(memPath).data.get('teamId', '') == resource.data.teamId
+      let stillAllowed = (
+                           (exists(memPath) && get(memPath).data.get('teamId', '') == resource.data.teamId)
+                           || canManageLeague(resource.data.leagueId)
+                         )
                          && exists(matchPath) && matchIsFinished(get(matchPath).data) && isParticipantTeam(get(matchPath).data, resource.data.teamId);
       let uploadingStateOk = (d.status == 'UPLOADING') && (d.secureUrl == '') && (d.thumbnailUrl == '') && (d.size == 0) && (d.duration == 0 || d.duration == 0.0) && (d.format == '' || d.format == 'mp4');
       let processingStateOk = (d.status == 'PROCESSING') && (d.secureUrl.size() > 10) && (d.thumbnailUrl.size() > 10) && (d.size > 0) && (d.duration > 0) && (d.format == 'mp4');

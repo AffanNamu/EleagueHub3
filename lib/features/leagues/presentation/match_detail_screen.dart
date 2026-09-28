@@ -6,22 +6,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../highlights/data/highlights_repository_firebase.dart';
 import '../../highlights/domain/match_highlight.dart';
 import '../../highlights/logic/highlight_upload_controller.dart';
+import '../../highlights/presentation/highlight_player_screen.dart';
 import '../../live/data/local_discovery.dart';
 import '../data/leagues_repository_local.dart';
 import '../models/enums.dart';
 import '../models/fixture_match.dart';
+import '../models/league.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
 // NEW: Match Poster feature entry point.
@@ -59,6 +61,11 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   String? _myTeamId;
 
   bool _canUploadHighlight = false;
+
+  /// League owner/organizer can upload a highlight for either team even
+  /// when they aren't personally assigned to one (see
+  /// _pickTeamForOwnerUpload).
+  bool _isLeagueOwner = false;
 
   /// If upload is hidden, we show a reason (helps users/admin fix membership/team assignment).
   String? _uploadEligibilityMessage;
@@ -129,12 +136,16 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
               leagueId: widget.leagueId,
               userId: uid,
             );
+      final leagueFuture =
+          uid.isEmpty ? Future<League?>.value(null) : _repo.getLeagueById(widget.leagueId);
 
-      final results = await Future.wait([matchesFuture, teamsFuture, membershipFuture])
+      final results = await Future.wait(
+              [matchesFuture, teamsFuture, membershipFuture, leagueFuture])
           .timeout(const Duration(seconds: 25));
       final matches = results[0] as List<FixtureMatch>;
       final teams = results[1] as List<Team>;
       final membership = results[2] as Membership?;
+      final league = results[3] as League?;
 
       FixtureMatch? m;
       for (final x in matches) {
@@ -146,22 +157,31 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
       final isFinished = (m != null) ? _matchFinishedForHighlights(m) : false;
 
+      // League owner/organizer can upload a highlight for either team --
+      // they don't have to be assigned to one themselves. Same check
+      // LeagueDetailScreen uses for its own isOwner.
+      final isOwner = uid.isNotEmpty &&
+          ((membership?.role == LeagueRole.organizer) ||
+              (league != null && league.organizerUid.trim() == uid));
+
       // Local membership-derived teamId (may be empty).
       final myTeamIdRaw = (membership?.teamId ?? '').trim();
       final myTeamIdLocal = myTeamIdRaw.isEmpty ? null : myTeamIdRaw;
+      final isTeamParticipant = (m != null) &&
+          myTeamIdLocal != null &&
+          (myTeamIdLocal == m.homeTeamId.trim() || myTeamIdLocal == m.awayTeamId.trim());
 
       // Initial local gate.
-      bool canUpload = (m != null) &&
-          isFinished &&
-          (myTeamIdLocal != null) &&
-          (myTeamIdLocal == m.homeTeamId.trim() || myTeamIdLocal == m.awayTeamId.trim());
+      bool canUpload = (m != null) && isFinished && (isTeamParticipant || isOwner);
 
       String? eligibilityMsg;
 
       // If match is finished but local gate says no, ask the highlights repo (server-authoritative)
       // for an explanation. This also avoids confusion when user thinks they are "home"
-      // but their membership.teamId is not set/mismatched.
-      if (m != null && isFinished && !canUpload) {
+      // but their membership.teamId is not set/mismatched. Not run for the
+      // owner path -- an owner without a team is always allowed to upload,
+      // they'll just be asked which team it's for when they tap upload.
+      if (m != null && isFinished && !canUpload && !isOwner) {
         try {
           final teamId = await _highlightsRepo.requireUploadTeamIdOrThrow(match: m);
           canUpload = true;
@@ -185,6 +205,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
         _membership = membership;
         _myTeamId = _myTeamId ?? myTeamIdLocal;
+        _isLeagueOwner = isOwner;
 
         _canUploadHighlight = canUpload;
         _uploadEligibilityMessage = eligibilityMsg;
@@ -343,20 +364,96 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   }
 
   Future<void> _openHighlightUrl(String url) async {
-    final u = Uri.tryParse(url.trim());
-    if (u == null) {
+    final trimmed = url.trim();
+    if (Uri.tryParse(trimmed) == null || trimmed.isEmpty) {
       _showSnack(context.l10n.tr('match_detail_invalid_video_url'));
       return;
     }
 
-    final ok = await launchUrl(
-      u,
-      mode: LaunchMode.externalApplication,
-    );
+    await openHighlightPlayer(context, videoUrl: trimmed);
+  }
 
-    if (!ok) {
-      _showSnack(context.l10n.tr('match_detail_could_not_open_video'));
-    }
+  /// League owners/organizers can upload a highlight even when they aren't
+  /// personally assigned to either team (common -- an organizer doesn't
+  /// have to be a player). Since a highlight must still be attributed to
+  /// the home or away team, ask which one before starting the upload.
+  Future<String?> _pickTeamForOwnerUpload(FixtureMatch m) {
+    final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
+
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        Widget teamTile(String teamId, String label, String imageUrl) {
+          return InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => Navigator.of(ctx).pop(teamId),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.cardColor(brightness),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.cardBorder(brightness)),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppTheme.iconCircleBackground(brightness),
+                    backgroundImage: imageUrl.trim().isNotEmpty ? NetworkImage(imageUrl) : null,
+                    child: imageUrl.trim().isEmpty
+                        ? const Icon(Icons.shield_outlined, size: 18)
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: AppTheme.primaryText(brightness),
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: AppTheme.secondaryText(brightness)),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: AppTheme.cardColor(brightness),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: AppTheme.cardBorder(brightness)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.tr('match_detail_choose_highlight_team_title'),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                    color: AppTheme.primaryText(brightness),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                teamTile(m.homeTeamId, _homeName(context), _homeImageUrl()),
+                teamTile(m.awayTeamId, _awayName(context), _awayImageUrl()),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -439,7 +536,22 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                                 ? null
                                 : () async {
                                     final m = _match!;
-                                    await uploadCtrl.uploadHighlightForMatch(m);
+                                    final myTeamId = (_myTeamId ?? '').trim();
+                                    final isTeamParticipant = myTeamId.isNotEmpty &&
+                                        (myTeamId == m.homeTeamId.trim() ||
+                                            myTeamId == m.awayTeamId.trim());
+
+                                    String? preferredTeamId;
+                                    if (_isLeagueOwner && !isTeamParticipant) {
+                                      preferredTeamId = await _pickTeamForOwnerUpload(m);
+                                      if (preferredTeamId == null) return; // cancelled
+                                    }
+
+                                    await uploadCtrl.uploadHighlightForMatch(
+                                      m,
+                                      isLeagueOwner: _isLeagueOwner && !isTeamParticipant,
+                                      preferredTeamId: preferredTeamId,
+                                    );
                                     if (!mounted) return;
                                     if (ref.read(highlightUploadControllerProvider).stage ==
                                         HighlightUploadStage.failed) {

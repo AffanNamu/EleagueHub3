@@ -120,15 +120,24 @@ class HighlightsRepositoryFirebase {
 
   /// Determines if user can upload highlight for this match.
   ///
-  /// REQUIREMENTS:
+  /// REQUIREMENTS (team member path):
   /// - match must be FINISHED (here: status completed/played; NOT strictly requiring scores)
   /// - user must be a league member
   /// - membership.teamId must be set
   /// - membership.teamId must be homeTeamId or awayTeamId
   ///
+  /// League owner path: a user with no team assignment (or no membership at
+  /// all -- an organizer isn't required to join their own league as a
+  /// player) can also upload, as long as the caller has already verified
+  /// [isLeagueOwner] and supplies [preferredTeamId] (which team -- home or
+  /// away -- the highlight should be attributed to). Still validated below
+  /// against the match's actual home/away teams, same as the member path.
+  ///
   /// This method is also used by UI to explain why upload is hidden.
   Future<String> requireUploadTeamIdOrThrow({
     required FixtureMatch match,
+    bool isLeagueOwner = false,
+    String? preferredTeamId,
   }) async {
     final uid = _requireUid();
 
@@ -143,14 +152,36 @@ class HighlightsRepositoryFirebase {
       userId: uid,
     );
 
+    final homeId = match.homeTeamId.trim();
+    final awayId = match.awayTeamId.trim();
+    final memberTeamId = (membership?.teamId ?? '').trim();
+
+    if (memberTeamId.isNotEmpty && (memberTeamId == homeId || memberTeamId == awayId)) {
+      return memberTeamId;
+    }
+
+    if (isLeagueOwner) {
+      final chosen = (preferredTeamId ?? '').trim();
+      if (chosen.isEmpty) {
+        throw const HighlightsUserFriendlyException(
+          'Choose which team this highlight belongs to.',
+        );
+      }
+      if (chosen != homeId && chosen != awayId) {
+        throw const HighlightsUserFriendlyException(
+          'Selected team did not play in this match.',
+        );
+      }
+      return chosen;
+    }
+
     if (membership == null) {
       throw const HighlightsUserFriendlyException(
         'You must be a league member to upload highlights.',
       );
     }
 
-    final teamId = (membership.teamId ?? '').trim();
-    if (teamId.isEmpty) {
+    if (memberTeamId.isEmpty) {
       // This is the #1 real-world reason the upload button is hidden.
       // It means the user joined the league but was never assigned to a team.
       throw const HighlightsUserFriendlyException(
@@ -158,17 +189,9 @@ class HighlightsRepositoryFirebase {
       );
     }
 
-    final homeId = match.homeTeamId.trim();
-    final awayId = match.awayTeamId.trim();
-    final isParticipant = teamId == homeId || teamId == awayId;
-
-    if (!isParticipant) {
-      throw const HighlightsUserFriendlyException(
-        'Only home/away team members can upload highlights for this match.',
-      );
-    }
-
-    return teamId;
+    throw const HighlightsUserFriendlyException(
+      'Only home/away team members can upload highlights for this match.',
+    );
   }
 
   /// Returns the existing highlight (if any) for a team in this match.
@@ -202,9 +225,15 @@ class HighlightsRepositoryFirebase {
   /// - createdAt MUST be written on create to support `orderBy('createdAt')` queries reliably.
   Future<String> getOrCreateUploadingHighlight({
     required FixtureMatch match,
+    bool isLeagueOwner = false,
+    String? preferredTeamId,
   }) async {
     final uid = _requireUid();
-    final teamId = await requireUploadTeamIdOrThrow(match: match);
+    final teamId = await requireUploadTeamIdOrThrow(
+      match: match,
+      isLeagueOwner: isLeagueOwner,
+      preferredTeamId: preferredTeamId,
+    );
 
     final existing = await fetchExistingHighlightForTeam(matchId: match.id, teamId: teamId);
 

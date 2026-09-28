@@ -110,7 +110,11 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
       state.stage != HighlightUploadStage.done &&
       state.stage != HighlightUploadStage.failed;
 
-  Future<void> uploadHighlightForMatch(FixtureMatch match) async {
+  Future<void> uploadHighlightForMatch(
+    FixtureMatch match, {
+    bool isLeagueOwner = false,
+    String? preferredTeamId,
+  }) async {
     if (isBusy) return;
 
     final uid = (_auth.currentUser?.uid ?? '').trim();
@@ -186,7 +190,11 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
         progress01: 0.05,
       );
 
-      final highlightId = await _highlights.getOrCreateUploadingHighlight(match: match);
+      final highlightId = await _highlights.getOrCreateUploadingHighlight(
+        match: match,
+        isLeagueOwner: isLeagueOwner,
+        preferredTeamId: preferredTeamId,
+      );
       state = state.copyWith(highlightId: highlightId);
 
       // Compress locally (non-blocking) to enforce 720p/15MB policy BEFORE upload.
@@ -212,7 +220,11 @@ class HighlightUploadController extends StateNotifier<HighlightUploadState> {
       );
 
       // Compute folder structure per spec.
-      final teamId = await _highlights.requireUploadTeamIdOrThrow(match: match);
+      final teamId = await _highlights.requireUploadTeamIdOrThrow(
+        match: match,
+        isLeagueOwner: isLeagueOwner,
+        preferredTeamId: preferredTeamId,
+      );
       final folder = 'match_highlights/${match.leagueId}/${match.id}/$teamId';
 
       // Stable publicId suffix = highlightId (idempotent uploads overwrite same Cloudinary asset).

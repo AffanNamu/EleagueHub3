@@ -2585,6 +2585,26 @@ function _highlightIsParticipantTeam(matchDocData, teamId) {
   return d.homeTeamId === teamId || d.awayTeamId === teamId;
 }
 
+// Mirrors firestore.rules' canManageLeague()/isOwner()/isOrganizerByMembership():
+// a league owner/organizer can act on the league (here: upload a highlight
+// for either team) even without being personally assigned to one.
+async function _highlightUploaderCanManageLeague(env, leagueId, uid) {
+  const leagueRes = await _firestoreGetDocSA(env, `leagues/${leagueId}`);
+  if (leagueRes.ok && leagueRes.doc) {
+    const l = _fromFirestoreDoc(leagueRes.doc);
+    const owners = [l.organizerUid, l.ownerUid, l.organizerUserId, l.ownerId].map((v) =>
+      String(v || "").trim()
+    );
+    if (owners.includes(uid)) return true;
+  }
+  const memRes = await _firestoreGetDocSA(env, `leagues/${leagueId}/memberships/${uid}`);
+  if (memRes.ok && memRes.doc) {
+    const role = _fromFirestoreDoc(memRes.doc).role;
+    if (role === 0) return true; // LeagueRole.organizer
+  }
+  return false;
+}
+
 async function _sha1Hex(input) {
   const bytes = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest("SHA-1", bytes);
@@ -2634,15 +2654,26 @@ async function _signHighlightUpload(env, verified, body) {
   }
 
   const memRes = await _firestoreGetDocSA(env, `leagues/${leagueId}/memberships/${uid}`);
-  if (!memRes.ok || !memRes.doc) {
+  let actualTeamId = memRes.ok && memRes.doc ? String(_fromFirestoreDoc(memRes.doc).teamId || "").trim() : "";
+
+  if (!actualTeamId) {
+    // Not a team member (or no membership at all -- an organizer isn't
+    // required to join their own league as a player). League owners can
+    // still upload; the client already asked them which team (home/away)
+    // this highlight is for, embedded in the claimed folder. That choice
+    // is still verified below against the match's real home/away teams,
+    // same as the team-member path.
+    const canManage = await _highlightUploaderCanManageLeague(env, leagueId, uid);
+    if (canManage) {
+      actualTeamId = claimedTeamId;
+    }
+  }
+
+  if (!actualTeamId) {
     return { ok: false, status: 403, error: "You are not a member of this league." };
   }
-  const actualTeamId = String(_fromFirestoreDoc(memRes.doc).teamId || "").trim();
-  if (!actualTeamId) {
-    return { ok: false, status: 403, error: "You are not assigned to a team in this league." };
-  }
   // Never trust the client-supplied folder's teamId segment on its own --
-  // it must match what we just looked up server-side for this uid.
+  // it must match what we just resolved server-side for this uid.
   if (actualTeamId !== claimedTeamId) {
     return { ok: false, status: 403, error: "Folder does not match your team." };
   }
