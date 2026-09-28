@@ -1081,6 +1081,12 @@ async function _verifyAppStoreReceipt(env, receiptBase64) {
   return {
     productId: String(latest.product_id || "").trim(),
     transactionId: String(latest.transaction_id || "").trim(),
+    // NEW: needed to link this subscription to the signed-in uid (see
+    // apple_transactions/{originalTransactionId} below) so that a later,
+    // unauthenticated App Store Server Notification for the SAME
+    // subscription (renewal, refund, etc.) can be resolved back to a user
+    // -- ASN notifications never carry a Firebase uid or ID token.
+    originalTransactionId: String(latest.original_transaction_id || "").trim(),
     expiresMs: Number(latest.expires_date_ms || 0),
     // Present only if Apple/App Store support revoked or refunded this
     // specific transaction -- must never be treated as active if set.
@@ -1165,6 +1171,28 @@ async function _activateOrganizerProAppStore(env, uid, requestedPlan, requestedD
     updatedAtMs: nowMs,
   });
 
+  // NEW: link this Apple subscription to the eSportlyic user who just
+  // purchased it. App Store Server Notifications (renewals, refunds,
+  // grace periods, ...) arrive later with no Firebase ID token and no
+  // uid at all -- only originalTransactionId -- so this is the ONLY
+  // place that mapping can be safely established (we have a
+  // Firebase-authenticated uid here; ASN handlers never do). Best-effort:
+  // a failure here must not fail the purchase the user is actively
+  // waiting on.
+  if (purchase.originalTransactionId) {
+    try {
+      await _firestorePatchDoc(env, `apple_transactions/${purchase.originalTransactionId}`, {
+        uid,
+        productId: purchase.productId,
+        updatedAtMs: nowMs,
+      });
+    } catch (e) {
+      console.error(
+        `[appstore] Failed to link originalTransactionId=${purchase.originalTransactionId} to uid=${uid}: ${e.message || String(e)}`
+      );
+    }
+  }
+
   return {
     ok: true,
     status: 200,
@@ -1179,6 +1207,662 @@ async function _activateOrganizerProAppStore(env, uid, requestedPlan, requestedD
     currency: "",
     amount: 0,
   };
+}
+
+// ── App Store Server Notifications V2 ───────────────────────────────────
+//
+// Apple posts a signed JWS (`{ signedPayload: "..." }`) to this Worker
+// directly, server-to-server, whenever a subscription's state changes
+// (renewal, refund, billing failure, grace period, ...) -- independent of
+// whether the app is even open. Unlike every other route in this file,
+// there is no Firebase ID token here: Apple authenticates itself by
+// cryptographically signing the payload, so "verify the signature" IS the
+// authentication step.
+//
+// We deliberately do NOT use Apple's official `@apple/app-store-server-library`
+// npm package here. It was tried and it does not work in Cloudflare
+// Workers: one of its transitive dependencies (`jsrsasign`) performs
+// asynchronous I/O at MODULE LOAD time, which Workers hard-forbids outside
+// a request handler ("Disallowed operation called within global scope";
+// confirmed with `wrangler dev` -- this crashes the ENTIRE Worker, not just
+// this route, since Workers fail to start at all if any top-level import
+// throws). Both the JWS chain-verification and the JWS signature
+// verification below are hand-rolled instead, using only Web Crypto
+// (`crypto.subtle`) and manual ASN.1 DER parsing (reusing the same
+// `_readAsn1Length`/`_safeBase64Decode` primitives already used above for
+// Firebase's own cert verification) -- these run fine inside a request
+// handler. The algorithm mirrors Apple's own official library exactly
+// (github.com/apple/app-store-server-library-node's `jws_verification.ts`):
+// verify x5c[0] (leaf) was signed by x5c[1] (intermediate), verify x5c[1]
+// was signed by a TRUSTED ROOT WE PIN OURSELVES (never x5c[2] -- a sender
+// could put anything there), check the intermediate has CA:true and both
+// certs carry Apple's private extended-key-usage marker OIDs, check
+// certificate validity windows, then verify the outer JWS's ES256
+// signature using the now-trusted leaf public key. Validated during
+// development against the real Apple Root CA G3 / WWDR G6 intermediate /
+// production ECC signing certificate chain published in Apple's own
+// app-store-server-library-node test suite.
+//
+// NOT implemented: OCSP revocation checking (Apple's "enableOnlineChecks").
+// This is a real, disclosed scope reduction -- it means a cert that's
+// still time-valid but has been revoked by Apple mid-lifetime would still
+// pass. Apple's own library treats `enableOnlineChecks: false` as a
+// supported mode (used for offline/deterministic verification), so this
+// matches a documented degraded mode, not a silent gap.
+
+// Apple Root CA - G3, DER-encoded, base64. Sourced from Apple's own
+// official open-source app-store-server-library-node test suite
+// (REAL_APPLE_ROOT_BASE64_ENCODED in tests/unit-tests/jws_verification.test.ts)
+// -- this is the actual production root, not a mock. This is the ONLY
+// trust anchor; nothing received over the wire is ever trusted as a root.
+const APPLE_ROOT_CA_G3_BASE64 =
+  "MIICQzCCAcmgAwIBAgIILcX8iNLFS5UwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9vdCBDQSAtIEczMSYwJAYDVQQLDB1BcHBsZSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTETMBEGA1UECgwKQXBwbGUgSW5jLjELMAkGA1UEBhMCVVMwHhcNMTQwNDMwMTgxOTA2WhcNMzkwNDMwMTgxOTA2WjBnMRswGQYDVQQDDBJBcHBsZSBSb290IENBIC0gRzMxJjAkBgNVBAsMHUFwcGxlIENlcnRpZmljYXRpb24gQXV0aG9yaXR5MRMwEQYDVQQKDApBcHBsZSBJbmMuMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABJjpLz1AcqTtkyJygRMc3RCV8cWjTnHcFBbZDuWmBSp3ZHtfTjjTuxxEtX/1H7YyYl3J6YRbTzBPEVoA/VhYDKX1DyxNB0cTddqXl5dvMVztK517IDvYuVTZXpmkOlEKMaNCMEAwHQYDVR0OBBYEFLuw3qFYM4iapIqZ3r6966/ayySrMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMAoGCCqGSM49BAMDA2gAMGUCMQCD6cHEFl4aXTQY2e3v9GwOAEZLuN+yRhHFD/3meoyhpmvOwgPUnPWTxnS4at+qIxUCMG1mihDK1A3UT82NQz60imOlM27jbdoXt2QfyFMm+YhidDkLF1vLUagM6BgD56KyKA==";
+
+// The Apple App Store bundle identifier for this app (matches
+// ios/Runner.xcodeproj's PRODUCT_BUNDLE_IDENTIFIER / the Android
+// applicationId -- this app happens to use the same string on both
+// platforms). Hardcoded like APPLE_PRODUCT_TO_PLAN above rather than an
+// env var, since it's a fixed property of this specific app, not
+// per-environment config.
+const APPLE_BUNDLE_ID = "com.eleaguehub.app";
+
+// NOTE: `valueStart`/`end` are offsets into the `bytes` array that was
+// PASSED IN, not into the returned `raw`/`value` (which are fresh,
+// zero-indexed copies). `raw` is the whole TLV (tag+length+value) --
+// used when recursing into a nested structure starting fresh at pos=0.
+// `value` is just the content bytes, already correctly sliced from
+// `bytes` -- use this whenever the value bytes themselves are needed
+// (an OID, a BIT STRING's content, a time string, ...), never
+// `someTlv.raw.slice(someTlv.valueStart, someTlv.end)` (that double-
+// applies the offset, since `raw` is already re-based to start at `pos`).
+function _appleReadTlv(bytes, pos) {
+  const tag = bytes[pos];
+  const { length, bytesRead } = _readAsn1Length(bytes, pos + 1);
+  const valueStart = pos + 1 + bytesRead;
+  const end = valueStart + length;
+  return { tag, valueStart, end, raw: bytes.slice(pos, end), value: bytes.slice(valueStart, end) };
+}
+
+function _appleOidBytesToDotted(oidBytes) {
+  const parts = [];
+  const first = oidBytes[0];
+  parts.push(Math.floor(first / 40));
+  parts.push(first % 40);
+  let val = 0;
+  for (let i = 1; i < oidBytes.length; i++) {
+    val = (val << 7) | (oidBytes[i] & 0x7f);
+    if ((oidBytes[i] & 0x80) === 0) {
+      parts.push(val);
+      val = 0;
+    }
+  }
+  return parts.join(".");
+}
+
+// signatureAlgorithm OID -> WebCrypto hash name (Apple's whole chain is
+// ECDSA -- no other algorithm is accepted).
+const _APPLE_SIG_OID_TO_HASH = {
+  "1.2.840.10045.4.3.2": "SHA-256",
+  "1.2.840.10045.4.3.3": "SHA-384",
+  "1.2.840.10045.4.3.4": "SHA-512",
+};
+
+// EC namedCurve OID (from a SubjectPublicKeyInfo's AlgorithmIdentifier
+// parameters) -> WebCrypto curve name.
+const _APPLE_CURVE_OID_TO_NAME = {
+  "1.2.840.10045.3.1.7": "P-256",
+  "1.3.132.0.34": "P-384",
+  "1.3.132.0.35": "P-521",
+};
+
+function _appleCurveComponentLen(curveName) {
+  if (curveName === "P-256") return 32;
+  if (curveName === "P-384") return 48;
+  if (curveName === "P-521") return 66;
+  throw new Error("Unsupported EC curve: " + curveName);
+}
+
+function _appleEcCurveFromSpki(spkiRaw) {
+  // SubjectPublicKeyInfo ::= SEQUENCE { algorithm AlgorithmIdentifier, subjectPublicKey BIT STRING }
+  // AlgorithmIdentifier (for an EC key) ::= SEQUENCE { OID ecPublicKey, OID namedCurve }
+  const outer = _appleReadTlv(spkiRaw, 0);
+  const algSeq = _appleReadTlv(spkiRaw, outer.valueStart);
+  const algInner = _appleReadTlv(algSeq.raw, 0);
+  const algOid = _appleReadTlv(algSeq.raw, algInner.valueStart);
+  const curveOid = _appleReadTlv(algSeq.raw, algOid.end);
+  const curveOidDotted = _appleOidBytesToDotted(algSeq.raw.slice(curveOid.valueStart, curveOid.end));
+  const curveName = _APPLE_CURVE_OID_TO_NAME[curveOidDotted];
+  if (!curveName) throw new Error("Unsupported EC curve OID: " + curveOidDotted);
+  return curveName;
+}
+
+// DER SEQUENCE{ INTEGER r, INTEGER s } -> raw r||s, fixed-width per curve
+// (WebCrypto's ECDSA verify expects raw r||s per the JOSE/WebCrypto spec,
+// never the ASN.1 DER form X.509 certificate signatures are stored in).
+function _appleDerEcdsaSigToRawRS(derSig, compLen) {
+  const seq = _appleReadTlv(derSig, 0);
+  const rTlv = _appleReadTlv(derSig, seq.valueStart);
+  const sTlv = _appleReadTlv(derSig, rTlv.end);
+
+  function intToFixed(tlv) {
+    let bytes = tlv.value;
+    while (bytes.length > compLen && bytes[0] === 0x00) bytes = bytes.slice(1);
+    if (bytes.length > compLen) throw new Error("ECDSA signature integer too large for curve");
+    const out = new Uint8Array(compLen);
+    out.set(bytes, compLen - bytes.length);
+    return out;
+  }
+
+  const r = intToFixed(rTlv);
+  const s = intToFixed(sTlv);
+  const out = new Uint8Array(compLen * 2);
+  out.set(r, 0);
+  out.set(s, compLen);
+  return out;
+}
+
+// Parses one DER X.509 certificate into exactly the fields the chain
+// verifier needs. Structure per RFC 5280; mirrors the working, tested
+// walker already used by _extractSpkiFromX509Der above, extended to also
+// read validity dates, issuer/subject raw bytes (for byte-exact identity
+// comparison instead of formatting distinguished-name strings), the outer
+// signatureAlgorithm + signatureValue, and extension OIDs / BasicConstraints.
+function _appleParseCertificate(certDer) {
+  const bytes = certDer instanceof Uint8Array ? certDer : new Uint8Array(certDer);
+
+  // Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }
+  const outer = _appleReadTlv(bytes, 0);
+  const tbs = _appleReadTlv(bytes, outer.valueStart); // raw TLV incl. header -- this exact byte range is what's signed
+  const sigAlgTlv = _appleReadTlv(bytes, tbs.end);
+  const sigValueTlv = _appleReadTlv(bytes, sigAlgTlv.end); // BIT STRING
+  // BIT STRING's first content byte is the "unused bits" count (always 0 for DER signatures)
+  const sigBytes = bytes.slice(sigValueTlv.valueStart + 1, sigValueTlv.end);
+
+  const sigAlgSeq = _appleReadTlv(sigAlgTlv.raw, 0);
+  const sigAlgOidTlv = _appleReadTlv(sigAlgTlv.raw, sigAlgSeq.valueStart);
+  const sigAlgOid = _appleOidBytesToDotted(sigAlgTlv.raw.slice(sigAlgOidTlv.valueStart, sigAlgOidTlv.end));
+
+  // Walk tbsCertificate's fields.
+  const tbsSeq = _appleReadTlv(tbs.raw, 0);
+  let p = tbsSeq.valueStart;
+  if (tbs.raw[p] === 0xa0) {
+    const version = _appleReadTlv(tbs.raw, p);
+    p = version.end;
+  }
+  const serial = _appleReadTlv(tbs.raw, p); p = serial.end;
+  const tbsSigAlg = _appleReadTlv(tbs.raw, p); p = tbsSigAlg.end;
+  const issuer = _appleReadTlv(tbs.raw, p); p = issuer.end;
+  const validity = _appleReadTlv(tbs.raw, p); p = validity.end;
+  const subject = _appleReadTlv(tbs.raw, p); p = subject.end;
+  const spki = _appleReadTlv(tbs.raw, p); p = spki.end;
+
+  let extensionsTlv = null;
+  while (p < tbs.raw.length) {
+    const tlv = _appleReadTlv(tbs.raw, p);
+    if (tlv.tag === 0xa3) extensionsTlv = tlv; // extensions [3] EXPLICIT
+    p = tlv.end;
+  }
+
+  const validitySeq = _appleReadTlv(validity.raw, 0);
+  const notBeforeTlv = _appleReadTlv(validity.raw, validitySeq.valueStart);
+  const notAfterTlv = _appleReadTlv(validity.raw, notBeforeTlv.end);
+  const notBefore = _appleParseAsn1Time(notBeforeTlv);
+  const notAfter = _appleParseAsn1Time(notAfterTlv);
+
+  const extensionOids = new Set();
+  let basicConstraintsCA = false;
+  if (extensionsTlv) {
+    // extensionsTlv.raw already starts at the [3] tag; unwrap it, then read the inner SEQUENCE OF Extension.
+    const wrapper = _appleReadTlv(extensionsTlv.raw, 0);
+    const inner = _appleReadTlv(extensionsTlv.raw, wrapper.valueStart);
+    let ep = inner.valueStart;
+    while (ep < inner.end) {
+      const extTlv = _appleReadTlv(extensionsTlv.raw, ep);
+      ep = extTlv.end;
+      const extSeq = _appleReadTlv(extTlv.raw, 0);
+      let xp = extSeq.valueStart;
+      const oidTlv = _appleReadTlv(extTlv.raw, xp); xp = oidTlv.end;
+      const oidDotted = _appleOidBytesToDotted(extTlv.raw.slice(oidTlv.valueStart, oidTlv.end));
+      extensionOids.add(oidDotted);
+      if (extTlv.raw[xp] === 0x01) {
+        const boolTlv = _appleReadTlv(extTlv.raw, xp);
+        xp = boolTlv.end;
+      }
+      const valueTlv = _appleReadTlv(extTlv.raw, xp); // extnValue OCTET STRING
+      if (oidDotted === "2.5.29.19") {
+        const octetContent = extTlv.raw.slice(valueTlv.valueStart, valueTlv.end);
+        if (octetContent.length > 2) {
+          const bcSeq = _appleReadTlv(octetContent, 0);
+          if (octetContent[bcSeq.valueStart] === 0x01) {
+            basicConstraintsCA = octetContent[bcSeq.valueStart + 2] !== 0x00;
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    tbsRaw: tbs.raw,
+    sigAlgOid,
+    sigBytes,
+    issuerRaw: issuer.raw,
+    subjectRaw: subject.raw,
+    spkiRaw: spki.raw,
+    notBefore,
+    notAfter,
+    extensionOids,
+    basicConstraintsCA,
+  };
+}
+
+function _appleParseAsn1Time(tlv) {
+  const isUtcTime = tlv.tag === 0x17;
+  const str = new TextDecoder().decode(tlv.value);
+  let y, mo, d, h, mi, s;
+  if (isUtcTime) {
+    const yy = parseInt(str.slice(0, 2), 10);
+    y = yy < 50 ? 2000 + yy : 1900 + yy;
+    mo = str.slice(2, 4); d = str.slice(4, 6); h = str.slice(6, 8); mi = str.slice(8, 10); s = str.slice(10, 12);
+  } else {
+    y = parseInt(str.slice(0, 4), 10);
+    mo = str.slice(4, 6); d = str.slice(6, 8); h = str.slice(8, 10); mi = str.slice(10, 12); s = str.slice(12, 14);
+  }
+  return new Date(Date.UTC(y, parseInt(mo, 10) - 1, parseInt(d, 10), parseInt(h, 10), parseInt(mi, 10), parseInt(s, 10)));
+}
+
+function _appleBytesEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+async function _appleImportEcPublicKey(spkiRaw, curveName) {
+  return crypto.subtle.importKey("spki", spkiRaw, { name: "ECDSA", namedCurve: curveName }, false, ["verify"]);
+}
+
+// Verifies `subjectCert` was signed by `issuerCert`'s public key (curve
+// and hash auto-detected from each cert -- Apple's root/intermediate use
+// P-384/SHA-384, its leaf signing certs use P-256/SHA-256).
+async function _appleVerifyCertSignedBy(subjectCert, issuerCert) {
+  const hashName = _APPLE_SIG_OID_TO_HASH[subjectCert.sigAlgOid];
+  if (!hashName) throw new Error("Unsupported certificate signature algorithm OID: " + subjectCert.sigAlgOid);
+  const curveName = _appleEcCurveFromSpki(issuerCert.spkiRaw);
+  const compLen = _appleCurveComponentLen(curveName);
+  const rawSig = _appleDerEcdsaSigToRawRS(subjectCert.sigBytes, compLen);
+  const issuerKey = await _appleImportEcPublicKey(issuerCert.spkiRaw, curveName);
+  return crypto.subtle.verify({ name: "ECDSA", hash: hashName }, issuerKey, rawSig, subjectCert.tbsRaw);
+}
+
+function _appleCheckCertDates(cert, effectiveDate, skewMs) {
+  const t = effectiveDate.getTime();
+  return cert.notBefore.getTime() <= t + skewMs && cert.notAfter.getTime() >= t - skewMs;
+}
+
+// Verifies the x5c certificate chain from a JWS header and returns the
+// leaf certificate's raw SubjectPublicKeyInfo (used to verify the JWS's
+// own signature). Mirrors Apple's official app-store-server-library-node
+// `verifyCertificateChainWithoutCaching` (see the large comment above).
+async function _appleVerifyCertChainAndGetLeafSpki(x5cBase64Array, effectiveDate) {
+  if (!Array.isArray(x5cBase64Array) || x5cBase64Array.length !== 3) {
+    throw new Error(
+      `Invalid x5c chain length: expected 3, got ${Array.isArray(x5cBase64Array) ? x5cBase64Array.length : 0}`
+    );
+  }
+
+  const leaf = _appleParseCertificate(_safeBase64Decode(x5cBase64Array[0]));
+  const intermediate = _appleParseCertificate(_safeBase64Decode(x5cBase64Array[1]));
+  // x5c[2] (whatever "root" the sender included) is intentionally IGNORED
+  // for trust purposes -- trust is anchored ONLY to APPLE_ROOT_CA_G3_BASE64,
+  // pinned in this file, never to anything a peer sent us.
+  const pinnedRoot = _appleParseCertificate(_safeBase64Decode(APPLE_ROOT_CA_G3_BASE64));
+
+  if (!_appleBytesEqual(intermediate.issuerRaw, pinnedRoot.subjectRaw)) {
+    throw new Error("Intermediate certificate was not issued by the pinned Apple root");
+  }
+  if (!(await _appleVerifyCertSignedBy(intermediate, pinnedRoot))) {
+    throw new Error("Intermediate certificate signature did not verify against the pinned Apple root");
+  }
+  if (!_appleBytesEqual(leaf.issuerRaw, intermediate.subjectRaw)) {
+    throw new Error("Leaf certificate issuer does not match intermediate subject");
+  }
+  if (!(await _appleVerifyCertSignedBy(leaf, intermediate))) {
+    throw new Error("Leaf certificate signature did not verify against the intermediate");
+  }
+  if (!intermediate.basicConstraintsCA) {
+    throw new Error("Intermediate certificate is not marked as a CA");
+  }
+  // Apple's private extended-key-usage marker OIDs, present on genuine
+  // App Store signing certs -- same checks Apple's own library performs.
+  if (!leaf.extensionOids.has("1.2.840.113635.100.6.11.1")) {
+    throw new Error("Leaf certificate missing Apple App Store signing marker extension");
+  }
+  if (!intermediate.extensionOids.has("1.2.840.113635.100.6.2.1")) {
+    throw new Error("Intermediate certificate missing Apple WWDR marker extension");
+  }
+
+  const skewMs = 60000;
+  if (!_appleCheckCertDates(leaf, effectiveDate, skewMs)) throw new Error("Leaf certificate is outside its validity window");
+  if (!_appleCheckCertDates(intermediate, effectiveDate, skewMs)) throw new Error("Intermediate certificate is outside its validity window");
+  if (!_appleCheckCertDates(pinnedRoot, effectiveDate, skewMs)) throw new Error("Pinned root certificate is outside its validity window");
+
+  return leaf.spkiRaw;
+}
+
+// Verifies and decodes ONE Apple-signed JWS string. Used for the outer
+// App Store Server Notification `signedPayload`, and identically for the
+// nested `signedTransactionInfo` / `signedRenewalInfo` blobs inside it --
+// all three are independently JWS-signed the same way.
+async function _appleVerifyAndDecodeSignedPayload(jws) {
+  const parts = String(jws || "").split(".");
+  if (parts.length !== 3) throw new Error("Malformed JWS: expected header.payload.signature");
+
+  const header = JSON.parse(new TextDecoder().decode(_safeBase64Decode(parts[0])));
+  if (header.alg !== "ES256") throw new Error(`Unsupported/unexpected JWS alg: ${header.alg}`);
+
+  // Peek at the (not-yet-verified) payload only to read its claimed
+  // signedDate, used purely to pick an effective date for the
+  // certificate validity-window check below -- mirrors Apple's own
+  // library, which does the same before verifying the signature. Nothing
+  // from this unverified payload is acted upon until AFTER the signature
+  // check below succeeds.
+  const unverifiedPayload = JSON.parse(new TextDecoder().decode(_safeBase64Decode(parts[1])));
+  const effectiveDate = unverifiedPayload.signedDate ? new Date(Number(unverifiedPayload.signedDate)) : new Date();
+
+  const leafSpkiRaw = await _appleVerifyCertChainAndGetLeafSpki(header.x5c, effectiveDate);
+  const verifyKey = await crypto.subtle.importKey("spki", leafSpkiRaw, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+
+  const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+  const sigBytes = _safeBase64Decode(parts[2]);
+  const ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, verifyKey, sigBytes, signingInput);
+  if (!ok) throw new Error("JWS signature verification failed");
+
+  return unverifiedPayload;
+}
+
+async function _appleFindUidForOriginalTransactionId(env, originalTransactionId) {
+  const res = await _firestoreGetDocSA(env, `apple_transactions/${originalTransactionId}`);
+  if (!res.ok || !res.doc) return "";
+  const fields = _fromFirestoreDoc(res.doc);
+  return String(fields.uid || "").trim();
+}
+
+async function _appleApplyEntitlement(env, uid, plan, duration, expiresAtMs) {
+  const nowMs = Date.now();
+  const currentClaims = await _lookupExistingCustomClaims(env, uid);
+  const nextClaims = {
+    ...currentClaims,
+    organizerPro: true,
+    organizerProPlan: plan,
+    organizerProDuration: duration,
+    organizerProExpiryMs: expiresAtMs,
+  };
+  await _setFirebaseCustomClaims(env, uid, nextClaims);
+  await _firestorePatchDoc(env, `users/${uid}`, {
+    activePlanId: plan,
+    activePlanDurationId: duration,
+    planExpiresAtMs: expiresAtMs,
+    planProvider: "app_store",
+    updatedAt: nowMs,
+  });
+}
+
+async function _appleRevokeEntitlement(env, uid, reason) {
+  const nowMs = Date.now();
+  const currentClaims = await _lookupExistingCustomClaims(env, uid);
+  const nextClaims = { ...currentClaims, organizerPro: false, organizerProExpiryMs: 0 };
+  await _setFirebaseCustomClaims(env, uid, nextClaims);
+  await _firestorePatchDoc(env, `users/${uid}`, {
+    planExpiresAtMs: 0,
+    updatedAt: nowMs,
+  });
+  console.log(`[appstore/notifications] Revoked entitlement for uid=${uid} reason=${reason}`);
+}
+
+// The notification-lifecycle state machine. See the large comment at the
+// top of this section for why there's no Firebase auth here -- the
+// caller (the route handler below) has already verified the JWS signature
+// before this runs, so `decoded`'s contents are trustworthy at this point.
+async function _appleProcessNotificationEffects(env, decoded, notificationSignedDateMs) {
+  const notificationType = String(decoded.notificationType || "").trim();
+  const subtype = String(decoded.subtype || "").trim();
+  const data = decoded.data || {};
+
+  let transactionInfo = null;
+  let renewalInfo = null;
+  try {
+    if (data.signedTransactionInfo) {
+      transactionInfo = await _appleVerifyAndDecodeSignedPayload(data.signedTransactionInfo);
+    }
+    if (data.signedRenewalInfo) {
+      renewalInfo = await _appleVerifyAndDecodeSignedPayload(data.signedRenewalInfo);
+    }
+  } catch (e) {
+    throw new Error(`Nested signed field failed verification: ${e.message || String(e)}`);
+  }
+
+  if (!transactionInfo) {
+    return { action: "logged-only", reason: "no-transaction-info", notificationType, subtype };
+  }
+
+  const originalTransactionId = String(transactionInfo.originalTransactionId || "").trim();
+  const productId = String(transactionInfo.productId || "").trim();
+  if (!originalTransactionId) {
+    return { action: "logged-only", reason: "no-original-transaction-id", notificationType, subtype };
+  }
+
+  const uid = await _appleFindUidForOriginalTransactionId(env, originalTransactionId);
+  if (!uid) {
+    // This subscription has never gone through the pull-based activation
+    // flow (_activateOrganizerProAppStore), so we don't yet know which
+    // eSportlyic account it belongs to. Never guess -- just park it for
+    // later reconciliation once/if the user's own purchase-activation
+    // call links it.
+    await _firestorePatchDoc(env, `apple_notifications_unlinked/${originalTransactionId}`, {
+      lastNotificationType: notificationType,
+      lastNotificationSubtype: subtype,
+      productId,
+      updatedAtMs: Date.now(),
+    });
+    return { action: "unlinked", originalTransactionId, notificationType, subtype };
+  }
+
+  const entPath = `users/${uid}/entitlements/master_league`;
+  const existing = await _firestoreGetDocSA(env, entPath);
+  const existingFields = existing.ok && existing.doc ? _fromFirestoreDoc(existing.doc) : {};
+
+  // Out-of-order guard: a retried/delayed notification must never undo a
+  // newer one. Every JWS carries Apple's own server-stamped `signedDate`;
+  // only apply an update if it's at least as new as the last one we
+  // actually applied for this specific subscription.
+  const lastAppliedSignedDateMs = Number(existingFields.lastNotificationSignedDateMs || 0);
+  if (notificationSignedDateMs < lastAppliedSignedDateMs) {
+    return { action: "stale-ignored", uid, originalTransactionId, notificationType, subtype };
+  }
+
+  const resolved = APPLE_PRODUCT_TO_PLAN[productId];
+  const expiresAtMs = Number(transactionInfo.expiresDate || 0);
+  const revocationReason = transactionInfo.revocationReason;
+
+  const baseFields = {
+    lastNotificationType: notificationType,
+    lastNotificationSubtype: subtype,
+    lastNotificationSignedDateMs: notificationSignedDateMs,
+    environment: String(data.environment || ""),
+    transactionId: String(transactionInfo.transactionId || ""),
+    provider: "app_store",
+    updatedAtMs: Date.now(),
+  };
+
+  switch (notificationType) {
+    case "SUBSCRIBED":
+    case "DID_RENEW":
+    case "OFFER_REDEEMED":
+    case "RENEWAL_EXTENDED":
+    case "RENEWAL_EXTENSION": {
+      if (!resolved) return { action: "logged-only", reason: "unrecognized-product", productId, notificationType };
+      if (!(expiresAtMs > Date.now())) return { action: "logged-only", reason: "no-future-expiry", notificationType };
+      await _appleApplyEntitlement(env, uid, resolved.plan, resolved.duration, expiresAtMs);
+      await _firestorePatchDoc(env, entPath, {
+        ...baseFields,
+        plan: resolved.plan,
+        duration: resolved.duration,
+        expiresAtMs,
+        active: true,
+      });
+      return { action: "granted", uid, plan: resolved.plan, expiresAtMs, notificationType };
+    }
+
+    case "DID_FAIL_TO_RENEW": {
+      if (subtype === "GRACE_PERIOD" && renewalInfo && renewalInfo.gracePeriodExpiresDate && resolved) {
+        const graceExpiresAtMs = Number(renewalInfo.gracePeriodExpiresDate || 0);
+        if (graceExpiresAtMs > Date.now()) {
+          await _appleApplyEntitlement(env, uid, resolved.plan, resolved.duration, graceExpiresAtMs);
+          await _firestorePatchDoc(env, entPath, {
+            ...baseFields,
+            plan: resolved.plan,
+            duration: resolved.duration,
+            expiresAtMs: graceExpiresAtMs,
+            active: true,
+          });
+          return { action: "grace-period", uid, graceExpiresAtMs, notificationType };
+        }
+      }
+      await _firestorePatchDoc(env, entPath, baseFields);
+      return { action: "logged-only", notificationType, subtype };
+    }
+
+    case "EXPIRED":
+    case "GRACE_PERIOD_EXPIRED": {
+      await _appleRevokeEntitlement(env, uid, notificationType);
+      await _firestorePatchDoc(env, entPath, { ...baseFields, active: false });
+      return { action: "expired", uid, notificationType };
+    }
+
+    case "REFUND":
+    case "REVOKE": {
+      const reasonStr = `${notificationType}:${revocationReason ?? ""}`;
+      await _appleRevokeEntitlement(env, uid, reasonStr);
+      await _firestorePatchDoc(env, entPath, {
+        ...baseFields,
+        active: false,
+        revocationReason: String(revocationReason ?? ""),
+      });
+      return { action: "revoked", uid, notificationType };
+    }
+
+    case "DID_CHANGE_RENEWAL_STATUS":
+    case "DID_CHANGE_RENEWAL_PREF": {
+      const metaFields = { ...baseFields };
+      if (renewalInfo) {
+        metaFields.autoRenewStatus = !!renewalInfo.autoRenewStatus;
+        metaFields.autoRenewProductId = String(renewalInfo.autoRenewProductId || "");
+      }
+      await _firestorePatchDoc(env, entPath, metaFields);
+      return { action: "metadata-updated", uid, notificationType };
+    }
+
+    // Informational / no entitlement change.
+    case "REFUND_DECLINED":
+    case "PRICE_INCREASE":
+    case "CONSUMPTION_REQUEST":
+      await _firestorePatchDoc(env, entPath, baseFields);
+      return { action: "logged-only", notificationType, subtype };
+
+    default:
+      // Unknown/future notification type: never throw -- just record it.
+      await _firestorePatchDoc(env, entPath, baseFields);
+      return { action: "logged-only", notificationType, subtype, unrecognized: true };
+  }
+}
+
+// Entry point for the /appstore/notifications route. Returns
+// { status, body } for the caller to send as the HTTP response.
+//
+// Response code policy (per Apple's docs): 200 for "handled" AND for
+// "already processed" / "can't link to a user yet" -- we don't want
+// Apple's retry-with-backoff for cases that aren't going to change on
+// retry. Non-200 only for genuine transient failures, so Apple's own
+// retry (up to ~24h) does the retrying for us.
+async function _appleHandleServerNotification(env, requestBodyText) {
+  let signedPayload;
+  try {
+    const parsed = JSON.parse(requestBodyText);
+    signedPayload = String(parsed.signedPayload || "").trim();
+  } catch (e) {
+    return { status: 400, body: { error: "Invalid JSON body" } };
+  }
+  if (!signedPayload) return { status: 400, body: { error: "Missing signedPayload" } };
+
+  let decoded;
+  try {
+    decoded = await _appleVerifyAndDecodeSignedPayload(signedPayload);
+  } catch (e) {
+    console.error("[appstore/notifications] JWS verification failed:", e.message || String(e));
+    return { status: 400, body: { error: "Signature verification failed" } };
+  }
+
+  const notificationUUID = String(decoded.notificationUUID || "").trim();
+  const notificationType = String(decoded.notificationType || "").trim();
+  const subtype = String(decoded.subtype || "").trim();
+  const data = decoded.data || {};
+  const bundleId = String(data.bundleId || "").trim();
+  const environment = String(data.environment || "").trim();
+  const signedDateMs = Number(decoded.signedDate || 0);
+
+  console.log(
+    `[appstore/notifications] type=${notificationType} subtype=${subtype} uuid=${notificationUUID} env=${environment} bundleId=${bundleId}`
+  );
+
+  if (bundleId && bundleId !== APPLE_BUNDLE_ID) {
+    console.error(`[appstore/notifications] Bundle ID mismatch: got "${bundleId}", expected "${APPLE_BUNDLE_ID}"`);
+    // Not our app -- acknowledge so Apple doesn't retry, but do nothing.
+    return { status: 200, body: { ok: true, skipped: "bundle-id-mismatch" } };
+  }
+
+  if (!notificationUUID) {
+    console.error("[appstore/notifications] Missing notificationUUID; acking without processing.");
+    return { status: 200, body: { ok: true, skipped: "missing-notification-uuid" } };
+  }
+
+  // Idempotency: Apple retries notifications. `notificationUUID` is
+  // Apple's own dedupe key for this exact delivery. If we've already
+  // fully processed it, just re-acknowledge -- do NOT redo the effects.
+  // (The effects below are themselves idempotent and guarded by the
+  // out-of-order signedDate check above, which is the actual safety net;
+  // this ledger is purely an optimization to skip redundant work on
+  // ordinary retries, following the same GET-then-write pattern already
+  // used elsewhere in this file, e.g. _verifyMasterLeaguePayment.)
+  const ledgerPath = `apple_notifications/${notificationUUID}`;
+  const existingLedger = await _firestoreGetDocSA(env, ledgerPath);
+  if (existingLedger.ok && existingLedger.doc) {
+    return { status: 200, body: { ok: true, alreadyProcessed: true } };
+  }
+
+  let outcome;
+  try {
+    outcome = await _appleProcessNotificationEffects(env, decoded, signedDateMs);
+  } catch (e) {
+    console.error("[appstore/notifications] Failed to process notification effects:", e.message || String(e));
+    // Transient/unexpected failure -- return non-200 so Apple retries.
+    return { status: 500, body: { error: "Internal processing error" } };
+  }
+
+  try {
+    await _firestoreCreateDocSA(env, ledgerPath, {
+      notificationType,
+      subtype,
+      environment,
+      outcomeAction: String(outcome.action || ""),
+      processedAtMs: Date.now(),
+    });
+  } catch (e) {
+    // The effects already applied successfully; a failure to write the
+    // ledger just means a future retry might redo (harmlessly idempotent)
+    // work. Not worth failing the whole request over.
+    console.error("[appstore/notifications] Failed to write idempotency ledger:", e.message || String(e));
+  }
+
+  return { status: 200, body: { ok: true, ...outcome } };
 }
 
 async function _readPricingConfig(env) {
@@ -2066,6 +2750,24 @@ export default {
           : jsonResponse({ error: out.error }, out.status || 400);
       } catch (e) {
         return jsonResponse({ error: "Premium error: " + (e.message || String(e)) }, 500);
+      }
+    }
+
+    if (url.pathname === "/appstore/notifications" && request.method === "POST") {
+      // NO Firebase auth check here -- Apple calls this directly,
+      // server-to-server. Authentication IS verifying the JWS signature
+      // inside _appleHandleServerNotification. Configure the SAME URL as
+      // both the "Production Server URL" and "Sandbox Server URL" in App
+      // Store Connect -- the decoded payload's own `data.environment`
+      // field tells us which one a given notification is from.
+      try {
+        const rawBody = await request.text();
+        const { status, body } = await _appleHandleServerNotification(env, rawBody);
+        return jsonResponse(body, status);
+      } catch (e) {
+        console.error("[appstore/notifications] Unhandled:", e.message || String(e), e.stack || "");
+        // Unexpected error -- non-200 so Apple retries.
+        return jsonResponse({ error: "Internal error" }, 500);
       }
     }
 

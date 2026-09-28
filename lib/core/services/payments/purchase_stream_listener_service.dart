@@ -24,17 +24,8 @@
 // is idempotent and safe to call even if a concurrent _purchase() call
 // is also handling the same event.
 //
-// WIRING REQUIRED (not done automatically — this file only defines the
-// service, it does not start itself):
-// In your existing app_startup_service.dart, add one line to whatever
-// your startup sequence already runs early, e.g.:
-//
-//   PurchaseStreamListenerService.instance.start();
-//
-// Call it once, early, alongside your other one-time startup calls
-// (Firebase init, etc). Do NOT call start() more than once per app run
-// — it guards against that internally, but it's still meant to be a
-// single call site.
+// Wired via AppStartupService.instance.onAppStart() (called from
+// lib/main.dart on every cold start), which calls start() below.
 
 import 'dart:async';
 

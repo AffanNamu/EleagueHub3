@@ -2547,6 +2547,35 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Apple App Store Server Notifications V2 support. All three
+    // collections below are written EXCLUSIVELY by the Cloudflare
+    // Worker's service-account credentials (which bypass these rules
+    // entirely), the same way users/{uid}/entitlements/{id} above is
+    // server-only. No client, including the owning user, ever reads or
+    // writes these directly.
+    match /apple_transactions/{originalTransactionId} {
+      // originalTransactionId -> uid link, established when a user's own
+      // purchase is verified (_activateOrganizerProAppStore). Lets a
+      // later, unauthenticated App Store Server Notification for the same
+      // subscription be resolved back to the right eSportlyic account.
+      allow get, list, create, update, delete: if false;
+    }
+
+    match /apple_notifications/{notificationUUID} {
+      // Idempotency ledger keyed by Apple's own per-delivery UUID --
+      // lets the ASN handler recognize (and skip) a notification it has
+      // already fully processed.
+      allow get, list, create, update, delete: if false;
+    }
+
+    match /apple_notifications_unlinked/{originalTransactionId} {
+      // Holds a notification whose originalTransactionId has no matching
+      // apple_transactions/{id} yet (the user's own purchase-activation
+      // call hasn't linked it). Reconciliation-only; never used to grant
+      // entitlement.
+      allow get, list, create, update, delete: if false;
+    }
+
     match /analytics_summary/{docId} {
       allow get, list: if isPricingAdmin();
       allow create, update: if isPricingAdmin();

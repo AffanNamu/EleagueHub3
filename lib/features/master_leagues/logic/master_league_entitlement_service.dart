@@ -691,16 +691,14 @@ class MasterLeagueEntitlementService {
     // becomes the source of truth instead of a client-computed expiry
     // estimate.
     //
-    // ⚠️ SERVER-SIDE DEPENDENCY: this branch sends `provider: 'app_store'`
-    // for iOS purchases so the worker can dispatch to Apple's App Store
-    // Server API instead of Google's. That server-side handling does
-    // NOT exist yet as far as this Flutter codebase can confirm — it
-    // has to be added to the Cloudflare Worker itself (separate
-    // codebase). Until it is, iOS purchases will either be rejected by
-    // the worker (safe, but blocks all iOS plan purchases) or, if the
-    // worker isn't strict about unrecognized providers, could be
-    // granted without real verification. Do not ship iOS purchases
-    // live until that worker-side change is confirmed.
+    // This branch sends `provider: 'app_store'` for iOS purchases so the
+    // worker dispatches to Apple instead of Google. The worker-side
+    // App Store branch (_verifyAppStoreReceipt/_activateOrganizerProAppStore
+    // in worker/src/index.js) verifies the receipt against Apple's
+    // verifyReceipt endpoint and rejects any purchase whose verified
+    // product/plan/duration doesn't match what was requested, or whose
+    // expiry isn't in the future — same guarantee as the Google Play
+    // branch.
     if (_isGooglePlayProvider(provider) || _isAppStoreProvider(provider)) {
       final idToken = await user.getIdToken(true);
       final safeIdToken = (idToken ?? '').trim();
