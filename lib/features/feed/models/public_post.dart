@@ -48,6 +48,7 @@ class PublicPost {
     required this.createdAtMs,
     required this.text,
     required this.mediaUrl,
+    required this.mediaType,
     required this.audioUrl, // NEW: Audio support
     required this.postType,
     required this.leagueId,
@@ -68,6 +69,12 @@ class PublicPost {
   final int createdAtMs;
   final String text;
   final String mediaUrl;
+
+  /// 'image' or 'video' — which kind of content [mediaUrl] is. Older posts
+  /// (written before this field existed) have it stored empty; treated as
+  /// 'image' by [fromDoc] since that was the only kind mediaUrl could ever
+  /// hold before video posting existed.
+  final String mediaType;
   final String audioUrl; // NEW: Audio support
   final PublicPostType postType;
 
@@ -99,6 +106,7 @@ class PublicPost {
       createdAtMs: _asInt(map['createdAtMs']),
       text: (map['text'] as String? ?? '').trim(),
       mediaUrl: (map['mediaUrl'] as String? ?? '').trim(),
+      mediaType: _resolveMediaType(map),
       audioUrl: (map['audioUrl'] as String? ?? '').trim(), // NEW: Audio support
       postType: PublicPostTypeX.fromStorage(map['postType'] as String?),
       leagueId: (map['leagueId'] as String? ?? '').trim(),
@@ -117,5 +125,12 @@ class PublicPost {
     if (v is int) return v;
     if (v is num) return v.toInt();
     return 0;
+  }
+
+  static String _resolveMediaType(Map<String, dynamic> map) {
+    final stored = (map['mediaType'] as String? ?? '').trim();
+    if (stored == 'image' || stored == 'video') return stored;
+    final mediaUrl = (map['mediaUrl'] as String? ?? '').trim();
+    return mediaUrl.isEmpty ? '' : 'image';
   }
 }

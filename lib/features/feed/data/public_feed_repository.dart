@@ -84,6 +84,7 @@ class PublicFeedRepository {
     required String authorPhotoUrl,
     required String text,
     String mediaUrl = '',
+    String mediaType = '',
     String audioUrl = '', // NEW: Audio support
     PublicPostType postType = PublicPostType.text,
     String leagueId = '',
@@ -109,6 +110,7 @@ class PublicFeedRepository {
         'createdAtMs': now,
         'text': trimmedText.length > 2000 ? trimmedText.substring(0, 2000) : trimmedText,
         'mediaUrl': mediaUrl.trim(),
+        'mediaType': mediaType.trim(),
         'audioUrl': audioUrl.trim(), // NEW: Audio support
         'postType': postType.storageValue,
         'leagueId': leagueId.trim(),
@@ -249,6 +251,7 @@ class PublicFeedRepository {
     required String authorDisplayName,
     required String authorPhotoUrl,
     required String text,
+    String parentCommentId = '',
   }) async {
     try {
       final authUid = _requireAuthUid();
@@ -282,6 +285,7 @@ class PublicFeedRepository {
           'text': safeText,
           'createdAtMs': now,
           'deleted': false,
+          'parentCommentId': parentCommentId.trim(),
         });
         txn.update(postRef, {'commentCount': currentCount + 1});
       }).timeout(const Duration(seconds: 20));

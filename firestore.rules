@@ -2723,7 +2723,7 @@ service cloud.firestore {
         )
         && request.resource.data.keys().hasOnly([
           'postId','authorId','authorDisplayName','authorPhotoUrl','createdAtMs',
-          'text','mediaUrl','audioUrl','postType','leagueId','leagueName',
+          'text','mediaUrl','mediaType','audioUrl','postType','leagueId','leagueName',
           'matchScoreHome','matchScoreAway','matchOpponentName',
           'isPromoted','likeCount','commentCount','deleted'
         ])
@@ -2734,6 +2734,7 @@ service cloud.firestore {
         && isReasonableMs(request.resource.data.createdAtMs)
         && (request.resource.data.text is string) && (request.resource.data.text.size() <= 2000)
         && (request.resource.data.mediaUrl is string) && (request.resource.data.mediaUrl.size() <= 2000)
+        && (!('mediaType' in request.resource.data) || ((request.resource.data.mediaType is string) && (request.resource.data.mediaType in ['', 'image', 'video'])))
         && (!('audioUrl' in request.resource.data) || ((request.resource.data.audioUrl is string) && (request.resource.data.audioUrl.size() <= 2000)))
         && (request.resource.data.postType is string) && (request.resource.data.postType in ['text','competition_promo','match_result'])
         && (request.resource.data.leagueId is string) && (request.resource.data.leagueId.size() <= 200)
@@ -2787,7 +2788,7 @@ service cloud.firestore {
         allow create: if signedIn()
           && request.resource.data.keys().hasOnly([
             'commentId','postId','authorId','authorDisplayName','authorPhotoUrl',
-            'text','createdAtMs','deleted'
+            'text','createdAtMs','deleted','parentCommentId'
           ])
           && (request.resource.data.commentId is string) && (request.resource.data.commentId == commentId)
           && (request.resource.data.postId is string) && (request.resource.data.postId == postId)
@@ -2796,7 +2797,12 @@ service cloud.firestore {
           && (request.resource.data.authorPhotoUrl is string) && (request.resource.data.authorPhotoUrl.size() <= 2000)
           && (request.resource.data.text is string) && (request.resource.data.text.size() > 0) && (request.resource.data.text.size() <= 500)
           && isReasonableMs(request.resource.data.createdAtMs)
-          && (request.resource.data.deleted is bool) && (request.resource.data.deleted == false);
+          && (request.resource.data.deleted is bool) && (request.resource.data.deleted == false)
+          // Threaded replies (one level deep -- a reply always points at a
+          // top-level comment, never at another reply): empty for a
+          // top-level comment, otherwise another comment's id in this
+          // same subcollection.
+          && (!('parentCommentId' in request.resource.data) || ((request.resource.data.parentCommentId is string) && (request.resource.data.parentCommentId.size() <= 200)));
 
         allow update: if signedIn()
           && ('authorId' in resource.data) && (resource.data.authorId is string)

@@ -10,11 +10,26 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
+import '../../highlights/presentation/highlight_player_screen.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/public_feed_repository.dart';
 import '../models/public_post.dart';
 import 'widgets/comments_sheet.dart';
 import 'widgets/create_post_sheet.dart';
+
+/// Cloudinary can generate a still frame for any uploaded video by
+/// swapping `/video/upload/` for `/video/upload/so_0/` and the extension
+/// for `.jpg` -- no separate thumbnail upload/storage needed.
+String _cloudinaryVideoThumbnail(String videoUrl) {
+  final marker = '/video/upload/';
+  final idx = videoUrl.indexOf(marker);
+  if (idx == -1) return '';
+  final withTransform =
+      videoUrl.replaceFirst(marker, '${marker}so_0/');
+  final dotIdx = withTransform.lastIndexOf('.');
+  if (dotIdx <= idx) return '$withTransform.jpg';
+  return '${withTransform.substring(0, dotIdx)}.jpg';
+}
 
 enum _FeedTab { forYou, latest }
 
@@ -470,7 +485,49 @@ class _PostCard extends StatelessWidget {
           ],
 
           // NEW: Social Media Sizing & Audio Overlay
-          if (post.mediaUrl.trim().isNotEmpty) ...[
+          if (post.mediaUrl.trim().isNotEmpty && post.mediaType == 'video') ...[
+            const SizedBox(height: 10),
+            InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => openHighlightPlayer(
+                context,
+                videoUrl: post.mediaUrl,
+                title: post.authorDisplayName,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 450, minHeight: 200),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Container(
+                          color: brightness == Brightness.dark
+                              ? AppTheme.darkCard
+                              : const Color(0xFFE5E7EB),
+                          child: Image.network(
+                            _cloudinaryVideoThumbnail(post.mediaUrl),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                          ),
+                        ),
+                        Container(color: Colors.black.withOpacity(0.18)),
+                        const Center(
+                          child: Icon(
+                            Icons.play_circle_fill_rounded,
+                            color: Colors.white,
+                            size: 52,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ] else if (post.mediaUrl.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             ClipRRect(
               borderRadius: BorderRadius.circular(14),

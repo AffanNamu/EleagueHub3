@@ -11,12 +11,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/persistence/prefs_service.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
+import '../../../highlights/presentation/highlight_player_screen.dart';
 import '../../../leagues/data/leagues_repository_local.dart';
 import '../../data/home_dashboard_repository.dart';
 
@@ -478,9 +478,13 @@ class _HighlightCard extends StatelessWidget {
   final HomeLatestHighlight data;
 
   Future<void> _open(BuildContext context) async {
-    final uri = Uri.tryParse(data.highlight.secureUrl.trim());
-    if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final url = data.highlight.secureUrl.trim();
+    if (url.isEmpty) return;
+    await openHighlightPlayer(
+      context,
+      videoUrl: url,
+      title: '${data.league.name} Highlights',
+    );
   }
 
   String _duration() {

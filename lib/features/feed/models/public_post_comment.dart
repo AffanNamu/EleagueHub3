@@ -22,6 +22,7 @@ class PublicPostComment {
     required this.text,
     required this.createdAtMs,
     required this.deleted,
+    required this.parentCommentId,
   });
 
   final String commentId;
@@ -32,6 +33,12 @@ class PublicPostComment {
   final String text;
   final int createdAtMs;
   final bool deleted;
+
+  /// Empty for a top-level comment; otherwise the commentId of the
+  /// top-level comment this is a reply to. Replies are always flattened
+  /// one level deep (a reply to a reply still points at the original
+  /// top-level comment) so the thread UI never needs more than two tiers.
+  final String parentCommentId;
 
   factory PublicPostComment.fromDoc(
     DocumentSnapshot<Map<String, dynamic>> doc,
@@ -46,6 +53,7 @@ class PublicPostComment {
       text: (map['text'] as String? ?? '').trim(),
       createdAtMs: _asInt(map['createdAtMs']),
       deleted: map['deleted'] == true,
+      parentCommentId: (map['parentCommentId'] as String? ?? '').trim(),
     );
   }
 

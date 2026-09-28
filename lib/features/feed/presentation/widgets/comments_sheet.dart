@@ -14,6 +14,14 @@ import '../../models/public_post_comment.dart';
 /// comments. This follows the same modal-sheet shape as
 /// `create_post_sheet.dart` for visual consistency with the rest of
 /// the feed.
+///
+/// Threaded replies: comments are flattened one level deep -- a reply
+/// always points at a top-level comment's id (never at another reply's
+/// id), so the UI only ever needs two visual tiers. Replies render
+/// indented under their parent, connected by a vertical line whose
+/// height is derived from the reply tile's own layout (via
+/// IntrinsicHeight) rather than a fixed guess, so it lines up correctly
+/// whether a reply is one line or wraps to several.
 Future<void> showCommentsSheet(
   BuildContext context, {
   required String postId,
@@ -32,9 +40,27 @@ Future<void> showCommentsSheet(
       final brightness = Theme.of(ctx).brightness;
       bool sending = false;
       String? error;
+      String? replyToCommentId;
+      String replyToAuthorName = '';
 
       return StatefulBuilder(
         builder: (ctx, setSheetState) {
+          void startReply(PublicPostComment target) {
+            setSheetState(() {
+              replyToCommentId = target.commentId;
+              replyToAuthorName = target.authorDisplayName.isEmpty
+                  ? l10n.tr('comments_sheet_author_fallback')
+                  : target.authorDisplayName;
+            });
+          }
+
+          void cancelReply() {
+            setSheetState(() {
+              replyToCommentId = null;
+              replyToAuthorName = '';
+            });
+          }
+
           Future<void> submit() async {
             final text = textController.text.trim();
             if (text.isEmpty) return;
@@ -50,9 +76,14 @@ Future<void> showCommentsSheet(
                 authorDisplayName: currentAuthorDisplayName,
                 authorPhotoUrl: currentAuthorPhotoUrl,
                 text: text,
+                parentCommentId: replyToCommentId ?? '',
               );
               textController.clear();
-              setSheetState(() => sending = false);
+              setSheetState(() {
+                sending = false;
+                replyToCommentId = null;
+                replyToAuthorName = '';
+              });
             } catch (e) {
               setSheetState(() {
                 sending = false;
@@ -116,8 +147,8 @@ Future<void> showCommentsSheet(
                               child: Center(child: CircularProgressIndicator()),
                             );
                           }
-                          final comments = snap.data!;
-                          if (comments.isEmpty) {
+                          final all = snap.data!;
+                          if (all.isEmpty) {
                             return Padding(
                               padding: const EdgeInsets.all(24),
                               child: Text(
@@ -130,14 +161,71 @@ Future<void> showCommentsSheet(
                               ),
                             );
                           }
+
+                          final topLevel = all.where((c) => c.parentCommentId.isEmpty).toList();
+                          final repliesByParent = <String, List<PublicPostComment>>{};
+                          for (final c in all) {
+                            if (c.parentCommentId.isEmpty) continue;
+                            repliesByParent.putIfAbsent(c.parentCommentId, () => []).add(c);
+                          }
+
                           return ListView.separated(
                             shrinkWrap: true,
                             padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                            itemCount: comments.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            itemCount: topLevel.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 14),
                             itemBuilder: (context, i) {
-                              final c = comments[i];
-                              return _CommentTile(comment: c);
+                              final c = topLevel[i];
+                              final replies = repliesByParent[c.commentId] ?? const <PublicPostComment>[];
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _CommentTile(
+                                    comment: c,
+                                    onReply: () => startReply(c),
+                                  ),
+                                  if (replies.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 10),
+                                      child: Column(
+                                        children: [
+                                          for (final r in replies)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 10),
+                                              child: IntrinsicHeight(
+                                                child: Row(
+                                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                                  children: [
+                                                    // Thread connector -- stretches to match
+                                                    // the reply tile's real height via
+                                                    // IntrinsicHeight, so it lines up whether
+                                                    // the reply is one line or several.
+                                                    SizedBox(
+                                                      width: 25,
+                                                      child: Center(
+                                                        child: Container(
+                                                          width: 2,
+                                                          color: AppTheme.cardBorder(brightness),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: _CommentTile(
+                                                        comment: r,
+                                                        isReply: true,
+                                                        onReply: () => startReply(c),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              );
                             },
                           );
                         },
@@ -153,6 +241,36 @@ Future<void> showCommentsSheet(
                             fontWeight: FontWeight.w700,
                             fontSize: 12,
                           ),
+                        ),
+                      ),
+                    if (replyToCommentId != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: Row(
+                          children: [
+                            Icon(Icons.reply_rounded, size: 16, color: AppTheme.limeAccentDark),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                '${l10n.tr('comments_sheet_replying_to_prefix')} $replyToAuthorName',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: AppTheme.secondaryText(brightness),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(999),
+                              onTap: cancelReply,
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(Icons.close_rounded, size: 16, color: AppTheme.secondaryText(brightness)),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     Padding(
@@ -172,7 +290,9 @@ Future<void> showCommentsSheet(
                               ),
                               decoration: InputDecoration(
                                 counterText: '',
-                                hintText: l10n.tr('comments_sheet_hint'),
+                                hintText: replyToCommentId != null
+                                    ? l10n.tr('comments_sheet_reply_hint')
+                                    : l10n.tr('comments_sheet_hint'),
                                 hintStyle: TextStyle(color: AppTheme.secondaryText(brightness)),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(16),
@@ -233,8 +353,15 @@ Future<void> showCommentsSheet(
 }
 
 class _CommentTile extends StatelessWidget {
-  const _CommentTile({required this.comment});
+  const _CommentTile({
+    required this.comment,
+    required this.onReply,
+    this.isReply = false,
+  });
+
   final PublicPostComment comment;
+  final VoidCallback onReply;
+  final bool isReply;
 
   String _timeAgo(AppLocalizations l10n, int ms) {
     final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
@@ -248,6 +375,7 @@ class _CommentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
+    final avatarRadius = isReply ? 12.0 : 15.0;
 
     void openAuthorProfile() {
       try {
@@ -262,13 +390,13 @@ class _CommentTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
           onTap: openAuthorProfile,
           child: CircleAvatar(
-            radius: 15,
+            radius: avatarRadius,
             backgroundColor: AppTheme.iconCircleBackground(brightness),
             backgroundImage: comment.authorPhotoUrl.isNotEmpty
                 ? NetworkImage(comment.authorPhotoUrl)
                 : null,
             child: comment.authorPhotoUrl.isEmpty
-                ? const Icon(Icons.person_rounded, size: 15)
+                ? Icon(Icons.person_rounded, size: avatarRadius)
                 : null,
           ),
         ),
@@ -291,7 +419,7 @@ class _CommentTile extends StatelessWidget {
                           comment.authorDisplayName.isEmpty ? l10n.tr('comments_sheet_author_fallback') : comment.authorDisplayName,
                           style: TextStyle(
                             fontWeight: FontWeight.w900,
-                            fontSize: 12.5,
+                            fontSize: isReply ? 11.5 : 12.5,
                             color: AppTheme.primaryText(brightness),
                           ),
                           overflow: TextOverflow.ellipsis,
@@ -317,8 +445,24 @@ class _CommentTile extends StatelessWidget {
                   style: TextStyle(
                     color: AppTheme.primaryText(brightness),
                     fontWeight: FontWeight.w600,
-                    fontSize: 13,
+                    fontSize: isReply ? 12.5 : 13,
                     height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: onReply,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(
+                      l10n.tr('comments_sheet_reply_button'),
+                      style: TextStyle(
+                        color: AppTheme.secondaryText(brightness),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                      ),
+                    ),
                   ),
                 ),
               ],
