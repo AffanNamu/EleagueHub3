@@ -5,7 +5,8 @@
       "namespace": "android_app",
       "package_name": "com.eleaguehub.app",
       "sha256_cert_fingerprints": [
-        "48:11:BB:5C:A1:9E:00:18:2D:E6:80:A6:13:21:F5:17:DB:C1:E6:0A:94:E2:79:87:36:9D:56:9F:68:E5:AB:8B"
+        "48:11:BB:5C:A1:9E:00:18:2D:E6:80:A6:13:21:F5:17:DB:C1:E6:0A:94:E2:79:87:36:9D:56:9F:68:E5:AB:8B",
+        "72:DF:1A:B6:BE:DF:82:8E:25:29:84:F8:30:1C:C4:7A:54:9B:32:35:91:BD:21:AF:C1:CE:0A:46:C4:3C:8F:5C"
       ]
     }
   }
