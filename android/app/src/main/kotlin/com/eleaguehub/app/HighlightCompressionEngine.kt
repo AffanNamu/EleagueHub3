@@ -13,7 +13,6 @@ import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
-import androidx.media3.transformer.TransformationRequest
 import androidx.media3.transformer.Transformer
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
@@ -41,12 +40,25 @@ import kotlin.math.min
  *   emits { taskId, progress01 } best-effort.
  *
  * IMPORTANT API COMPATIBILITY NOTE:
- * - Media3 Transformer APIs evolve quickly.
+ * - Media3 Transformer APIs evolve quickly. This app's own build.gradle pins
+ *   androidx.media3 explicitly, but video_player_android (pulled in by the
+ *   video_player package, used for in-app highlight playback) declares its
+ *   own, independently-versioned androidx.media3:media3-exoplayer* deps --
+ *   Gradle's default conflict resolution picks the HIGHEST version requested
+ *   for any shared artifact, so the actually-resolved media3-transformer can
+ *   silently end up newer than this file's own pin. Keep media3Version in
+ *   build.gradle at or above whatever video_player_android currently
+ *   declares (check its android/build.gradle.kts in the pub cache) so this
+ *   doesn't drift again.
  * - In some versions, DefaultEncoderFactory exposes only video encoder settings
  *   (no setRequestedAudioEncoderSettings / AudioEncoderSettings).
- * - To keep CI stable, we avoid APIs that are not present in Media3 1.3.x and
- *   rely on:
- *   - H.264 video + AAC audio mime types (TransformationRequest)
+ * - To keep CI stable, we avoid APIs that are not present in the pinned
+ *   Media3 version and rely on:
+ *   - H.264 video + AAC audio mime types, set directly on Transformer.Builder
+ *     (TransformationRequest.Builder is the OLDER, now-removed way to do
+ *     this -- Transformer.Builder.setTransformationRequest(...) no longer
+ *     exists as of Media3 ~1.4+; setVideoMimeType/setAudioMimeType moved
+ *     directly onto Transformer.Builder itself)
  *   - Scaling effect to enforce <=720p
  *   - Best-effort: video bitrate may not be honored on every device
  *   - Audio bitrate is best-effort (device encoder defaults); we still pass the
@@ -202,12 +214,6 @@ object HighlightCompressionEngine {
 
             val mediaItem = MediaItem.fromUri(toUri(inputPath))
 
-            // Force codecs (best-effort; device encoders decide final details)
-            val transformationRequest = TransformationRequest.Builder()
-                .setVideoMimeType(MimeTypes.VIDEO_H264)
-                .setAudioMimeType(MimeTypes.AUDIO_AAC)
-                .build()
-
             // Enforce scaling (<=720p, may be lower).
             val videoEffect = ScaleAndRotateTransformation.Builder()
                 .setScale(scale.toFloat(), scale.toFloat())
@@ -259,8 +265,12 @@ object HighlightCompressionEngine {
                 }
             }
 
+            // Force codecs (best-effort; device encoders decide final details).
+            // setVideoMimeType/setAudioMimeType live directly on Transformer.Builder
+            // now -- see the class doc comment above for why this changed.
             val transformer = Transformer.Builder(context)
-                .setTransformationRequest(transformationRequest)
+                .setVideoMimeType(MimeTypes.VIDEO_H264)
+                .setAudioMimeType(MimeTypes.AUDIO_AAC)
                 .addListener(listener)
                 .build()
 

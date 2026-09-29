@@ -160,7 +160,15 @@ dependencies {
     implementation "androidx.multidex:multidex:2.0.1"
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
 
-    def media3Version = "1.3.1"
+    // Kept aligned with video_player_android's own androidx.media3:media3-exoplayer*
+    // pin (see its android/build.gradle.kts) -- Gradle resolves every module in
+    // the androidx.media3 group to the single highest version requested anywhere
+    // in the dependency graph, so pinning lower than that here doesn't actually
+    // take effect; it just makes the version actually used explicit instead of
+    // incidental. If HighlightCompressionEngine.kt ever fails to compile against
+    // a Transformer API that used to exist, check whether video_player_android
+    // bumped its own media3 pin and update this to match.
+    def media3Version = "1.9.2"
     implementation "androidx.media3:media3-common:$media3Version"
     implementation "androidx.media3:media3-transformer:$media3Version"
     implementation "androidx.media3:media3-effect:$media3Version"
