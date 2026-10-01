@@ -51,4 +51,24 @@ class BackendConfig {
     if (base.isEmpty) return null;
     return Uri.parse('$base/cloudinary/sign-highlight');
   }
+
+  // ── Football Hub (API-Football, proxied + cached server-side) ──────────
+
+  static Uri? footballFixturesUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/football/fixtures');
+  }
+
+  static Uri? footballStandingsUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/football/standings');
+  }
+
+  static Uri? footballLeaguesUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/football/leagues');
+  }
 }

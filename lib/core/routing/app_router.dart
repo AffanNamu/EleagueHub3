@@ -29,6 +29,7 @@ import '../../features/discovery/discussions/presentation/discussions_list_scree
 import '../../features/discovery/presentation/competitions_discovery_screen.dart';
 import '../../features/discovery/presentation/discovery_hub_screen.dart';
 import '../../features/feed/presentation/public_feed_screen.dart';
+import '../../features/football_hub/presentation/football_hub_screen.dart';
 import '../../features/home/presentation/home_shell.dart';
 import '../../features/leagues/models/league_format.dart';
 import '../../features/leagues/presentation/add_teams_screen.dart';
@@ -1478,6 +1479,10 @@ final appRouter = GoRouter(
         GoRoute(
           path: 'search',
           builder: (context, state) => const UserSearchScreen(),
+        ),
+        GoRoute(
+          path: 'football-hub',
+          builder: (context, state) => const FootballHubScreen(),
         ),
         GoRoute(
           path: 'profile',

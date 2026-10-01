@@ -102,6 +102,15 @@ class DiscoveryHubScreen extends StatelessWidget {
               onTap: () => context.push('/organizer-feed'),
             ),
             const SizedBox(height: 10),
+            // Same hardcoded-string precedent as "Organizer Feed" above.
+            _DiscoveryRow(
+              icon: Icons.sports_soccer_rounded,
+              iconColor: const Color(0xFF16A34A),
+              title: 'Football Hub',
+              subtitle: 'Live scores, fixtures & league tables',
+              onTap: () => context.push('/football-hub'),
+            ),
+            const SizedBox(height: 10),
             _DiscoveryRow(
               icon: Icons.groups_rounded,
               iconColor: const Color(0xFF2DD4BF),
