@@ -188,6 +188,27 @@ class PushMessagingService {
           payloadRoute: route.isNotEmpty ? route : null,
         );
       } catch (_) {}
+    } else if (type.startsWith('football_')) {
+      // football_goal / football_kickoff / football_fulltime, sent by the
+      // Worker's live-score poller (_pollLiveFixturesAndNotify). Title/body
+      // come straight from the FCM `notification` block the Worker sends
+      // (same as organizer_announcement above), since the Worker already
+      // built the right copy per event kind.
+      final fixtureId = (data['fixtureId'] ?? '').toString().trim();
+      final route = (data['route'] ?? '').toString().trim();
+      final title = (notification?.title ?? 'Football Hub').toString().trim();
+      final body = (notification?.body ?? '').toString().trim();
+
+      try {
+        await NotificationService().showFootballEventNotification(
+          notificationId: _stableIdFromString(
+            '${type}_${fixtureId}_${DateTime.now().millisecondsSinceEpoch}',
+          ),
+          title: title.isNotEmpty ? title : 'Football Hub',
+          message: body.isNotEmpty ? body : 'Match update.',
+          payloadRoute: route.isNotEmpty ? route : null,
+        );
+      } catch (_) {}
     }
   }
 

@@ -523,8 +523,15 @@ async function _serviceAccountAccessToken(env) {
     // with view/manage permission for orders & subscriptions on this
     // app -- that link is a manual Play Console step, not something
     // this code can do.
+    //
+    // firebase.messaging added for the Football Hub live-score poller
+    // (_pollLiveFixturesAndNotify) to send FCM pushes directly -- the
+    // same service account already does this in production via
+    // supabase/functions/follow-notify/index.ts, so it's proven to have
+    // FCM send permission already (no extra console linking needed,
+    // unlike androidpublisher above).
     scope:
-      "https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/androidpublisher",
+      "https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/androidpublisher https://www.googleapis.com/auth/firebase.messaging",
   };
 
   const encodedHeader = _utf8ToB64Url(JSON.stringify(header));
@@ -733,6 +740,136 @@ async function _firestoreCreateDocSA(env, docPath, fieldsObj) {
   }
 
   return res.json();
+}
+
+// Collection-group query: "find every doc named `collectionId` anywhere in
+// the database where `fieldPath` == `value`" -- used to find which users
+// follow a given football team (users/{uid}/football_followed_teams/{id})
+// without needing a reverse-index collection. Requires a matching
+// COLLECTION_GROUP index in firestore.indexes.json (see
+// "football_followed_teams" entry there); Firestore rejects the query
+// with a clear error (surfaced via the thrown Error) if that index is
+// ever missing or still building.
+async function _firestoreQueryCollectionGroupEquals(env, collectionId, fieldPath, stringValue) {
+  const accessToken = await _serviceAccountAccessToken(env);
+  const res = await fetch(`${_firestoreRestBase(env)}:runQuery`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId, allDescendants: true }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath },
+            op: "EQUAL",
+            value: { stringValue },
+          },
+        },
+        limit: 1000,
+      },
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Firestore collection-group query (${collectionId}.${fieldPath}=${stringValue}) failed (${res.status}): ${txt}`);
+  }
+  const rows = await res.json();
+  // Each doc's resource name looks like:
+  // projects/P/databases/(default)/documents/users/{uid}/football_followed_teams/{teamId}
+  // -- the uid is the path segment right after "users".
+  const uids = new Set();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const name = row && row.document && row.document.name;
+    if (!name) continue;
+    const parts = String(name).split("/");
+    const idx = parts.indexOf("users");
+    if (idx >= 0 && parts[idx + 1]) uids.add(parts[idx + 1]);
+  }
+  return Array.from(uids);
+}
+
+// ── FCM push (mirrors supabase/functions/follow-notify/index.ts's proven
+// production pattern exactly: fetch tokens from users/{uid}/fcmTokens,
+// send one FCM HTTP v1 message per token, delete any token FCM reports as
+// unregistered so it's never retried again). ──────────────────────────────
+
+async function _fetchFcmTokensForUid(env, uid) {
+  const accessToken = await _serviceAccountAccessToken(env);
+  const url = `${_firestoreRestBase(env)}/users/${encodeURIComponent(uid)}/fcmTokens?pageSize=100`;
+  const res = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` } });
+  if (res.status === 404) return [];
+  if (!res.ok) return [];
+
+  const data = await res.json();
+  const tokens = new Set();
+  for (const doc of (data && data.documents) || []) {
+    const t = ((doc.fields && doc.fields.token && doc.fields.token.stringValue) || "").trim();
+    if (t) tokens.add(t);
+  }
+  return Array.from(tokens);
+}
+
+async function _deleteFcmToken(env, uid, token) {
+  try {
+    const accessToken = await _serviceAccountAccessToken(env);
+    const url = `${_firestoreRestBase(env)}/users/${encodeURIComponent(uid)}/fcmTokens/${encodeURIComponent(token)}`;
+    await fetch(url, { method: "DELETE", headers: { authorization: `Bearer ${accessToken}` } });
+  } catch (_e) {
+    // Best-effort cleanup only.
+  }
+}
+
+// Sends one push to every device registered for `uid`. Never throws --
+// a notification failure must never take down the caller (the live-score
+// poller may be mid-way through notifying many followers of many events).
+async function _sendFcmToUid(env, uid, { title, body, data, androidChannelId }) {
+  const projectId = _requireEnvString(env, "FIREBASE_PROJECT_ID");
+  let tokens;
+  try {
+    tokens = await _fetchFcmTokensForUid(env, uid);
+  } catch (_e) {
+    return { sent: 0 };
+  }
+  if (tokens.length === 0) return { sent: 0 };
+
+  const accessToken = await _serviceAccountAccessToken(env);
+  const dataStrings = {};
+  for (const [k, v] of Object.entries(data || {})) dataStrings[k] = String(v);
+
+  let sent = 0;
+  await Promise.all(
+    tokens.map(async (token) => {
+      try {
+        const res = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+          body: JSON.stringify({
+            message: {
+              token,
+              notification: { title, body },
+              data: dataStrings,
+              android: {
+                priority: "high",
+                notification: { channel_id: androidChannelId || "football_hub_channel", sound: "default" },
+              },
+              apns: { headers: { "apns-priority": "10" }, payload: { aps: { sound: "default" } } },
+            },
+          }),
+        });
+        if (res.ok) {
+          sent += 1;
+          return;
+        }
+        const txt = await res.text();
+        if (res.status === 404 || txt.includes("UNREGISTERED")) {
+          await _deleteFcmToken(env, uid, token);
+        }
+      } catch (_e) {
+        // Best-effort -- one bad token/device must never stop the others.
+      }
+    })
+  );
+  return { sent };
 }
 
 function _moneyEqWithinTolerance(expected, actual, currency) {
@@ -2913,6 +3050,185 @@ async function _footballApiProxyRoute(env, request, url, operationName, ttlSecon
   return response;
 }
 
+// ── Football Hub: live-score poller + goal/kickoff/full-time notifications ─
+//
+// Runs on a Cloudflare Cron Trigger (see wrangler.toml's [triggers] and the
+// `scheduled` export below), NOT per-request -- this is the one piece of
+// Football Hub that costs API-Football quota on a fixed schedule whether or
+// not anyone opens the app. One consolidated call (`/fixtures?live=all`)
+// covers every live match globally regardless of user count, so the cost
+// is purely (polls/day), not (users x matches). A second, variable cost
+// (one extra call per goal) only happens for a goal in a match at least
+// one user actually follows -- see the followerUids check below -- so it
+// scales with real engagement, not with how many matches are live.
+//
+// State is tracked at football_live_state/{fixtureId} (service-account
+// only, like football_metrics) so each poll can diff against what was
+// last seen and only notify on an actual change.
+
+function _parseLiveFixtureSummary(raw) {
+  const fixture = (raw && raw.fixture) || {};
+  const league = (raw && raw.league) || {};
+  const teams = (raw && raw.teams) || {};
+  const home = teams.home || {};
+  const away = teams.away || {};
+  const goals = (raw && raw.goals) || {};
+  const status = fixture.status || {};
+
+  const toInt = (v) => (typeof v === "number" ? Math.trunc(v) : parseInt(v, 10) || 0);
+
+  return {
+    id: toInt(fixture.id),
+    statusShort: String(status.short || "").trim(),
+    leagueName: String(league.name || "").trim(),
+    homeTeamId: toInt(home.id),
+    homeTeamName: String(home.name || "").trim(),
+    awayTeamId: toInt(away.id),
+    awayTeamName: String(away.name || "").trim(),
+    homeGoals: goals.home == null ? 0 : toInt(goals.home),
+    awayGoals: goals.away == null ? 0 : toInt(goals.away),
+  };
+}
+
+// Only called for a fixture that just had a goal AND has at least one
+// follower -- never for every live match on every poll (see the cost
+// comment above). Returns the scoring player's name, or null if the
+// provider hasn't attributed it yet (events can lag the score by a few
+// seconds) or the lookup fails for any reason.
+async function _lookupLatestScorerName(env, fixtureId) {
+  try {
+    const apiKey = _requireEnvString(env, "API_FOOTBALL_KEY");
+    const res = await fetch(`${FOOTBALL_PROVIDER.baseUrl}/fixtures/events?fixture=${fixtureId}`, {
+      headers: FOOTBALL_PROVIDER.buildHeaders(env),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const events = (data && data.response) || [];
+    const goals = events.filter((e) => String(e.type || "").toLowerCase() === "goal");
+    if (goals.length === 0) return null;
+    const last = goals[goals.length - 1];
+    const name = (last.player && last.player.name) || "";
+    return name.trim() || null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+// Plain-text template commentary -- not an LLM call (that's a separate,
+// explicitly-costed decision; see this session's AI-daily-summary
+// discussion). Matches the written Football Hub plan's own example
+// format ("GOAL! Barcelona 2-1 Real Madrid, 67'") plus the scorer's name
+// when _lookupLatestScorerName found one in time.
+function _buildEventNotification(kind, f, scorerName) {
+  const scoreLine = `${f.homeTeamName} ${f.homeGoals}-${f.awayGoals} ${f.awayTeamName}`;
+  if (kind === "goal") {
+    const who = scorerName ? `${scorerName} scores! ` : "";
+    return { title: "⚽ GOAL!", body: `${who}${scoreLine}` };
+  }
+  if (kind === "kickoff") {
+    return { title: `🔴 ${f.homeTeamName} vs ${f.awayTeamName}`, body: "The match has started." };
+  }
+  if (kind === "fulltime") {
+    return { title: "🏁 Full time", body: scoreLine };
+  }
+  return { title: "Football Hub", body: scoreLine };
+}
+
+async function _pollLiveFixturesAndNotify(env) {
+  let upstreamRes;
+  try {
+    upstreamRes = await fetch(`${FOOTBALL_PROVIDER.baseUrl}/fixtures?live=all`, {
+      headers: FOOTBALL_PROVIDER.buildHeaders(env),
+    });
+  } catch (e) {
+    console.error("[football poll] upstream unreachable:", e.message || String(e));
+    return;
+  }
+
+  let data;
+  try {
+    data = await upstreamRes.json();
+  } catch {
+    return;
+  }
+  if (FOOTBALL_PROVIDER.isErrorResponse(upstreamRes, data)) {
+    try {
+      await _recordFootballMetric(env, "providerErrors");
+    } catch (_e) {}
+    console.error("[football poll] provider error:", JSON.stringify(data && data.errors));
+    return;
+  }
+  try {
+    await _recordFootballMetric(env, "apiRequests");
+  } catch (_e) {}
+
+  const fixtures = ((data && data.response) || []).map(_parseLiveFixtureSummary).filter((f) => f.id > 0);
+
+  for (const f of fixtures) {
+    const statePath = `football_live_state/${f.id}`;
+    let prevHome = 0;
+    let prevAway = 0;
+    let prevStatus = "";
+    try {
+      const prev = await _firestoreGetDocSA(env, statePath);
+      const fields = (prev.ok && prev.doc && prev.doc.fields) || {};
+      prevHome = fields.homeGoals ? parseInt(fields.homeGoals.integerValue || "0", 10) : 0;
+      prevAway = fields.awayGoals ? parseInt(fields.awayGoals.integerValue || "0", 10) : 0;
+      prevStatus = fields.statusShort ? fields.statusShort.stringValue || "" : "";
+    } catch (_e) {
+      // Treat as first-ever sighting of this fixture if the read fails.
+    }
+
+    const events = [];
+    if (f.homeGoals > prevHome || f.awayGoals > prevAway) events.push("goal");
+    if (f.statusShort === "1H" && prevStatus !== "1H" && prevStatus !== "2H" && prevStatus !== "FT") events.push("kickoff");
+    if (f.statusShort === "FT" && prevStatus !== "FT") events.push("fulltime");
+
+    try {
+      await _firestorePatchDoc(env, statePath, {
+        homeGoals: f.homeGoals,
+        awayGoals: f.awayGoals,
+        statusShort: f.statusShort,
+        updatedAtMs: Date.now(),
+      });
+    } catch (e) {
+      console.error(`[football poll] state write failed for fixture ${f.id}:`, e.message || String(e));
+    }
+
+    if (events.length === 0) continue;
+
+    let followerUids;
+    try {
+      const [homeFollowers, awayFollowers] = await Promise.all([
+        _firestoreQueryCollectionGroupEquals(env, "football_followed_teams", "teamId", String(f.homeTeamId)),
+        _firestoreQueryCollectionGroupEquals(env, "football_followed_teams", "teamId", String(f.awayTeamId)),
+      ]);
+      followerUids = Array.from(new Set([...homeFollowers, ...awayFollowers]));
+    } catch (e) {
+      console.error(`[football poll] follower lookup failed for fixture ${f.id}:`, e.message || String(e));
+      continue;
+    }
+    if (followerUids.length === 0) continue;
+
+    for (const kind of events) {
+      const scorerName = kind === "goal" ? await _lookupLatestScorerName(env, f.id) : null;
+      const { title, body } = _buildEventNotification(kind, f, scorerName);
+      const route = `/football/match/${f.id}`;
+
+      await Promise.all(
+        followerUids.map((uid) =>
+          _sendFcmToUid(env, uid, {
+            title,
+            body,
+            data: { type: `football_${kind}`, route, fixtureId: f.id },
+            androidChannelId: "football_hub_channel",
+          })
+        )
+      );
+    }
+  }
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -3211,5 +3527,12 @@ export default {
     }
 
     return jsonResponse({ error: "Not found", path: url.pathname }, 404);
+  },
+
+  // Cloudflare Cron Trigger entry point -- see wrangler.toml's [triggers]
+  // for the schedule. ctx.waitUntil keeps the invocation alive until the
+  // poll finishes without blocking anything else.
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(_pollLiveFixturesAndNotify(env));
   },
 };

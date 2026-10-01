@@ -11,3 +11,15 @@ ANDROID_PACKAGE_NAME = "com.eleaguehub.app"
 # (CLOUDINARY_CLOUD_NAME) -- not secret, matches convention of the other
 # plain vars above.
 CLOUDINARY_CLOUD_NAME = "dbw9zpkxi"
+
+# Football Hub live-score poller (_pollLiveFixturesAndNotify in
+# src/index.js). Runs hourly = 24 fixed API-Football requests/day, leaving
+# headroom on the free 100/day plan for the variable per-goal scorer
+# lookup (only for matches at least one user follows) and for everything
+# else (Matches tab, Standings, etc.). A notification can arrive up to ~1h
+# after the real event at this interval -- that's the free-tier tradeoff,
+# not a bug. Once on a higher-quota API-Football plan, tighten this to
+# e.g. "*/2 * * * *" (every 2 min) for real-time notifications; nothing
+# else about the pipeline needs to change.
+[triggers]
+crons = ["0 * * * *"]

@@ -81,6 +81,7 @@ class NotificationService {
   static const String _testChannelId = 'test_channel_id';
   static const String _organizerFeedChannelId = 'organizer_feed_channel';
   static const String _newFollowerChannelId = 'new_follower_channel';
+  static const String _footballHubChannelId = 'football_hub_channel';
 
   /// Call this ONLY when user explicitly enables notifications in settings
   /// or when user first interacts with a feature that needs notifications.
@@ -212,6 +213,17 @@ class NotificationService {
             _newFollowerChannelId,
             'New Followers',
             description: 'Someone started following you',
+            importance: Importance.high,
+          ),
+        );
+      } catch (_) {}
+
+      try {
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _footballHubChannelId,
+            'Football Hub',
+            description: 'Goals and match updates for teams you follow',
             importance: Importance.high,
           ),
         );
@@ -367,6 +379,37 @@ class NotificationService {
       _organizerFeedChannelId,
       'Organizer Feed',
       channelDescription: 'Updates from organizers you follow',
+      importance: Importance.high,
+      priority: Priority.high,
+      styleInformation: BigTextStyleInformation(''),
+    );
+
+    const details = NotificationDetails(android: androidDetails);
+
+    await _plugin.show(
+      notificationId,
+      title,
+      message,
+      details,
+      payload:
+          (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
+    );
+  }
+
+  Future<void> showFootballEventNotification({
+    required int notificationId,
+    required String title,
+    required String message,
+    String? payloadRoute,
+  }) async {
+    if (!_initialized) {
+      await init();
+    }
+
+    const androidDetails = AndroidNotificationDetails(
+      _footballHubChannelId,
+      'Football Hub',
+      channelDescription: 'Goals and match updates for teams you follow',
       importance: Importance.high,
       priority: Priority.high,
       styleInformation: BigTextStyleInformation(''),
