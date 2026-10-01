@@ -846,6 +846,31 @@ class _HomeTab extends StatelessWidget {
             isWide: true,
           ),
 
+        const SizedBox(height: 12),
+
+        // ── Football Hub ──────────────────────────────────────────────────
+        // Same hardcoded-string precedent as "Organizer Feed"/"Football Hub"
+        // elsewhere in this app (see discovery_hub_screen.dart): adding a
+        // real l10n key here would only exist in English until a full
+        // translation pass, matching this codebase's documented interim
+        // state for new features.
+        _QuickActionCard(
+          icon: Icons.sports_soccer_rounded,
+          title: 'Football',
+          subtitle: 'Live scores & football updates',
+          gradient: brightness == Brightness.dark
+              ? [
+                  const Color(0xFF16A34A).withOpacity(0.16),
+                  AppTheme.darkCard,
+                ]
+              : [
+                  const Color(0xFFDCFCE7),
+                  const Color(0xFFFFFFFF),
+                ],
+          onTap: () => _navigate(context, '/football'),
+          isWide: true,
+        ),
+
         const SizedBox(height: 22),
 
         // ── Coming Up Next / Your Standings / Latest Highlights ─────────

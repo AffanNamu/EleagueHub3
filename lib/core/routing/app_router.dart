@@ -29,7 +29,10 @@ import '../../features/discovery/discussions/presentation/discussions_list_scree
 import '../../features/discovery/presentation/competitions_discovery_screen.dart';
 import '../../features/discovery/presentation/discovery_hub_screen.dart';
 import '../../features/feed/presentation/public_feed_screen.dart';
+import '../../features/football_hub/models/football_fixture.dart';
 import '../../features/football_hub/presentation/football_hub_screen.dart';
+import '../../features/football_hub/presentation/football_match_screen.dart';
+import '../../features/football_hub/presentation/football_team_screen.dart';
 import '../../features/home/presentation/home_shell.dart';
 import '../../features/leagues/models/league_format.dart';
 import '../../features/leagues/presentation/add_teams_screen.dart';
@@ -1481,8 +1484,32 @@ final appRouter = GoRouter(
           builder: (context, state) => const UserSearchScreen(),
         ),
         GoRoute(
-          path: 'football-hub',
+          path: 'football',
           builder: (context, state) => const FootballHubScreen(),
+          routes: [
+            GoRoute(
+              path: 'match/:id',
+              builder: (context, state) {
+                final extra = state.extra;
+                return FootballMatchScreen(
+                  fixture: extra is FootballFixture ? extra : null,
+                  fixtureId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+                );
+              },
+            ),
+            GoRoute(
+              path: 'team/:id',
+              builder: (context, state) {
+                final extra = state.extra;
+                final extraMap = extra is Map ? extra : const {};
+                return FootballTeamScreen(
+                  teamId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+                  teamName: (extraMap['teamName'] as String?) ?? '',
+                  teamLogoUrl: extraMap['teamLogoUrl'] as String?,
+                );
+              },
+            ),
+          ],
         ),
         GoRoute(
           path: 'profile',

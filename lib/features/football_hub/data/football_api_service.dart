@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/config/backend_config.dart';
 import '../models/football_fixture.dart';
 import '../models/football_league.dart';
+import '../models/football_match_event.dart';
 import '../models/football_player.dart';
 import '../models/football_standing.dart';
 
@@ -151,5 +152,21 @@ class FootballApiService {
     final list = _responseList(body);
     if (list.isEmpty) return null;
     return FootballPlayerProfile.fromApiResponseEntry(list.first);
+  }
+
+  /// Fetches a single fixture by its provider id -- used only on a cold
+  /// deep-link open (e.g. a future notification tap) where the caller
+  /// doesn't already have the fixture in memory. In-app navigation should
+  /// always prefer passing the already-fetched FootballFixture instead.
+  Future<FootballFixture?> getFixtureById(int fixtureId) async {
+    final body = await _get(BackendConfig.footballFixturesUrl(), {'id': '$fixtureId'});
+    final list = _responseList(body);
+    if (list.isEmpty) return null;
+    return FootballFixture.fromJson(list.first);
+  }
+
+  Future<List<FootballMatchEvent>> getFixtureEvents({required int fixtureId}) async {
+    final body = await _get(BackendConfig.footballFixtureEventsUrl(), {'fixture': '$fixtureId'});
+    return _responseList(body).map(FootballMatchEvent.fromJson).toList(growable: false);
   }
 }

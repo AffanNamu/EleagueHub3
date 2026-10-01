@@ -49,12 +49,19 @@ class FootballFollowsRepository {
     return doc.exists;
   }
 
+  /// Matches the Worker's FOOTBALL_PROVIDER.id (worker/src/index.js) --
+  /// stored on every follow doc per the written Football Hub plan's data
+  /// model ("Provider IDs must be stored... allows migration to another
+  /// provider later").
+  static const String _providerId = 'api-football';
+
   Future<void> followTeam({required int teamId, required String name, String? logoUrl}) async {
     final uid = _requireAuthUid();
     await _teamsCol(uid).doc('$teamId').set(<String, dynamic>{
       'teamId': '$teamId',
       'teamName': name,
       if (logoUrl != null && logoUrl.trim().isNotEmpty) 'teamLogoUrl': logoUrl.trim(),
+      'provider': _providerId,
       'createdAtMs': DateTime.now().millisecondsSinceEpoch,
     });
   }
@@ -70,6 +77,7 @@ class FootballFollowsRepository {
       'playerId': '$playerId',
       'playerName': name,
       if (photoUrl != null && photoUrl.trim().isNotEmpty) 'playerPhotoUrl': photoUrl.trim(),
+      'provider': _providerId,
       'createdAtMs': DateTime.now().millisecondsSinceEpoch,
     });
   }

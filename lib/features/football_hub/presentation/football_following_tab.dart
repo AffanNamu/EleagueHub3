@@ -1,13 +1,13 @@
 // lib/features/football_hub/presentation/football_following_tab.dart
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../data/football_follows_repository.dart';
 import '../utils/football_season.dart';
 import 'football_player_screen.dart';
-import 'football_team_screen.dart';
 
 class FootballFollowingTab extends StatefulWidget {
   const FootballFollowingTab({super.key});
@@ -68,10 +68,8 @@ class _FootballFollowingTabState extends State<FootballFollowingTab> with Single
                 onTap: (e) {
                   final id = int.tryParse(e.id);
                   if (id == null) return;
-                  Navigator.of(context)
-                      .push(MaterialPageRoute(
-                        builder: (_) => FootballTeamScreen(teamId: id, teamName: e.name, teamLogoUrl: e.imageUrl),
-                      ))
+                  context
+                      .push('/football/team/$id', extra: {'teamName': e.name, 'teamLogoUrl': e.imageUrl})
                       .then((_) => _reload());
                 },
               ),

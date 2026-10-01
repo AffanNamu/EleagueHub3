@@ -2726,19 +2726,87 @@ async function _signHighlightUpload(env, verified, body) {
   };
 }
 
-// ── Football Hub: cached proxy to api-football.com (API-SPORTS) ────────────
+// ── Football data provider abstraction ──────────────────────────────────
 //
-// Free tier is capped at 100 requests/day TOTAL, shared across every app
-// user -- there is no per-user quota to lean on. The only way this is
-// viable is aggressive edge caching: identical queries (same path + same
-// query string) within the TTL window are served straight from Cloudflare's
-// cache and never touch api-football.com at all. TTLs are deliberately
-// generous (minutes-to-hours, not seconds) because the quota cannot absorb
-// a cache-stampede of unique requests. If Football Hub usage grows, the
-// fix is upgrading the API-Football plan, not shortening these TTLs.
-const FOOTBALL_API_BASE = "https://v3.football.api-sports.io";
+// Route handlers below never talk to api-football.com directly -- they
+// call _footballApiProxyRoute with a logical OPERATION NAME (e.g.
+// "fixtures"), and this provider object maps that to the actual upstream
+// path/params/auth for whichever provider is currently configured.
+// Swapping providers later (the written Football Hub plan explicitly
+// requires this to stay possible) means writing a new object with this
+// same shape and pointing FOOTBALL_PROVIDER at it -- the /football/*
+// routes, their caching, and the Dart client's contract never change.
+const API_FOOTBALL_PROVIDER = {
+  id: "api-football",
+  baseUrl: "https://v3.football.api-sports.io",
+  buildHeaders(env) {
+    return { "x-apikey": _requireEnvString(env, "API_FOOTBALL_KEY") };
+  },
+  // Does this provider consider the response an error? api-football.com
+  // returns HTTP 200 even on quota-exceeded/bad-request errors, with
+  // details in a non-empty `errors` field instead of a non-2xx status.
+  isErrorResponse(httpRes, data) {
+    const errors = data && data.errors;
+    const hasErrors = errors && (Array.isArray(errors) ? errors.length > 0 : Object.keys(errors).length > 0);
+    return !httpRes.ok || hasErrors;
+  },
+  operations: {
+    fixtures: {
+      upstreamPath: "/fixtures",
+      // date: YYYY-MM-DD for the Matches tab's date-picker row.
+      // league+season: a specific competition's fixtures/round.
+      // team: a team's fixtures (profile screen, "last 5"/"next match").
+      allowedParams: ["id", "date", "league", "season", "team", "round", "next", "last", "status", "live"],
+    },
+    fixtureEvents: {
+      upstreamPath: "/fixtures/events",
+      allowedParams: ["fixture"],
+    },
+    standings: {
+      upstreamPath: "/standings",
+      allowedParams: ["league", "season", "team"],
+    },
+    squad: {
+      upstreamPath: "/players/squads",
+      allowedParams: ["team"],
+    },
+    player: {
+      upstreamPath: "/players",
+      allowedParams: ["id", "season", "team"],
+    },
+    leagues: {
+      upstreamPath: "/leagues",
+      allowedParams: ["search", "country", "season", "id", "code", "type"],
+    },
+  },
+};
 
-async function _footballApiProxyRoute(env, request, url, { upstreamPath, allowedParams, ttlSeconds }) {
+// Swap this one line to change football data provider.
+const FOOTBALL_PROVIDER = API_FOOTBALL_PROVIDER;
+
+// Best-effort daily usage counters at football_metrics/{YYYY-MM-DD} --
+// "know the cost before the bill becomes a surprise." Deliberately a
+// simple read-then-patch (not an atomic transform) using the same
+// Firestore helpers already proven elsewhere in this file: a rare
+// lost-update under concurrent requests is an acceptable tradeoff given
+// the volume this guards (<=100 real upstream calls/day on the free
+// tier) and that this is observability only, never correctness-critical.
+// Never allowed to affect the real response -- always wrapped in try/catch
+// by its caller.
+async function _recordFootballMetric(env, field) {
+  const day = new Date().toISOString().slice(0, 10);
+  const docPath = `football_metrics/${day}`;
+  const existing = await _firestoreGetDocSA(env, docPath);
+  const existingFields = (existing.ok && existing.doc && existing.doc.fields) || {};
+  const currentValue = existingFields[field] ? parseInt(existingFields[field].integerValue || "0", 10) : 0;
+  await _firestorePatchDoc(env, docPath, {
+    [field]: currentValue + 1,
+    provider: FOOTBALL_PROVIDER.id,
+    lastUpdatedMs: Date.now(),
+  });
+}
+
+async function _footballApiProxyRoute(env, request, url, operationName, ttlSeconds) {
   let verified;
   try {
     verified = await _verifyFirebaseIdToken(env, request);
@@ -2749,6 +2817,12 @@ async function _footballApiProxyRoute(env, request, url, { upstreamPath, allowed
     return jsonResponse({ error: verified.error }, verified.status || 401);
   }
 
+  const operation = FOOTBALL_PROVIDER.operations[operationName];
+  if (!operation) {
+    return jsonResponse({ error: `Unknown football operation: ${operationName}` }, 500);
+  }
+  const { upstreamPath, allowedParams } = operation;
+
   // Only forward whitelisted query params -- never pass the caller's query
   // string through verbatim to the upstream API.
   const forwarded = new URLSearchParams();
@@ -2756,44 +2830,59 @@ async function _footballApiProxyRoute(env, request, url, { upstreamPath, allowed
     const v = url.searchParams.get(key);
     if (v !== null && v.trim() !== "") forwarded.set(key, v.trim());
   }
-  const cacheKeyUrl = `https://football-hub-cache.internal${upstreamPath}?${forwarded.toString()}`;
+  const cacheKeyUrl = `https://football-hub-cache.internal/${FOOTBALL_PROVIDER.id}${upstreamPath}?${forwarded.toString()}`;
   const cacheKey = new Request(cacheKeyUrl, { method: "GET" });
   const cache = caches.default;
 
   const cached = await cache.match(cacheKey);
   if (cached) {
+    try {
+      await _recordFootballMetric(env, "cacheHits");
+    } catch (_e) {
+      // Best-effort -- never fail the request over a metrics write.
+    }
     return new Response(cached.body, {
       status: cached.status,
       headers: { ...CORS_HEADERS, "content-type": "application/json", "x-cache": "HIT" },
     });
   }
 
-  const apiKey = _requireEnvString(env, "API_FOOTBALL_KEY");
-  const upstreamUrl = `${FOOTBALL_API_BASE}${upstreamPath}?${forwarded.toString()}`;
+  const upstreamUrl = `${FOOTBALL_PROVIDER.baseUrl}${upstreamPath}?${forwarded.toString()}`;
 
   let upstreamRes;
   try {
-    upstreamRes = await fetch(upstreamUrl, {
-      headers: { "x-apikey": apiKey },
-    });
+    upstreamRes = await fetch(upstreamUrl, { headers: FOOTBALL_PROVIDER.buildHeaders(env) });
   } catch (e) {
-    return jsonResponse({ error: "Football API unreachable: " + (e.message || String(e)) }, 502);
+    try {
+      await _recordFootballMetric(env, "providerErrors");
+    } catch (_e2) {}
+    return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 502);
   }
 
   let data;
   try {
     data = await upstreamRes.json();
   } catch {
-    return jsonResponse({ error: "Football API returned invalid JSON" }, 502);
+    try {
+      await _recordFootballMetric(env, "providerErrors");
+    } catch (_e2) {}
+    return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 502);
   }
 
-  // api-football.com returns HTTP 200 even on quota-exceeded / bad-request
-  // errors, with details in a non-empty `errors` field instead.
-  const upstreamErrors = data && data.errors;
-  const hasUpstreamError =
-    upstreamErrors && (Array.isArray(upstreamErrors) ? upstreamErrors.length > 0 : Object.keys(upstreamErrors).length > 0);
-  if (!upstreamRes.ok || hasUpstreamError) {
-    return jsonResponse({ error: "Football API error", details: upstreamErrors || data }, 502);
+  if (FOOTBALL_PROVIDER.isErrorResponse(upstreamRes, data)) {
+    try {
+      await _recordFootballMetric(env, "providerErrors");
+    } catch (_e2) {}
+    return jsonResponse(
+      { error: "Football data temporarily unavailable. Please try again.", details: data && data.errors },
+      502
+    );
+  }
+
+  try {
+    await _recordFootballMetric(env, "apiRequests");
+  } catch (_e) {
+    // Best-effort -- never fail the request over a metrics write.
   }
 
   const responseBody = JSON.stringify(data);
@@ -3075,64 +3164,49 @@ export default {
 
     if (url.pathname === "/football/fixtures" && request.method === "GET") {
       try {
-        return await _footballApiProxyRoute(env, request, url, {
-          upstreamPath: "/fixtures",
-          // date: YYYY-MM-DD for the Matches tab's date-picker row.
-          // league+season: a specific competition's fixtures/round.
-          // team: a team's fixtures (profile screen, "last 5"/"next match").
-          allowedParams: ["date", "league", "season", "team", "round", "next", "last", "status", "live"],
-          ttlSeconds: 300, // 5 min -- scores can be live/in-progress.
-        });
+        return await _footballApiProxyRoute(env, request, url, "fixtures", 300); // 5 min -- scores can be live/in-progress.
       } catch (e) {
-        return jsonResponse({ error: "Fixtures error: " + (e.message || String(e)) }, 500);
+        return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 500);
+      }
+    }
+
+    if (url.pathname === "/football/fixture-events" && request.method === "GET") {
+      try {
+        return await _footballApiProxyRoute(env, request, url, "fixtureEvents", 60); // 1 min -- goals/cards during a live match.
+      } catch (e) {
+        return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 500);
       }
     }
 
     if (url.pathname === "/football/standings" && request.method === "GET") {
       try {
-        return await _footballApiProxyRoute(env, request, url, {
-          upstreamPath: "/standings",
-          allowedParams: ["league", "season", "team"],
-          ttlSeconds: 3600, // 1 hour -- standings only change after full-time.
-        });
+        return await _footballApiProxyRoute(env, request, url, "standings", 3600); // 1 hour -- standings only change after full-time.
       } catch (e) {
-        return jsonResponse({ error: "Standings error: " + (e.message || String(e)) }, 500);
+        return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 500);
       }
     }
 
     if (url.pathname === "/football/squad" && request.method === "GET") {
       try {
-        return await _footballApiProxyRoute(env, request, url, {
-          upstreamPath: "/players/squads",
-          allowedParams: ["team"],
-          ttlSeconds: 86400, // 1 day -- squads change rarely (transfer windows only).
-        });
+        return await _footballApiProxyRoute(env, request, url, "squad", 86400); // 1 day -- squads change rarely (transfer windows only).
       } catch (e) {
-        return jsonResponse({ error: "Squad error: " + (e.message || String(e)) }, 500);
+        return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 500);
       }
     }
 
     if (url.pathname === "/football/player" && request.method === "GET") {
       try {
-        return await _footballApiProxyRoute(env, request, url, {
-          upstreamPath: "/players",
-          allowedParams: ["id", "season", "team"],
-          ttlSeconds: 21600, // 6 hours -- season stats update slowly enough for this.
-        });
+        return await _footballApiProxyRoute(env, request, url, "player", 21600); // 6 hours -- season stats update slowly enough for this.
       } catch (e) {
-        return jsonResponse({ error: "Player error: " + (e.message || String(e)) }, 500);
+        return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 500);
       }
     }
 
     if (url.pathname === "/football/leagues" && request.method === "GET") {
       try {
-        return await _footballApiProxyRoute(env, request, url, {
-          upstreamPath: "/leagues",
-          allowedParams: ["search", "country", "season", "id", "code", "type"],
-          ttlSeconds: 86400, // 1 day -- the league catalog itself rarely changes.
-        });
+        return await _footballApiProxyRoute(env, request, url, "leagues", 86400); // 1 day -- the league catalog itself rarely changes.
       } catch (e) {
-        return jsonResponse({ error: "Leagues error: " + (e.message || String(e)) }, 500);
+        return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 500);
       }
     }
 

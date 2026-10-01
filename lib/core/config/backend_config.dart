@@ -83,4 +83,10 @@ class BackendConfig {
     if (base.isEmpty) return null;
     return Uri.parse('$base/football/player');
   }
+
+  static Uri? footballFixtureEventsUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/football/fixture-events');
+  }
 }

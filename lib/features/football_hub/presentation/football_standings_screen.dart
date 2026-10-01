@@ -1,13 +1,13 @@
 // lib/features/football_hub/presentation/football_standings_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/football_api_service.dart';
 import '../models/football_standing.dart';
-import 'football_team_screen.dart';
 
 class FootballStandingsScreen extends StatefulWidget {
   const FootballStandingsScreen({
@@ -93,14 +93,9 @@ class _FootballStandingsScreenState extends State<FootballStandingsScreen> {
                           (r) => _StandingRowWidget(
                             row: r,
                             brightness: brightness,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => FootballTeamScreen(
-                                  teamId: r.teamId,
-                                  teamName: r.teamName,
-                                  teamLogoUrl: r.teamLogoUrl,
-                                ),
-                              ),
+                            onTap: () => context.push(
+                              '/football/team/${r.teamId}',
+                              extra: {'teamName': r.teamName, 'teamLogoUrl': r.teamLogoUrl},
                             ),
                           ),
                         ),

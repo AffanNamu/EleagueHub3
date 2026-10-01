@@ -1,6 +1,7 @@
 // lib/features/football_hub/presentation/football_team_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -161,19 +162,22 @@ class _FootballTeamScreenState extends State<FootballTeamScreen> {
                 final f = fixtures.first;
                 return Glass(
                   padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '${f.homeTeamName} vs ${f.awayTeamName}',
-                          style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.primaryText(brightness)),
+                  child: InkWell(
+                    onTap: () => context.push('/football/match/${f.id}', extra: f),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${f.homeTeamName} vs ${f.awayTeamName}',
+                            style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.primaryText(brightness)),
+                          ),
                         ),
-                      ),
-                      Text(
-                        DateFormat('EEE d MMM, HH:mm').format(f.kickoff),
-                        style: TextStyle(fontSize: 12, color: AppTheme.secondaryText(brightness)),
-                      ),
-                    ],
+                        Text(
+                          DateFormat('EEE d MMM, HH:mm').format(f.kickoff),
+                          style: TextStyle(fontSize: 12, color: AppTheme.secondaryText(brightness)),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },

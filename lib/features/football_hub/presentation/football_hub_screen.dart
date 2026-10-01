@@ -1,6 +1,7 @@
 // lib/features/football_hub/presentation/football_hub_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -12,7 +13,6 @@ import '../models/football_league.dart';
 import '../utils/football_season.dart';
 import 'football_following_tab.dart';
 import 'football_standings_screen.dart';
-import 'football_team_screen.dart';
 
 /// Football Hub's own v1 home: Matches (date-grouped fixtures), Leagues
 /// (quick access to popular competitions' tables + search for the rest)
@@ -310,11 +310,7 @@ class _FixtureRow extends StatelessWidget {
     final showScore = fixture.isLive || fixture.isFinished;
 
     void openTeam(int teamId, String teamName, String teamLogoUrl) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => FootballTeamScreen(teamId: teamId, teamName: teamName, teamLogoUrl: teamLogoUrl),
-        ),
-      );
+      context.push('/football/team/$teamId', extra: {'teamName': teamName, 'teamLogoUrl': teamLogoUrl});
     }
 
     return Padding(
@@ -346,21 +342,24 @@ class _FixtureRow extends StatelessWidget {
           ),
           SizedBox(
             width: 56,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (showScore)
+            child: InkWell(
+              onTap: () => context.push('/football/match/${fixture.id}', extra: fixture),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showScore)
+                    Text(
+                      '${fixture.homeGoals ?? 0} - ${fixture.awayGoals ?? 0}',
+                      style: nameStyle,
+                      textAlign: TextAlign.center,
+                    ),
                   Text(
-                    '${fixture.homeGoals ?? 0} - ${fixture.awayGoals ?? 0}',
-                    style: nameStyle,
+                    centerLabel,
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: centerColor),
                     textAlign: TextAlign.center,
                   ),
-                Text(
-                  centerLabel,
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: centerColor),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           Expanded(

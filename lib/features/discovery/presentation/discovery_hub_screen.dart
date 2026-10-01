@@ -108,7 +108,7 @@ class DiscoveryHubScreen extends StatelessWidget {
               iconColor: const Color(0xFF16A34A),
               title: 'Football Hub',
               subtitle: 'Live scores, fixtures & league tables',
-              onTap: () => context.push('/football-hub'),
+              onTap: () => context.push('/football'),
             ),
             const SizedBox(height: 10),
             _DiscoveryRow(
