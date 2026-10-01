@@ -30,7 +30,6 @@ jobs:
             FLUTTERWAVE_SECRET_KEY
             CLOUDINARY_API_KEY
             CLOUDINARY_API_SECRET
-            APPLE_SHARED_SECRET
             API_FOOTBALL_KEY
             NEWS_API_KEY
         env:
@@ -47,15 +46,17 @@ jobs:
           # GitHub secrets regardless, out of caution.
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-          # App Store Connect -> app -> Subscriptions -> App-Specific Shared
-          # Secret. Required by _verifyAppStoreReceipt() to call Apple's
-          # verifyReceipt endpoint. This was added to the worker's code
-          # (_activateOrganizerProAppStore) in an earlier commit but never
-          # added to this deploy workflow's secrets/env, so even with the
-          # GitHub secret set it was never actually reaching the deployed
-          # Worker -- every Apple purchase-activation call would 500 on
-          # _requireEnvString("APPLE_SHARED_SECRET") until this line existed.
-          APPLE_SHARED_SECRET: ${{ secrets.APPLE_SHARED_SECRET }}
+          # APPLE_SHARED_SECRET intentionally NOT listed here for now.
+          # wrangler-action aborts the ENTIRE deploy the instant any listed
+          # secret has no value in env -- with the GitHub secret unset,
+          # leaving this wired was blocking every other deploy (Football
+          # Hub included), not just Apple purchase verification. Apple
+          # purchase-activation calls already fail gracefully today
+          # (_requireEnvString("APPLE_SHARED_SECRET") throws only when that
+          # code path is actually hit) -- no regression from removing this.
+          # Once App Store Connect -> app -> Subscriptions -> App-Specific
+          # Shared Secret is set up for real, add the GitHub secret AND
+          # restore both the `secrets:` list entry above and this env line.
           # Football Hub data sources. Both keys are proxied server-side
           # only (never shipped in the Flutter client) -- these free-tier
           # keys have a hard daily request cap (API-Football: 100/day) and
