@@ -3135,6 +3135,25 @@ function _buildEventNotification(kind, f, scorerName) {
 }
 
 async function _pollLiveFixturesAndNotify(env) {
+  // Admin-controlled kill switch (esportlyic-admin's Settings -> Football
+  // Hub page, PATCH /api/admin/football-hub -> football_config/settings).
+  // Missing doc/field = enabled, matching the toggle UI's own default.
+  // Checked first and before any api-football.com call so pausing the
+  // poller also pauses its quota usage, not just its notifications.
+  try {
+    const configRes = await _firestoreGetDocSA(env, "football_config/settings");
+    const fields = (configRes.ok && configRes.doc && configRes.doc.fields) || {};
+    const pollerEnabled = fields.pollerEnabled ? fields.pollerEnabled.booleanValue !== false : true;
+    if (!pollerEnabled) {
+      console.log("[football poll] skipped -- poller disabled via admin panel");
+      return;
+    }
+  } catch (e) {
+    // If we can't read the config, fail open (keep polling) rather than
+    // silently going dark over a transient Firestore read error.
+    console.error("[football poll] config read failed, polling anyway:", e.message || String(e));
+  }
+
   let upstreamRes;
   try {
     upstreamRes = await fetch(`${FOOTBALL_PROVIDER.baseUrl}/fixtures?live=all`, {

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Tags, Activity, Smartphone } from 'lucide-react';
+import { Tags, Activity, Smartphone, Trophy } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
@@ -29,6 +29,13 @@ export default async function SettingsHubPage() {
       icon: Smartphone,
       title: 'App Updates',
       description: 'Publish the latest mobile build and decide whether it’s a skippable nudge or a forced update.',
+      visible: hasPermission(identity, 'settings.manage'),
+    },
+    {
+      href: '/settings/football-hub',
+      icon: Trophy,
+      title: 'Football Hub',
+      description: 'API-Football usage today and a pause switch for the live-score notification poller.',
       visible: hasPermission(identity, 'settings.manage'),
     },
   ].filter((link) => link.visible);
