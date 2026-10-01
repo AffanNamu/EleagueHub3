@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { TopBar } from '@/components/ui/TopBar';
 import {
   Home, Trophy, User, Settings, LayoutDashboard,
-  Store, Network, MessageSquare, Crown, X, Compass
+  Store, Network, MessageSquare, Crown, X, Compass, Goal
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -20,6 +20,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const desktopNavItems = [
     { href: '/dashboard', icon: Home, label: 'Home' },
     { href: '/leagues', icon: Trophy, label: 'Competitions' },
+    { href: '/football', icon: Goal, label: 'Football' },
     { href: '/master-leagues', icon: LayoutDashboard, label: 'Workspaces' },
     { href: '/discovery/community', icon: MessageSquare, label: 'Community' },
     { href: '/marketplace', icon: Store, label: 'Marketplace' },
