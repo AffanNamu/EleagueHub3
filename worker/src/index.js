@@ -3,7 +3,7 @@ import { AccessToken } from "livekit-server-sdk";
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "POST, OPTIONS",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
   "access-control-allow-headers": "content-type, authorization",
   "access-control-max-age": "86400",
 };
@@ -2726,6 +2726,104 @@ async function _signHighlightUpload(env, verified, body) {
   };
 }
 
+// ── Football Hub: cached proxy to api-football.com (API-SPORTS) ────────────
+//
+// Free tier is capped at 100 requests/day TOTAL, shared across every app
+// user -- there is no per-user quota to lean on. The only way this is
+// viable is aggressive edge caching: identical queries (same path + same
+// query string) within the TTL window are served straight from Cloudflare's
+// cache and never touch api-football.com at all. TTLs are deliberately
+// generous (minutes-to-hours, not seconds) because the quota cannot absorb
+// a cache-stampede of unique requests. If Football Hub usage grows, the
+// fix is upgrading the API-Football plan, not shortening these TTLs.
+const FOOTBALL_API_BASE = "https://v3.football.api-sports.io";
+
+async function _footballApiProxyRoute(env, request, url, { upstreamPath, allowedParams, ttlSeconds }) {
+  let verified;
+  try {
+    verified = await _verifyFirebaseIdToken(env, request);
+  } catch (e) {
+    return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+  }
+  if (!verified.ok) {
+    return jsonResponse({ error: verified.error }, verified.status || 401);
+  }
+
+  // Only forward whitelisted query params -- never pass the caller's query
+  // string through verbatim to the upstream API.
+  const forwarded = new URLSearchParams();
+  for (const key of allowedParams) {
+    const v = url.searchParams.get(key);
+    if (v !== null && v.trim() !== "") forwarded.set(key, v.trim());
+  }
+  const cacheKeyUrl = `https://football-hub-cache.internal${upstreamPath}?${forwarded.toString()}`;
+  const cacheKey = new Request(cacheKeyUrl, { method: "GET" });
+  const cache = caches.default;
+
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    return new Response(cached.body, {
+      status: cached.status,
+      headers: { ...CORS_HEADERS, "content-type": "application/json", "x-cache": "HIT" },
+    });
+  }
+
+  const apiKey = _requireEnvString(env, "API_FOOTBALL_KEY");
+  const upstreamUrl = `${FOOTBALL_API_BASE}${upstreamPath}?${forwarded.toString()}`;
+
+  let upstreamRes;
+  try {
+    upstreamRes = await fetch(upstreamUrl, {
+      headers: { "x-apikey": apiKey },
+    });
+  } catch (e) {
+    return jsonResponse({ error: "Football API unreachable: " + (e.message || String(e)) }, 502);
+  }
+
+  let data;
+  try {
+    data = await upstreamRes.json();
+  } catch {
+    return jsonResponse({ error: "Football API returned invalid JSON" }, 502);
+  }
+
+  // api-football.com returns HTTP 200 even on quota-exceeded / bad-request
+  // errors, with details in a non-empty `errors` field instead.
+  const upstreamErrors = data && data.errors;
+  const hasUpstreamError =
+    upstreamErrors && (Array.isArray(upstreamErrors) ? upstreamErrors.length > 0 : Object.keys(upstreamErrors).length > 0);
+  if (!upstreamRes.ok || hasUpstreamError) {
+    return jsonResponse({ error: "Football API error", details: upstreamErrors || data }, 502);
+  }
+
+  const responseBody = JSON.stringify(data);
+  const response = new Response(responseBody, {
+    status: 200,
+    headers: {
+      ...CORS_HEADERS,
+      "content-type": "application/json",
+      "cache-control": `public, max-age=${ttlSeconds}`,
+      "x-cache": "MISS",
+    },
+  });
+
+  // Cache a separate copy (cache.put consumes the body) keyed on our own
+  // whitelisted-param URL, not the caller's raw request.
+  try {
+    await cache.put(
+      cacheKey,
+      new Response(responseBody, {
+        status: 200,
+        headers: { "content-type": "application/json", "cache-control": `public, max-age=${ttlSeconds}` },
+      })
+    );
+  } catch (_e) {
+    // Best-effort -- a cache-write failure should never fail the request.
+  }
+
+  return response;
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -2972,6 +3070,45 @@ export default {
       } catch (e) {
         console.error("[cloudinary/sign-highlight] Unhandled:", e.message || String(e), e.stack || "");
         return jsonResponse({ error: "Highlight sign error: " + (e.message || String(e)) }, 500);
+      }
+    }
+
+    if (url.pathname === "/football/fixtures" && request.method === "GET") {
+      try {
+        return await _footballApiProxyRoute(env, request, url, {
+          upstreamPath: "/fixtures",
+          // date: YYYY-MM-DD for the Matches tab's date-picker row.
+          // league+season: a specific competition's fixtures/round.
+          // team: a team's fixtures (profile screen, "last 5"/"next match").
+          allowedParams: ["date", "league", "season", "team", "round", "next", "last", "status", "live"],
+          ttlSeconds: 300, // 5 min -- scores can be live/in-progress.
+        });
+      } catch (e) {
+        return jsonResponse({ error: "Fixtures error: " + (e.message || String(e)) }, 500);
+      }
+    }
+
+    if (url.pathname === "/football/standings" && request.method === "GET") {
+      try {
+        return await _footballApiProxyRoute(env, request, url, {
+          upstreamPath: "/standings",
+          allowedParams: ["league", "season", "team"],
+          ttlSeconds: 3600, // 1 hour -- standings only change after full-time.
+        });
+      } catch (e) {
+        return jsonResponse({ error: "Standings error: " + (e.message || String(e)) }, 500);
+      }
+    }
+
+    if (url.pathname === "/football/leagues" && request.method === "GET") {
+      try {
+        return await _footballApiProxyRoute(env, request, url, {
+          upstreamPath: "/leagues",
+          allowedParams: ["search", "country", "season", "id", "code", "type"],
+          ttlSeconds: 86400, // 1 day -- the league catalog itself rarely changes.
+        });
+      } catch (e) {
+        return jsonResponse({ error: "Leagues error: " + (e.message || String(e)) }, 500);
       }
     }
 
