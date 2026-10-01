@@ -31,6 +31,8 @@ jobs:
             CLOUDINARY_API_KEY
             CLOUDINARY_API_SECRET
             APPLE_SHARED_SECRET
+            API_FOOTBALL_KEY
+            NEWS_API_KEY
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
@@ -54,6 +56,13 @@ jobs:
           # Worker -- every Apple purchase-activation call would 500 on
           # _requireEnvString("APPLE_SHARED_SECRET") until this line existed.
           APPLE_SHARED_SECRET: ${{ secrets.APPLE_SHARED_SECRET }}
+          # Football Hub data sources. Both keys are proxied server-side
+          # only (never shipped in the Flutter client) -- these free-tier
+          # keys have a hard daily request cap (API-Football: 100/day) and
+          # most providers' free-tier terms forbid embedding the key in a
+          # distributed app binary, since it can be extracted and abused.
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
 
       - name: Test worker endpoints
         working-directory: .
