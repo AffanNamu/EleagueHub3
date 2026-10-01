@@ -3100,6 +3100,30 @@ export default {
       }
     }
 
+    if (url.pathname === "/football/squad" && request.method === "GET") {
+      try {
+        return await _footballApiProxyRoute(env, request, url, {
+          upstreamPath: "/players/squads",
+          allowedParams: ["team"],
+          ttlSeconds: 86400, // 1 day -- squads change rarely (transfer windows only).
+        });
+      } catch (e) {
+        return jsonResponse({ error: "Squad error: " + (e.message || String(e)) }, 500);
+      }
+    }
+
+    if (url.pathname === "/football/player" && request.method === "GET") {
+      try {
+        return await _footballApiProxyRoute(env, request, url, {
+          upstreamPath: "/players",
+          allowedParams: ["id", "season", "team"],
+          ttlSeconds: 21600, // 6 hours -- season stats update slowly enough for this.
+        });
+      } catch (e) {
+        return jsonResponse({ error: "Player error: " + (e.message || String(e)) }, 500);
+      }
+    }
+
     if (url.pathname === "/football/leagues" && request.method === "GET") {
       try {
         return await _footballApiProxyRoute(env, request, url, {

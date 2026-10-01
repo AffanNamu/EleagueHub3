@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/config/backend_config.dart';
 import '../models/football_fixture.dart';
 import '../models/football_league.dart';
+import '../models/football_player.dart';
 import '../models/football_standing.dart';
 
 /// Client for Football Hub's data, proxied through the Cloudflare Worker
@@ -130,5 +131,25 @@ class FootballApiService {
 
     final body = await _get(BackendConfig.footballLeaguesUrl(), params);
     return _responseList(body).map(FootballLeagueInfo.fromJson).toList(growable: false);
+  }
+
+  Future<List<FootballSquadPlayer>> getSquad({required int teamId}) async {
+    final body = await _get(BackendConfig.footballSquadUrl(), {'team': '$teamId'});
+    final list = _responseList(body);
+    if (list.isEmpty) return const [];
+    final players = (list.first['players'] as List?)?.whereType<Map>().toList() ?? const [];
+    return players
+        .map((p) => FootballSquadPlayer.fromJson(p.cast<String, dynamic>()))
+        .toList(growable: false);
+  }
+
+  Future<FootballPlayerProfile?> getPlayer({required int playerId, required int season}) async {
+    final body = await _get(BackendConfig.footballPlayerUrl(), {
+      'id': '$playerId',
+      'season': '$season',
+    });
+    final list = _responseList(body);
+    if (list.isEmpty) return null;
+    return FootballPlayerProfile.fromApiResponseEntry(list.first);
   }
 }

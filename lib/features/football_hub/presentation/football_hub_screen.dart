@@ -9,14 +9,20 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../data/football_api_service.dart';
 import '../models/football_fixture.dart';
 import '../models/football_league.dart';
+import '../utils/football_season.dart';
+import 'football_following_tab.dart';
 import 'football_standings_screen.dart';
+import 'football_team_screen.dart';
 
-/// Football Hub's own v1 home: Matches (date-grouped fixtures) and Leagues
-/// (quick access to popular competitions' tables + search for the rest).
+/// Football Hub's own v1 home: Matches (date-grouped fixtures), Leagues
+/// (quick access to popular competitions' tables + search for the rest)
+/// and Following (teams/players you follow).
 ///
-/// v1 scope only -- Following/Player profile/News/AI summaries are
-/// deliberately not here yet (they each need either more backend work or
-/// a separate data source). See the session's Football Hub scoping notes.
+/// v1 scope only -- News/AI daily summaries/fixture-difficulty ratings/
+/// player radar charts are deliberately not here yet (each needs either a
+/// separate data source, a budget decision for LLM calls, or more
+/// API-Football quota than the free 100 req/day plan allows). See the
+/// session's Football Hub scoping notes.
 class FootballHubScreen extends StatefulWidget {
   const FootballHubScreen({super.key});
 
@@ -30,7 +36,7 @@ class _FootballHubScreenState extends State<FootballHubScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -56,6 +62,7 @@ class _FootballHubScreenState extends State<FootballHubScreen> with SingleTicker
           tabs: const [
             Tab(text: 'Matches'),
             Tab(text: 'Leagues'),
+            Tab(text: 'Following'),
           ],
         ),
       ),
@@ -65,6 +72,7 @@ class _FootballHubScreenState extends State<FootballHubScreen> with SingleTicker
           children: const [
             _MatchesTab(),
             _LeaguesTab(),
+            FootballFollowingTab(),
           ],
         ),
       ),
@@ -301,28 +309,39 @@ class _FixtureRow extends StatelessWidget {
 
     final showScore = fixture.isLive || fixture.isFinished;
 
+    void openTeam(int teamId, String teamName, String teamLogoUrl) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => FootballTeamScreen(teamId: teamId, teamName: teamName, teamLogoUrl: teamLogoUrl),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
           Expanded(
-            child: Row(
-              children: [
-                if (fixture.homeTeamLogoUrl.isNotEmpty)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: Image.network(
-                      fixture.homeTeamLogoUrl,
-                      width: 18,
-                      height: 18,
-                      errorBuilder: (_, __, ___) => const SizedBox(width: 18, height: 18),
+            child: InkWell(
+              onTap: () => openTeam(fixture.homeTeamId, fixture.homeTeamName, fixture.homeTeamLogoUrl),
+              child: Row(
+                children: [
+                  if (fixture.homeTeamLogoUrl.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Image.network(
+                        fixture.homeTeamLogoUrl,
+                        width: 18,
+                        height: 18,
+                        errorBuilder: (_, __, ___) => const SizedBox(width: 18, height: 18),
+                      ),
                     ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(fixture.homeTeamName, style: nameStyle, overflow: TextOverflow.ellipsis),
                   ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(fixture.homeTeamName, style: nameStyle, overflow: TextOverflow.ellipsis),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           SizedBox(
@@ -345,29 +364,32 @@ class _FixtureRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Text(
-                    fixture.awayTeamName,
-                    style: nameStyle,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.end,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                if (fixture.awayTeamLogoUrl.isNotEmpty)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: Image.network(
-                      fixture.awayTeamLogoUrl,
-                      width: 18,
-                      height: 18,
-                      errorBuilder: (_, __, ___) => const SizedBox(width: 18, height: 18),
+            child: InkWell(
+              onTap: () => openTeam(fixture.awayTeamId, fixture.awayTeamName, fixture.awayTeamLogoUrl),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Text(
+                      fixture.awayTeamName,
+                      style: nameStyle,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
                     ),
                   ),
-              ],
+                  const SizedBox(width: 6),
+                  if (fixture.awayTeamLogoUrl.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Image.network(
+                        fixture.awayTeamLogoUrl,
+                        width: 18,
+                        height: 18,
+                        errorBuilder: (_, __, ___) => const SizedBox(width: 18, height: 18),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ],
@@ -422,13 +444,6 @@ class _LeaguesTabState extends State<_LeaguesTab> {
     );
   }
 
-  int _currentSeasonGuess() {
-    // European seasons typically start in the summer; before ~July, the
-    // "current" season is still the one that started the previous year.
-    final now = DateTime.now();
-    return now.month >= 7 ? now.year : now.year - 1;
-  }
-
   @override
   void dispose() {
     _searchController.dispose();
@@ -438,7 +453,7 @@ class _LeaguesTabState extends State<_LeaguesTab> {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final season = _currentSeasonGuess();
+    final season = currentFootballSeasonGuess();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),

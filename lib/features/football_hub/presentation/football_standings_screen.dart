@@ -7,6 +7,7 @@ import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/football_api_service.dart';
 import '../models/football_standing.dart';
+import 'football_team_screen.dart';
 
 class FootballStandingsScreen extends StatefulWidget {
   const FootballStandingsScreen({
@@ -88,7 +89,21 @@ class _FootballStandingsScreenState extends State<FootballStandingsScreen> {
                       children: [
                         _HeaderRow(brightness: brightness),
                         const SizedBox(height: 4),
-                        ...rows.map((r) => _StandingRowWidget(row: r, brightness: brightness)),
+                        ...rows.map(
+                          (r) => _StandingRowWidget(
+                            row: r,
+                            brightness: brightness,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => FootballTeamScreen(
+                                  teamId: r.teamId,
+                                  teamName: r.teamName,
+                                  teamLogoUrl: r.teamLogoUrl,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -127,9 +142,10 @@ class _HeaderRow extends StatelessWidget {
 }
 
 class _StandingRowWidget extends StatelessWidget {
-  const _StandingRowWidget({required this.row, required this.brightness});
+  const _StandingRowWidget({required this.row, required this.brightness, required this.onTap});
   final FootballStandingRow row;
   final Brightness brightness;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -144,7 +160,9 @@ class _StandingRowWidget extends StatelessWidget {
       color: AppTheme.secondaryText(brightness),
     );
 
-    return Padding(
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
@@ -185,6 +203,7 @@ class _StandingRowWidget extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

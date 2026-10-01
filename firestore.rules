@@ -1403,6 +1403,34 @@ service cloud.firestore {
         allow update: if false;
       }
 
+      // Football Hub follows -- doc id is the API-Football team/player id
+      // (as a string), same owner-only create/delete/no-update shape as
+      // /following/{targetId} above. Cached name/logo/photo live on the
+      // doc purely for fast list rendering (Following tab) without an
+      // extra API-Football call per row; they're display-only and never
+      // re-validated against the live API by these rules.
+      match /football_followed_teams/{teamId} {
+        allow get, list: if signedIn() && request.auth.uid == userId;
+        allow create: if signedIn() && request.auth.uid == userId
+          && (request.resource.data.teamId is string) && (request.resource.data.teamId == teamId)
+          && (request.resource.data.teamName is string) && (request.resource.data.teamName.size() <= 200)
+          && (!('teamLogoUrl' in request.resource.data) || (request.resource.data.teamLogoUrl is string && request.resource.data.teamLogoUrl.size() <= 500))
+          && (request.resource.data.createdAtMs is int);
+        allow delete: if signedIn() && request.auth.uid == userId;
+        allow update: if false;
+      }
+
+      match /football_followed_players/{playerId} {
+        allow get, list: if signedIn() && request.auth.uid == userId;
+        allow create: if signedIn() && request.auth.uid == userId
+          && (request.resource.data.playerId is string) && (request.resource.data.playerId == playerId)
+          && (request.resource.data.playerName is string) && (request.resource.data.playerName.size() <= 200)
+          && (!('playerPhotoUrl' in request.resource.data) || (request.resource.data.playerPhotoUrl is string && request.resource.data.playerPhotoUrl.size() <= 500))
+          && (request.resource.data.createdAtMs is int);
+        allow delete: if signedIn() && request.auth.uid == userId;
+        allow update: if false;
+      }
+
       // Free-tier daily usage counters (e.g. 'chatMessages', 'feedPosts')
       // -- see rateLimitWriteValid()/rateLimitOk() below for the rolling
       // 24h window mechanics these documents enforce.
