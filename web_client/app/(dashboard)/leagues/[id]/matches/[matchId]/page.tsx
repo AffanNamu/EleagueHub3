@@ -5,12 +5,14 @@ import { useParams, useRouter } from 'next/navigation';
 import { useMatches } from '@/hooks/useMatches';
 import { useLeagueTeams } from '@/hooks/useLeagueTeams';
 import { MatchPosterModal } from '@/components/leagues/MatchPosterModal';
-import { 
-  ArrowLeft, Loader2, ShieldCheck, ImageIcon, PlayCircle, 
-  Copy, Video, UploadCloud, Tag
+import { HighlightsSection } from '@/components/highlights/HighlightsSection';
+import {
+  ArrowLeft, Loader2, ShieldCheck, ImageIcon, PlayCircle,
+  Copy, Tag, Video
 } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { checkCanManageLeague } from '@/lib/leagues/canManageLeague';
 
 export default function MatchDetailScreen() {
   const params = useParams();
@@ -24,7 +26,8 @@ export default function MatchDetailScreen() {
   const [posterModalOpen, setPosterModalOpen] = useState(false);
   const [authUid, setAuthUid] = useState<string | null>(null);
   const [isTeamMember, setIsTeamMember] = useState(false);
-  
+  const [isLeagueOwner, setIsLeagueOwner] = useState(false);
+
   const match = matches.find(m => m.id === matchId);
   const homeTeam = teams.find(t => t.id === match?.homeTeamId);
   const awayTeam = teams.find(t => t.id === match?.awayTeamId);
@@ -40,7 +43,7 @@ export default function MatchDetailScreen() {
         return;
       }
       setAuthUid(user.uid);
-      
+
       if (match) {
         try {
           const membershipDoc = await getDoc(doc(db, 'leagues', leagueId, 'memberships', user.uid));
@@ -50,6 +53,12 @@ export default function MatchDetailScreen() {
           }
         } catch (e) {
           console.warn('Membership check failed:', e);
+        }
+
+        try {
+          setIsLeagueOwner(await checkCanManageLeague(leagueId, user.uid));
+        } catch (e) {
+          console.warn('Owner check failed:', e);
         }
       }
     });
@@ -170,34 +179,24 @@ export default function MatchDetailScreen() {
         </div>
 
         {/* Highlights Section */}
-        <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl md:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-black text-white flex items-center gap-2">
+        {!isFinished ? (
+          <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl md:col-span-2">
+            <h3 className="text-base font-black text-white flex items-center gap-2 mb-4">
               <Video className="w-5 h-5 text-sky-400" /> Highlights
             </h3>
-            
-            {/* Parity: Gating upload based on status and membership */}
-            {isFinished && isTeamMember && (
-              <button className="px-4 py-2 bg-sky-500/10 border border-sky-500/30 text-sky-400 text-xs font-black rounded-xl hover:bg-sky-500/20 transition-colors flex items-center gap-2">
-                <UploadCloud className="w-4 h-4" /> Upload
-              </button>
-            )}
-          </div>
-
-          {!isFinished ? (
-             <div className="py-8 bg-[#1E293B]/30 border border-[#1E293B] rounded-2xl text-center">
-               <p className="text-sm font-bold text-gray-400">Highlights can be uploaded after the match is completed.</p>
-             </div>
-          ) : !isTeamMember ? (
-             <div className="py-8 bg-[#1E293B]/30 border border-[#1E293B] rounded-2xl text-center">
-               <p className="text-sm font-bold text-gray-400">Only home/away team members can upload highlights.</p>
-             </div>
-          ) : (
             <div className="py-8 bg-[#1E293B]/30 border border-[#1E293B] rounded-2xl text-center">
-               <p className="text-sm font-bold text-gray-400">No highlights uploaded yet.</p>
-             </div>
-          )}
-        </div>
+              <p className="text-sm font-bold text-gray-400">Highlights can be uploaded after the match is completed.</p>
+            </div>
+          </div>
+        ) : (
+          <HighlightsSection
+            match={match}
+            homeTeamName={homeTeam?.name || 'Home'}
+            awayTeamName={awayTeam?.name || 'Away'}
+            isTeamMember={isTeamMember}
+            isLeagueOwner={isLeagueOwner}
+          />
+        )}
 
       </div>
 
