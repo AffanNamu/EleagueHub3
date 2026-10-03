@@ -1,6 +1,11 @@
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { FootballHubPollerToggle } from '@/components/settings/FootballHubPollerToggle';
-import { getFootballHubMetrics, getFootballHubConfig } from '@/lib/repositories/footballHubAdminRepository';
+import { FootballHubApiKeyForm } from '@/components/settings/FootballHubApiKeyForm';
+import {
+  getFootballHubMetrics,
+  getFootballHubConfig,
+  getFootballHubApiKeyStatus,
+} from '@/lib/repositories/footballHubAdminRepository';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
 
@@ -25,7 +30,11 @@ export default async function FootballHubSettingsPage() {
     );
   }
 
-  const [metrics, config] = await Promise.all([getFootballHubMetrics(), getFootballHubConfig()]);
+  const [metrics, config, apiKeyStatus] = await Promise.all([
+    getFootballHubMetrics(),
+    getFootballHubConfig(),
+    getFootballHubApiKeyStatus(),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -48,6 +57,13 @@ export default async function FootballHubSettingsPage() {
         Free API-Football plan cap is 100 requests/day. "API requests" above is every call that
         actually reached api-football.com (a cache hit costs nothing).
       </p>
+
+      <FootballHubApiKeyForm
+        configured={apiKeyStatus.configured}
+        maskedKey={apiKeyStatus.maskedKey}
+        keyUpdatedAtMs={apiKeyStatus.keyUpdatedAtMs}
+        keyUpdatedByEmail={apiKeyStatus.keyUpdatedByEmail}
+      />
 
       <FootballHubPollerToggle
         pollerEnabled={config.pollerEnabled}

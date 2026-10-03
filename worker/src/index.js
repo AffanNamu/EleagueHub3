@@ -2873,11 +2873,42 @@ async function _signHighlightUpload(env, verified, body) {
 // requires this to stay possible) means writing a new object with this
 // same shape and pointing FOOTBALL_PROVIDER at it -- the /football/*
 // routes, their caching, and the Dart client's contract never change.
+// Lets the API-Football key be set/rotated from the admin panel
+// (Settings -> Football Hub) instead of only via the GitHub Actions
+// Worker-deploy secret -- changing it there takes effect within 5 minutes,
+// no redeploy needed. A Firestore value wins when set; falls back to the
+// env secret (env.API_FOOTBALL_KEY) otherwise, so a deployment that has
+// never had one set in the admin panel keeps working unchanged.
+let _apiFootballKeyCache = { value: "", fetchedAtMs: 0 };
+async function _getApiFootballKey(env) {
+  const now = Date.now();
+  if (_apiFootballKeyCache.fetchedAtMs && now - _apiFootballKeyCache.fetchedAtMs < 5 * 60 * 1000) {
+    return _apiFootballKeyCache.value;
+  }
+  let fromFirestore = "";
+  try {
+    const res = await _firestoreGetDocSA(env, "football_config/settings");
+    const fields = (res.ok && res.doc && res.doc.fields) || {};
+    fromFirestore = (fields.apiFootballKey && fields.apiFootballKey.stringValue) || "";
+  } catch (_e) {
+    // Firestore read failed -- fall through to the env secret below.
+  }
+  const value = fromFirestore.trim() || (env.API_FOOTBALL_KEY || "").trim();
+  _apiFootballKeyCache = { value, fetchedAtMs: now };
+  return value;
+}
+
 const API_FOOTBALL_PROVIDER = {
   id: "api-football",
   baseUrl: "https://v3.football.api-sports.io",
-  buildHeaders(env) {
-    return { "x-apikey": _requireEnvString(env, "API_FOOTBALL_KEY") };
+  async buildHeaders(env) {
+    const key = await _getApiFootballKey(env);
+    if (!key) {
+      throw new Error(
+        "API-Football key not configured. Set it in Settings -> Football Hub, or as the Worker's API_FOOTBALL_KEY secret."
+      );
+    }
+    return { "x-apikey": key };
   },
   // Does this provider consider the response an error? api-football.com
   // returns HTTP 200 even on quota-exceeded/bad-request errors, with
@@ -2988,7 +3019,7 @@ async function _footballApiProxyRoute(env, request, url, operationName, ttlSecon
 
   let upstreamRes;
   try {
-    upstreamRes = await fetch(upstreamUrl, { headers: FOOTBALL_PROVIDER.buildHeaders(env) });
+    upstreamRes = await fetch(upstreamUrl, { headers: await FOOTBALL_PROVIDER.buildHeaders(env) });
   } catch (e) {
     try {
       await _recordFootballMetric(env, "providerErrors");
@@ -3097,9 +3128,8 @@ function _parseLiveFixtureSummary(raw) {
 // seconds) or the lookup fails for any reason.
 async function _lookupLatestScorerName(env, fixtureId) {
   try {
-    const apiKey = _requireEnvString(env, "API_FOOTBALL_KEY");
     const res = await fetch(`${FOOTBALL_PROVIDER.baseUrl}/fixtures/events?fixture=${fixtureId}`, {
-      headers: FOOTBALL_PROVIDER.buildHeaders(env),
+      headers: await FOOTBALL_PROVIDER.buildHeaders(env),
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -3157,7 +3187,7 @@ async function _pollLiveFixturesAndNotify(env) {
   let upstreamRes;
   try {
     upstreamRes = await fetch(`${FOOTBALL_PROVIDER.baseUrl}/fixtures?live=all`, {
-      headers: FOOTBALL_PROVIDER.buildHeaders(env),
+      headers: await FOOTBALL_PROVIDER.buildHeaders(env),
     });
   } catch (e) {
     console.error("[football poll] upstream unreachable:", e.message || String(e));
