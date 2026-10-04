@@ -616,20 +616,32 @@ class _KnockoutBracketScreenState
           ),
         ],
       ),
-      body: _isLoading
-          ? Center(
-              child: CircularProgressIndicator(color: cs.primary))
-          : (_loadError != null
-              ? _buildLoadErrorState(_loadError!)
-              : Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16),
-                  child: _matches.isEmpty
-                      ? _buildEmptyState()
-                      : (_showTree
-                          ? _buildPremiumBracket()
-                          : _buildListModeBody()),
-                )),
+      // GlassScaffold sets extendBodyBehindAppBar whenever an appBar is
+      // given (so the transparent AppBar above can float over the body),
+      // which means the body's top MediaQuery padding already accounts for
+      // the AppBar's own height -- but only once something actually
+      // consumes that padding. Without this SafeArea, the round-tab pills
+      // (or the tree view's header) render from the true top of the
+      // screen, landing above the "Knockout Bracket" title bar instead of
+      // below it. Every sibling screen on this same GlassScaffold +
+      // transparent-AppBar pattern (e.g. fixtures_screen.dart) wraps its
+      // body in SafeArea for exactly this reason.
+      body: SafeArea(
+        child: _isLoading
+            ? Center(
+                child: CircularProgressIndicator(color: cs.primary))
+            : (_loadError != null
+                ? _buildLoadErrorState(_loadError!)
+                : Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16),
+                    child: _matches.isEmpty
+                        ? _buildEmptyState()
+                        : (_showTree
+                            ? _buildPremiumBracket()
+                            : _buildListModeBody()),
+                  )),
+      ),
     );
   }
 
