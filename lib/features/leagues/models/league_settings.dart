@@ -158,10 +158,18 @@ class LeagueSettings {
         );
       case LeagueFormat.directKnockout:
         // No groups, no Swiss rounds, no round-robin — straight to bracket.
+        // groupSize/swissRounds are unused by the direct-knockout engine,
+        // but toMap() writes both unconditionally and firestore.rules'
+        // validLeagueSettingsMap() requires groupSize >= 2 and
+        // swissRounds >= 1 whenever the keys are present -- 0 fails that
+        // and gets the whole league-create write denied. Use the same
+        // harmless defaults every other format uses (mirrors
+        // createNewLeagueWeb's identical fix in web_client, which writes
+        // groupSize:4/swissRounds:8 unconditionally for this exact reason).
         return const LeagueSettings(
           doubleRoundRobin: false,
-          groupSize: 0,
-          swissRounds: 0,
+          groupSize: 4,
+          swissRounds: 8,
           lastPulledAtMs: 0,
           worldCupFormat: WorldCupFormat.fifa2022,
         );
