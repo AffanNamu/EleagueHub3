@@ -938,15 +938,28 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                       }
                     }
 
+                    // Comma-separated bulk add: "Kings United, Lions FC, Eagles"
+                    // creates one external team per name. A single name (no
+                    // comma) behaves exactly as before, picked-logo included --
+                    // a picked logo only ever applies to a single team, since
+                    // there's no way to know which of several new teams it
+                    // belongs to, so it's silently skipped once more than one
+                    // name is entered (see the hint text under the field).
                     Future<void> save() async {
-                      final name = nameController.text.trim();
-                      if (name.isEmpty) {
+                      final names = nameController.text
+                          .split(RegExp(r'[,\n]'))
+                          .map((e) => e.trim())
+                          .where((e) => e.isNotEmpty)
+                          .toList();
+                      if (names.isEmpty) {
                         setModalState(() => error = l10n.tr('add_teams_manual_name_required'));
                         return;
                       }
+                      final isBulk = names.length > 1;
 
                       final totalCurrent = _existingTeams.length + _tempTeams.length;
-                      if (totalCurrent >= _maxTeamsForFormat) {
+                      final capacityLeft = _maxTeamsForFormat - totalCurrent;
+                      if (capacityLeft <= 0) {
                         setModalState(
                           () => error = '${l10n.tr('add_teams_max_teams_error_prefix')} '
                               '$_maxTeamsForFormat '
@@ -954,6 +967,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                         );
                         return;
                       }
+                      final namesToCreate =
+                          names.length > capacityLeft ? names.sublist(0, capacityLeft) : names;
+                      final skippedForCapacity = names.length - namesToCreate.length;
 
                       setModalState(() {
                         saving = true;
@@ -962,7 +978,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
                       try {
                         String uploadedUrl = '';
-                        if (pickedImage != null) {
+                        if (!isBulk && pickedImage != null) {
                           pendingTeamId ??= _localRepo.newTeamId(widget.leagueId);
                           uploadedUrl = await _teamMedia.uploadPickedToCloudinary(
                             leagueId: widget.leagueId,
@@ -971,35 +987,66 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                           );
                         }
 
-                        final groupToUse = _isGroupLeague ? _selectedGroup : null;
+                        final createdTeams = <Team>[];
+                        final failedNames = <String>[];
 
-                        final team = await _localRepo.createExternalTeam(
-                          leagueId: widget.leagueId,
-                          name: name,
-                          teamId: pendingTeamId,
-                          teamImageUrl: uploadedUrl,
-                          groupId: groupToUse,
-                        );
+                        for (final name in namesToCreate) {
+                          try {
+                            final groupToUse = _isGroupLeague ? _selectedGroup : null;
+                            final team = await _localRepo.createExternalTeam(
+                              leagueId: widget.leagueId,
+                              name: name,
+                              teamId: namesToCreate.length == 1 ? pendingTeamId : null,
+                              teamImageUrl: namesToCreate.length == 1 ? uploadedUrl : '',
+                              groupId: groupToUse,
+                            );
+                            createdTeams.add(team);
+                            if (_isGroupLeague) {
+                              final active = _activeGroups;
+                              if (active.isNotEmpty) {
+                                final next = (active.indexOf(_selectedGroup) + 1) % active.length;
+                                _selectedGroup = active[next];
+                              }
+                            }
+                            unawaited(
+                              AppAnalyticsService.instance.logEvent(
+                                eventName: 'manual_participant_created',
+                                extra: {'leagueId': widget.leagueId, 'teamId': team.id},
+                              ),
+                            );
+                          } catch (e) {
+                            failedNames.add(name);
+                          }
+                        }
 
                         if (!mounted) return;
-                        setState(() {
-                          _existingTeams = [..._existingTeams, team];
-                          if (_isGroupLeague) {
-                            final active = _activeGroups;
-                            if (active.isNotEmpty) {
-                              final next = (active.indexOf(_selectedGroup) + 1) % active.length;
-                              _selectedGroup = active[next];
+
+                        if (createdTeams.isNotEmpty) {
+                          setState(() {
+                            _existingTeams = [..._existingTeams, ...createdTeams];
+                          });
+                          if (ctx.mounted) Navigator.of(ctx).pop();
+
+                          if (createdTeams.length == 1 && failedNames.isEmpty && skippedForCapacity == 0) {
+                            _snackOk(l10n.tr('add_teams_manual_team_added'));
+                          } else {
+                            final parts = <String>[
+                              'Added ${createdTeams.length} team${createdTeams.length == 1 ? '' : 's'}.',
+                            ];
+                            if (failedNames.isNotEmpty) {
+                              parts.add('Could not add: ${failedNames.join(', ')}.');
                             }
+                            if (skippedForCapacity > 0) {
+                              parts.add('$skippedForCapacity skipped (competition is full).');
+                            }
+                            _snackOk(parts.join(' '));
                           }
-                        });
-                        if (ctx.mounted) Navigator.of(ctx).pop();
-                        _snackOk(l10n.tr('add_teams_manual_team_added'));
-                        unawaited(
-                          AppAnalyticsService.instance.logEvent(
-                            eventName: 'manual_participant_created',
-                            extra: {'leagueId': widget.leagueId, 'teamId': team.id},
-                          ),
-                        );
+                        } else {
+                          setModalState(() {
+                            saving = false;
+                            error = 'Could not add any teams. Please try again.';
+                          });
+                        }
                       } catch (e) {
                         setModalState(() {
                           saving = false;
@@ -1077,14 +1124,26 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 controller: nameController,
                                 autofocus: true,
                                 enabled: !saving,
+                                minLines: 1,
+                                maxLines: 4,
+                                textInputAction: TextInputAction.newline,
                                 decoration: InputDecoration(
                                   hintText: l10n.tr('add_teams_manual_name_hint'),
                                   prefixIcon: const Icon(Icons.shield_outlined),
                                 ),
-                                onSubmitted: (_) => saving ? null : save(),
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Tip: separate names with commas to add several teams at once '
+                          '(e.g. "Kings United, Lions FC, Eagles"). A picked logo only applies '
+                          'when adding a single team.',
+                          style: TextStyle(
+                            color: AppTheme.secondaryText(brightness),
+                            fontSize: 11,
+                          ),
                         ),
                         if (error != null) ...[
                           const SizedBox(height: 10),
