@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Tags, Activity, Smartphone, Trophy } from 'lucide-react';
+import { Tags, Activity, Smartphone, Trophy, Newspaper } from 'lucide-react';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
@@ -36,6 +36,13 @@ export default async function SettingsHubPage() {
       icon: Trophy,
       title: 'Football Hub',
       description: 'API-Football usage today and a pause switch for the live-score notification poller.',
+      visible: hasPermission(identity, 'settings.manage'),
+    },
+    {
+      href: '/settings/football-news',
+      icon: Newspaper,
+      title: 'Football News',
+      description: 'GNews usage today and the API key powering the News tab inside Football Hub.',
       visible: hasPermission(identity, 'settings.manage'),
     },
   ].filter((link) => link.visible);

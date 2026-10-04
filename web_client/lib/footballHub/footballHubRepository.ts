@@ -20,6 +20,8 @@ import {
   parsePlayerProfile,
   FootballMatchEvent,
   parseMatchEvent,
+  FootballNewsArticle,
+  parseNewsArticle,
 } from './types';
 
 async function requireIdToken(): Promise<string> {
@@ -105,6 +107,12 @@ export async function getPlayer(playerId: number, season: number): Promise<Footb
   const body = await get(footballHubUrls.player, { id: String(playerId), season: String(season) });
   const list = responseList(body);
   return list.length ? parsePlayerProfile(list[0]) : null;
+}
+
+export async function getFootballNews(query = 'football', max = 10): Promise<FootballNewsArticle[]> {
+  const body = await get(footballHubUrls.news, { q: query, max: String(max) });
+  const articles = Array.isArray(body?.articles) ? body.articles : [];
+  return articles.map(parseNewsArticle);
 }
 
 export function currentFootballSeasonGuess(): number {

@@ -22,4 +22,5 @@ export const footballHubUrls = {
   squad: () => url('/football/squad'),
   player: () => url('/football/player'),
   leagues: () => url('/football/leagues'),
+  news: () => url('/football/news'),
 };

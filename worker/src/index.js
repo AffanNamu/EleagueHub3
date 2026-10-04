@@ -3326,6 +3326,175 @@ async function _recordFootballMetric(env, field) {
   });
 }
 
+// ── Football News (GNews, server-side proxied + cached) ────────────────
+//
+// A separate provider entirely from API-Football above: different auth
+// scheme (a `token` query param, not a header), different quota (GNews's
+// free tier is 100 requests/day, same ceiling but a wholly separate
+// counter). Mirrors _getApiFootballKey's exact Firestore-first/
+// env-fallback/5-min-cache shape so the key can be set from Settings ->
+// Football News in the admin panel without a Worker redeploy, same as
+// the API-Football key.
+let _gnewsApiKeyCache = { value: "", fetchedAtMs: 0 };
+async function _getGNewsApiKey(env) {
+  const now = Date.now();
+  if (_gnewsApiKeyCache.fetchedAtMs && now - _gnewsApiKeyCache.fetchedAtMs < 5 * 60 * 1000) {
+    return _gnewsApiKeyCache.value;
+  }
+  let fromFirestore = "";
+  try {
+    const res = await _firestoreGetDocSA(env, "football_news_config/settings");
+    const fields = (res.ok && res.doc && res.doc.fields) || {};
+    fromFirestore = (fields.gnewsApiKey && fields.gnewsApiKey.stringValue) || "";
+  } catch (_e) {
+    // Firestore read failed -- fall through to the env secret below.
+  }
+  const value = fromFirestore.trim() || (env.GNEWS_API_KEY || "").trim();
+  _gnewsApiKeyCache = { value, fetchedAtMs: now };
+  return value;
+}
+
+// Same "know the cost before the bill becomes a surprise" daily counter
+// as _recordFootballMetric, kept in its own football_news_metrics/{day}
+// doc (not football_metrics) so Football News usage never gets mixed
+// into the API-Football dashboard's numbers -- unrelated quotas on
+// unrelated providers.
+async function _recordFootballNewsMetric(env, field) {
+  const day = new Date().toISOString().slice(0, 10);
+  const docPath = `football_news_metrics/${day}`;
+  const existing = await _firestoreGetDocSA(env, docPath);
+  const existingFields = (existing.ok && existing.doc && existing.doc.fields) || {};
+  const currentValue = existingFields[field] ? parseInt(existingFields[field].integerValue || "0", 10) : 0;
+  await _firestorePatchDoc(env, docPath, {
+    [field]: currentValue + 1,
+    provider: "gnews",
+    lastUpdatedMs: Date.now(),
+  });
+}
+
+// GNews's /v4/search response is cached and passed through verbatim (same
+// convention as _footballApiProxyRoute below for API-Football) -- the
+// Dart model parses GNews's native article shape directly rather than
+// this Worker re-normalizing it.
+async function _footballNewsRoute(env, request, url) {
+  let verified;
+  try {
+    verified = await _verifyFirebaseIdToken(env, request);
+  } catch (e) {
+    return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+  }
+  if (!verified.ok) {
+    return jsonResponse({ error: verified.error }, verified.status || 401);
+  }
+
+  const q = (url.searchParams.get("q") || "football").trim().slice(0, 100) || "football";
+  const lang = (url.searchParams.get("lang") || "en").trim().slice(0, 5) || "en";
+  const maxParam = parseInt(url.searchParams.get("max") || "10", 10);
+  const max = Number.isFinite(maxParam) ? Math.min(Math.max(maxParam, 1), 20) : 10;
+
+  // 30-minute edge cache: news doesn't change second-to-second, and this
+  // keeps the whole app's shared GNews key well inside the free 100/day cap
+  // regardless of how many users open the News tab.
+  const ttlSeconds = 1800;
+  const forwarded = new URLSearchParams({ q, lang, max: String(max), sortby: "publishedAt" });
+  const cacheKeyUrl = `https://football-hub-cache.internal/gnews/search?${forwarded.toString()}`;
+  const cacheKey = new Request(cacheKeyUrl, { method: "GET" });
+  const cache = caches.default;
+
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    try {
+      await _recordFootballNewsMetric(env, "cacheHits");
+    } catch (_e) {
+      // Best-effort -- never fail the request over a metrics write.
+    }
+    return new Response(cached.body, {
+      status: cached.status,
+      headers: { ...CORS_HEADERS, "content-type": "application/json", "x-cache": "HIT" },
+    });
+  }
+
+  const key = await _getGNewsApiKey(env);
+  if (!key) {
+    return jsonResponse(
+      {
+        error:
+          "Football News key not configured. Set it in Settings -> Football News, or as the Worker's GNEWS_API_KEY secret.",
+      },
+      500
+    );
+  }
+
+  const upstreamParams = new URLSearchParams(forwarded);
+  upstreamParams.set("token", key);
+  const upstreamUrl = `https://gnews.io/api/v4/search?${upstreamParams.toString()}`;
+
+  let upstreamRes;
+  try {
+    upstreamRes = await fetch(upstreamUrl);
+  } catch (e) {
+    try {
+      await _recordFootballNewsMetric(env, "providerErrors");
+    } catch (_e2) {}
+    return jsonResponse({ error: "Football news temporarily unavailable. Please try again." }, 502);
+  }
+
+  let data;
+  try {
+    data = await upstreamRes.json();
+  } catch {
+    try {
+      await _recordFootballNewsMetric(env, "providerErrors");
+    } catch (_e2) {}
+    return jsonResponse({ error: "Football news temporarily unavailable. Please try again." }, 502);
+  }
+
+  // GNews returns a non-2xx status with an `errors` array on failure
+  // (bad/missing token, quota exceeded, invalid params).
+  if (!upstreamRes.ok || data.errors) {
+    try {
+      await _recordFootballNewsMetric(env, "providerErrors");
+    } catch (_e2) {}
+    return jsonResponse(
+      { error: "Football news temporarily unavailable. Please try again.", details: data && data.errors },
+      502
+    );
+  }
+
+  try {
+    await _recordFootballNewsMetric(env, "apiRequests");
+  } catch (_e) {
+    // Best-effort -- never fail the request over a metrics write.
+  }
+
+  const responseBody = JSON.stringify(data);
+  const response = new Response(responseBody, {
+    status: 200,
+    headers: {
+      ...CORS_HEADERS,
+      "content-type": "application/json",
+      "cache-control": `public, max-age=${ttlSeconds}`,
+      "x-cache": "MISS",
+    },
+  });
+
+  // Cache a separate copy (cache.put consumes the body) keyed on our own
+  // whitelisted-param URL, not the caller's raw request.
+  try {
+    await cache.put(
+      cacheKey,
+      new Response(responseBody, {
+        status: 200,
+        headers: { "content-type": "application/json", "cache-control": `public, max-age=${ttlSeconds}` },
+      })
+    );
+  } catch (_e) {
+    // Best-effort -- a cache-write failure should never fail the request.
+  }
+
+  return response;
+}
+
 async function _footballApiProxyRoute(env, request, url, operationName, ttlSeconds) {
   let verified;
   try {
@@ -4018,6 +4187,14 @@ export default {
         return await _footballApiProxyRoute(env, request, url, "leagues", 86400); // 1 day -- the league catalog itself rarely changes.
       } catch (e) {
         return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 500);
+      }
+    }
+
+    if (url.pathname === "/football/news" && request.method === "GET") {
+      try {
+        return await _footballNewsRoute(env, request, url);
+      } catch (e) {
+        return jsonResponse({ error: "Football news temporarily unavailable. Please try again." }, 500);
       }
     }
 

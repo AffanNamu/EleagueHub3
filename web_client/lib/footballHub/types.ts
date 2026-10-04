@@ -301,3 +301,30 @@ export function parseMatchEvent(json: any): FootballMatchEvent {
     assistName: assistName || null,
   };
 }
+
+// GNews's native article shape, parsed directly -- same convention as
+// every other type in this file (one Worker response, two clients, no
+// server-side re-normalization).
+export interface FootballNewsArticle {
+  title: string;
+  description: string;
+  url: string;
+  imageUrl: string;
+  sourceName: string;
+  publishedAt: Date | null;
+}
+
+export function parseNewsArticle(json: any): FootballNewsArticle {
+  const source = json?.source ?? {};
+  const publishedRaw = toStr(json?.publishedAt);
+  const parsed = publishedRaw ? new Date(publishedRaw) : null;
+
+  return {
+    title: toStr(json?.title),
+    description: toStr(json?.description),
+    url: toStr(json?.url),
+    imageUrl: toStr(json?.image),
+    sourceName: toStr(source.name),
+    publishedAt: parsed && !isNaN(parsed.getTime()) ? parsed : null,
+  };
+}

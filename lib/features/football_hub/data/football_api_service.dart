@@ -9,6 +9,7 @@ import '../../../core/config/backend_config.dart';
 import '../models/football_fixture.dart';
 import '../models/football_league.dart';
 import '../models/football_match_event.dart';
+import '../models/football_news_article.dart';
 import '../models/football_player.dart';
 import '../models/football_standing.dart';
 
@@ -168,5 +169,24 @@ class FootballApiService {
   Future<List<FootballMatchEvent>> getFixtureEvents({required int fixtureId}) async {
     final body = await _get(BackendConfig.footballFixtureEventsUrl(), {'fixture': '$fixtureId'});
     return _responseList(body).map(FootballMatchEvent.fromJson).toList(growable: false);
+  }
+
+  /// Football news headlines (GNews, proxied/cached through the Worker).
+  /// [query] defaults to 'football' -- pass a team/league name to narrow it.
+  Future<List<FootballNewsArticle>> getFootballNews({
+    String query = 'football',
+    int max = 10,
+  }) async {
+    final params = <String, String>{
+      'q': query.trim().isEmpty ? 'football' : query.trim(),
+      'max': '$max',
+    };
+    final body = await _get(BackendConfig.footballNewsUrl(), params);
+    final articles = body['articles'];
+    if (articles is! List) return const [];
+    return articles
+        .whereType<Map>()
+        .map((e) => FootballNewsArticle.fromJson(e.cast<String, dynamic>()))
+        .toList(growable: false);
   }
 }

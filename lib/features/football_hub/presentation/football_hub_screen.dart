@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -10,19 +11,19 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../data/football_api_service.dart';
 import '../models/football_fixture.dart';
 import '../models/football_league.dart';
+import '../models/football_news_article.dart';
 import '../utils/football_season.dart';
 import 'football_following_tab.dart';
 import 'football_standings_screen.dart';
 
 /// Football Hub's own v1 home: Matches (date-grouped fixtures), Leagues
-/// (quick access to popular competitions' tables + search for the rest)
-/// and Following (teams/players you follow).
+/// (quick access to popular competitions' tables + search for the rest),
+/// News (GNews headlines) and Following (teams/players you follow).
 ///
-/// v1 scope only -- News/AI daily summaries/fixture-difficulty ratings/
-/// player radar charts are deliberately not here yet (each needs either a
-/// separate data source, a budget decision for LLM calls, or more
-/// API-Football quota than the free 100 req/day plan allows). See the
-/// session's Football Hub scoping notes.
+/// v1 scope only -- AI daily summaries/fixture-difficulty ratings/player
+/// radar charts are deliberately not here yet (each needs either a budget
+/// decision for LLM calls, or more API-Football quota than the free
+/// 100 req/day plan allows). See the session's Football Hub scoping notes.
 class FootballHubScreen extends StatefulWidget {
   const FootballHubScreen({super.key});
 
@@ -36,7 +37,7 @@ class _FootballHubScreenState extends State<FootballHubScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -62,6 +63,7 @@ class _FootballHubScreenState extends State<FootballHubScreen> with SingleTicker
           tabs: const [
             Tab(text: 'Matches'),
             Tab(text: 'Leagues'),
+            Tab(text: 'News'),
             Tab(text: 'Following'),
           ],
         ),
@@ -72,6 +74,7 @@ class _FootballHubScreenState extends State<FootballHubScreen> with SingleTicker
           children: const [
             _MatchesTab(),
             _LeaguesTab(),
+            _NewsTab(),
             FootballFollowingTab(),
           ],
         ),
@@ -392,6 +395,177 @@ class _FixtureRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// News tab
+// ─────────────────────────────────────────────────────────────────────────
+
+class _NewsTab extends StatefulWidget {
+  const _NewsTab();
+
+  @override
+  State<_NewsTab> createState() => _NewsTabState();
+}
+
+class _NewsTabState extends State<_NewsTab> {
+  final _service = FootballApiService();
+  late Future<List<FootballNewsArticle>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    _future = _service.getFootballNews();
+  }
+
+  Future<void> _refresh() async {
+    setState(_load);
+    await _future;
+  }
+
+  Future<void> _openArticle(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // Best-effort -- a failed external launch should never crash the tab.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+
+    return FutureBuilder<List<FootballNewsArticle>>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'Could not load football news.\n${snap.error}',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.secondaryText(brightness)),
+              ),
+            ),
+          );
+        }
+        final articles = snap.data ?? const [];
+        if (articles.isEmpty) {
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              children: [
+                SizedBox(
+                  height: 300,
+                  child: Center(
+                    child: Text(
+                      'No football news right now.',
+                      style: TextStyle(color: AppTheme.secondaryText(brightness)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
+            itemCount: articles.length,
+            itemBuilder: (context, i) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _NewsArticleCard(
+                article: articles[i],
+                brightness: brightness,
+                onTap: () => _openArticle(articles[i].url),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _NewsArticleCard extends StatelessWidget {
+  const _NewsArticleCard({
+    required this.article,
+    required this.brightness,
+    required this.onTap,
+  });
+
+  final FootballNewsArticle article;
+  final Brightness brightness;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: article.url.isEmpty ? null : onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Glass(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (article.imageUrl.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.network(
+                  article.imageUrl,
+                  width: 84,
+                  height: 84,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const SizedBox(width: 84, height: 84),
+                ),
+              ),
+            if (article.imageUrl.isNotEmpty) const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    article.title.isEmpty ? 'Untitled' : article.title,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: AppTheme.primaryText(brightness),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    [
+                      if (article.sourceName.isNotEmpty) article.sourceName,
+                      if (article.publishedAt != null) DateFormat('MMM d, HH:mm').format(article.publishedAt!),
+                    ].join(' · '),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.secondaryText(brightness),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -6,9 +6,10 @@ import { Goal } from 'lucide-react';
 import { auth } from '@/lib/firebase';
 import { MatchesTab } from '@/components/footballHub/MatchesTab';
 import { LeaguesTab } from '@/components/footballHub/LeaguesTab';
+import { NewsTab } from '@/components/footballHub/NewsTab';
 import { FollowingTab } from '@/components/footballHub/FollowingTab';
 
-type Tab = 'matches' | 'leagues' | 'following';
+type Tab = 'matches' | 'leagues' | 'news' | 'following';
 
 export default function FootballHubPage() {
   const router = useRouter();
@@ -42,7 +43,7 @@ export default function FootballHubPage() {
         </div>
 
         <div className="flex gap-2 mb-6 border-b border-[#1E293B]">
-          {(['matches', 'leagues', 'following'] as const).map((t) => (
+          {(['matches', 'leagues', 'news', 'following'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -57,6 +58,7 @@ export default function FootballHubPage() {
 
         {tab === 'matches' && <MatchesTab />}
         {tab === 'leagues' && <LeaguesTab />}
+        {tab === 'news' && <NewsTab />}
         {tab === 'following' && <FollowingTab />}
       </div>
     </div>

@@ -90,6 +90,14 @@ class BackendConfig {
     return Uri.parse('$base/football/fixture-events');
   }
 
+  // GNews, proxied + cached server-side -- a different provider/quota
+  // from API-Football above, same "key never ships to the app" reason.
+  static Uri? footballNewsUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/football/news');
+  }
+
   // ── Team claims (external/manually-created team -> real account) ───────
 
   static Uri? teamClaimGenerateUrl() {
