@@ -34,6 +34,7 @@ import '../../auth/models/user_profile.dart';
 import '../../team_claim/data/team_claim_repository.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/swiss_pairing.dart';
+import '../domain/logic/tournament_controller.dart';
 import '../logic/fixture_generator.dart';
 import '../logic/team_media_service.dart';
 import '../models/enums.dart';
@@ -90,16 +91,20 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   /// UCL Group League only (existing behavior unchanged).
   bool get _isGroupLeague => widget.format == LeagueFormat.uclGroup;
 
-  /// Every format whose fixture/draw generation happens on THIS screen can
-  /// also use Spin Wheel to decide the draw order. Direct Knockout's
-  /// bracket generation lives entirely in league_detail_screen.dart instead
-  /// (not here), so it isn't included -- its own Spin Wheel option is wired
-  /// there.
+  /// Every format's fixture/draw generation happens on THIS screen, and
+  /// every format can also use Spin Wheel to decide the draw order.
+  /// Direct Knockout's bracket can also be generated from
+  /// league_detail_screen.dart once teams already exist (same
+  /// seedTopNKnockouts call, same Spin Wheel draw screen) -- that is a
+  /// convenience entry point, not the only one; this screen must work on
+  /// its own too, since it's the first place an organizer adding teams
+  /// actually sees a Generate button.
   bool get _spinWheelAvailable =>
       widget.format == LeagueFormat.classic ||
       widget.format == LeagueFormat.uclGroup ||
       widget.format == LeagueFormat.uclSwiss ||
-      widget.format == LeagueFormat.worldCup;
+      widget.format == LeagueFormat.worldCup ||
+      widget.format == LeagueFormat.directKnockout;
 
   /// World Cup format (separate engine).
   bool get _isWorldCup => widget.format == LeagueFormat.worldCup;
@@ -1866,6 +1871,61 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
   }
 
+  // Bracket capacity must be exactly one of these -- seedTopNKnockouts
+  // refuses anything else (matches league_detail_screen.dart's own
+  // _directKnockoutBracketSizes).
+  static const _directKnockoutBracketSizes = <int>{4, 8, 16, 32, 64};
+
+  /// Direct Knockout has no round-robin/group stage, so none of the
+  /// FixtureGenerator branches below apply to it -- it seeds a bracket via
+  /// TournamentController.seedTopNKnockouts and saves it as
+  /// KnockoutMatches (a different collection from the fixture_matches the
+  /// other formats write), not as "generated" fixtures. [orderOverride],
+  /// when given (from the Spin Wheel draw), decides the seeding order
+  /// (1st vs last, 2nd vs second-last, ...) instead of _existingTeams'
+  /// own order -- same contract as league_detail_screen.dart's own
+  /// _generateDirectKnockoutBracket, which this mirrors so both entry
+  /// points behave identically.
+  Future<void> _generateDirectKnockoutBracket({
+    List<Team>? orderOverride,
+  }) async {
+    final l10n = context.l10n;
+
+    final existingKnockouts =
+        await _localRepo.getKnockoutMatches(widget.leagueId);
+    if (existingKnockouts.isNotEmpty) {
+      _snackWarn(l10n.tr('league_details_knockout_already_generated'));
+      return;
+    }
+
+    final teams = orderOverride ?? _existingTeams;
+    if (!_directKnockoutBracketSizes.contains(teams.length)) {
+      _snackErr(
+        'Direct Knockout needs exactly 4, 8, 16, 32, or 64 teams — '
+        'currently ${teams.length}.',
+      );
+      return;
+    }
+
+    final koMatches = TournamentController.seedTopNKnockouts(
+      leagueId: widget.leagueId,
+      rankedTeamIds: teams.map((t) => t.id).toList(),
+    );
+
+    if (koMatches.isEmpty) {
+      _snackErr(l10n.tr('league_details_failed_seed_direct_knockout_bracket'));
+      return;
+    }
+
+    await _localRepo.saveKnockoutMatches(widget.leagueId, koMatches);
+
+    _snackOk('Bracket generated (${teams.length} teams).');
+
+    if (mounted) {
+      context.go('/leagues/${widget.leagueId}');
+    }
+  }
+
   Future<void> _generateFixturesOnly() async {
     final l10n = context.l10n;
 
@@ -1892,11 +1952,21 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           _snackErr(
             '${l10n.tr('add_teams_cannot_generate_world_cup_prefix')} $total.',
           );
+        } else if (widget.format == LeagueFormat.directKnockout) {
+          _snackErr(
+            'Direct Knockout needs exactly $_maxTeamsForFormat teams. '
+            'Current: $total.',
+          );
         } else {
           _snackErr(
             '${l10n.tr('add_teams_cannot_generate_classic_prefix')} $total.',
           );
         }
+        return;
+      }
+
+      if (widget.format == LeagueFormat.directKnockout) {
+        await _generateDirectKnockoutBracket();
         return;
       }
 
@@ -2179,6 +2249,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           _snackErr(
             '${l10n.tr('add_teams_cannot_generate_world_cup_prefix')} $total.',
           );
+        } else if (widget.format == LeagueFormat.directKnockout) {
+          _snackErr(
+            'Direct Knockout needs exactly $_maxTeamsForFormat teams. '
+            'Current: $total.',
+          );
         } else {
           _snackErr(
             '${l10n.tr('add_teams_cannot_generate_classic_prefix')} $total.',
@@ -2189,6 +2264,34 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
 
       if (total < 2) {
         _snackErr(l10n.tr('add_teams_spin_wheel_min_teams'));
+        return;
+      }
+
+      if (widget.format == LeagueFormat.directKnockout) {
+        // A knockout bracket is one-time: check before spinning so the
+        // organizer doesn't run the draw only to be told afterwards it
+        // was pointless.
+        final existingKnockouts =
+            await _localRepo.getKnockoutMatches(widget.leagueId);
+        if (existingKnockouts.isNotEmpty) {
+          _snackWarn(
+              l10n.tr('league_details_knockout_already_generated'));
+          return;
+        }
+
+        if (!mounted) return;
+        final orderedTeams = await Navigator.of(context).push<List<Team>>(
+          MaterialPageRoute(
+            builder: (_) => SpinWheelDrawScreen(
+              teams: List<Team>.from(_existingTeams),
+            ),
+          ),
+        );
+        if (!mounted || orderedTeams == null || orderedTeams.isEmpty) {
+          return;
+        }
+
+        await _generateDirectKnockoutBracket(orderOverride: orderedTeams);
         return;
       }
 
