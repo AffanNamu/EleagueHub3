@@ -45,6 +45,7 @@ import '../../highlights/presentation/league_highlights_section.dart';
 import '../../social/ui/widgets/glass_announcement.dart';
 import 'add_teams_screen.dart';
 import 'league_participants_screen.dart';
+import 'spin_wheel_draw_screen.dart';
 import '../data/leagues_repository_local.dart';
 import '../data/models/reward_model.dart';
 import '../data/services/reward_firestore_service.dart';
@@ -114,6 +115,10 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
   static const Color _premiumTeal = Color(0xFF2DD4BF);
 
   bool _joining = false;
+
+  /// Direct Knockout bracket draw method. See _generateDirectKnockoutBracket
+  /// and _openDirectKnockoutSpinWheel below.
+  bool _directKnockoutUseSpinWheel = false;
 
   // ── cached result so hot-reloads are instant ──────────────────────────────
   Map<String, dynamic>? _cachedData;
@@ -1946,7 +1951,42 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
           ],
 
           // ── Direct Knockout bracket generation ──────────────────────
+          // Draw method: Automatic (repo order) or Spin Wheel (organizer
+          // draws the seeding order live) -- same choice add_teams_screen
+          // offers for Classic/Group/Swiss/World Cup, just wired here
+          // instead since Direct Knockout's bracket generation has always
+          // lived on this screen, not that one.
           if (isDirectKnockout) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text(
+                      '⚙️ Automatic',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    selected: !_directKnockoutUseSpinWheel,
+                    selectedColor: AppTheme.limeAccent.withOpacity(0.28),
+                    onSelected: (_) => setState(
+                        () => _directKnockoutUseSpinWheel = false),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text(
+                      '🎡 Spin Wheel',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    selected: _directKnockoutUseSpinWheel,
+                    selectedColor: AppTheme.limeAccent.withOpacity(0.28),
+                    onSelected: (_) => setState(
+                        () => _directKnockoutUseSpinWheel = true),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
@@ -1961,15 +2001,20 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
                       borderRadius:
                           BorderRadius.circular(12)),
                 ),
-                icon: const Icon(Icons.bolt_rounded),
+                icon: Icon(_directKnockoutUseSpinWheel
+                    ? Icons.casino
+                    : Icons.bolt_rounded),
                 label: Text(
-                  context.l10n.tr('league_details_generate_bracket'),
+                  _directKnockoutUseSpinWheel
+                      ? '🎡 Spin Wheel Draw'
+                      : context.l10n.tr('league_details_generate_bracket'),
                   style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 12),
                 ),
-                onPressed: () => _generateDirectKnockoutBracket(
-                    context, league),
+                onPressed: () => _directKnockoutUseSpinWheel
+                    ? _openDirectKnockoutSpinWheel(context, league)
+                    : _generateDirectKnockoutBracket(context, league),
               ),
             ),
           ],
@@ -2883,6 +2928,71 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
 
   Future<void> _generateDirectKnockoutBracket(
     BuildContext context,
+    League league, {
+    List<Team>? orderOverride,
+  }) async {
+    try {
+      if (league.format != LeagueFormat.directKnockout) {
+        _toastWarn(
+            context.l10n.tr('league_details_action_direct_knockout_only'));
+        return;
+      }
+
+      await ConnectivityService.instance
+          .requireOnline(timeout: const Duration(seconds: 4));
+
+      final existing = await _repo.getKnockoutMatches(league.id);
+      if (existing.isNotEmpty) {
+        _toastWarn(context.l10n
+            .tr('league_details_knockout_already_generated'));
+        if (mounted) setState(() => _reloadScreen);
+        return;
+      }
+
+      // orderOverride (from a Spin Wheel draw) decides seeding order
+      // directly instead of repo order -- see _openDirectKnockoutSpinWheel.
+      final teams = orderOverride ?? await _repo.getTeams(league.id);
+      if (!_directKnockoutBracketSizes.contains(teams.length)) {
+        _toastErr(
+          'Direct Knockout needs exactly 4, 8, 16, 32, or 64 teams — '
+          'currently ${teams.length}.',
+        );
+        return;
+      }
+
+      final koMatches = TournamentController.seedTopNKnockouts(
+        leagueId: league.id,
+        rankedTeamIds: teams.map((t) => t.id).toList(),
+      );
+
+      if (koMatches.isEmpty) {
+        _toastErr(context.l10n.tr('league_details_failed_seed_direct_knockout_bracket'));
+        return;
+      }
+
+      await _repo.saveKnockoutMatches(league.id, koMatches);
+
+      _toastOk('Bracket generated (${teams.length} teams).');
+
+      if (mounted) _reloadScreen();
+    } catch (e) {
+      _toastErr(
+        UserFriendlyError.toMessage(
+            e is Object ? e : Exception('unknown')),
+      );
+    }
+  }
+
+  // ── Direct Knockout: Spin Wheel draw ────────────────────────────────────
+  //
+  // Decides the SEEDING order (not fixture order like Classic/Swiss) --
+  // seedTopNKnockouts cross-pairs by rank (1st vs last, 2nd vs
+  // second-last, ...), so whichever order is handed to it IS the seeding.
+  // Does not persist or generate anything itself; it only gets the drawn
+  // order and hands off to _generateDirectKnockoutBracket exactly like the
+  // Automatic button does, just with that order instead of repo order.
+  Future<void> _openDirectKnockoutSpinWheel(
+    BuildContext context,
     League league,
   ) async {
     try {
@@ -2912,21 +3022,27 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
         return;
       }
 
-      final koMatches = TournamentController.seedTopNKnockouts(
-        leagueId: league.id,
-        rankedTeamIds: teams.map((t) => t.id).toList(),
+      if (!mounted) return;
+
+      // Hand off to the dedicated draw screen. It does not persist
+      // anything — it only returns the randomized team order (or null
+      // if the organizer cancels / leaves without confirming).
+      final orderedTeams = await Navigator.of(context).push<List<Team>>(
+        MaterialPageRoute(
+          builder: (_) => SpinWheelDrawScreen(teams: teams),
+        ),
       );
 
-      if (koMatches.isEmpty) {
-        _toastErr(context.l10n.tr('league_details_failed_seed_direct_knockout_bracket'));
+      if (!mounted || orderedTeams == null || orderedTeams.isEmpty) {
+        // Organizer cancelled or left the draw. No bracket was created.
         return;
       }
 
-      await _repo.saveKnockoutMatches(league.id, koMatches);
-
-      _toastOk('Bracket generated (${teams.length} teams).');
-
-      if (mounted) _reloadScreen();
+      await _generateDirectKnockoutBracket(
+        context,
+        league,
+        orderOverride: orderedTeams,
+      );
     } catch (e) {
       _toastErr(
         UserFriendlyError.toMessage(

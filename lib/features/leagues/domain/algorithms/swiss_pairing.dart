@@ -224,21 +224,32 @@ class SwissPairingEngine {
     return ok ? result : <({String home, String away})>[];
   }
 
-  /// Generate Round 1 pairings (deterministic per league).
+  /// Generate Round 1 pairings (deterministic per league, unless
+  /// [presetOrder] is given).
+  ///
+  /// [presetOrder] lets a caller (e.g. a Spin Wheel draw) decide round 1's
+  /// team order explicitly instead of the default league+round-seeded
+  /// shuffle below -- safe to honor as-is because round 1 has no prior
+  /// standings to rank by, so an organizer-chosen random order is exactly
+  /// as fair as this function's own internal one. Must contain the same
+  /// teams as [teams] (any order); `rand` is still used for the pairing
+  /// backtracking's own tie-breaking either way.
   static List<FixtureMatch> generateInitialRound({
     required String leagueId,
     required List<Team> teams,
     required int roundNumber,
     int totalRounds = 8, // your spec: 8 matches each
+    List<Team>? presetOrder,
   }) {
     if (teams.length < 2) return [];
     if (!_allowedTeamCount(teams.length)) return [];
     if (teams.length.isOdd) return [];
+    if (presetOrder != null && presetOrder.length != teams.length) return [];
 
     final rand = Random(_stableSeed(leagueId, roundNumber));
-    final shuffled = List<Team>.from(teams)..shuffle(rand);
+    final ordered = presetOrder ?? (List<Team>.from(teams)..shuffle(rand));
 
-    final ids = shuffled.map((t) => t.id).toList();
+    final ids = ordered.map((t) => t.id).toList();
 
     // Round 1 has no previous pairs and no prior home/away counts.
     final previousPairs = <String>{};

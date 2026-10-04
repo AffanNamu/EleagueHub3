@@ -90,6 +90,17 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   /// UCL Group League only (existing behavior unchanged).
   bool get _isGroupLeague => widget.format == LeagueFormat.uclGroup;
 
+  /// Every format whose fixture/draw generation happens on THIS screen can
+  /// also use Spin Wheel to decide the draw order. Direct Knockout's
+  /// bracket generation lives entirely in league_detail_screen.dart instead
+  /// (not here), so it isn't included -- its own Spin Wheel option is wired
+  /// there.
+  bool get _spinWheelAvailable =>
+      widget.format == LeagueFormat.classic ||
+      widget.format == LeagueFormat.uclGroup ||
+      widget.format == LeagueFormat.uclSwiss ||
+      widget.format == LeagueFormat.worldCup;
+
   /// World Cup format (separate engine).
   bool get _isWorldCup => widget.format == LeagueFormat.worldCup;
 
@@ -1748,20 +1759,31 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   Future<void> _autoAssignWorldCupGroups({
     required WorldCupFormat fmt,
   }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final groups = _worldCupGroupsFor(fmt);
-
     // Sort first so the shuffle base is always the same regardless of
     // insertion order, then apply a deterministic seed from leagueId.
     final list = List<Team>.from(_existingTeams)
       ..sort((a, b) => a.id.compareTo(b.id));
     list.shuffle(Random(widget.leagueId.hashCode)); // dart:math Random
 
+    await _assignGroupsFromOrder(list, _worldCupGroupsFor(fmt));
+  }
+
+  /// Chunks [orderedTeams] into groups of 4, in order (team 0-3 -> first
+  /// group name, 4-7 -> second, ...), and persists the resulting groupId
+  /// on every team. Shared by _autoAssignWorldCupGroups (its own internal
+  /// shuffle decides the order) and the Spin Wheel draw path for UCL
+  /// Group/World Cup (the draw decides the order instead).
+  Future<void> _assignGroupsFromOrder(
+    List<Team> orderedTeams,
+    List<String> groupNames,
+  ) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+
     final updated = <Team>[];
-    for (var i = 0; i < list.length; i++) {
-      final gid = groups[i ~/ 4]; // 4 teams per group
+    for (var i = 0; i < orderedTeams.length; i++) {
+      final gid = groupNames[i ~/ 4]; // 4 teams per group
       updated.add(
-        list[i].copyWith(
+        orderedTeams[i].copyWith(
           groupId: gid,
           updatedAtMs: now,
         ),
@@ -2112,18 +2134,29 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
   }
 
-  // ── Spin Wheel Draw (Classic League only) ──────────────────────────────
+  // ── Spin Wheel Draw (Classic, UCL Group, UCL Swiss, World Cup) ──────────
   //
   // This does NOT introduce a second fixture system. It only decides the
-  // ORDER of teams that gets handed to the exact same
-  // FixtureGenerator.generateClassicLeagueFixtures(...) call, and the
-  // result is persisted through the exact same
-  // _localRepo.replaceMatches(...) call used by the Automatic button above.
+  // ORDER teams get drawn in, then hands that order to the exact same
+  // per-format generator + persistence path the Automatic button above
+  // already uses:
+  //   - Classic: order IS the round-robin schedule order.
+  //   - UCL Group / World Cup: order decides which group each team lands
+  //     in (chunked into groups of 4 via _assignGroupsFromOrder, the same
+  //     mechanic _autoAssignWorldCupGroups already uses, just driven by
+  //     the draw instead of an internal shuffle) -- groups are what
+  //     generateUclGroupStage/generateWorldCupGroupStage actually key off
+  //     of, not list order, so this is the step where a Spin Wheel draw
+  //     has to plug in for these two formats.
+  //   - UCL Swiss: order becomes Round 1's pairing order (presetOrder on
+  //     SwissPairingEngine.generateInitialRound) instead of that
+  //     function's own internal seeded shuffle -- safe because round 1 has
+  //     no prior standings to rank by.
   // No new collection, no new document shape, no new Security Rules.
   Future<void> _openSpinWheelDraw() async {
     final l10n = context.l10n;
 
-    if (_busy) return;
+    if (_busy || !_spinWheelAvailable) return;
 
     setState(() => _generating = true);
     try {
@@ -2134,9 +2167,23 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       final total = _existingTeams.length;
 
       if (!_requiredCountReached) {
-        _snackErr(
-          '${l10n.tr('add_teams_cannot_generate_classic_prefix')} $total.',
-        );
+        if (widget.format == LeagueFormat.uclGroup) {
+          _snackErr(
+            '${l10n.tr('add_teams_cannot_generate_group_prefix')} $total.',
+          );
+        } else if (widget.format == LeagueFormat.uclSwiss) {
+          _snackErr(
+            '${l10n.tr('add_teams_cannot_generate_swiss_prefix')} $total.',
+          );
+        } else if (widget.format == LeagueFormat.worldCup) {
+          _snackErr(
+            '${l10n.tr('add_teams_cannot_generate_world_cup_prefix')} $total.',
+          );
+        } else {
+          _snackErr(
+            '${l10n.tr('add_teams_cannot_generate_classic_prefix')} $total.',
+          );
+        }
         return;
       }
 
@@ -2148,7 +2195,14 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
       final existingFixtures =
           await _localRepo.getMatches(widget.leagueId);
 
-      if (existingFixtures.isNotEmpty) {
+      if (widget.format == LeagueFormat.uclSwiss &&
+          existingFixtures.isNotEmpty) {
+        _snackErr(l10n.tr('add_teams_swiss_fixtures_already_exist'));
+        return;
+      }
+
+      if (existingFixtures.isNotEmpty &&
+          widget.format != LeagueFormat.uclSwiss) {
         final ok = await showDialog<bool>(
               context: context,
               barrierDismissible: true,
@@ -2287,24 +2341,74 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         return;
       }
 
-      final doubleRR = _league?.homeAwayEnabled ??
-          (_league?.settings.doubleRoundRobin ?? true);
+      final supportsHomeAway = widget.format == LeagueFormat.classic ||
+          widget.format == LeagueFormat.uclGroup;
+      final doubleRR = supportsHomeAway
+          ? (_league?.homeAwayEnabled ??
+              (_league?.settings.doubleRoundRobin ?? true))
+          : false;
+      final swissRounds = _league?.settings.swissRounds ?? 8;
 
-      // Same generator, same persistence path as the Automatic button —
-      // only the team ORDER differs (randomized instead of add-order).
-      final List<FixtureMatch> generated =
-          FixtureGenerator.generateClassicLeagueFixtures(
-        leagueId: widget.leagueId,
-        teams: orderedTeams,
-        doubleRoundRobin: doubleRR,
-      );
+      List<dynamic> generated = [];
+
+      if (widget.format == LeagueFormat.classic) {
+        generated = FixtureGenerator.generateClassicLeagueFixtures(
+          leagueId: widget.leagueId,
+          teams: orderedTeams,
+          doubleRoundRobin: doubleRR,
+        );
+      } else if (widget.format == LeagueFormat.uclGroup) {
+        if (orderedTeams.length != 16 && orderedTeams.length != 32) {
+          _snackErr(
+            '${l10n.tr('add_teams_invalid_group_structure_prefix')} '
+            '$total '
+            '${l10n.tr('add_teams_invalid_group_structure_suffix')}',
+          );
+          return;
+        }
+        final groupNames =
+            _groupsAll.take(orderedTeams.length ~/ 4).toList();
+        await _assignGroupsFromOrder(orderedTeams, groupNames);
+
+        generated = FixtureGenerator.generateUclGroupStage(
+          leagueId: widget.leagueId,
+          teams: _existingTeams,
+          doubleRoundRobin: doubleRR,
+          groupSize: 4,
+        );
+      } else if (widget.format == LeagueFormat.uclSwiss) {
+        generated = SwissPairingEngine.generateInitialRound(
+          leagueId: widget.leagueId,
+          teams: orderedTeams,
+          roundNumber: 1,
+          totalRounds: swissRounds,
+          presetOrder: orderedTeams,
+        );
+      } else if (widget.format == LeagueFormat.worldCup) {
+        final wc =
+            _league?.settings.worldCupFormat ?? WorldCupFormat.fifa2022;
+        if (orderedTeams.length != wc.teamCount) {
+          _snackErr(
+            '${l10n.tr('add_teams_cannot_generate_world_cup_prefix')} '
+            '${orderedTeams.length}.',
+          );
+          return;
+        }
+        await _assignGroupsFromOrder(orderedTeams, _worldCupGroupsFor(wc));
+
+        generated = FixtureGenerator.generateWorldCupGroupStage(
+          leagueId: widget.leagueId,
+          teams: _existingTeams,
+          worldCupFormat: wc,
+        );
+      }
 
       if (generated.isEmpty) {
         _snackErr(l10n.tr('add_teams_failed_generate_fixtures'));
         return;
       }
 
-      await _localRepo.replaceMatches(widget.leagueId, generated);
+      await _localRepo.replaceMatches(widget.leagueId, generated.cast());
 
       _snackOk(
         '${l10n.tr('add_teams_fixtures_generated_prefix')}'
@@ -3013,10 +3117,13 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Fixture assignment method — Classic League only.
-                // Other formats are completely unaffected and keep the
-                // single existing button below exactly as before.
-                if (widget.format == LeagueFormat.classic) ...[
+                // Fixture assignment method — every format whose
+                // generation happens on this screen (Classic, UCL Group,
+                // UCL Swiss, World Cup). Direct Knockout is unaffected and
+                // keeps the single existing button below exactly as
+                // before; its own Spin Wheel option lives on the league
+                // detail screen instead.
+                if (_spinWheelAvailable) ...[
                   Row(
                     children: [
                       Expanded(
@@ -3090,8 +3197,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 !_requiredCountReached)
                             ? null
                             : (_useSpinWheel &&
-                                    widget.format ==
-                                        LeagueFormat.classic
+                                    _spinWheelAvailable
                                 ? _openSpinWheelDraw
                                 : _generateFixturesOnly),
                         style: OutlinedButton.styleFrom(
@@ -3112,13 +3218,11 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                         strokeWidth: 2),
                               )
                             : Icon(_useSpinWheel &&
-                                    widget.format ==
-                                        LeagueFormat.classic
+                                    _spinWheelAvailable
                                 ? Icons.casino
                                 : Icons.auto_awesome),
                         label: Text(_useSpinWheel &&
-                                widget.format ==
-                                    LeagueFormat.classic
+                                _spinWheelAvailable
                             ? '🎡 Spin Wheel Draw'
                             : l10n.tr(
                                 'add_teams_generate_fixtures')),
