@@ -364,7 +364,23 @@ class _HomeShellState extends ConsumerState<HomeShell>
               // was fully hidden instead of softly visible through the
               // bar. A lower opacity here is what actually makes the blur
               // (and whatever's behind it) show through.
-              opacity: 0.78,
+              //
+              // darkNavBg/lightNavBg are the EXACT same color as the
+              // bottom stop of AppTheme.backgroundGradient (both
+              // 0xFF0F172A in dark mode) -- by design, so the pill blends
+              // seamlessly with the screen rather than reading as a
+              // mismatched gray box. That also means a first attempt at
+              // 0.78 opacity was visually a no-op against plain
+              // background: blending an identical color with itself at
+              // any opacity still produces that same color, so nothing
+              // appeared to change unless a bubble/card glow happened to
+              // be directly behind the bar at that exact instant, and
+              // even then the contribution was too faint (~3% effective
+              // alpha through the blur) to notice. 0.45 makes whatever is
+              // behind the bar -- a card's edge glow scrolling underneath,
+              // the decorative bubbles -- actually visible through it,
+              // not just technically non-zero.
+              opacity: 0.45,
               fill: brightness == Brightness.dark
                   ? AppTheme.darkNavBg
                   : AppTheme.lightNavBg,
