@@ -1,5 +1,7 @@
 // lib/features/football_hub/presentation/football_hub_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -106,9 +108,9 @@ class _MatchesTabState extends State<_MatchesTab> {
     _load();
   }
 
-  void _load() {
+  void _load({bool forceRefresh = false}) {
     final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    _future = _service.getFixturesByDate(date: dateStr);
+    _future = _service.getFixturesByDate(date: dateStr, forceRefresh: forceRefresh);
   }
 
   void _selectDate(DateTime d) {
@@ -116,6 +118,11 @@ class _MatchesTabState extends State<_MatchesTab> {
       _selectedDate = d;
       _load();
     });
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _load(forceRefresh: true));
+    await _future;
   }
 
   @override
@@ -165,53 +172,56 @@ class _MatchesTabState extends State<_MatchesTab> {
                 byLeague[f.leagueId]!.add(f);
               }
 
-              return ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
-                itemCount: leagueOrder.length,
-                itemBuilder: (context, i) {
-                  final leagueId = leagueOrder[i];
-                  final group = byLeague[leagueId]!;
-                  final first = group.first;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 14),
-                    child: Glass(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              if (first.leagueLogoUrl.isNotEmpty)
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: Image.network(
-                                    first.leagueLogoUrl,
-                                    width: 18,
-                                    height: 18,
-                                    errorBuilder: (_, __, ___) => const SizedBox(width: 18, height: 18),
+              return RefreshIndicator(
+                onRefresh: _refresh,
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
+                  itemCount: leagueOrder.length,
+                  itemBuilder: (context, i) {
+                    final leagueId = leagueOrder[i];
+                    final group = byLeague[leagueId]!;
+                    final first = group.first;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: Glass(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                if (first.leagueLogoUrl.isNotEmpty)
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: Image.network(
+                                      first.leagueLogoUrl,
+                                      width: 18,
+                                      height: 18,
+                                      errorBuilder: (_, __, ___) => const SizedBox(width: 18, height: 18),
+                                    ),
+                                  ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '${first.leagueCountry.isNotEmpty ? '${first.leagueCountry} · ' : ''}${first.leagueName}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13,
+                                      color: AppTheme.primaryText(brightness),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '${first.leagueCountry.isNotEmpty ? '${first.leagueCountry} · ' : ''}${first.leagueName}',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 13,
-                                    color: AppTheme.primaryText(brightness),
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const Divider(height: 18),
-                          ...group.map((f) => _FixtureRow(fixture: f, brightness: brightness)),
-                        ],
+                              ],
+                            ),
+                            const Divider(height: 18),
+                            ...group.map((f) => _FixtureRow(fixture: f, brightness: brightness)),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               );
             },
           ),
@@ -421,12 +431,12 @@ class _NewsTabState extends State<_NewsTab> {
     _load();
   }
 
-  void _load() {
-    _future = _service.getFootballNews();
+  void _load({bool forceRefresh = false}) {
+    _future = _service.getFootballNews(forceRefresh: forceRefresh);
   }
 
   Future<void> _refresh() async {
-    setState(_load);
+    setState(() => _load(forceRefresh: true));
     await _future;
   }
 
@@ -601,9 +611,20 @@ class _LeaguesTabState extends State<_LeaguesTab> {
   final _service = FootballApiService();
   final _searchController = TextEditingController();
   Future<List<FootballLeagueInfo>>? _searchFuture;
+  Timer? _searchDebounce;
+
+  // Debounced (not one network call per keystroke) -- searchLeagues()
+  // caches each distinct settled term for a day, but a fast typist still
+  // produces a new, never-before-cached substring on every keystroke if
+  // nothing debounces the calls first.
+  void _onSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () => _runSearch(query));
+  }
 
   void _runSearch(String query) {
     final q = query.trim();
+    if (!mounted) return;
     setState(() {
       _searchFuture = q.length >= 3 ? _service.searchLeagues(search: q) : null;
     });
@@ -619,6 +640,7 @@ class _LeaguesTabState extends State<_LeaguesTab> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -633,7 +655,7 @@ class _LeaguesTabState extends State<_LeaguesTab> {
       children: [
         TextField(
           controller: _searchController,
-          onChanged: _runSearch,
+          onChanged: _onSearchChanged,
           style: TextStyle(color: AppTheme.primaryText(brightness)),
           decoration: InputDecoration(
             hintText: 'Search leagues (3+ letters)',
