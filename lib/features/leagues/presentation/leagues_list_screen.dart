@@ -2130,10 +2130,19 @@ class _LeaguesListScreenState
         16,
         8,
         16,
+        // kBottomNavigationBarHeight (56) is Flutter's stock Material nav
+        // bar height -- this app doesn't use one. home_shell.dart's actual
+        // bottom bar is a floating pill (78 tall + 8 margin, see its own
+        // bottomNavigationBar), which is noticeably shorter than
+        // 56 + 80 = 136 of extra bottom padding this sliver was reserving.
+        // That mismatch is what left a large empty gap between the last
+        // league card and the nav bar on every device. 16 here matches
+        // this padding's own left/right/top inset, just enough breathing
+        // room above the pill instead of an oversized buffer.
         16 +
             MediaQuery.of(context).padding.bottom +
-            kBottomNavigationBarHeight +
-            80,
+            78 +
+            8,
       ),
       sliver: SliverGrid(
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
