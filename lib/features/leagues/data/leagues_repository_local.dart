@@ -1824,6 +1824,76 @@ class LocalLeaguesRepository {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // External/manual teams ("Add Manually" in AddTeamsScreen) — a team the
+  // organizer creates for a real-world participant who doesn't have an
+  // eSportlyic account yet. Deliberately NOT routed through saveTeams():
+  // that method bulk-deletes and rewrites every team in the league (built
+  // for the "resolve an existing user" staging flow) and would infer
+  // ownerId = the ORGANIZER's own uid for any non-uid-shaped team id
+  // (saveTeams line ~1729), which is wrong here -- an external team has no
+  // owner yet. This writes exactly one new doc and nothing else.
+  //
+  // The created team's id is a plain Firestore auto-ID (20 chars), which
+  // is why it's already safe everywhere else in this codebase that treats
+  // team ids as "maybe not a real uid" via _looksLikeFirebaseUid (> 20
+  // chars) -- saveTeams' own membership-sync loop and
+  // MatchStatsService.recordMatchResult both already skip non-uid-shaped
+  // team ids by design, so no membership doc and no user-stats doc get
+  // written for an external team until it's actually claimed.
+  /// Generates a fresh team doc id without writing anything -- needed when
+  /// the UI must upload a logo (which needs a stable teamId for its
+  /// Cloudinary folder/publicId) before the team doc itself is created.
+  /// Pass the returned id into createExternalTeam's [teamId] so both land
+  /// on the same doc.
+  String newTeamId(String leagueId) =>
+      _firestore.collection('leagues').doc(leagueId).collection('teams').doc().id;
+
+  Future<Team> createExternalTeam({
+    required String leagueId,
+    required String name,
+    String? teamId,
+    String teamImageUrl = '',
+    String? groupId,
+  }) async {
+    try {
+      await _requireOrganizerOrThrow(leagueId);
+      final authUid = _requireAuthUid();
+      await _requireOnline();
+
+      final trimmedName = name.trim();
+      if (trimmedName.isEmpty) {
+        throw const UserFriendlyException('Please enter a team name.');
+      }
+
+      final col = _firestore.collection('leagues').doc(leagueId).collection('teams');
+      final ref = (teamId != null && teamId.trim().isNotEmpty) ? col.doc(teamId.trim()) : col.doc();
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      final team = Team(
+        id: ref.id,
+        leagueId: leagueId,
+        name: trimmedName,
+        teamImageUrl: teamImageUrl.trim(),
+        groupId: groupId,
+        ownerId: '',
+        participantType: Team.participantTypeExternal,
+        claimStatus: Team.claimStatusNotClaimed,
+        createdByUserId: authUid,
+        updatedAtMs: now,
+        version: 1,
+      );
+
+      await ref.set(team.toRemoteMap()).timeout(const Duration(seconds: 15));
+      return team;
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        context: 'creating team',
+      );
+    }
+  }
+
   Future<void> createPointAdjustment({
     required String leagueId,
     required String teamId,

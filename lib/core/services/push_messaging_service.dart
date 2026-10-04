@@ -209,6 +209,28 @@ class PushMessagingService {
           payloadRoute: route.isNotEmpty ? route : null,
         );
       } catch (_) {}
+    } else if (type == 'team_claimed' || type == 'team_claim_completed') {
+      // Sent by the Worker's /teams/claim/confirm on a successful claim --
+      // to the claimant (team_claimed) and, separately, to the organizer
+      // who created the external team (team_claim_completed). Same
+      // notification-block-driven title/body pattern as every other type
+      // here; route points at the league so tapping either lands on the
+      // claimed team's competition.
+      final teamId = (data['teamId'] ?? '').toString().trim();
+      final route = (data['route'] ?? '').toString().trim();
+      final title = (notification?.title ?? 'Team Claims').toString().trim();
+      final body = (notification?.body ?? '').toString().trim();
+
+      try {
+        await NotificationService().showTeamClaimNotification(
+          notificationId: _stableIdFromString(
+            '${type}_${teamId}_${DateTime.now().millisecondsSinceEpoch}',
+          ),
+          title: title.isNotEmpty ? title : 'Team Claims',
+          message: body.isNotEmpty ? body : 'A team claim was updated.',
+          payloadRoute: route.isNotEmpty ? route : null,
+        );
+      } catch (_) {}
     }
   }
 

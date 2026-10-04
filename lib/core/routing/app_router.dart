@@ -69,6 +69,7 @@ import '../../features/master_leagues/presentation/organizer_discipline_screen.d
 import '../../features/master_leagues/presentation/master_league_staff_screen.dart';
 import '../../features/master_leagues/presentation/public_organizer_discovery_screen.dart';
 import '../../features/organizer/presentation/organizer_workspace_gate_screen.dart';
+import '../../features/team_claim/presentation/claim_team_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/public_team_profile_screen.dart';
 import '../../features/profile/presentation/settings_screen.dart';
@@ -1189,6 +1190,11 @@ const _publicShareRoutePrefixes = <String>[
   '/team/',
   '/post/',
   '/org/',
+  // Claim preview must render signed-out too (Section 12/16 of the claim
+  // spec) -- ClaimTeamScreen itself decides what to show based on auth
+  // state (preview only vs. preview + Confirm Claim), same pattern as
+  // every other route in this list.
+  '/claim/',
 ];
 
 bool _isPublicShareRoute(String loc) {
@@ -1297,7 +1303,20 @@ final appRouter = GoRouter(
     if (auth_routerRefreshNeedsOnboardingFix(
         authRouterRefresh)) {
       if (inOnboarding) return null;
-      return '/onboarding';
+      // Preserve a pending destination through onboarding too (e.g. a
+      // returnTo already attached to this request, or -- when arriving
+      // here straight from _afterAuth()'s context.go(returnTo) -- the
+      // destination itself, which has no query param of its own at this
+      // point). OnboardingScreen's completion handler reads this same
+      // 'returnTo' param and resumes there instead of always Home. Claim
+      // links never actually reach this branch (see _isPublicShareRoute
+      // above, checked before any of this) -- this is the general-purpose
+      // fallback for any other protected returnTo destination.
+      final existingReturnTo = state.uri.queryParameters['returnTo'];
+      final resumeTo = (existingReturnTo != null && existingReturnTo.trim().isNotEmpty)
+          ? existingReturnTo
+          : loc;
+      return '/onboarding?returnTo=${Uri.encodeQueryComponent(resumeTo)}';
     }
 
     if (authRouterRefresh.hasProfile) {
@@ -1374,6 +1393,12 @@ final appRouter = GoRouter(
       path: '/org/:id',
       builder: (context, state) => OrganizerWorkspaceGateScreen(
         workspaceId: state.pathParameters['id'] ?? '',
+      ),
+    ),
+    GoRoute(
+      path: '/claim/:token',
+      builder: (context, state) => ClaimTeamScreen(
+        token: state.pathParameters['token'] ?? '',
       ),
     ),
     GoRoute(

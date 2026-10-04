@@ -491,7 +491,12 @@ service cloud.firestore {
         && (!('losses' in d) || ((d.losses is int) && (d.losses >= 0)))
         && (!('matchesPlayed' in d) || ((d.matchesPlayed is int) && (d.matchesPlayed >= 0)))
         && (!('adminAdjustment' in d) || (d.adminAdjustment is int))
-        && (!('groupId' in d) || ((d.groupId is string) && (d.groupId.size() <= 10)));
+        && (!('groupId' in d) || ((d.groupId is string) && (d.groupId.size() <= 10)))
+        && (!('participantType' in d) || (d.participantType in ['registered', 'external']))
+        && (!('claimStatus' in d)
+          || (d.claimStatus in ['not_claimed', 'claim_pending', 'claimed', 'revoked', 'expired']))
+        && (!('claimedAtMs' in d) || (d.claimedAtMs is int))
+        && (!('createdByUserId' in d) || (d.createdByUserId is string));
     }
 
     function validWorldCupKnockoutFields() {
@@ -831,6 +836,25 @@ service cloud.firestore {
 
     function validUsernameFormat(id) {
       return (id is string) && id.matches('^[a-z0-9_]{3,20}$');
+    }
+
+    // Team claim records (external/manually-created team -> real account).
+    // The document id IS the raw secure claim token (opaque, high-entropy --
+    // see worker/src/index.js's claim endpoints), so this collection is
+    // never read OR written by any client, organizer included: the Worker
+    // returns the token directly in its generate-endpoint response (the
+    // organizer's app holds it in local UI state to Copy Link/Show QR for
+    // that session; re-sharing later means Regenerate, not re-reading an
+    // old secret back out of Firestore). All reads/writes happen exclusively
+    // via the Worker's Firestore service account, which authenticates as an
+    // admin client and is NOT subject to these rules at all -- `allow read,
+    // write: if false` here is intentional, not a gap. The claim-confirm
+    // write itself (membership creation + team ownerId/claimStatus update)
+    // is a single atomic Firestore :commit with an updateTime precondition
+    // on this doc, immune to the race where two people try to claim the
+    // same team concurrently.
+    match /team_claims/{claimId} {
+      allow read, write: if false;
     }
 
     match /usernames/{username} {

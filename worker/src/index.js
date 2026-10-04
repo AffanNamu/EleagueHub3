@@ -872,6 +872,358 @@ async function _sendFcmToUid(env, uid, { title, body, data, androidChannelId }) 
   return { sent };
 }
 
+// ── Team claims (external/manually-created team -> real account) ──────────
+//
+// A claim token IS the Firestore document id (team_claims/{token}): opaque,
+// high-entropy, never exposed via firestore.rules to any client (see that
+// file's team_claims block) -- this collection is read and written
+// exclusively here, via the service account. Confirming a claim is a
+// single atomic Firestore :commit (team doc + membership doc + the claim
+// doc's own consumption + the league's memberIds array), guarded by an
+// updateTime precondition on the claim doc so two concurrent claim
+// attempts on the same team can't both succeed -- whichever request's
+// precondition no longer matches gets a 409, and nothing in its batch
+// applies (Firestore commits are all-or-nothing).
+
+const TEAM_CLAIM_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days -- generous; organizers often invite well ahead of need.
+
+function _secureRandomTokenHex(byteLength = 32) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function _firestoreResourceName(env, docPath) {
+  const base = _firestoreRestBase(env).replace(/^https:\/\/firestore\.googleapis\.com\/v1\//, "");
+  const cleanPath = String(docPath || "").trim().replace(/^\/+/, "");
+  return `${base}/${cleanPath}`;
+}
+
+function _firestoreUpdateWrite(env, docPath, fieldsObj, { updateMaskFields, exists, updateTime } = {}) {
+  const firestoreFields = {};
+  for (const [k, v] of Object.entries(fieldsObj)) firestoreFields[k] = _toFirestoreValue(v);
+  const write = { update: { name: _firestoreResourceName(env, docPath), fields: firestoreFields } };
+  if (updateMaskFields) write.updateMask = { fieldPaths: updateMaskFields };
+  if (exists !== undefined || updateTime) {
+    write.currentDocument = {};
+    if (exists !== undefined) write.currentDocument.exists = exists;
+    if (updateTime) write.currentDocument.updateTime = updateTime;
+  }
+  return write;
+}
+
+function _firestoreArrayUnionWrite(env, docPath, fieldPath, stringValue) {
+  return {
+    transform: {
+      document: _firestoreResourceName(env, docPath),
+      fieldTransforms: [{ fieldPath, appendMissingElements: { values: [{ stringValue }] } }],
+    },
+  };
+}
+
+// Atomic multi-document write via Firestore REST's :commit -- every write
+// in `writes` applies, or none do. `writes` are raw Firestore REST write
+// objects (build them with _firestoreUpdateWrite/_firestoreArrayUnionWrite
+// above); a currentDocument precondition on any entry that fails aborts
+// the whole batch with a non-2xx response.
+async function _firestoreCommitSA(env, writes) {
+  const accessToken = await _serviceAccountAccessToken(env);
+  const res = await fetch(`${_firestoreRestBase(env)}:commit`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ writes }),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    const err = new Error(`Firestore commit failed (${res.status}): ${txt}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
+async function _generateTeamClaim(env, verified, body) {
+  const uid = String(verified.uid || "").trim();
+  if (!uid) return { ok: false, status: 401, error: "Unauthenticated." };
+
+  const leagueId = String((body || {}).leagueId || "").trim();
+  const teamId = String((body || {}).teamId || "").trim();
+  if (!leagueId || !teamId) {
+    return { ok: false, status: 400, error: "leagueId and teamId are required." };
+  }
+
+  // Reuses the exact same organizer-authorization check the highlight
+  // signer already relies on (league.organizerUid/ownerUid/... OR an
+  // organizer-role membership) -- there is nothing claim-specific about
+  // "is this caller allowed to manage this league."
+  const canManage = await _highlightUploaderCanManageLeague(env, leagueId, uid);
+  if (!canManage) {
+    return { ok: false, status: 403, error: "You are not authorized to manage this league." };
+  }
+
+  const teamRes = await _firestoreGetDocSA(env, `leagues/${leagueId}/teams/${teamId}`);
+  if (!teamRes.ok || !teamRes.doc) {
+    return { ok: false, status: 404, error: "Team not found." };
+  }
+  const team = _fromFirestoreDoc(teamRes.doc);
+  if (team.participantType !== "external") {
+    return { ok: false, status: 400, error: "Only manually-created teams can be claimed." };
+  }
+  if (team.claimStatus === "claimed") {
+    return { ok: false, status: 409, error: "This team has already been claimed." };
+  }
+
+  // A fresh Generate supersedes any prior pending claim for this team --
+  // the old token's doc is simply never updated to 'claimed' or read
+  // again by anything that matters, since the team's own claimStatus
+  // (which _confirmTeamClaim re-checks) is what actually gates a claim
+  // going through, not any particular old token still existing.
+  const token = _secureRandomTokenHex(32);
+  const now = Date.now();
+  const expiresAtMs = now + TEAM_CLAIM_EXPIRY_MS;
+
+  await _firestoreCreateDocSA(env, `team_claims/${token}`, {
+    leagueId,
+    teamId,
+    status: "pending",
+    createdAtMs: now,
+    createdByUserId: uid,
+    expiresAtMs,
+    consumedAtMs: null,
+    consumedByUserId: null,
+  });
+
+  await _firestorePatchDoc(env, `leagues/${leagueId}/teams/${teamId}`, {
+    claimStatus: "claim_pending",
+  });
+
+  return { ok: true, status: 200, token, expiresAtMs, teamName: team.name || "" };
+}
+
+async function _previewTeamClaim(env, token) {
+  const t = String(token || "").trim();
+  if (!t) return { ok: false, status: 400, error: "Missing token." };
+
+  const claimRes = await _firestoreGetDocSA(env, `team_claims/${t}`);
+  if (!claimRes.ok || !claimRes.doc) {
+    return { ok: false, status: 404, error: "This claim link is invalid." };
+  }
+  const claim = _fromFirestoreDoc(claimRes.doc);
+
+  if (claim.status === "claimed") {
+    return { ok: false, status: 409, error: "This team has already been claimed." };
+  }
+  if (claim.status === "revoked") {
+    return { ok: false, status: 410, error: "This claim link has been revoked." };
+  }
+  if (claim.expiresAtMs && Date.now() > claim.expiresAtMs) {
+    return { ok: false, status: 410, error: "This claim link has expired." };
+  }
+
+  const [teamRes, leagueRes] = await Promise.all([
+    _firestoreGetDocSA(env, `leagues/${claim.leagueId}/teams/${claim.teamId}`),
+    _firestoreGetDocSA(env, `leagues/${claim.leagueId}`),
+  ]);
+
+  if (!teamRes.ok || !teamRes.doc) {
+    return { ok: false, status: 404, error: "This team no longer exists." };
+  }
+  const team = _fromFirestoreDoc(teamRes.doc);
+  if (team.claimStatus === "claimed") {
+    return { ok: false, status: 409, error: "This team has already been claimed." };
+  }
+
+  const league = leagueRes.ok && leagueRes.doc ? _fromFirestoreDoc(leagueRes.doc) : {};
+
+  let organizerName = "";
+  const organizerUid = String(league.organizerUid || league.ownerUid || "").trim();
+  if (organizerUid) {
+    try {
+      const orgRes = await _firestoreGetDocSA(env, `users/${organizerUid}`);
+      if (orgRes.ok && orgRes.doc) {
+        const org = _fromFirestoreDoc(orgRes.doc);
+        organizerName = String(org.teamName || org.username || "").trim();
+      }
+    } catch (_e) {
+      // Best-effort only -- a missing organizer name never blocks the preview.
+    }
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    teamName: team.name || "",
+    teamLogoUrl: team.teamImageUrl || "",
+    leagueName: league.name || "",
+    organizerName,
+  };
+}
+
+async function _confirmTeamClaim(env, verified, body) {
+  const uid = String(verified.uid || "").trim();
+  if (!uid) return { ok: false, status: 401, error: "Unauthenticated." };
+
+  const token = String((body || {}).token || "").trim();
+  if (!token) return { ok: false, status: 400, error: "Missing token." };
+
+  const claimRes = await _firestoreGetDocSA(env, `team_claims/${token}`);
+  if (!claimRes.ok || !claimRes.doc) {
+    return { ok: false, status: 404, error: "This claim link is invalid." };
+  }
+  const claim = _fromFirestoreDoc(claimRes.doc);
+  const claimUpdateTime = claimRes.doc.updateTime;
+
+  if (claim.status === "claimed") {
+    return { ok: false, status: 409, error: "This team has already been claimed." };
+  }
+  if (claim.status === "revoked") {
+    return { ok: false, status: 410, error: "This claim link has been revoked." };
+  }
+  if (claim.expiresAtMs && Date.now() > claim.expiresAtMs) {
+    return { ok: false, status: 410, error: "This claim link has expired." };
+  }
+
+  const leagueId = claim.leagueId;
+  const teamId = claim.teamId;
+
+  const teamRes = await _firestoreGetDocSA(env, `leagues/${leagueId}/teams/${teamId}`);
+  if (!teamRes.ok || !teamRes.doc) {
+    return { ok: false, status: 404, error: "This team no longer exists." };
+  }
+  const team = _fromFirestoreDoc(teamRes.doc);
+  if (team.claimStatus === "claimed") {
+    return { ok: false, status: 409, error: "This team has already been claimed." };
+  }
+
+  const membershipRes = await _firestoreGetDocSA(env, `leagues/${leagueId}/memberships/${uid}`);
+  const membershipExists = Boolean(membershipRes.ok && membershipRes.doc);
+
+  const now = Date.now();
+
+  const writes = [
+    _firestoreUpdateWrite(
+      env,
+      `team_claims/${token}`,
+      { status: "claimed", consumedAtMs: now, consumedByUserId: uid },
+      { updateMaskFields: ["status", "consumedAtMs", "consumedByUserId"], updateTime: claimUpdateTime }
+    ),
+    _firestoreUpdateWrite(
+      env,
+      `leagues/${leagueId}/teams/${teamId}`,
+      { ownerId: uid, claimStatus: "claimed", claimedAtMs: now },
+      { updateMaskFields: ["ownerId", "claimStatus", "claimedAtMs"], exists: true }
+    ),
+    // Required precondition for the membership write below under the
+    // existing rules model (same STEP A saveTeams/_joinLeagueCore already
+    // rely on) -- and so every other "is this uid a league member" check
+    // that looks at the league doc's memberIds array (not just the
+    // memberships subcollection) also recognizes the claimant immediately.
+    _firestoreArrayUnionWrite(env, `leagues/${leagueId}`, "memberIds", uid),
+  ];
+
+  if (membershipExists) {
+    const currentVersion = Number(_fromFirestoreDoc(membershipRes.doc).version) || 1;
+    writes.push(
+      _firestoreUpdateWrite(
+        env,
+        `leagues/${leagueId}/memberships/${uid}`,
+        { teamId, updatedAtMs: now, version: currentVersion + 1 },
+        { updateMaskFields: ["teamId", "updatedAtMs", "version"], exists: true }
+      )
+    );
+  } else {
+    writes.push(
+      _firestoreUpdateWrite(env, `leagues/${leagueId}/memberships/${uid}`, {
+        id: uid,
+        leagueId,
+        userId: uid,
+        teamId,
+        role: 1, // LeagueRole.member
+        updatedAtMs: now,
+        version: 1,
+      })
+    );
+  }
+
+  try {
+    await _firestoreCommitSA(env, writes);
+  } catch (e) {
+    if (e.status === 409 || e.status === 400) {
+      return { ok: false, status: 409, error: "This team has already been claimed." };
+    }
+    throw e;
+  }
+
+  // Best-effort notifications -- never fail the claim over a push error.
+  const route = `/leagues/${leagueId}`;
+  try {
+    await _sendFcmToUid(env, uid, {
+      title: "🎉 Team claimed!",
+      body: `${team.name || "Your team"} is now connected to your eSportlyic account.`,
+      data: { type: "team_claimed", leagueId, teamId, route },
+      androidChannelId: "team_claim_channel",
+    });
+  } catch (_e) {}
+
+  try {
+    const organizerUid = String(team.createdByUserId || "").trim();
+    if (organizerUid && organizerUid !== uid) {
+      await _sendFcmToUid(env, organizerUid, {
+        title: "✅ Team claimed",
+        body: `${team.name || "A team"} has claimed their team.`,
+        data: { type: "team_claim_completed", leagueId, teamId, route },
+        androidChannelId: "team_claim_channel",
+      });
+    }
+  } catch (_e) {}
+
+  return {
+    ok: true,
+    status: 200,
+    teamId,
+    teamName: team.name || "",
+    teamLogoUrl: team.teamImageUrl || "",
+    leagueId,
+  };
+}
+
+async function _revokeTeamClaim(env, verified, body) {
+  const uid = String(verified.uid || "").trim();
+  if (!uid) return { ok: false, status: 401, error: "Unauthenticated." };
+
+  const leagueId = String((body || {}).leagueId || "").trim();
+  const teamId = String((body || {}).teamId || "").trim();
+  if (!leagueId || !teamId) {
+    return { ok: false, status: 400, error: "leagueId and teamId are required." };
+  }
+
+  const canManage = await _highlightUploaderCanManageLeague(env, leagueId, uid);
+  if (!canManage) {
+    return { ok: false, status: 403, error: "You are not authorized to manage this league." };
+  }
+
+  const teamRes = await _firestoreGetDocSA(env, `leagues/${leagueId}/teams/${teamId}`);
+  if (!teamRes.ok || !teamRes.doc) {
+    return { ok: false, status: 404, error: "Team not found." };
+  }
+  const team = _fromFirestoreDoc(teamRes.doc);
+  if (team.claimStatus === "claimed") {
+    return { ok: false, status: 409, error: "This team has already been claimed and can no longer be revoked." };
+  }
+
+  // The team itself stays fully intact -- only its claimStatus resets, so
+  // the organizer can Invite to Claim again (which mints a fresh token;
+  // any old token's doc is simply never consumable again since
+  // _confirmTeamClaim re-checks the team's own claimStatus too).
+  await _firestorePatchDoc(env, `leagues/${leagueId}/teams/${teamId}`, {
+    claimStatus: "not_claimed",
+  });
+
+  return { ok: true, status: 200 };
+}
+
 function _moneyEqWithinTolerance(expected, actual, currency) {
   const c = String(currency || "").trim().toUpperCase();
   if (typeof expected !== "number" || typeof actual !== "number") return false;
@@ -3524,6 +3876,100 @@ export default {
       } catch (e) {
         console.error("[cloudinary/sign-highlight] Unhandled:", e.message || String(e), e.stack || "");
         return jsonResponse({ error: "Highlight sign error: " + (e.message || String(e)) }, 500);
+      }
+    }
+
+    if (url.pathname === "/teams/claim/generate" && request.method === "POST") {
+      try {
+        let verified;
+        try {
+          verified = await _verifyFirebaseIdToken(env, request);
+        } catch (e) {
+          return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+        }
+        if (!verified.ok) {
+          return jsonResponse({ error: verified.error }, verified.status || 401);
+        }
+
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON" }, 400);
+        }
+
+        const out = await _generateTeamClaim(env, verified, body || {});
+        return out.ok ? jsonResponse(out, 200) : jsonResponse({ error: out.error }, out.status || 400);
+      } catch (e) {
+        console.error("[teams/claim/generate] Unhandled:", e.message || String(e), e.stack || "");
+        return jsonResponse({ error: "Could not create claim link. Please try again." }, 500);
+      }
+    }
+
+    // Public -- the claimant may not be signed in yet (Section 12/16: the
+    // preview must render before any auth happens).
+    if (url.pathname === "/teams/claim/preview" && request.method === "GET") {
+      try {
+        const token = url.searchParams.get("token") || "";
+        const out = await _previewTeamClaim(env, token);
+        return out.ok ? jsonResponse(out, 200) : jsonResponse({ error: out.error }, out.status || 400);
+      } catch (e) {
+        console.error("[teams/claim/preview] Unhandled:", e.message || String(e), e.stack || "");
+        return jsonResponse({ error: "Could not load this claim link. Please try again." }, 500);
+      }
+    }
+
+    if (url.pathname === "/teams/claim/confirm" && request.method === "POST") {
+      try {
+        let verified;
+        try {
+          verified = await _verifyFirebaseIdToken(env, request);
+        } catch (e) {
+          return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+        }
+        if (!verified.ok) {
+          return jsonResponse({ error: verified.error }, verified.status || 401);
+        }
+
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON" }, 400);
+        }
+
+        const out = await _confirmTeamClaim(env, verified, body || {});
+        return out.ok ? jsonResponse(out, 200) : jsonResponse({ error: out.error }, out.status || 400);
+      } catch (e) {
+        console.error("[teams/claim/confirm] Unhandled:", e.message || String(e), e.stack || "");
+        return jsonResponse({ error: "Could not complete the claim. Please try again." }, 500);
+      }
+    }
+
+    if (url.pathname === "/teams/claim/revoke" && request.method === "POST") {
+      try {
+        let verified;
+        try {
+          verified = await _verifyFirebaseIdToken(env, request);
+        } catch (e) {
+          return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+        }
+        if (!verified.ok) {
+          return jsonResponse({ error: verified.error }, verified.status || 401);
+        }
+
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse({ error: "Invalid JSON" }, 400);
+        }
+
+        const out = await _revokeTeamClaim(env, verified, body || {});
+        return out.ok ? jsonResponse(out, 200) : jsonResponse({ error: out.error }, out.status || 400);
+      } catch (e) {
+        console.error("[teams/claim/revoke] Unhandled:", e.message || String(e), e.stack || "");
+        return jsonResponse({ error: "Could not revoke this claim link. Please try again." }, 500);
       }
     }
 

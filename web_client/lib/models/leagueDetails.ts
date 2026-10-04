@@ -1,5 +1,10 @@
 export type MatchStatus = 'scheduled' | 'pendingProof' | 'underReview' | 'played' | 'completed';
 
+// Mirrors Team.participantType*/claimStatus* static consts in
+// lib/features/leagues/models/team.dart.
+export type TeamParticipantType = 'registered' | 'external';
+export type TeamClaimStatus = 'not_claimed' | 'claim_pending' | 'claimed' | 'revoked' | 'expired';
+
 export interface Team {
   id: string;
   leagueId: string;
@@ -18,6 +23,12 @@ export interface Team {
   won?: number;
   drawn?: number;
   lost?: number;
+  /** Absent on every pre-existing team doc -- treat as 'registered'. */
+  participantType?: TeamParticipantType;
+  /** Only meaningful when participantType === 'external'. */
+  claimStatus?: TeamClaimStatus;
+  claimedAtMs?: number;
+  createdByUserId?: string;
   updatedAtMs: number;
 }
 

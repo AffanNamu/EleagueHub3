@@ -304,6 +304,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       await authRouterRefresh.refreshProfileStatus();
 
       if (!mounted) return;
+
+      // Same returnTo convention as LoginScreen._afterAuth() -- a brand
+      // new user following a claim link goes: signed out -> /login
+      // (?returnTo=/claim/x) -> needs onboarding -> /onboarding
+      // (?returnTo=/claim/x, appended by app_router's redirect callback)
+      // -> here. Resume to that destination instead of always Home.
+      final returnTo = GoRouterState.of(context).uri.queryParameters['returnTo'];
+      if (returnTo != null && returnTo.trim().isNotEmpty) {
+        context.go(returnTo);
+        return;
+      }
       context.go('/');
     } catch (e) {
       if (!mounted) return;

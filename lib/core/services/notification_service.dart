@@ -82,6 +82,7 @@ class NotificationService {
   static const String _organizerFeedChannelId = 'organizer_feed_channel';
   static const String _newFollowerChannelId = 'new_follower_channel';
   static const String _footballHubChannelId = 'football_hub_channel';
+  static const String _teamClaimChannelId = 'team_claim_channel';
 
   /// Call this ONLY when user explicitly enables notifications in settings
   /// or when user first interacts with a feature that needs notifications.
@@ -224,6 +225,17 @@ class NotificationService {
             _footballHubChannelId,
             'Football Hub',
             description: 'Goals and match updates for teams you follow',
+            importance: Importance.high,
+          ),
+        );
+      } catch (_) {}
+
+      try {
+        await android.createNotificationChannel(
+          const AndroidNotificationChannel(
+            _teamClaimChannelId,
+            'Team Claims',
+            description: 'Updates when a team you created is claimed, or your own team claim completes',
             importance: Importance.high,
           ),
         );
@@ -410,6 +422,37 @@ class NotificationService {
       _footballHubChannelId,
       'Football Hub',
       channelDescription: 'Goals and match updates for teams you follow',
+      importance: Importance.high,
+      priority: Priority.high,
+      styleInformation: BigTextStyleInformation(''),
+    );
+
+    const details = NotificationDetails(android: androidDetails);
+
+    await _plugin.show(
+      notificationId,
+      title,
+      message,
+      details,
+      payload:
+          (payloadRoute ?? '').trim().isEmpty ? null : payloadRoute!.trim(),
+    );
+  }
+
+  Future<void> showTeamClaimNotification({
+    required int notificationId,
+    required String title,
+    required String message,
+    String? payloadRoute,
+  }) async {
+    if (!_initialized) {
+      await init();
+    }
+
+    const androidDetails = AndroidNotificationDetails(
+      _teamClaimChannelId,
+      'Team Claims',
+      channelDescription: 'Updates when a team you created is claimed, or your own team claim completes',
       importance: Importance.high,
       priority: Priority.high,
       styleInformation: BigTextStyleInformation(''),

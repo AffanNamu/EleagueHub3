@@ -7,23 +7,31 @@
 // - All other code is completely unchanged from what you pasted.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math'; // FIX: Required for Random used in _autoAssignWorldCupGroups
 import 'dart:ui';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/routing/route_resolver.dart';
+import '../../../core/services/app_analytics_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/sharing/link_generator.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../../core/widgets/share_button.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
+import '../../team_claim/data/team_claim_repository.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/swiss_pairing.dart';
 import '../logic/fixture_generator.dart';
@@ -59,6 +67,7 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   late LocalLeaguesRepository _localRepo;
   final UserProfileRepository _profiles = UserProfileRepository();
   final TeamMediaService _teamMedia = TeamMediaService();
+  final TeamClaimRepository _teamClaim = TeamClaimRepository();
 
   League? _league;
 
@@ -877,6 +886,261 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     } finally {
       debounce?.cancel();
       controller.dispose();
+    }
+  }
+
+  // "Add Manually" -- a real-world team that doesn't have an eSportlyic
+  // account yet. Unlike every other add-path above (_addResolvedTeam),
+  // this does NOT stage into _tempTeams/_saveTeamsOnly -- it writes the
+  // team doc immediately via createExternalTeam (narrow, single-doc write,
+  // no membership/aggregate side effects -- see that method's own comment)
+  // and adds the result straight into _existingTeams, exactly like
+  // _autoAssignWorldCupGroups already does after a direct repo write.
+  Future<void> _showAddManualTeamDialog() async {
+    final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
+
+    final nameController = TextEditingController();
+    PlatformFile? pickedImage;
+    String? pendingTeamId;
+    bool saving = false;
+    String? error;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        barrierColor: Colors.black.withOpacity(0.55),
+        builder: (ctx) {
+          final theme = Theme.of(ctx);
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: Glass(
+              borderRadius: 26,
+              padding: const EdgeInsets.all(18),
+              fill: AppTheme.cardColor(brightness),
+              borderColor: AppTheme.cardBorder(brightness),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: StatefulBuilder(
+                  builder: (ctx, setModalState) {
+                    Future<void> pickLogo() async {
+                      try {
+                        final file = await _teamMedia.pickImage();
+                        if (file == null) return;
+                        setModalState(() => pickedImage = file);
+                      } catch (e) {
+                        setModalState(() {
+                          error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+                        });
+                      }
+                    }
+
+                    Future<void> save() async {
+                      final name = nameController.text.trim();
+                      if (name.isEmpty) {
+                        setModalState(() => error = l10n.tr('add_teams_manual_name_required'));
+                        return;
+                      }
+
+                      final totalCurrent = _existingTeams.length + _tempTeams.length;
+                      if (totalCurrent >= _maxTeamsForFormat) {
+                        setModalState(
+                          () => error = '${l10n.tr('add_teams_max_teams_error_prefix')} '
+                              '$_maxTeamsForFormat '
+                              '${l10n.tr('add_teams_max_teams_error_suffix')}',
+                        );
+                        return;
+                      }
+
+                      setModalState(() {
+                        saving = true;
+                        error = null;
+                      });
+
+                      try {
+                        String uploadedUrl = '';
+                        if (pickedImage != null) {
+                          pendingTeamId ??= _localRepo.newTeamId(widget.leagueId);
+                          uploadedUrl = await _teamMedia.uploadPickedToCloudinary(
+                            leagueId: widget.leagueId,
+                            teamId: pendingTeamId!,
+                            picked: pickedImage!,
+                          );
+                        }
+
+                        final groupToUse = _isGroupLeague ? _selectedGroup : null;
+
+                        final team = await _localRepo.createExternalTeam(
+                          leagueId: widget.leagueId,
+                          name: name,
+                          teamId: pendingTeamId,
+                          teamImageUrl: uploadedUrl,
+                          groupId: groupToUse,
+                        );
+
+                        if (!mounted) return;
+                        setState(() {
+                          _existingTeams = [..._existingTeams, team];
+                          if (_isGroupLeague) {
+                            final active = _activeGroups;
+                            if (active.isNotEmpty) {
+                              final next = (active.indexOf(_selectedGroup) + 1) % active.length;
+                              _selectedGroup = active[next];
+                            }
+                          }
+                        });
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                        _snackOk(l10n.tr('add_teams_manual_team_added'));
+                        unawaited(
+                          AppAnalyticsService.instance.logEvent(
+                            eventName: 'manual_participant_created',
+                            extra: {'leagueId': widget.leagueId, 'teamId': team.id},
+                          ),
+                        );
+                      } catch (e) {
+                        setModalState(() {
+                          saving = false;
+                          error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+                        });
+                      }
+                    }
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                color: AppTheme.iconCircleBackground(brightness),
+                                border: Border.all(color: AppTheme.cardBorder(brightness)),
+                              ),
+                              child: Icon(Icons.group_add, color: AppTheme.limeAccentDark),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                l10n.tr('add_teams_add_manually_title'),
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: AppTheme.primaryText(brightness),
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              icon: Icon(Icons.close, color: AppTheme.secondaryText(brightness)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          l10n.tr('add_teams_add_manually_subtitle'),
+                          style: TextStyle(
+                            color: AppTheme.secondaryText(brightness),
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            GestureDetector(
+                              onTap: saving ? null : pickLogo,
+                              child: Container(
+                                width: 56,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: AppTheme.searchBackground(brightness),
+                                  border: Border.all(color: AppTheme.cardBorder(brightness)),
+                                  image: pickedImage?.path != null
+                                      ? DecorationImage(
+                                          image: FileImage(File(pickedImage!.path!)),
+                                          fit: BoxFit.cover,
+                                        )
+                                      : null,
+                                ),
+                                child: pickedImage == null
+                                    ? Icon(Icons.add_a_photo, color: AppTheme.secondaryText(brightness), size: 20)
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: TextField(
+                                controller: nameController,
+                                autofocus: true,
+                                enabled: !saving,
+                                decoration: InputDecoration(
+                                  hintText: l10n.tr('add_teams_manual_name_hint'),
+                                  prefixIcon: const Icon(Icons.shield_outlined),
+                                ),
+                                onSubmitted: (_) => saving ? null : save(),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (error != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            error!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: saving ? null : () => Navigator.of(ctx).pop(),
+                                child: Text(l10n.tr('common_cancel')),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppTheme.limeAccent,
+                                  foregroundColor: AppTheme.darkText,
+                                ),
+                                onPressed: saving ? null : save,
+                                icon: saving
+                                    ? SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppTheme.darkText,
+                                        ),
+                                      )
+                                    : const Icon(Icons.save),
+                                label: Text(l10n.tr('common_save')),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    } finally {
+      nameController.dispose();
     }
   }
 
@@ -2429,6 +2693,31 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _busy ? null : _showAddManualTeamDialog,
+              icon: const Icon(Icons.group_add),
+              label: Text(l10n.tr('add_teams_add_manually')),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.limeAccentDark,
+                side: BorderSide(color: AppTheme.limeAccentDark.withOpacity(0.4)),
+                minimumSize: const Size.fromHeight(46),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              l10n.tr('add_teams_add_manually_hint'),
+              style: TextStyle(
+                color: AppTheme.secondaryText(brightness),
+                fontSize: 11,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ],
       ),
     );
@@ -3110,6 +3399,15 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     String imageUrl = team.teamImageUrl.trim();
     bool uploading = false;
 
+    // Claim management (external/manually-created teams only). The raw
+    // token only ever lives here in local UI state for this bottom-sheet
+    // session -- see TeamClaimRepository's own doc comment: there is no
+    // server-side re-display of an old secret, only Regenerate.
+    String claimStatus = team.claimStatus ?? Team.claimStatusNotClaimed;
+    TeamClaimLink? generatedClaimLink;
+    bool claimBusy = false;
+    String? claimError;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3223,6 +3521,73 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               setModalState(
                                   () => uploading = false);
                             }
+                          }
+                        }
+
+                        Future<void> doGenerateClaim() async {
+                          if (claimBusy) return;
+                          setModalState(() {
+                            claimBusy = true;
+                            claimError = null;
+                          });
+                          try {
+                            final link = await _teamClaim.generate(
+                              leagueId: widget.leagueId,
+                              teamId: team.id,
+                            );
+                            setModalState(() {
+                              generatedClaimLink = link;
+                              claimStatus = Team.claimStatusPending;
+                            });
+                            setState(() {
+                              _existingTeams[index] = _existingTeams[index].copyWith(
+                                claimStatus: Team.claimStatusPending,
+                              );
+                            });
+                            unawaited(
+                              AppAnalyticsService.instance.logEvent(
+                                eventName: 'claim_link_generated',
+                                extra: {'leagueId': widget.leagueId, 'teamId': team.id},
+                              ),
+                            );
+                          } catch (e) {
+                            setModalState(() {
+                              claimError = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+                            });
+                          } finally {
+                            if (ctx.mounted) setModalState(() => claimBusy = false);
+                          }
+                        }
+
+                        Future<void> doRevokeClaim() async {
+                          if (claimBusy) return;
+                          setModalState(() {
+                            claimBusy = true;
+                            claimError = null;
+                          });
+                          try {
+                            await _teamClaim.revoke(leagueId: widget.leagueId, teamId: team.id);
+                            setModalState(() {
+                              generatedClaimLink = null;
+                              claimStatus = Team.claimStatusNotClaimed;
+                            });
+                            setState(() {
+                              _existingTeams[index] = _existingTeams[index].copyWith(
+                                claimStatus: Team.claimStatusNotClaimed,
+                              );
+                            });
+                            unawaited(
+                              AppAnalyticsService.instance.logEvent(
+                                eventName: 'claim_revoked',
+                                extra: {'leagueId': widget.leagueId, 'teamId': team.id},
+                              ),
+                            );
+                          } catch (e) {
+                            setModalState(() {
+                              claimError = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+                            });
+                          } finally {
+                            if (ctx.mounted) setModalState(() => claimBusy = false);
                           }
                         }
 
@@ -3474,6 +3839,22 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                 ),
                               ),
                             ),
+                            if (team.isExternal) ...[
+                              const SizedBox(height: 14),
+                              Container(height: 1, color: AppTheme.cardBorder(brightness)),
+                              const SizedBox(height: 14),
+                              _ClaimManagementSection(
+                                brightness: brightness,
+                                status: claimStatus,
+                                generatedLink: generatedClaimLink,
+                                busy: claimBusy,
+                                error: claimError,
+                                teamName: team.name,
+                                onInvite: doGenerateClaim,
+                                onRegenerate: doGenerateClaim,
+                                onRevoke: doRevokeClaim,
+                              ),
+                            ],
                           ],
                         );
                       },
@@ -3765,6 +4146,234 @@ class _TeamThumb extends StatelessWidget {
                 color: AppTheme.secondaryText(brightness),
               ),
       ),
+    );
+  }
+}
+class _ClaimManagementSection extends StatelessWidget {
+  const _ClaimManagementSection({
+    required this.brightness,
+    required this.status,
+    required this.generatedLink,
+    required this.busy,
+    required this.error,
+    required this.teamName,
+    required this.onInvite,
+    required this.onRegenerate,
+    required this.onRevoke,
+  });
+
+  final Brightness brightness;
+  final String status;
+  final TeamClaimLink? generatedLink;
+  final bool busy;
+  final String? error;
+  final String teamName;
+  final VoidCallback onInvite;
+  final VoidCallback onRegenerate;
+  final VoidCallback onRevoke;
+
+  Color _statusColor() {
+    switch (status) {
+      case Team.claimStatusClaimed:
+        return AppTheme.limeAccentDark;
+      case Team.claimStatusPending:
+        return const Color(0xFFF59E0B);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _statusLabel(AppLocalizations l10n) {
+    switch (status) {
+      case Team.claimStatusClaimed:
+        return l10n.tr('team_claim_status_claimed');
+      case Team.claimStatusPending:
+        return l10n.tr('team_claim_status_pending');
+      case Team.claimStatusRevoked:
+        return l10n.tr('team_claim_status_revoked');
+      case Team.claimStatusExpired:
+        return l10n.tr('team_claim_status_expired');
+      default:
+        return l10n.tr('team_claim_status_not_claimed');
+    }
+  }
+
+  void _showQr(BuildContext context, Uri link) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Glass(
+          borderRadius: 24,
+          padding: const EdgeInsets.all(24),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: QrImageView(data: link.toString(), size: 220),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.limeAccent,
+                    foregroundColor: AppTheme.darkText,
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text(context.l10n.tr('common_done')),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final color = _statusColor();
+
+    final link = generatedLink != null ? LinkGenerator.teamClaim(generatedLink!.token) : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              l10n.tr('team_claim_section_title'),
+              style: TextStyle(
+                color: AppTheme.primaryText(brightness),
+                fontWeight: FontWeight.w900,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: color.withOpacity(0.3)),
+              ),
+              child: Text(
+                _statusLabel(l10n),
+                style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 10),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          l10n.tr('team_claim_section_subtitle'),
+          style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 11, height: 1.3),
+        ),
+        const SizedBox(height: 10),
+
+        if (status == Team.claimStatusClaimed) ...[
+          // Nothing actionable -- the real team owns this identity now.
+        ] else ...[
+          if (link != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.searchBackground(brightness),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.cardBorder(brightness)),
+              ),
+              child: Text(
+                link.toString(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 11),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => showShareSheet(
+                      context,
+                      entity: ShareableEntity(type: ShareableEntityType.teamClaim, id: generatedLink!.token),
+                      title: '${l10n.tr('team_claim_share_title_prefix')} $teamName',
+                      description: l10n.tr('team_claim_share_description'),
+                    ),
+                    icon: const Icon(Icons.share, size: 16),
+                    label: Text(l10n.tr('team_claim_share_button')),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => _showQr(context, link),
+                  child: const Icon(Icons.qr_code, size: 18),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ] else if (status == Team.claimStatusPending) ...[
+            Text(
+              l10n.tr('team_claim_pending_no_local_link'),
+              style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 11),
+            ),
+            const SizedBox(height: 8),
+          ],
+          if (error != null) ...[
+            Text(
+              error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.limeAccent,
+                    foregroundColor: AppTheme.darkText,
+                  ),
+                  onPressed: busy ? null : (status == Team.claimStatusPending ? onRegenerate : onInvite),
+                  icon: busy
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.darkText),
+                        )
+                      : const Icon(Icons.person_add_alt_1, size: 16),
+                  label: Text(
+                    status == Team.claimStatusPending
+                        ? l10n.tr('team_claim_regenerate_button')
+                        : l10n.tr('team_claim_invite_button'),
+                  ),
+                ),
+              ),
+              if (status == Team.claimStatusPending) ...[
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: busy ? null : onRevoke,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                    side: BorderSide(color: Theme.of(context).colorScheme.error.withOpacity(0.4)),
+                  ),
+                  child: Text(l10n.tr('team_claim_revoke_button')),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ],
     );
   }
 }

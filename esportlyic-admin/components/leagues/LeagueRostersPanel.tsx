@@ -3,8 +3,28 @@
 import { useState } from 'react';
 import { Shield, Pencil, Trash2, UserMinus, Check, X } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Badge } from '@/components/ui/Badge';
 import { useTeamRename, useTeamDelete, useRemoveTeamMember } from '@/hooks/useTeamRosterActions';
 import type { RosterMember, TeamWithRoster } from '@/types/team';
+
+// Absent participantType means "registered" (every pre-existing team) --
+// see Team.participantType* in lib/features/leagues/models/team.dart.
+function ParticipantBadge({ team }: { team: TeamWithRoster }) {
+  if ((team.participantType ?? 'registered') !== 'external') return null;
+
+  switch (team.claimStatus) {
+    case 'claimed':
+      return <Badge tone="success">Claimed</Badge>;
+    case 'claim_pending':
+      return <Badge tone="warning">Claim Pending</Badge>;
+    case 'revoked':
+      return <Badge tone="neutral">Revoked</Badge>;
+    case 'expired':
+      return <Badge tone="neutral">Expired</Badge>;
+    default:
+      return <Badge tone="neutral">External · Not Claimed</Badge>;
+  }
+}
 
 function TeamCard({
   leagueId,
@@ -58,7 +78,10 @@ function TeamCard({
               </button>
             </div>
           ) : (
-            <h3 className="font-display text-sm font-semibold text-ink-primary">{team.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-display text-sm font-semibold text-ink-primary">{team.name}</h3>
+              <ParticipantBadge team={team} />
+            </div>
           )}
           <p className="mt-1 text-xs text-ink-muted">
             {team.roster.length} member{team.roster.length === 1 ? '' : 's'} · {team.finalPoints} pts

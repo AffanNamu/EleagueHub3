@@ -49,6 +49,12 @@ function toTeam(id: string, leagueId: string, data: FirebaseFirestore.DocumentDa
     finalPoints: typeof data.finalPoints === 'number' ? data.finalPoints : 0,
     goalDifference: typeof data.goalDifference === 'number' ? data.goalDifference : 0,
     goalsFor: typeof data.goalsFor === 'number' ? data.goalsFor : 0,
+    // Absent on every pre-existing team doc -- undefined here reads as
+    // 'registered' at every call site (see ParticipantBadge).
+    participantType: data.participantType === 'external' ? 'external' : undefined,
+    claimStatus: typeof data.claimStatus === 'string' ? (data.claimStatus as LeagueTeam['claimStatus']) : undefined,
+    claimedAtMs: typeof data.claimedAtMs === 'number' ? data.claimedAtMs : undefined,
+    createdByUserId: typeof data.createdByUserId === 'string' ? data.createdByUserId : undefined,
     updatedAtMs: typeof data.updatedAtMs === 'number' ? data.updatedAtMs : 0,
   };
 }

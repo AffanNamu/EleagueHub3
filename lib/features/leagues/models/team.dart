@@ -1,5 +1,22 @@
 //team.dart
 class Team {
+  // Participant type: whether this team already has a live eSportlyic
+  // account behind it, or was created directly by the organizer and is
+  // awaiting a real owner to claim it. Absent on every pre-existing team
+  // doc -- fromRemoteMap defaults that to [participantTypeRegistered], so
+  // no migration is required and no existing team's behavior changes.
+  static const String participantTypeRegistered = 'registered';
+  static const String participantTypeExternal = 'external';
+
+  // Claim lifecycle for an external team. Only meaningful when
+  // participantType == external; null/absent for every registered team
+  // (claiming isn't a concept that applies to them).
+  static const String claimStatusNotClaimed = 'not_claimed';
+  static const String claimStatusPending = 'claim_pending';
+  static const String claimStatusClaimed = 'claimed';
+  static const String claimStatusRevoked = 'revoked';
+  static const String claimStatusExpired = 'expired';
+
   final String id;
   final String leagueId;
   final String name;
@@ -8,7 +25,27 @@ class Team {
   ///
   /// In this app's current data model, teams are usually UID-based (Team.id == user uid),
   /// so ownerId is typically the same as id. Kept explicit for security rules + future-proofing.
+  ///
+  /// For an external team, this is empty until claimed (toRemoteMap's existing
+  /// fallback-to-id behavior still applies, so it reads as the team's own doc
+  /// ID, not a real account -- never treat a non-empty ownerId alone as proof
+  /// of a live account; check participantType/claimStatus instead).
   final String ownerId;
+
+  /// 'registered' (default, matches every existing team) or 'external'
+  /// (organizer-created, no eSportlyic account yet -- see claimStatus).
+  final String participantType;
+
+  /// Claim lifecycle state for an external team (null for registered teams).
+  final String? claimStatus;
+
+  /// When the team was claimed (epoch ms), if ever.
+  final int? claimedAtMs;
+
+  /// Organizer uid who created this team doc. Null for teams created via
+  /// the original "add an existing eSportlyic user" flow (not tracked
+  /// historically); set for every manually-created external team.
+  final String? createdByUserId;
 
   /// Team image/logo URL (Cloudinary secure_url recommended).
   /// Empty string means "no image" -> UI should show existing placeholder.
@@ -55,7 +92,14 @@ class Team {
     this.finalPoints = 0,
     this.goalDifference = 0,
     this.goalsFor = 0,
+    this.participantType = participantTypeRegistered,
+    this.claimStatus,
+    this.claimedAtMs,
+    this.createdByUserId,
   });
+
+  bool get isExternal => participantType == participantTypeExternal;
+  bool get isClaimed => !isExternal || claimStatus == claimStatusClaimed;
 
   Map<String, dynamic> toJson() => toRemoteMap();
   factory Team.fromJson(Map<String, dynamic> json) => fromRemoteMap(json);
@@ -80,6 +124,11 @@ class Team {
         'finalPoints': finalPoints == (basePoints + adminAdjustment) ? finalPoints : (basePoints + adminAdjustment),
         'goalDifference': goalDifference,
         'goalsFor': goalsFor,
+
+        'participantType': participantType,
+        if (claimStatus != null) 'claimStatus': claimStatus,
+        if (claimedAtMs != null) 'claimedAtMs': claimedAtMs,
+        if (createdByUserId != null) 'createdByUserId': createdByUserId,
 
         'updatedAtMs': updatedAtMs,
         'version': version,
@@ -122,6 +171,16 @@ class Team {
       finalPoints: finalPoints,
       goalDifference: goalDifference,
       goalsFor: goalsFor,
+      participantType: (map['participantType'] as String?)?.trim().isNotEmpty == true
+          ? (map['participantType'] as String).trim()
+          : participantTypeRegistered,
+      claimStatus: (map['claimStatus'] as String?)?.trim().isNotEmpty == true
+          ? (map['claimStatus'] as String).trim()
+          : null,
+      claimedAtMs: (map['claimedAtMs'] as num?)?.toInt(),
+      createdByUserId: (map['createdByUserId'] as String?)?.trim().isNotEmpty == true
+          ? (map['createdByUserId'] as String).trim()
+          : null,
       updatedAtMs: (map['updatedAtMs'] as num?)?.toInt() ?? 0,
       version: (map['version'] as num?)?.toInt() ?? 1,
     );
@@ -139,6 +198,10 @@ class Team {
     int? finalPoints,
     int? goalDifference,
     int? goalsFor,
+    String? participantType,
+    String? claimStatus,
+    int? claimedAtMs,
+    String? createdByUserId,
     int? updatedAtMs,
     int? version,
   }) {
@@ -158,6 +221,10 @@ class Team {
       finalPoints: nextFinal,
       goalDifference: goalDifference ?? this.goalDifference,
       goalsFor: goalsFor ?? this.goalsFor,
+      participantType: participantType ?? this.participantType,
+      claimStatus: claimStatus ?? this.claimStatus,
+      claimedAtMs: claimedAtMs ?? this.claimedAtMs,
+      createdByUserId: createdByUserId ?? this.createdByUserId,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
       version: version ?? this.version,
     );

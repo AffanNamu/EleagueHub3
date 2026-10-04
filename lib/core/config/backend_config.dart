@@ -89,4 +89,30 @@ class BackendConfig {
     if (base.isEmpty) return null;
     return Uri.parse('$base/football/fixture-events');
   }
+
+  // ── Team claims (external/manually-created team -> real account) ───────
+
+  static Uri? teamClaimGenerateUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/teams/claim/generate');
+  }
+
+  static Uri? teamClaimPreviewUrl(String token) {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/teams/claim/preview').replace(queryParameters: {'token': token});
+  }
+
+  static Uri? teamClaimConfirmUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/teams/claim/confirm');
+  }
+
+  static Uri? teamClaimRevokeUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/teams/claim/revoke');
+  }
 }

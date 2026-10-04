@@ -54,6 +54,14 @@ class LinkGenerator {
     );
   }
 
+  /// `https://esportlyic.com/claim/{token}` -- token is a secure claim
+  /// token minted by the Worker, not a database id.
+  static Uri teamClaim(String token) {
+    return RouteResolver.publicUriFor(
+      ShareableEntity(type: ShareableEntityType.teamClaim, id: token.trim()),
+    );
+  }
+
   /// Generic entry point — prefer the typed helpers above at call sites;
   /// this exists for generic UI code (e.g. a single ShareButton widget)
   /// that receives a [ShareableEntity] value rather than a raw id.

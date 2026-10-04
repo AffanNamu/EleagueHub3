@@ -99,6 +99,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     await prefs.setCurrentUserId(user.uid);
 
     if (!mounted) return;
+
+    // Preserve a pending destination (e.g. a claim link the user followed
+    // while signed out: /login?returnTo=/claim/{token}) rather than always
+    // bouncing to Home. The router's own redirect callback still applies
+    // on top of this (e.g. onboarding) and re-attaches returnTo onward --
+    // see app_router.dart's needsOnboarding branch.
+    final returnTo = GoRouterState.of(context).uri.queryParameters['returnTo'];
+    if (returnTo != null && returnTo.trim().isNotEmpty) {
+      context.go(returnTo);
+      return;
+    }
     context.go('/');
   }
 

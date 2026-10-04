@@ -41,6 +41,18 @@ class ShareableEntityType {
   static const news = ShareableEntityType._('news');
   static const achievement = ShareableEntityType._('achievement');
 
+  /// A secure, single-use invitation for a real-world team to claim an
+  /// organizer-created external Team doc (leagues/{id}/teams/{teamId} --
+  /// NOT the same "team" concept as [team] above, which addresses a
+  /// user's public squad profile). [ShareableEntity.id] holds the raw
+  /// claim token, not a database id -- deliberately opaque/high-entropy,
+  /// minted by the Worker's /teams/claim/generate endpoint. Unlike every
+  /// other entity type here, this link is secret and single-use, not a
+  /// stable public page -- still reuses this same resolver/ShareService
+  /// machinery per the product requirement to extend, not duplicate, the
+  /// existing sharing system.
+  static const teamClaim = ShareableEntityType._('teamClaim');
+
   static const List<ShareableEntityType> values = [
     userProfile,
     competition,
@@ -51,6 +63,7 @@ class ShareableEntityType {
     tournament,
     news,
     achievement,
+    teamClaim,
   ];
 
   @override
@@ -177,6 +190,8 @@ class RouteResolver {
         return 'news';
       case 'achievement':
         return 'achievement';
+      case 'teamClaim':
+        return 'claim';
     }
     throw ArgumentError('Unhandled ShareableEntityType: $type');
   }
@@ -203,6 +218,8 @@ class RouteResolver {
         return ShareableEntityType.news;
       case 'achievement':
         return ShareableEntityType.achievement;
+      case 'claim':
+        return ShareableEntityType.teamClaim;
       default:
         return null;
     }
@@ -321,6 +338,8 @@ class RouteResolver {
         return '/news/${entity.id}';
       case 'achievement':
         return '/achievement/${entity.id}';
+      case 'teamClaim':
+        return '/claim/${entity.id}';
     }
     throw ArgumentError('Unhandled ShareableEntityType: ${entity.type}');
   }
