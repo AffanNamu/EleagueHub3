@@ -414,6 +414,7 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
       child: Glass(
         borderRadius: 18,
         child: ListTile(
+          onTap: () => context.push('/profile/${m.userId}'),
           leading: _UserAvatar(
             url: avatarUrl,
             isOrganizer: isOrganizer,

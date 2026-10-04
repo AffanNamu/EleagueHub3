@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 
@@ -414,23 +415,28 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     return GlassScaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Text(
-                widget.otherUserName,
-                overflow: TextOverflow.ellipsis,
+        title: InkWell(
+          onTap: resolvedOtherUserId == null
+              ? null
+              : () => context.push('/profile/$resolvedOtherUserId'),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  widget.otherUserName,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-            ),
-            if (resolvedOtherUserId != null) ...[
-              const SizedBox(width: 6),
-              VerificationBadgeWidget(
-                userId: resolvedOtherUserId,
-                size: 20,
-              ),
+              if (resolvedOtherUserId != null) ...[
+                const SizedBox(width: 6),
+                VerificationBadgeWidget(
+                  userId: resolvedOtherUserId,
+                  size: 20,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,

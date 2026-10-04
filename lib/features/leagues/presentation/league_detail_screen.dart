@@ -1627,68 +1627,42 @@ class _LeagueDetailScreenState extends ConsumerState<LeagueDetailScreen> {
               ),
             ],
           ),
-          // FIXED: this used to render unconditionally for every
-          // non-owner regardless of league.format -- a Classic
-          // (round-robin, no elimination stage) league has no knockout
-          // concept at all, so every non-admin viewer of one always saw
-          // a nonsensical "Generate the knockout bracket first" message.
-          // _adminToolsCard already gates its own knockout-generation
-          // buttons on exactly these 4 formats (isSwiss/isGroup/
-          // isWorldCup/isDirectKnockout) -- this block now matches that.
-          if (!isOwner && league.format != LeagueFormat.classic) ...[
+          // A participant has no way to generate a knockout bracket --
+          // that's organizer-only (_adminToolsCard, gated by isOwner
+          // above). So a participant should only ever see a "View
+          // Knockout Bracket" button once one actually exists; showing
+          // them an organizer-facing "Generate the knockout bracket
+          // first" instruction for an action they can't take was dead-end
+          // UI. When there's no bracket yet, a participant simply sees
+          // nothing here -- Quick Actions already covers everything a
+          // participant can do (Fixtures/Standings/Teams/Chatroom).
+          if (!isOwner && league.format != LeagueFormat.classic && hasKnockouts) ...[
             const SizedBox(height: 12),
-            if (hasKnockouts)
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.limeAccent,
-                    foregroundColor: AppTheme.darkText,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(12)),
-                  ),
-                  onPressed: () => context.push(
-                      '/leagues/${widget.leagueId}/knockout'),
-                  icon: const Icon(
-                      Icons.emoji_events_rounded),
-                  label: Text(
-                    l10n.tr(
-                        'league_details_view_knockout_bracket'),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12),
-                  ),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.limeAccent,
+                  foregroundColor: AppTheme.darkText,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(12)),
                 ),
-              )
-            else
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                    vertical: 14, horizontal: 12),
-                decoration: BoxDecoration(
-                  color:
-                      AppTheme.searchBackground(brightness),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color:
-                        AppTheme.searchOutline(brightness),
-                  ),
-                ),
-                child: Text(
+                onPressed: () => context.push(
+                    '/leagues/${widget.leagueId}/knockout'),
+                icon: const Icon(
+                    Icons.emoji_events_rounded),
+                label: Text(
                   l10n.tr(
-                      'league_details_need_knockouts_first'),
-                  style: TextStyle(
-                    color:
-                        AppTheme.secondaryText(brightness),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                  textAlign: TextAlign.center,
+                      'league_details_view_knockout_bracket'),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12),
                 ),
               ),
+            ),
           ],
         ],
       ),

@@ -72,6 +72,12 @@ class BackendConfig {
     return Uri.parse('$base/football/leagues');
   }
 
+  static Uri? footballTeamsUrl() {
+    final base = _normalizedWorkerBase;
+    if (base.isEmpty) return null;
+    return Uri.parse('$base/football/teams');
+  }
+
   static Uri? footballSquadUrl() {
     final base = _normalizedWorkerBase;
     if (base.isEmpty) return null;

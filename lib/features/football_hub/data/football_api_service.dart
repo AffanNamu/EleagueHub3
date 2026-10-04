@@ -12,6 +12,7 @@ import '../models/football_match_event.dart';
 import '../models/football_news_article.dart';
 import '../models/football_player.dart';
 import '../models/football_standing.dart';
+import '../models/football_team.dart';
 import 'football_cache_service.dart';
 
 /// Client for Football Hub's data, proxied through the Cloudflare Worker
@@ -140,6 +141,8 @@ class FootballApiService {
   static const _playerTtl = Duration(hours: 6);
   static const _leaguesTtl = Duration(days: 1);
   static const _newsTtl = Duration(minutes: 30);
+  static const _teamsTtl = Duration(days: 1);
+  static const _playerSearchTtl = Duration(days: 1);
 
   /// Fixtures for a given date (YYYY-MM-DD), optionally scoped to a league.
   Future<List<FootballFixture>> getFixturesByDate({
@@ -198,6 +201,29 @@ class FootballApiService {
 
     final body = await _get(BackendConfig.footballLeaguesUrl(), params, cacheTtl: _leaguesTtl);
     return _responseList(body).map(FootballLeagueInfo.fromJson).toList(growable: false);
+  }
+
+  /// Free-text team name search (API-Football requires >=3 characters).
+  Future<List<FootballTeam>> searchTeams({required String search, String? country}) async {
+    final params = <String, String>{'search': search.trim()};
+    if (country != null && country.trim().isNotEmpty) params['country'] = country.trim();
+
+    final body = await _get(BackendConfig.footballTeamsUrl(), params, cacheTtl: _teamsTtl);
+    return _responseList(body).map(FootballTeam.fromJson).toList(growable: false);
+  }
+
+  /// Free-text player name search (API-Football requires >=3 characters).
+  /// Results carry bio info but no season stats (the /players endpoint
+  /// only aggregates stats when scoped to a season/team/league, which a
+  /// free-text name search across all players isn't) -- opening a result
+  /// via FootballPlayerScreen re-fetches the full season profile by id.
+  Future<List<FootballPlayerProfile>> searchPlayers({required String search}) async {
+    final body = await _get(
+      BackendConfig.footballPlayerUrl(),
+      {'search': search.trim()},
+      cacheTtl: _playerSearchTtl,
+    );
+    return _responseList(body).map(FootballPlayerProfile.fromApiResponseEntry).toList(growable: false);
   }
 
   Future<List<FootballSquadPlayer>> getSquad({required int teamId}) async {

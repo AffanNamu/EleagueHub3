@@ -14,9 +14,13 @@ import '../data/football_api_service.dart';
 import '../models/football_fixture.dart';
 import '../models/football_league.dart';
 import '../models/football_news_article.dart';
+import '../models/football_player.dart';
+import '../models/football_team.dart';
 import '../utils/football_season.dart';
 import 'football_following_tab.dart';
+import 'football_player_screen.dart';
 import 'football_standings_screen.dart';
+import 'football_team_screen.dart';
 
 /// Football Hub's own v1 home: Matches (date-grouped fixtures), Leagues
 /// (quick access to popular competitions' tables + search for the rest),
@@ -39,7 +43,7 @@ class _FootballHubScreenState extends State<FootballHubScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -62,9 +66,11 @@ class _FootballHubScreenState extends State<FootballHubScreen> with SingleTicker
           labelColor: AppTheme.limeAccentDark,
           unselectedLabelColor: AppTheme.secondaryText(brightness),
           indicatorColor: AppTheme.limeAccentDark,
+          isScrollable: true,
           tabs: const [
             Tab(text: 'Matches'),
             Tab(text: 'Leagues'),
+            Tab(text: 'Search'),
             Tab(text: 'News'),
             Tab(text: 'Following'),
           ],
@@ -76,6 +82,7 @@ class _FootballHubScreenState extends State<FootballHubScreen> with SingleTicker
           children: const [
             _MatchesTab(),
             _LeaguesTab(),
+            _SearchTab(),
             _NewsTab(),
             FootballFollowingTab(),
           ],
@@ -809,6 +816,224 @@ class _LeagueListTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Search tab -- team/player name search, separate from the Leagues tab's
+// own competition search (different endpoint, different result shape).
+// ─────────────────────────────────────────────────────────────────────────
+
+enum _SearchKind { teams, players }
+
+class _SearchTab extends StatefulWidget {
+  const _SearchTab();
+
+  @override
+  State<_SearchTab> createState() => _SearchTabState();
+}
+
+class _SearchTabState extends State<_SearchTab> {
+  final _service = FootballApiService();
+  final _searchController = TextEditingController();
+  _SearchKind _kind = _SearchKind.teams;
+  Timer? _searchDebounce;
+  Future<List<FootballTeam>>? _teamsFuture;
+  Future<List<FootballPlayerProfile>>? _playersFuture;
+
+  void _onSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () => _runSearch(query));
+  }
+
+  void _runSearch(String query) {
+    final q = query.trim();
+    if (!mounted) return;
+    setState(() {
+      if (q.length < 3) {
+        _teamsFuture = null;
+        _playersFuture = null;
+        return;
+      }
+      if (_kind == _SearchKind.teams) {
+        _teamsFuture = _service.searchTeams(search: q);
+        _playersFuture = null;
+      } else {
+        _playersFuture = _service.searchPlayers(search: q);
+        _teamsFuture = null;
+      }
+    });
+  }
+
+  void _switchKind(_SearchKind kind) {
+    if (kind == _kind) return;
+    setState(() => _kind = kind);
+    _runSearch(_searchController.text);
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final season = currentFootballSeasonGuess();
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: ChoiceChip(
+                label: const Text('Teams'),
+                selected: _kind == _SearchKind.teams,
+                onSelected: (_) => _switchKind(_SearchKind.teams),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ChoiceChip(
+                label: const Text('Players'),
+                selected: _kind == _SearchKind.players,
+                onSelected: (_) => _switchKind(_SearchKind.players),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _searchController,
+          onChanged: _onSearchChanged,
+          decoration: InputDecoration(
+            hintText: _kind == _SearchKind.teams ? 'Search teams…' : 'Search players…',
+            prefixIcon: const Icon(Icons.search),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_kind == _SearchKind.teams)
+          FutureBuilder<List<FootballTeam>>(
+            future: _teamsFuture,
+            builder: (context, snap) {
+              if (_teamsFuture == null) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 24),
+                  child: Center(
+                    child: Text(
+                      'Type at least 3 characters to search for a team.',
+                      style: TextStyle(color: AppTheme.secondaryText(brightness)),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
+              }
+              if (snap.connectionState != ConnectionState.done) {
+                return const Padding(
+                  padding: EdgeInsets.only(top: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snap.hasError) {
+                return Center(
+                  child: Text(
+                    'Could not search teams.\n${snap.error}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppTheme.secondaryText(brightness)),
+                  ),
+                );
+              }
+              final teams = snap.data ?? const [];
+              if (teams.isEmpty) {
+                return Center(
+                  child: Text('No teams found.', style: TextStyle(color: AppTheme.secondaryText(brightness))),
+                );
+              }
+              return Column(
+                children: [
+                  for (final t in teams)
+                    _LeagueListTile(
+                      name: t.name,
+                      subtitle: t.countryName,
+                      logoUrl: t.logoUrl,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => FootballTeamScreen(
+                            teamId: t.id,
+                            teamName: t.name,
+                            teamLogoUrl: t.logoUrl,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          )
+        else
+          FutureBuilder<List<FootballPlayerProfile>>(
+            future: _playersFuture,
+            builder: (context, snap) {
+              if (_playersFuture == null) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 24),
+                  child: Center(
+                    child: Text(
+                      'Type at least 3 characters to search for a player.',
+                      style: TextStyle(color: AppTheme.secondaryText(brightness)),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
+              }
+              if (snap.connectionState != ConnectionState.done) {
+                return const Padding(
+                  padding: EdgeInsets.only(top: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snap.hasError) {
+                return Center(
+                  child: Text(
+                    'Could not search players.\n${snap.error}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppTheme.secondaryText(brightness)),
+                  ),
+                );
+              }
+              final players = snap.data ?? const [];
+              if (players.isEmpty) {
+                return Center(
+                  child: Text('No players found.', style: TextStyle(color: AppTheme.secondaryText(brightness))),
+                );
+              }
+              return Column(
+                children: [
+                  for (final p in players)
+                    _LeagueListTile(
+                      name: p.name,
+                      subtitle: p.nationality,
+                      logoUrl: p.photoUrl,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => FootballPlayerScreen(
+                            playerId: p.id,
+                            season: season,
+                            fallbackName: p.name,
+                            fallbackPhotoUrl: p.photoUrl,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+      ],
     );
   }
 }

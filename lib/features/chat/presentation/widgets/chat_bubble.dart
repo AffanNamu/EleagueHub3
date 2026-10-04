@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/locale/app_localizations.dart';
@@ -135,32 +136,36 @@ class ChatBubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (!isMe) ...[
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (senderPhoto.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: CircleAvatar(
-                            radius: 10,
-                            backgroundColor:
-                                AppTheme.iconCircleBackground(brightness),
-                            backgroundImage: NetworkImage(senderPhoto),
-                            onBackgroundImageError: (_, __) {},
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => context.push('/profile/${message.senderId}'),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (senderPhoto.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: CircleAvatar(
+                              radius: 10,
+                              backgroundColor:
+                                  AppTheme.iconCircleBackground(brightness),
+                              backgroundImage: NetworkImage(senderPhoto),
+                              onBackgroundImageError: (_, __) {},
+                            ),
+                          ),
+                        Flexible(
+                          child: Text(
+                            senderName,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppTheme.secondaryText(brightness),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 11,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      Flexible(
-                        child: Text(
-                          senderName,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: AppTheme.secondaryText(brightness),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 11,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 6),
                 ],

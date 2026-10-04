@@ -3296,11 +3296,20 @@ const API_FOOTBALL_PROVIDER = {
     },
     player: {
       upstreamPath: "/players",
-      allowedParams: ["id", "season", "team"],
+      // search: free-text player name lookup (api-football requires >=3
+      // chars), for the Football Hub's player search -- independent of
+      // the id/season lookup used by a specific player's profile screen.
+      allowedParams: ["id", "season", "team", "search"],
     },
     leagues: {
       upstreamPath: "/leagues",
       allowedParams: ["search", "country", "season", "id", "code", "type"],
+    },
+    teams: {
+      upstreamPath: "/teams",
+      // search: free-text team name lookup (api-football requires >=3
+      // chars), for the Football Hub's team search.
+      allowedParams: ["search", "id", "league", "season", "country", "code"],
     },
   },
 };
@@ -4238,6 +4247,14 @@ export default {
     if (url.pathname === "/football/leagues" && request.method === "GET") {
       try {
         return await _footballApiProxyRoute(env, request, url, "leagues", 86400); // 1 day -- the league catalog itself rarely changes.
+      } catch (e) {
+        return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 500);
+      }
+    }
+
+    if (url.pathname === "/football/teams" && request.method === "GET") {
+      try {
+        return await _footballApiProxyRoute(env, request, url, "teams", 86400); // 1 day -- team metadata rarely changes.
       } catch (e) {
         return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 500);
       }
