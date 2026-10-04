@@ -624,8 +624,6 @@ class _HomeTab extends StatelessWidget {
     final t = theme.textTheme;
     final isWeb = kIsWeb;
 
-    final secondary = AppTheme.secondaryText(brightness);
-
     return ListView(
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
@@ -638,92 +636,29 @@ class _HomeTab extends StatelessWidget {
         const HomeAnnouncementTrigger(),
         const HomeContentSection(),
 
-        // ── Welcome hero ────────────────────────────────────────────────
-        Glass(
-          borderRadius: 28,
-          padding: const EdgeInsets.all(22),
-          fill: AppTheme.cardColor(brightness),
-          borderColor: AppTheme.cardBorder(brightness),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -20,
-                top: -20,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppTheme.limeAccent.withOpacity(0.10),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: -12,
-                bottom: -24,
-                child: Container(
-                  width: 90,
-                  height: 90,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppTheme.limeAccentDark.withOpacity(0.06),
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  Container(
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppTheme.iconCircleBackground(brightness),
-                      border: Border.all(
-                        color: AppTheme.cardBorder(brightness),
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.auto_awesome_rounded,
-                      color: AppTheme.limeAccentDark,
-                      size: 28,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.homeWelcomeBack,
-                          style: t.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 23,
-                            letterSpacing: -0.5,
-                            color: AppTheme.primaryText(brightness),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _trOr(
-                            l10n,
-                            'home_hero_subtitle',
-                            'Manage leagues, jump into live matches, '
-                                'follow organizers, and explore premium experiences.',
-                          ),
-                          style: TextStyle(
-                            color: secondary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            height: 1.45,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+        // ── Football Hub ────────────────────────────────────────────────
+        // Replaces the old "Welcome back" hero: Football Hub is the first
+        // thing on Home now instead of a generic greeting card. Same
+        // hardcoded-string precedent as "Organizer Feed"/"Football Hub"
+        // elsewhere in this app (see discovery_hub_screen.dart): a real
+        // l10n key would only exist in English until a full translation
+        // pass, matching this codebase's documented interim state for new
+        // features.
+        _QuickActionCard(
+          icon: Icons.sports_soccer_rounded,
+          title: 'Football Hub',
+          subtitle: 'Live scores & football updates',
+          gradient: brightness == Brightness.dark
+              ? [
+                  const Color(0xFF16A34A).withOpacity(0.16),
+                  AppTheme.darkCard,
+                ]
+              : [
+                  const Color(0xFFDCFCE7),
+                  const Color(0xFFFFFFFF),
                 ],
-              ),
-            ],
-          ),
+          onTap: () => _navigate(context, '/football'),
+          isWide: true,
         ),
 
         const SizedBox(height: 22),
@@ -845,31 +780,6 @@ class _HomeTab extends StatelessWidget {
             onTap: () => _navigate(context, '/call'),
             isWide: true,
           ),
-
-        const SizedBox(height: 12),
-
-        // ── Football Hub ──────────────────────────────────────────────────
-        // Same hardcoded-string precedent as "Organizer Feed"/"Football Hub"
-        // elsewhere in this app (see discovery_hub_screen.dart): adding a
-        // real l10n key here would only exist in English until a full
-        // translation pass, matching this codebase's documented interim
-        // state for new features.
-        _QuickActionCard(
-          icon: Icons.sports_soccer_rounded,
-          title: 'Football',
-          subtitle: 'Live scores & football updates',
-          gradient: brightness == Brightness.dark
-              ? [
-                  const Color(0xFF16A34A).withOpacity(0.16),
-                  AppTheme.darkCard,
-                ]
-              : [
-                  const Color(0xFFDCFCE7),
-                  const Color(0xFFFFFFFF),
-                ],
-          onTap: () => _navigate(context, '/football'),
-          isWide: true,
-        ),
 
         const SizedBox(height: 22),
 
