@@ -355,6 +355,16 @@ class _HomeShellState extends ConsumerState<HomeShell>
             child: Glass(
               padding: EdgeInsets.zero,
               borderRadius: 28,
+              // Glass defaults to opacity: 1, which paints this pill fully
+              // opaque and makes its BackdropFilter blur invisible --
+              // nothing can show through a 100%-opaque fill. That defeated
+              // the "frosted pill" this bar was built to be (see the
+              // extendBody comment above): the scrolling screen behind it,
+              // including GlassScaffold's own decorative background glow,
+              // was fully hidden instead of softly visible through the
+              // bar. A lower opacity here is what actually makes the blur
+              // (and whatever's behind it) show through.
+              opacity: 0.78,
               fill: brightness == Brightness.dark
                   ? AppTheme.darkNavBg
                   : AppTheme.lightNavBg,
