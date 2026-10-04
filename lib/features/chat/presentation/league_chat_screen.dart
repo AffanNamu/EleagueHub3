@@ -1394,6 +1394,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                                     message: m,
                                     isMe: isMe,
                                     selected: selectedId == m.messageId,
+                                    messageRef: _repo.leagueMessageRef(widget.leagueId, m.messageId),
                                     onLongPress: () {
                                       HapticFeedback.mediumImpact();
                                       _replyTo.value = null;

@@ -1,10 +1,15 @@
 // lib/features/feed/presentation/public_feed_screen.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/reactions/message_reaction.dart';
+import '../../../core/reactions/presentation/reaction_picker.dart';
+import '../../../core/reactions/presentation/reaction_pill_bar.dart';
+import '../../../core/reactions/reactions_repository.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -384,6 +389,9 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback? onOpenLeague;
 
+  DocumentReference<Map<String, dynamic>> get _postRef =>
+      FirebaseFirestore.instance.collection('public_posts').doc(post.postId);
+
   String _timeAgo(AppLocalizations l10n, int ms) {
     final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
     if (diff.inMinutes < 1) return l10n.tr('public_feed_time_now');
@@ -655,7 +663,44 @@ class _PostCard extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(width: 18),
+              // Emoji reactions -- additive to the heart-like above, not a
+              // replacement. Self-contained: builds its own doc ref/repo
+              // rather than threading one down through every caller.
+              InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () async {
+                  final repo = ReactionsRepository(_postRef);
+                  final current = await repo.watch().first;
+                  if (!context.mounted) return;
+                  final picked = await showReactionPicker(
+                    context,
+                    currentEmoji: current.myEmoji,
+                  );
+                  if (picked == null) return;
+                  await repo.toggle(picked);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                  child: Icon(
+                    Icons.add_reaction_outlined,
+                    size: 18,
+                    color: AppTheme.secondaryText(brightness),
+                  ),
+                ),
+              ),
             ],
+          ),
+          StreamBuilder<ReactionSummary>(
+            stream: ReactionsRepository(_postRef).watch(),
+            builder: (context, snap) {
+              final summary = snap.data ?? ReactionSummary.empty;
+              if (summary.isEmpty) return const SizedBox.shrink();
+              return ReactionPillBar(
+                summary: summary,
+                onTapEmoji: (emoji) => ReactionsRepository(_postRef).toggle(emoji),
+              );
+            },
           ),
         ],
       ),

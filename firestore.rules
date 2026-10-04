@@ -7,6 +7,24 @@ service cloud.firestore {
 
     function signedIn() { return request.auth != null; }
 
+    // Shared emoji-reaction mechanism (chat messages + feed posts): one
+    // reaction per user per message/post, stored as a doc keyed by the
+    // reacting uid so a user can only ever hold one reaction at a time and
+    // toggling is a plain create/overwrite-or-delete of their own doc --
+    // no denormalized counter to keep in sync, callers just listen to the
+    // (small, per-message) subcollection directly.
+    function validReactionEmoji(e) {
+      return e in ['👍', '❤️', '😂', '😮', '😢', '👏'];
+    }
+
+    function validReactionCreate(uid) {
+      return signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['uid', 'emoji', 'reactedAtMs'])
+        && (request.resource.data.uid is string) && (request.resource.data.uid == uid)
+        && validReactionEmoji(request.resource.data.emoji)
+        && (request.resource.data.reactedAtMs is int);
+    }
+
     function looksLikeFirebaseUid(s) {
       return (s is string) && (s.size() > 20);
     }
@@ -1011,6 +1029,12 @@ service cloud.firestore {
           || (validChatSoftDeleteUpdate() && canDeleteGlobalMessage())
         );
       allow delete: if isSuperAdmin();
+
+      match /reactions/{uid} {
+        allow get, list: if canAccessGlobalChat();
+        allow create, update: if canAccessGlobalChat() && validReactionCreate(uid);
+        allow delete: if signedIn() && request.auth.uid == uid;
+      }
     }
 
     match /app/chatModeration/users/{userId} {
@@ -1750,6 +1774,12 @@ service cloud.firestore {
             || (validChatSoftDeleteUpdate() && canDeleteMasterLeagueMessage(masterLeagueId))
           );
         allow delete: if false;
+
+        match /reactions/{uid} {
+          allow get, list: if signedIn();
+          allow create, update: if validReactionCreate(uid);
+          allow delete: if signedIn() && request.auth.uid == uid;
+        }
       }
 
       match /disciplineActions/{actionId} {
@@ -2193,6 +2223,12 @@ service cloud.firestore {
           );
         allow delete: if canManageLeague(leagueId)
           || (signedIn() && (resource.data.senderId is string) && (resource.data.senderId == request.auth.uid));
+
+        match /reactions/{uid} {
+          allow get, list: if isLeagueMemberNoGet(leagueId);
+          allow create, update: if isLeagueMemberNoGet(leagueId) && validReactionCreate(uid);
+          allow delete: if signedIn() && request.auth.uid == uid;
+        }
       }
 
       match /space/{docId} {
@@ -2845,6 +2881,15 @@ service cloud.firestore {
         allow update: if false;
       }
 
+      // Emoji reactions -- additive to the heart-shaped `likes` above, not
+      // a replacement: a post keeps its single-heart like count plus an
+      // optional richer reaction a user can pick instead of/alongside it.
+      match /reactions/{uid} {
+        allow get, list: if signedIn();
+        allow create, update: if validReactionCreate(uid);
+        allow delete: if signedIn() && request.auth.uid == uid;
+      }
+
       match /comments/{commentId} {
         allow get, list: if true;
 
@@ -3019,6 +3064,16 @@ service cloud.firestore {
           );
 
         allow update, delete: if false;
+
+        // Reactions live in their own subcollection rather than as an
+        // update to the message doc, so they're unaffected by the
+        // immutable message rule just above -- a parent's
+        // "allow update: if false" does not cascade to subcollections.
+        match /reactions/{uid} {
+          allow get, list: if signedIn() && (request.auth.uid in parentThread().participantIds);
+          allow create, update: if (request.auth.uid in parentThread().participantIds) && validReactionCreate(uid);
+          allow delete: if signedIn() && request.auth.uid == uid;
+        }
       }
     }
   }

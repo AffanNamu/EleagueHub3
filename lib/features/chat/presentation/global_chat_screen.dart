@@ -688,6 +688,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                           message: m,
                           isMe: isMe,
                           selected: selectedId == m.messageId,
+                          messageRef: _repo.globalMessageRef(m.messageId),
                           onLongPress: () {
                             HapticFeedback.mediumImpact();
                             _replyTo.value = null;

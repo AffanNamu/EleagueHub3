@@ -10,6 +10,10 @@ import 'package:record/record.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/reactions/message_reaction.dart';
+import '../../../core/reactions/presentation/reaction_picker.dart';
+import '../../../core/reactions/presentation/reaction_pill_bar.dart';
+import '../../../core/reactions/reactions_repository.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
@@ -485,31 +489,64 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                       final isBubbleWithOwnBackground =
                           m.type == PrivateMessageType.image;
 
+                      final messageRef = _repo.messageRef(widget.threadId, m.id);
+                      final reactionsRepo = ReactionsRepository(messageRef);
+
                       return Align(
                         alignment:
                             isMe ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          padding: isBubbleWithOwnBackground
-                              ? EdgeInsets.zero
-                              : const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 10),
-                          constraints: BoxConstraints(
-                            maxWidth: MediaQuery.of(context).size.width * 0.75,
-                          ),
-                          decoration: isBubbleWithOwnBackground
-                              ? null
-                              : BoxDecoration(
-                                  color: isMe
-                                      ? AppTheme.limeAccent
-                                      : AppTheme.cardColor(brightness),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: isMe
-                                      ? null
-                                      : Border.all(
-                                          color: AppTheme.cardBorder(brightness)),
+                        child: Column(
+                          crossAxisAlignment: isMe
+                              ? CrossAxisAlignment.end
+                              : CrossAxisAlignment.start,
+                          children: [
+                            GestureDetector(
+                              onLongPress: () async {
+                                final current = await reactionsRepo.watch().first;
+                                if (!context.mounted) return;
+                                final picked = await showReactionPicker(
+                                  context,
+                                  currentEmoji: current.myEmoji,
+                                );
+                                if (picked == null) return;
+                                await reactionsRepo.toggle(picked);
+                              },
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(vertical: 4),
+                                padding: isBubbleWithOwnBackground
+                                    ? EdgeInsets.zero
+                                    : const EdgeInsets.symmetric(
+                                        horizontal: 14, vertical: 10),
+                                constraints: BoxConstraints(
+                                  maxWidth: MediaQuery.of(context).size.width * 0.75,
                                 ),
-                          child: content,
+                                decoration: isBubbleWithOwnBackground
+                                    ? null
+                                    : BoxDecoration(
+                                        color: isMe
+                                            ? AppTheme.limeAccent
+                                            : AppTheme.cardColor(brightness),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: isMe
+                                            ? null
+                                            : Border.all(
+                                                color: AppTheme.cardBorder(brightness)),
+                                      ),
+                                child: content,
+                              ),
+                            ),
+                            StreamBuilder<ReactionSummary>(
+                              stream: reactionsRepo.watch(),
+                              builder: (context, reactSnap) {
+                                final summary = reactSnap.data ?? ReactionSummary.empty;
+                                if (summary.isEmpty) return const SizedBox.shrink();
+                                return ReactionPillBar(
+                                  summary: summary,
+                                  onTapEmoji: (emoji) => reactionsRepo.toggle(emoji),
+                                );
+                              },
+                            ),
+                          ],
                         ),
                       );
                     },

@@ -1,8 +1,13 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/locale/app_localizations.dart';
+import '../../../../core/reactions/message_reaction.dart';
+import '../../../../core/reactions/presentation/reaction_picker.dart';
+import '../../../../core/reactions/presentation/reaction_pill_bar.dart';
+import '../../../../core/reactions/reactions_repository.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../models/chat_message.dart';
 import 'chat_image_media.dart';
@@ -17,6 +22,7 @@ class ChatBubble extends StatelessWidget {
     this.onTap,
     this.onLongPress,
     this.onSwipeReply,
+    this.messageRef,
   });
 
   final ChatMessage message;
@@ -27,6 +33,12 @@ class ChatBubble extends StatelessWidget {
   final VoidCallback? onLongPress;
 
   final VoidCallback? onSwipeReply;
+
+  /// When set, renders live reaction pills under the bubble and lets the
+  /// user react via a long-press-free emoji-smiley button. Omitted (null)
+  /// means no reaction UI -- used for contexts without a Firestore doc to
+  /// react against.
+  final DocumentReference<Map<String, dynamic>>? messageRef;
 
   bool get _hasText => message.text.trim().isNotEmpty;
 
@@ -162,10 +174,29 @@ class ChatBubble extends StatelessWidget {
                         : message.replyToText.trim(),
                   ),
                 content,
+                if (messageRef != null && !message.deleted)
+                  _ReactionRow(messageRef: messageRef!),
                 const SizedBox(height: 6),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (messageRef != null && !message.deleted)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(999),
+                          onTap: () async {
+                            final picked = await showReactionPicker(context);
+                            if (picked == null) return;
+                            await ReactionsRepository(messageRef!).toggle(picked);
+                          },
+                          child: Icon(
+                            Icons.add_reaction_outlined,
+                            size: 14,
+                            color: AppTheme.secondaryText(brightness),
+                          ),
+                        ),
+                      ),
                     Text(
                       timeStr,
                       style: TextStyle(
@@ -215,6 +246,28 @@ class ChatBubble extends StatelessWidget {
         ),
       ),
       child: bubble,
+    );
+  }
+}
+
+class _ReactionRow extends StatelessWidget {
+  const _ReactionRow({required this.messageRef});
+
+  final DocumentReference<Map<String, dynamic>> messageRef;
+
+  @override
+  Widget build(BuildContext context) {
+    final repo = ReactionsRepository(messageRef);
+    return StreamBuilder<ReactionSummary>(
+      stream: repo.watch(),
+      builder: (context, snap) {
+        final summary = snap.data ?? ReactionSummary.empty;
+        if (summary.isEmpty) return const SizedBox.shrink();
+        return ReactionPillBar(
+          summary: summary,
+          onTapEmoji: (emoji) => repo.toggle(emoji),
+        );
+      },
     );
   }
 }

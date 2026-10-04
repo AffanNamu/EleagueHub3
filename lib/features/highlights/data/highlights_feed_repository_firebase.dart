@@ -51,4 +51,33 @@ class HighlightsFeedRepositoryFirebase {
   }
 
   void clearCache() => _leagueFeedCache.clear();
+
+  Stream<List<MatchHighlight>>? _allFeedCache;
+
+  /// Community-wide feed across every league, newest first -- no leagueId
+  /// filter. firestore.rules' highlights `allow list` already restricts
+  /// each returned doc to leagues the signed-in user can read
+  /// (canReadLeague(resource.data.leagueId), evaluated per-document by
+  /// Firestore for list queries), so this is secure as-is without needing
+  /// a separate "public highlights" rule or collection.
+  Stream<List<MatchHighlight>> watchAllHighlights({int limit = 30}) {
+    final cached = _allFeedCache;
+    if (cached != null) return cached;
+
+    final safeLimit = limit.clamp(1, 50);
+    final q = _firestore
+        .collectionGroup('highlights')
+        .orderBy('createdAt', descending: true)
+        .limit(safeLimit);
+
+    final stream = q.snapshots(includeMetadataChanges: true).map((snap) {
+      return snap.docs
+          .map((d) => MatchHighlight.fromDoc(d))
+          .where((h) => h.isApproved)
+          .toList(growable: false);
+    });
+
+    _allFeedCache = stream;
+    return stream;
+  }
 }

@@ -1291,6 +1291,10 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                               isMe: isMe,
                                               selected:
                                                   selectedId == m.messageId,
+                                              messageRef: _repo.organizerMessageRef(
+                                                widget.masterLeagueId,
+                                                m.messageId,
+                                              ),
                                               onLongPress: () {
                                                 HapticFeedback.mediumImpact();
                                                 _replyTo.value = null;

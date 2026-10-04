@@ -61,6 +61,12 @@ class PrivateChatRepository {
   CollectionReference<Map<String, dynamic>> get _threads =>
       _firestore.collection('private_threads');
 
+  /// Public message-doc ref, exposed so UI can build a ReactionsRepository
+  /// (lib/core/reactions/) against the right message.
+  DocumentReference<Map<String, dynamic>> messageRef(String threadId, String messageId) {
+    return _threads.doc(threadId).collection('messages').doc(messageId);
+  }
+
   String _requireAuthUid() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {

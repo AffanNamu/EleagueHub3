@@ -17,14 +17,10 @@ import '../../../core/widgets/glass_scaffold.dart';
 ///
 /// Discussions is genuinely new (see discussions/ subfolder).
 ///
-/// Highlights and Guides are intentionally left as "coming soon" for
-/// now: Highlights should reuse the existing
-/// HighlightsFeedRepositoryFirebase with a community-wide query
-/// instead of a per-league one, but that requires the actual source of
-/// that repository (not yet available) to wire correctly rather than
-/// guessing its API surface. Guides is the least-defined of the four
-/// pillars and is deferred by design until its content model is
-/// decided, per the earlier plan.
+/// Highlights now pushes to CommunityHighlightsScreen, a community-wide
+/// HighlightsFeedRepositoryFirebase.watchAllHighlights() feed. Guides
+/// remains "coming soon" -- it's the least-defined of the four pillars
+/// and is deferred by design until its content model is decided.
 class CommunityScreen extends StatelessWidget {
   const CommunityScreen({super.key});
 
@@ -94,8 +90,7 @@ class CommunityScreen extends StatelessWidget {
               iconColor: const Color(0xFF38BDF8),
               title: l10n.tr('community_highlights_title'),
               subtitle: l10n.tr('community_highlights_subtitle'),
-              badge: l10n.tr('community_badge_soon'),
-              onTap: () => _showComingSoon(context, l10n.tr('community_highlights_title')),
+              onTap: () => context.push('/discovery/community/highlights'),
             ),
             const SizedBox(height: 10),
             _CommunityRow(

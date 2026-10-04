@@ -16,6 +16,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/reactions/message_reaction.dart';
+import '../../../core/reactions/presentation/reaction_picker.dart';
+import '../../../core/reactions/presentation/reaction_pill_bar.dart';
+import '../../../core/reactions/reactions_repository.dart';
 import '../../../core/routing/route_resolver.dart';
 import '../../../core/seo/web_meta_updater.dart';
 import '../../../core/theme/app_theme.dart';
@@ -357,7 +361,43 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
+                              const SizedBox(width: 16),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(999),
+                                onTap: () async {
+                                  final repo = ReactionsRepository(_postRef);
+                                  final current = await repo.watch().first;
+                                  if (!context.mounted) return;
+                                  final picked = await showReactionPicker(
+                                    context,
+                                    currentEmoji: current.myEmoji,
+                                  );
+                                  if (picked == null) return;
+                                  await repo.toggle(picked);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 6),
+                                  child: Icon(
+                                    Icons.add_reaction_outlined,
+                                    size: 18,
+                                    color: AppTheme.secondaryText(brightness),
+                                  ),
+                                ),
+                              ),
                             ],
+                          );
+                        },
+                      ),
+                      StreamBuilder<ReactionSummary>(
+                        stream: ReactionsRepository(_postRef).watch(),
+                        builder: (context, reactSnap) {
+                          final summary = reactSnap.data ?? ReactionSummary.empty;
+                          if (summary.isEmpty) return const SizedBox.shrink();
+                          return ReactionPillBar(
+                            summary: summary,
+                            onTapEmoji: (emoji) =>
+                                ReactionsRepository(_postRef).toggle(emoji),
                           );
                         },
                       ),

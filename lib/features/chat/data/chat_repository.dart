@@ -38,6 +38,21 @@ class ChatRepository {
     return _firestore.collection('globalChatRequests').doc(uid);
   }
 
+  // Public message-doc refs, exposed so UI can build a ReactionsRepository
+  // (lib/core/reactions/) against the right message without this
+  // repository needing to know anything about reactions itself.
+  DocumentReference<Map<String, dynamic>> leagueMessageRef(String leagueId, String messageId) {
+    return _leagueChatCol(leagueId).doc(messageId);
+  }
+
+  DocumentReference<Map<String, dynamic>> organizerMessageRef(String masterLeagueId, String messageId) {
+    return _organizerChatCol(masterLeagueId).doc(messageId);
+  }
+
+  DocumentReference<Map<String, dynamic>> globalMessageRef(String messageId) {
+    return _globalChatCol.doc(messageId);
+  }
+
   DocumentReference<Map<String, dynamic>> get _appAdminsDoc =>
       _firestore.collection('app').doc('admins');
 

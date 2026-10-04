@@ -27,6 +27,7 @@ import '../../features/discovery/presentation/community_screen.dart';
 import '../../features/discovery/discussions/presentation/discussion_detail_screen.dart';
 import '../../features/discovery/discussions/presentation/discussions_list_screen.dart';
 import '../../features/discovery/presentation/competitions_discovery_screen.dart';
+import '../../features/highlights/presentation/community_highlights_screen.dart';
 import '../../features/discovery/presentation/discovery_hub_screen.dart';
 import '../../features/feed/presentation/public_feed_screen.dart';
 import '../../features/football_hub/models/football_fixture.dart';
@@ -1501,6 +1502,10 @@ final appRouter = GoRouter(
               builder: (context, state) => DiscussionDetailScreen(
                 threadId: state.pathParameters['threadId'] ?? '',
               ),
+            ),
+            GoRoute(
+              path: 'highlights',
+              builder: (context, state) => const CommunityHighlightsScreen(),
             ),
           ],
         ),
