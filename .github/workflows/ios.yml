@@ -1094,9 +1094,18 @@ jobs:
           echo "── PROVISIONING_PROFILE_SPECIFIER after patch ──"
           grep "PROVISIONING_PROFILE_SPECIFIER" ios/Runner.xcodeproj/project.pbxproj
 
+          # --build-number overrides pubspec.yaml's static "+85" (which was
+          # never bumping, so every CI run produced the same CFBundleVersion
+          # and App Store Connect rejected the re-upload with "bundle version
+          # must be higher than the previously uploaded version: 85").
+          # github.run_number only ever increases for this workflow file
+          # (already at 166, well past 85 -- no gap or collision), so each
+          # build now gets a build number Apple has never seen before,
+          # without touching pubspec.yaml's human-facing version at all.
           flutter build ipa \
             --release \
             --no-tree-shake-icons \
+            --build-number=${{ github.run_number }} \
             --export-options-plist=ios/ExportOptions.plist \
             ${DART_DEFINES}
 
