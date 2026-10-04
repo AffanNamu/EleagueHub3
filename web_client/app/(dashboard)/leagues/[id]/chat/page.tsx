@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { doc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import { useChat, ChatSendReply } from '@/hooks/useChat';
 import { useLeagueDetail } from '@/hooks/useLeagueDetail';
 import { useChatModeration } from '@/hooks/useChatModeration';
@@ -128,6 +129,7 @@ export default function LeagueChatScreen() {
               <ChatBubble
                 key={msg.messageId}
                 message={msg}
+                messageRef={doc(db, 'leagues', leagueId, 'chatroom', msg.messageId)}
                 canPin={canModerate}
                 canDelete={canModerate || msg.senderId === authUid}
                 canReply={!chatBlocked}

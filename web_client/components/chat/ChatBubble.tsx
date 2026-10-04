@@ -3,9 +3,13 @@
 import React, { useEffect, useState } from 'react';
 import { ChatMessage } from '@/types/chat';
 import { auth, db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, DocumentReference } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { Shield, BadgeCheck, Pin, PinOff, Trash2, Reply } from 'lucide-react';
+import { ReactionPicker } from '@/components/reactions/ReactionPicker';
+import { ReactionPillBar } from '@/components/reactions/ReactionPillBar';
+import { watchReactions, toggleReaction } from '@/lib/reactions/reactionsRepository';
+import { ReactionSummary, EMPTY_REACTION_SUMMARY } from '@/types/reactions';
 
 type ExtendedChatMessage = ChatMessage & {
   imageUrl?: string;
@@ -29,11 +33,23 @@ interface ChatBubbleProps {
   onUnpin?: () => void;
   onDelete?: () => void;
   onReply?: () => void;
+  /** When set, renders live reaction pills + a react button under the
+   * bubble. Omitted means no reaction UI. */
+  messageRef?: DocumentReference;
 }
 
-export const ChatBubble = ({ message, canPin, canDelete, canReply, onPin, onUnpin, onDelete, onReply }: ChatBubbleProps) => {
+export const ChatBubble = ({ message, canPin, canDelete, canReply, onPin, onUnpin, onDelete, onReply, messageRef }: ChatBubbleProps) => {
   const isMine = auth.currentUser?.uid === message.senderId;
   const [badges, setBadges] = useState({ staff: false, organizer: false, green: false });
+  const [reactions, setReactions] = useState<ReactionSummary>(EMPTY_REACTION_SUMMARY);
+
+  useEffect(() => {
+    if (!messageRef) return;
+    return watchReactions(messageRef, setReactions);
+    // Callers construct a new messageRef object every render; its stable
+    // `.path` is the real dependency, not the object identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageRef?.path]);
 
   // Safely fetch the sender's badge status from their user profile
   useEffect(() => {
@@ -218,7 +234,17 @@ export const ChatBubble = ({ message, canPin, canDelete, canReply, onPin, onUnpi
               </div>
             )}
           </div>
-          
+
+          {messageRef && !message.deleted && (
+            <div className={cn('flex items-center gap-1.5 mt-1 px-1', isMine ? 'flex-row-reverse' : 'flex-row')}>
+              <ReactionPicker
+                currentEmoji={reactions.myEmoji}
+                onPick={(emoji) => toggleReaction(messageRef, emoji)}
+              />
+              <ReactionPillBar summary={reactions} onTapEmoji={(emoji) => toggleReaction(messageRef, emoji)} />
+            </div>
+          )}
+
           <span className={cn("text-[10px] text-gray-500 mt-1 px-1", isMine ? "text-right" : "text-left")}>
             {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>

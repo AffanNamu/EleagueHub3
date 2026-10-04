@@ -14,6 +14,10 @@ import {
 import { recordLinkClick } from '@/lib/services/linkAnalyticsService';
 import { Glass } from '@/components/ui/Glass';
 import { Loader2, Heart, MessageCircle, Trophy, User as UserIcon } from 'lucide-react';
+import { ReactionPicker } from '@/components/reactions/ReactionPicker';
+import { ReactionPillBar } from '@/components/reactions/ReactionPillBar';
+import { watchReactions, toggleReaction } from '@/lib/reactions/reactionsRepository';
+import { ReactionSummary, EMPTY_REACTION_SUMMARY } from '@/types/reactions';
 
 /**
  * The public `/post/{id}` share link — the web counterpart of mobile's
@@ -35,6 +39,12 @@ export default function PostDetailPage() {
   const [commentText, setCommentText] = useState('');
   const [postingComment, setPostingComment] = useState(false);
   const [error, setError] = useState('');
+  const [reactions, setReactions] = useState<ReactionSummary>(EMPTY_REACTION_SUMMARY);
+
+  useEffect(() => {
+    if (!postId) return;
+    return watchReactions(doc(db, 'public_posts', postId), setReactions);
+  }, [postId]);
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((user) => setAuthUid(user?.uid || null));
@@ -197,7 +207,15 @@ export default function PostDetailPage() {
             <MessageCircle className="w-5 h-5" />
             <span className="text-xs font-bold">{post.commentCount}</span>
           </div>
+          <ReactionPicker
+            currentEmoji={reactions.myEmoji}
+            onPick={(emoji) => toggleReaction(doc(db, 'public_posts', postId), emoji)}
+          />
         </div>
+        <ReactionPillBar
+          summary={reactions}
+          onTapEmoji={(emoji) => toggleReaction(doc(db, 'public_posts', postId), emoji)}
+        />
       </Glass>
 
       {error && (

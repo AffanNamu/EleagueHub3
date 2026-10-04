@@ -3,6 +3,13 @@
 import { ChatMessage } from '@/lib/chat/chatRepository';
 import { Glass } from '@/components/ui/Glass';
 import { Copy, Reply, Pin as PushPin, Trash2, ShieldCheck, FileCode } from 'lucide-react';
+import { doc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { ReactionPicker } from '@/components/reactions/ReactionPicker';
+import { ReactionPillBar } from '@/components/reactions/ReactionPillBar';
+import { watchReactions, toggleReaction } from '@/lib/reactions/reactionsRepository';
+import { ReactionSummary, EMPTY_REACTION_SUMMARY } from '@/types/reactions';
+import { useEffect, useState } from 'react';
 
 // ── BUBBLE ──
 export function GlobalChatBubble({
@@ -10,6 +17,13 @@ export function GlobalChatBubble({
 }: {
   message: ChatMessage; isMe: boolean; selected: boolean; onSelect: () => void; onReply: () => void; onPin?: () => void; onDelete?: () => void; isAdmin: boolean; canPin?: boolean;
 }) {
+  const messageRef = doc(db, 'globalChatroom', message.messageId);
+  const [reactions, setReactions] = useState<ReactionSummary>(EMPTY_REACTION_SUMMARY);
+
+  // messageRef is a new object every render; message.messageId (already in
+  // the deps array) is the real, stable dependency.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => watchReactions(messageRef, setReactions), [message.messageId]);
   const getPreview = () => {
     if (message.deleted) return 'This message was deleted';
     if (message.type === 'image') return message.text || '📷 Photo';
@@ -81,6 +95,13 @@ export function GlobalChatBubble({
         )}
 
         {content}
+
+        {!message.deleted && (
+          <div className={`flex items-center gap-1.5 mt-1.5 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+            <ReactionPicker currentEmoji={reactions.myEmoji} onPick={(emoji) => toggleReaction(messageRef, emoji)} />
+            <ReactionPillBar summary={reactions} onTapEmoji={(emoji) => toggleReaction(messageRef, emoji)} />
+          </div>
+        )}
 
         <div className={`text-[10px] font-bold mt-1.5 text-right ${isMe ? 'opacity-60' : 'text-gray-500'}`}>
           {time}

@@ -1,9 +1,15 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { doc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { PublicPost } from '@/lib/feed/publicFeedRepository';
 import { Glass } from '@/components/ui/Glass';
 import { MoreVertical, Trophy, Heart, MessageCircle, Music2, Volume2, VolumeX, ShieldCheck } from 'lucide-react';
+import { ReactionPicker } from '@/components/reactions/ReactionPicker';
+import { ReactionPillBar } from '@/components/reactions/ReactionPillBar';
+import { watchReactions, toggleReaction } from '@/lib/reactions/reactionsRepository';
+import { ReactionSummary, EMPTY_REACTION_SUMMARY } from '@/types/reactions';
 
 interface PostCardProps {
   post: PublicPost;
@@ -30,6 +36,13 @@ function timeAgo(ms: number) {
 export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague, onComment, onOpenAuthor }: PostCardProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+
+  const postRef = doc(db, 'public_posts', post.postId);
+  const [reactions, setReactions] = useState<ReactionSummary>(EMPTY_REACTION_SUMMARY);
+  // postRef is a new object every render; post.postId (already in the
+  // deps array) is the real, stable dependency.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => watchReactions(postRef, setReactions), [post.postId]);
 
   const toggleAudio = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -149,7 +162,11 @@ export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague, onComm
           <MessageCircle className="w-5 h-5 group-active:scale-90 transition-transform" />
           <span className="text-xs font-bold">{post.commentCount}</span>
         </button>
+        {/* Emoji reactions -- additive to the heart-like above, not a
+            replacement (mirrors public_feed_screen.dart). */}
+        <ReactionPicker currentEmoji={reactions.myEmoji} onPick={(emoji) => toggleReaction(postRef, emoji)} />
       </div>
+      <ReactionPillBar summary={reactions} onTapEmoji={(emoji) => toggleReaction(postRef, emoji)} />
     </Glass>
   );
 }

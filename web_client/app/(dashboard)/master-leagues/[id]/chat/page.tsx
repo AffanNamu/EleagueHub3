@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { doc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 // FIXED: Pointing this to useChat where the updated useOrganizerChat hook actually lives
 import { useOrganizerChat, ChatSendReply } from '@/hooks/useChat';
 import { useMasterLeagueDetail } from '@/hooks/useMasterLeagueDetail';
@@ -114,6 +116,7 @@ export default function OrganizerChatScreen() {
               <ChatBubble
                 key={msg.messageId}
                 message={msg}
+                messageRef={doc(db, 'master_leagues', masterLeagueId, 'chatroom', msg.messageId)}
                 canPin={isOwner}
                 canDelete={isOwner || msg.senderId === uid}
                 canReply={!chatBlocked}

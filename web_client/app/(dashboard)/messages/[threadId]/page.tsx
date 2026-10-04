@@ -170,7 +170,7 @@ export default function PrivateChatThreadPage() {
           <div className="text-center text-sm font-bold text-gray-500 my-auto">Say hello 👋</div>
         ) : (
           messages.map((m) => (
-            <PrivateChatBubble key={m.id} message={m} isMe={m.senderId === selfUid} />
+            <PrivateChatBubble key={m.id} message={m} isMe={m.senderId === selfUid} threadId={threadId} />
           ))
         )}
       </div>
