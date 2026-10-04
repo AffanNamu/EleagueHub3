@@ -3436,7 +3436,10 @@ async function _footballNewsRoute(env, request, url) {
     try {
       await _recordFootballNewsMetric(env, "providerErrors");
     } catch (_e2) {}
-    return jsonResponse({ error: "Football news temporarily unavailable. Please try again." }, 502);
+    return jsonResponse(
+      { error: `Could not reach the news provider: ${e.message || e}. Please try again.` },
+      502
+    );
   }
 
   let data;
@@ -3446,7 +3449,10 @@ async function _footballNewsRoute(env, request, url) {
     try {
       await _recordFootballNewsMetric(env, "providerErrors");
     } catch (_e2) {}
-    return jsonResponse({ error: "Football news temporarily unavailable. Please try again." }, 502);
+    return jsonResponse(
+      { error: `News provider returned an invalid response (HTTP ${upstreamRes.status}). Please try again.` },
+      502
+    );
   }
 
   // GNews returns a non-2xx status with an `errors` array on failure
@@ -3455,8 +3461,14 @@ async function _footballNewsRoute(env, request, url) {
     try {
       await _recordFootballNewsMetric(env, "providerErrors");
     } catch (_e2) {}
+    const detail = _formatProviderErrors(data && data.errors);
     return jsonResponse(
-      { error: "Football news temporarily unavailable. Please try again.", details: data && data.errors },
+      {
+        error: detail
+          ? `News provider error: ${detail}`
+          : `News provider returned HTTP ${upstreamRes.status} with no error detail.`,
+        details: data && data.errors,
+      },
       502
     );
   }
@@ -3493,6 +3505,18 @@ async function _footballNewsRoute(env, request, url) {
   }
 
   return response;
+}
+
+// Turns a provider's `errors` field (api-football: object or array of
+// strings; gnews: array of strings) into one readable sentence, so the
+// Worker's own `error` field -- the only thing the Dart/web clients
+// actually display -- says WHY instead of just "temporarily unavailable".
+function _formatProviderErrors(errors) {
+  if (!errors) return "";
+  const parts = Array.isArray(errors)
+    ? errors.map(String)
+    : Object.entries(errors).map(([k, v]) => `${k}: ${v}`);
+  return parts.filter(Boolean).join("; ");
 }
 
 async function _footballApiProxyRoute(env, request, url, operationName, ttlSeconds) {
@@ -3538,14 +3562,30 @@ async function _footballApiProxyRoute(env, request, url, operationName, ttlSecon
 
   const upstreamUrl = `${FOOTBALL_PROVIDER.baseUrl}${upstreamPath}?${forwarded.toString()}`;
 
-  let upstreamRes;
+  // Built outside the fetch try/catch below so a missing/misconfigured key
+  // (a Worker-side config problem) reports its own clear message instead of
+  // being swallowed into the generic "couldn't reach the provider" case.
+  let headers;
   try {
-    upstreamRes = await fetch(upstreamUrl, { headers: await FOOTBALL_PROVIDER.buildHeaders(env) });
+    headers = await FOOTBALL_PROVIDER.buildHeaders(env);
   } catch (e) {
     try {
       await _recordFootballMetric(env, "providerErrors");
     } catch (_e2) {}
-    return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 502);
+    return jsonResponse({ error: e.message || "Football data provider is not configured." }, 500);
+  }
+
+  let upstreamRes;
+  try {
+    upstreamRes = await fetch(upstreamUrl, { headers });
+  } catch (e) {
+    try {
+      await _recordFootballMetric(env, "providerErrors");
+    } catch (_e2) {}
+    return jsonResponse(
+      { error: `Could not reach the football data provider: ${e.message || e}. Please try again.` },
+      502
+    );
   }
 
   let data;
@@ -3555,15 +3595,24 @@ async function _footballApiProxyRoute(env, request, url, operationName, ttlSecon
     try {
       await _recordFootballMetric(env, "providerErrors");
     } catch (_e2) {}
-    return jsonResponse({ error: "Football data temporarily unavailable. Please try again." }, 502);
+    return jsonResponse(
+      { error: `Football data provider returned an invalid response (HTTP ${upstreamRes.status}). Please try again.` },
+      502
+    );
   }
 
   if (FOOTBALL_PROVIDER.isErrorResponse(upstreamRes, data)) {
     try {
       await _recordFootballMetric(env, "providerErrors");
     } catch (_e2) {}
+    const detail = _formatProviderErrors(data && data.errors);
     return jsonResponse(
-      { error: "Football data temporarily unavailable. Please try again.", details: data && data.errors },
+      {
+        error: detail
+          ? `Football data provider error: ${detail}`
+          : `Football data provider returned HTTP ${upstreamRes.status} with no error detail.`,
+        details: data && data.errors,
+      },
       502
     );
   }
