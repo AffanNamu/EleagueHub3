@@ -1,5 +1,6 @@
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { BreakdownCard } from '@/components/analytics/BreakdownCard';
+import { ClaimFunnelCard } from '@/components/analytics/ClaimFunnelCard';
 import { CountryBreakdownCard } from '@/components/analytics/CountryBreakdownCard';
 import { ShareChannelBreakdownCard } from '@/components/analytics/ShareChannelBreakdownCard';
 import { TopSharedContentCard } from '@/components/analytics/TopSharedContentCard';
@@ -8,6 +9,7 @@ import {
   getOrganizerVerificationBreakdown,
   getLeagueFormatBreakdown,
   getUserCountryBreakdown,
+  getClaimFunnelBreakdown,
 } from '@/lib/repositories/analyticsAdminRepository';
 import { getChannelBreakdown, getTopRollups } from '@/lib/repositories/linkAnalyticsAdminRepository';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
@@ -33,6 +35,7 @@ export default async function AnalyticsPage() {
     channelBreakdown,
     mostShared,
     mostClicked,
+    claimFunnel,
   ] = await Promise.all([
     getPlanBreakdown(),
     getOrganizerVerificationBreakdown(),
@@ -41,6 +44,7 @@ export default async function AnalyticsPage() {
     getChannelBreakdown(),
     getTopRollups({ sortBy: 'shareCount' }),
     getTopRollups({ sortBy: 'clickCount' }),
+    getClaimFunnelBreakdown(),
   ]);
 
   return (
@@ -59,6 +63,8 @@ export default async function AnalyticsPage() {
       </div>
 
       <ShareChannelBreakdownCard rows={channelBreakdown} />
+
+      <ClaimFunnelCard data={claimFunnel} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <CountryBreakdownCard data={countryBreakdown} />

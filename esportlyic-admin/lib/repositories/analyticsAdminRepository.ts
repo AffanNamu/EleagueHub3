@@ -64,6 +64,56 @@ export async function getLeagueFormatBreakdown(): Promise<BreakdownRow[]> {
   }));
 }
 
+export interface ClaimFunnelStage {
+  label: string;
+  count: number;
+}
+
+export interface ClaimFunnelBreakdown {
+  /** Ordered funnel: created -> link generated -> claim flow started -> claimed. */
+  stages: ClaimFunnelStage[];
+  failedCount: number;
+  revokedCount: number;
+}
+
+/**
+ * Team-claim funnel, from AppAnalyticsService.logEvent calls in
+ * add_teams_screen.dart (manual_participant_created, claim_link_generated,
+ * claim_revoked) and claim_team_screen.dart (claim_started, team_claimed,
+ * claim_failed) -- all written to the single flat analytics_events
+ * collection, never per-league. `.count()` aggregation queries only, so
+ * this never reads the event docs themselves.
+ *
+ * ACCURACY NOTE, surfaced here rather than hidden: claim_started and
+ * claim_failed are logged with no leagueId/teamId extra (the claimant
+ * isn't authenticated yet at that point in the flow), unlike the other
+ * four events. Their counts are real totals, but can't be joined back to
+ * a specific team/league claim -- treat their share of the funnel as
+ * directional, not a strict per-claim conversion rate.
+ */
+export async function getClaimFunnelBreakdown(): Promise<ClaimFunnelBreakdown> {
+  const EVENTS_COLLECTION = 'analytics_events';
+  const [created, linkGenerated, started, claimed, failed, revoked] = await Promise.all([
+    countWhere(EVENTS_COLLECTION, 'eventName', 'manual_participant_created'),
+    countWhere(EVENTS_COLLECTION, 'eventName', 'claim_link_generated'),
+    countWhere(EVENTS_COLLECTION, 'eventName', 'claim_started'),
+    countWhere(EVENTS_COLLECTION, 'eventName', 'team_claimed'),
+    countWhere(EVENTS_COLLECTION, 'eventName', 'claim_failed'),
+    countWhere(EVENTS_COLLECTION, 'eventName', 'claim_revoked'),
+  ]);
+
+  return {
+    stages: [
+      { label: 'Manual teams created', count: created },
+      { label: 'Claim links generated', count: linkGenerated },
+      { label: 'Claim flow started', count: started },
+      { label: 'Successfully claimed', count: claimed },
+    ],
+    failedCount: failed,
+    revokedCount: revoked,
+  };
+}
+
 export interface CountryBreakdown {
   rows: BreakdownRow[];
   recordedCount: number;
