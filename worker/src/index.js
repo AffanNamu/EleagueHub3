@@ -3260,7 +3260,11 @@ const API_FOOTBALL_PROVIDER = {
         "API-Football key not configured. Set it in Settings -> Football Hub, or as the Worker's API_FOOTBALL_KEY secret."
       );
     }
-    return { "x-apikey": key };
+    // api-football.com's direct (non-RapidAPI) subscription requires this
+    // exact header name -- "x-apikey" is not recognized and api-football
+    // responds as if no key were sent at all ("Missing application key"),
+    // which is exactly the error this previously-wrong header name caused.
+    return { "x-apisports-key": key };
   },
   // Does this provider consider the response an error? api-football.com
   // returns HTTP 200 even on quota-exceeded/bad-request errors, with
