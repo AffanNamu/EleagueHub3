@@ -491,7 +491,7 @@ service cloud.firestore {
         && (!('losses' in d) || ((d.losses is int) && (d.losses >= 0)))
         && (!('matchesPlayed' in d) || ((d.matchesPlayed is int) && (d.matchesPlayed >= 0)))
         && (!('adminAdjustment' in d) || (d.adminAdjustment is int))
-        && (!('groupId' in d) || ((d.groupId is string) && (d.groupId.size() <= 10)))
+        && (!('groupId' in d) || (d.groupId == null) || ((d.groupId is string) && (d.groupId.size() <= 10)))
         && (!('participantType' in d) || (d.participantType in ['registered', 'external']))
         && (!('claimStatus' in d)
           || (d.claimStatus in ['not_claimed', 'claim_pending', 'claimed', 'revoked', 'expired']))
