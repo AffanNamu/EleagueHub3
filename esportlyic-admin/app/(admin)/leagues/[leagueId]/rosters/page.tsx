@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { LeagueRostersPanel } from '@/components/leagues/LeagueRostersPanel';
 import { getLeague } from '@/lib/repositories/leaguesAdminRepository';
-import { getTeamsWithRosters } from '@/lib/repositories/teamsAdminRepository';
+import { getClaimsForLeague, getTeamsWithRosters } from '@/lib/repositories/teamsAdminRepository';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
 
@@ -21,7 +21,10 @@ export default async function LeagueRostersPage({ params }: { params: { leagueId
   const league = await getLeague(params.leagueId);
   if (!league) notFound();
 
-  const { teams, unassigned } = await getTeamsWithRosters(params.leagueId);
+  const [{ teams, unassigned }, claims] = await Promise.all([
+    getTeamsWithRosters(params.leagueId),
+    getClaimsForLeague(params.leagueId),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -39,6 +42,7 @@ export default async function LeagueRostersPage({ params }: { params: { leagueId
         leagueId={params.leagueId}
         teams={teams}
         unassigned={unassigned}
+        claims={claims}
         canManage={hasPermission(identity, 'leagues.manage')}
       />
     </div>

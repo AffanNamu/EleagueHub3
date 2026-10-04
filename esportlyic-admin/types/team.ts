@@ -52,3 +52,24 @@ export interface RosterMember {
 export interface TeamWithRoster extends LeagueTeam {
   roster: RosterMember[];
 }
+
+// Mirrors the team_claims/{token} doc shape written by
+// _generateTeamClaim/_confirmTeamClaim/_revokeTeamClaim in
+// worker/src/index.js. Rules deny all client access to this collection --
+// adminDb (Admin SDK) is the only way to read it, same as every other
+// repository in this file reads leagues/teams/memberships.
+export type TeamClaimDocStatus = 'pending' | 'claimed' | 'revoked';
+
+export interface TeamClaim {
+  token: string;
+  leagueId: string;
+  teamId: string;
+  status: TeamClaimDocStatus;
+  createdAtMs: number;
+  createdByUserId: string;
+  expiresAtMs: number;
+  consumedAtMs: number | null;
+  consumedByUserId: string | null;
+  /** Resolved display name for consumedByUserId, when claimed. */
+  consumedByDisplayName?: string;
+}

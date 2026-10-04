@@ -75,6 +75,40 @@ export function useTeamDelete(leagueId: string) {
   return { remove, deleting, error };
 }
 
+export function useRevokeClaim(leagueId: string) {
+  const router = useRouter();
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function revoke(teamId: string, token: string, teamName: string): Promise<boolean> {
+    if (!confirm(`Revoke this claim link for "${teamName}"? The link will stop working immediately.`)) {
+      return false;
+    }
+
+    setRevoking(token);
+    setError(null);
+    try {
+      const response = await fetch(`/api/admin/leagues/${leagueId}/teams/${teamId}/claims/${token}`, {
+        method: 'DELETE',
+      });
+      const body = await parseJson(response);
+      if (!response.ok) {
+        setError((body.error as string) ?? 'Something went wrong.');
+        return false;
+      }
+      router.refresh();
+      return true;
+    } catch {
+      setError('Network error. Please check your connection and try again.');
+      return false;
+    } finally {
+      setRevoking(null);
+    }
+  }
+
+  return { revoke, revoking, error };
+}
+
 export function useRemoveTeamMember(leagueId: string) {
   const router = useRouter();
   const [removing, setRemoving] = useState<string | null>(null);

@@ -18,9 +18,10 @@ import { adminDb } from '@/lib/firebase-admin';
 import { recordAuditLog } from '@/lib/audit/auditLog';
 import { getUserSummary } from '@/lib/repositories/usersAdminRepository';
 import type { LeagueTeamSummary } from '@/types/match';
-import type { LeagueMembership, LeagueTeam, RosterMember, TeamWithRoster } from '@/types/team';
+import type { LeagueMembership, LeagueTeam, RosterMember, TeamClaim, TeamWithRoster } from '@/types/team';
 
 const LEAGUES_COLLECTION = 'leagues';
+const TEAM_CLAIMS_COLLECTION = 'team_claims';
 
 export class TeamAdminError extends Error {}
 
@@ -126,6 +127,91 @@ export async function getTeamsWithRosters(
   }));
 
   return { teams: teamsWithRosters, unassigned };
+}
+
+function toTeamClaim(token: string, data: FirebaseFirestore.DocumentData): TeamClaim {
+  return {
+    token,
+    leagueId: typeof data.leagueId === 'string' ? data.leagueId : '',
+    teamId: typeof data.teamId === 'string' ? data.teamId : '',
+    status: data.status === 'claimed' || data.status === 'revoked' ? data.status : 'pending',
+    createdAtMs: typeof data.createdAtMs === 'number' ? data.createdAtMs : 0,
+    createdByUserId: typeof data.createdByUserId === 'string' ? data.createdByUserId : '',
+    expiresAtMs: typeof data.expiresAtMs === 'number' ? data.expiresAtMs : 0,
+    consumedAtMs: typeof data.consumedAtMs === 'number' ? data.consumedAtMs : null,
+    consumedByUserId: typeof data.consumedByUserId === 'string' ? data.consumedByUserId : null,
+  };
+}
+
+/**
+ * Every team_claims doc for a league, newest first. A team can have more
+ * than one: generating a fresh link supersedes the old one in practice
+ * (the team's own claimStatus is what actually gates confirmation) but
+ * never touches the old doc, so stale 'pending' tokens are left behind
+ * here for the organizer/admin to see and revoke.
+ */
+export async function getClaimsForLeague(leagueId: string): Promise<TeamClaim[]> {
+  const snap = await adminDb.collection(TEAM_CLAIMS_COLLECTION).where('leagueId', '==', leagueId).get();
+  const claims = snap.docs.map((doc) => toTeamClaim(doc.id, doc.data()));
+
+  const consumedUserIds = Array.from(
+    new Set(claims.filter((c) => c.status === 'claimed' && c.consumedByUserId).map((c) => c.consumedByUserId as string)),
+  );
+  const summaries = await Promise.all(consumedUserIds.map((userId) => getUserSummary(userId)));
+  const nameByUserId = new Map(consumedUserIds.map((userId, i) => [userId, summaries[i]?.displayName]));
+
+  return claims
+    .map((c) => ({
+      ...c,
+      consumedByDisplayName: c.consumedByUserId ? nameByUserId.get(c.consumedByUserId) ?? c.consumedByUserId : undefined,
+    }))
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
+}
+
+export async function revokeClaim(
+  leagueId: string,
+  teamId: string,
+  token: string,
+  actor: { uid: string; email?: string | null },
+): Promise<void> {
+  const claimRef = adminDb.collection(TEAM_CLAIMS_COLLECTION).doc(token);
+  const claimSnap = await claimRef.get();
+  if (!claimSnap.exists) throw new TeamAdminError('Claim link not found.');
+  const claim = claimSnap.data()!;
+  if (claim.leagueId !== leagueId || claim.teamId !== teamId) {
+    throw new TeamAdminError('Claim link does not belong to this team.');
+  }
+  if (claim.status === 'claimed') {
+    throw new TeamAdminError('This team has already been claimed; the link cannot be revoked.');
+  }
+  if (claim.status === 'revoked') {
+    throw new TeamAdminError('This claim link is already revoked.');
+  }
+
+  // Only reset the team's claimStatus back to 'revoked' when no other
+  // pending token remains for it -- a sibling link generated afterward
+  // should keep the team showing as pending, not revoked.
+  const siblingsSnap = await adminDb.collection(TEAM_CLAIMS_COLLECTION).where('leagueId', '==', leagueId).get();
+  const stillPending = siblingsSnap.docs.some(
+    (doc) => doc.id !== token && doc.data().teamId === teamId && doc.data().status === 'pending',
+  );
+
+  const teamRef = adminDb.collection(LEAGUES_COLLECTION).doc(leagueId).collection('teams').doc(teamId);
+  const batch = adminDb.batch();
+  batch.update(claimRef, { status: 'revoked' });
+  if (!stillPending) {
+    batch.update(teamRef, { claimStatus: 'revoked', updatedAtMs: Date.now() });
+  }
+  await batch.commit();
+
+  await recordAuditLog({
+    actorUid: actor.uid,
+    actorEmail: actor.email,
+    action: 'team.revoke_claim',
+    targetType: 'team',
+    targetId: `${leagueId}/${teamId}`,
+    summary: `Revoked a claim link for team ${teamId} in league ${leagueId}`,
+  });
 }
 
 export async function renameTeam(

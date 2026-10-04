@@ -1,11 +1,53 @@
 'use client';
 
 import { useState } from 'react';
-import { Shield, Pencil, Trash2, UserMinus, Check, X } from 'lucide-react';
+import { Shield, Pencil, Trash2, UserMinus, Check, X, Link2Off } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
-import { useTeamRename, useTeamDelete, useRemoveTeamMember } from '@/hooks/useTeamRosterActions';
-import type { RosterMember, TeamWithRoster } from '@/types/team';
+import { useTeamRename, useTeamDelete, useRemoveTeamMember, useRevokeClaim } from '@/hooks/useTeamRosterActions';
+import type { RosterMember, TeamClaim, TeamWithRoster } from '@/types/team';
+
+function formatDate(ms: number): string {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function ClaimRow({
+  leagueId,
+  teamId,
+  teamName,
+  claim,
+  canManage,
+}: {
+  leagueId: string;
+  teamId: string;
+  teamName: string;
+  claim: TeamClaim;
+  canManage: boolean;
+}) {
+  const { revoke, revoking, error } = useRevokeClaim(leagueId);
+
+  return (
+    <li className="flex items-center justify-between gap-2 text-xs">
+      <span className="text-ink-secondary">
+        {claim.status === 'claimed' && `Claimed by ${claim.consumedByDisplayName ?? claim.consumedByUserId} on ${formatDate(claim.consumedAtMs ?? 0)}`}
+        {claim.status === 'revoked' && `Revoked (created ${formatDate(claim.createdAtMs)})`}
+        {claim.status === 'pending' && `Pending · created ${formatDate(claim.createdAtMs)} · expires ${formatDate(claim.expiresAtMs)}`}
+      </span>
+      {canManage && claim.status === 'pending' && (
+        <button
+          onClick={() => revoke(teamId, claim.token, teamName)}
+          disabled={revoking === claim.token}
+          className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-ink-muted hover:bg-base-raised hover:text-signal-danger disabled:opacity-60"
+        >
+          <Link2Off size={12} />
+          Revoke
+        </button>
+      )}
+      {error && <span className="text-signal-danger">{error}</span>}
+    </li>
+  );
+}
 
 // Absent participantType means "registered" (every pre-existing team) --
 // see Team.participantType* in lib/features/leagues/models/team.dart.
@@ -29,10 +71,12 @@ function ParticipantBadge({ team }: { team: TeamWithRoster }) {
 function TeamCard({
   leagueId,
   team,
+  claims,
   canManage,
 }: {
   leagueId: string;
   team: TeamWithRoster;
+  claims: TeamClaim[];
   canManage: boolean;
 }) {
   const { rename, submitting: renaming, error: renameError } = useTeamRename(leagueId);
@@ -133,6 +177,24 @@ function TeamCard({
       ) : (
         <p className="mt-3 text-xs text-ink-muted">No roster members yet.</p>
       )}
+
+      {claims.length > 0 && (
+        <div className="mt-3 border-t border-base-border pt-3">
+          <p className="text-xs font-medium text-ink-primary">Claim links</p>
+          <ul className="mt-1.5 space-y-1">
+            {claims.map((claim) => (
+              <ClaimRow
+                key={claim.token}
+                leagueId={leagueId}
+                teamId={team.id}
+                teamName={team.name}
+                claim={claim}
+                canManage={canManage}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -159,22 +221,37 @@ export function LeagueRostersPanel({
   leagueId,
   teams,
   unassigned,
+  claims,
   canManage,
 }: {
   leagueId: string;
   teams: TeamWithRoster[];
   unassigned: RosterMember[];
+  claims: TeamClaim[];
   canManage: boolean;
 }) {
   if (teams.length === 0 && unassigned.length === 0) {
     return <EmptyState icon={Shield} title="No teams or members yet" />;
   }
 
+  const claimsByTeamId = new Map<string, TeamClaim[]>();
+  for (const claim of claims) {
+    const list = claimsByTeamId.get(claim.teamId) ?? [];
+    list.push(claim);
+    claimsByTeamId.set(claim.teamId, list);
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {teams.map((team) => (
-          <TeamCard key={team.id} leagueId={leagueId} team={team} canManage={canManage} />
+          <TeamCard
+            key={team.id}
+            leagueId={leagueId}
+            team={team}
+            claims={claimsByTeamId.get(team.id) ?? []}
+            canManage={canManage}
+          />
         ))}
       </div>
       <UnassignedSection members={unassigned} />
