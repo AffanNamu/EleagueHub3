@@ -374,6 +374,12 @@ const Map<String, Map<String, String>> appLocalizationsPart1 = {
     'competition_session_custom_hint': 'e.g. Summer Cup 2027',
     'competition_session_error_required': 'Please select or enter a session for this competition.',
 
+    'moderation_report_content_sheet_title': 'Report content',
+    'moderation_report_tooltip': 'Report',
+    'moderation_report_own_content_blocked': "You can't report your own content.",
+    'private_chat_react_action': 'React',
+    'public_feed_delete_post': 'Delete post',
+
     'league_create_error_select_type': 'Please select a league type',
     'league_create_error_name_required': 'League name is required',
     'league_create_error_complete_payment_to_continue': 'Complete payment to continue',

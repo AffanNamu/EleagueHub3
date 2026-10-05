@@ -1634,7 +1634,14 @@ service cloud.firestore {
         && (request.resource.data.status is string) && (request.resource.data.status == 'pending')
         && (request.resource.data.createdAtMs is int)
         && (request.resource.data.reviewedAtMs is int) && (request.resource.data.reviewedAtMs == 0)
-        && (request.resource.data.reviewedBy is string) && (request.resource.data.reviewedBy == '');
+        && (request.resource.data.reviewedBy is string) && (request.resource.data.reviewedBy == '')
+        // targetType/contextId/contextLocation: added so a report can point at a
+        // chat message, feed post, or comment (not just a user profile) -- see
+        // ReportTargetType in the Dart/web clients. Optional for backward
+        // compatibility with the original profile-only report writes.
+        && (!('targetType' in request.resource.data) || ((request.resource.data.targetType is string) && (request.resource.data.targetType in ['profile', 'message', 'post', 'comment'])))
+        && (!('contextId' in request.resource.data) || ((request.resource.data.contextId is string) && (request.resource.data.contextId.size() <= 200)))
+        && (!('contextLocation' in request.resource.data) || ((request.resource.data.contextLocation is string) && (request.resource.data.contextLocation.size() <= 200)));
 
       allow update: if (isPricingAdmin() || isSuperAdmin())
         && (resource.data.status == 'pending')
@@ -1642,6 +1649,9 @@ service cloud.firestore {
         && (request.resource.data.targetUserId == resource.data.targetUserId)
         && (request.resource.data.reason == resource.data.reason)
         && (request.resource.data.createdAtMs == resource.data.createdAtMs)
+        && (request.resource.data.get('targetType', '') == resource.data.get('targetType', ''))
+        && (request.resource.data.get('contextId', '') == resource.data.get('contextId', ''))
+        && (request.resource.data.get('contextLocation', '') == resource.data.get('contextLocation', ''))
         && (request.resource.data.status is string)
         && (request.resource.data.status in ['reviewed', 'dismissed'])
         && (request.resource.data.reviewedAtMs is int) && (request.resource.data.reviewedAtMs > 0)

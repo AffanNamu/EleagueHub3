@@ -16,6 +16,20 @@ const STATUS_TONE: Record<ReportStatus, 'warning' | 'success' | 'neutral'> = {
   dismissed: 'neutral',
 };
 
+function reportTargetSummary(report: UserReport): string {
+  switch (report.targetType) {
+    case 'message':
+      return `Message by ${report.targetUserId}`;
+    case 'post':
+      return `Post by ${report.targetUserId}`;
+    case 'comment':
+      return `Comment by ${report.targetUserId}`;
+    case 'profile':
+    default:
+      return `Against ${report.targetUserId}`;
+  }
+}
+
 export function ReportsTable({ reports, canReview }: { reports: UserReport[]; canReview: boolean }) {
   const { submit, submitting, error } = useBulkReportReview();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -121,7 +135,7 @@ export function ReportsTable({ reports, canReview }: { reports: UserReport[]; ca
                 )}
                 <td className="px-4 py-3">
                   <Link href={`/moderation/reports/${report.reportId}`}>
-                    <p className="font-medium text-ink-primary">Against {report.targetUserId}</p>
+                    <p className="font-medium text-ink-primary">{reportTargetSummary(report)}</p>
                     <p className="text-xs text-ink-muted">Filed by {report.reporterId}</p>
                   </Link>
                 </td>

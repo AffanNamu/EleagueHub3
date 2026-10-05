@@ -1,3 +1,17 @@
+/// What kind of content a report is about. Every report still carries a
+/// `targetUserId` (the author of the content, or the profile itself for
+/// [profile]) so the existing admin review queue can always resolve a
+/// profile to show -- [contextId]/[contextLocation] on the report document
+/// additionally locate the specific message/post/comment for review.
+class ReportTargetType {
+  static const profile = 'profile';
+  static const message = 'message';
+  static const post = 'post';
+  static const comment = 'comment';
+
+  static const List<String> all = [profile, message, post, comment];
+}
+
 class UserReportReason {
   static const spam = 'spam';
   static const harassment = 'harassment';

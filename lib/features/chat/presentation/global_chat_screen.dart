@@ -14,6 +14,9 @@ import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../moderation/models/user_report.dart';
+import '../../moderation/presentation/report_sheet.dart';
+import '../../profile/data/team_profile_repository.dart';
 import '../data/chat_repository.dart';
 import '../models/chat_message.dart';
 import 'widgets/chat_bubble.dart';
@@ -51,6 +54,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   bool _globalChatBanned = false;
   bool _globalModerationResolved = false;
 
+  Set<String> _blockedUserIds = <String>{};
+
   User get _user => FirebaseAuth.instance.currentUser!;
 
   bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;
@@ -71,9 +76,16 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     _resolveIdentity();
     _listenAdminsDoc();
     _watchGlobalModeration();
+    _loadBlockedUserIds();
 
     PushMessagingService.instance.subscribeToGlobalChatTopic();
     PushMessagingService.instance.setActiveLeagueChat('global');
+  }
+
+  Future<void> _loadBlockedUserIds() async {
+    final ids = await TeamProfileRepository().fetchBlockedEitherWayUserIds();
+    if (!mounted) return;
+    setState(() => _blockedUserIds = ids);
   }
 
   void _watchGlobalModeration() {
@@ -409,6 +421,18 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     }
   }
 
+  void _reportSelected(ChatMessage msg) {
+    if (_canDeleteMessage(msg)) return; // can't report your own message
+    _selectedMessageId.value = null;
+    showReportSheet(
+      context,
+      targetUserId: msg.senderId,
+      targetType: ReportTargetType.message,
+      contextId: msg.messageId,
+      contextLocation: 'global',
+    );
+  }
+
   Future<void> _copySelected(ChatMessage msg) async {
     if (msg.deleted) {
       _toast(context.l10n.tr('global_chat_nothing_to_copy'), error: true);
@@ -494,6 +518,12 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                   tooltip: context.l10n.tr('global_chat_pin_tooltip'),
                   onPressed: () => _pinSelected(selectedMsg),
                   icon: const Icon(Icons.push_pin_outlined),
+                ),
+              if (selectedMsg != null && !_canDeleteMessage(selectedMsg))
+                IconButton(
+                  tooltip: context.l10n.tr('moderation_report_tooltip'),
+                  onPressed: () => _reportSelected(selectedMsg),
+                  icon: const Icon(Icons.flag_outlined),
                 ),
             ],
           );
@@ -642,7 +672,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                 );
               }
 
-              final msgs = snap.data ?? const <ChatMessage>[];
+              final msgs = (snap.data ?? const <ChatMessage>[])
+                  .where((m) => !_blockedUserIds.contains(m.senderId))
+                  .toList(growable: false);
               if (msgs.isEmpty) {
                 return Center(
                   child: Text(

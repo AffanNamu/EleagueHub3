@@ -4,11 +4,15 @@ import 'server-only';
 
 import { adminDb } from '@/lib/firebase-admin';
 import { recordAuditLog } from '@/lib/audit/auditLog';
-import type { ReportStatus, UserReport } from '@/types/report';
+import type { ReportStatus, ReportTargetType, UserReport } from '@/types/report';
+import { REPORT_TARGET_TYPES } from '@/types/report';
 
 const COLLECTION = 'reports';
 
 function toUserReport(id: string, data: FirebaseFirestore.DocumentData): UserReport {
+  const targetType: ReportTargetType = REPORT_TARGET_TYPES.includes(data.targetType)
+    ? (data.targetType as ReportTargetType)
+    : 'profile';
   return {
     reportId: id,
     reporterId: data.reporterId ?? '',
@@ -19,6 +23,9 @@ function toUserReport(id: string, data: FirebaseFirestore.DocumentData): UserRep
     createdAtMs: typeof data.createdAtMs === 'number' ? data.createdAtMs : 0,
     reviewedAtMs: typeof data.reviewedAtMs === 'number' ? data.reviewedAtMs : 0,
     reviewedBy: data.reviewedBy ?? '',
+    targetType,
+    contextId: data.contextId ?? '',
+    contextLocation: data.contextLocation ?? '',
   };
 }
 

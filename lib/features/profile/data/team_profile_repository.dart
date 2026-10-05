@@ -595,4 +595,35 @@ class TeamProfileRepository {
       return false;
     }
   }
+
+  /// Bulk, one-shot version of [isBlockedEitherWay] for filtering a whole
+  /// message/post list (Global/League/Organizer chat, the public Feed) --
+  /// doing one Firestore read per direction instead of one per item avoids
+  /// up to hundreds of per-message round-trips. Fails open (returns an
+  /// empty set) on any error, matching this app's existing ads/plan-status
+  /// fail-open convention, so a transient Firestore hiccup never hides
+  /// content that should be visible.
+  Future<Set<String>> fetchBlockedEitherWayUserIds() async {
+    try {
+      final authUid = _requireAuthUid();
+      final results = await Future.wait([
+        _users
+            .doc(authUid)
+            .collection('blocked_users')
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 10)),
+        _users
+            .doc(authUid)
+            .collection('blocked_by')
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 10)),
+      ]);
+
+      return {
+        for (final snap in results) for (final doc in snap.docs) doc.id,
+      };
+    } catch (_) {
+      return <String>{};
+    }
+  }
 }

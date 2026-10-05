@@ -772,8 +772,176 @@ jobs:
               }
           }
           HIGHLIGHT_SWIFT
+          cat > ios/Runner/PrivacyInfo.xcprivacy <<'XCPRIVACY'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          	<!--
+          	App-level Privacy Manifest, required by Apple since Spring 2024 for any
+          	app submission. This declares the Runner target's own data collection
+          	and "Required Reason API" usage -- it does NOT need to (and should not)
+          	duplicate what bundled third-party SDKs (Firebase, Google Mobile Ads,
+          	LiveKit, etc.) already declare in their own PrivacyInfo.xcprivacy
+          	files inside their pods; those ship separately and are merged by Xcode
+          	automatically at archive time.
 
-          echo "✅ Info.plist, entitlements, Podfile, AppDelegate.swift, HighlightCompressionEngine.swift written"
+          	NSPrivacyTracking is false because this app never requests the IDFA
+          	and never links data across apps/websites for advertising/tracking
+          	purposes (see lib/core/config/ad_config.dart and the App Tracking
+          	Transparency decision documented there -- AdMob is used in
+          	non-personalized/contextual mode on iOS without ATT).
+
+          	NSPrivacyCollectedDataTypes below reflects what this app's own
+          	features actually collect (auth, chat/feed content, crash reports,
+          	subscription entitlements) -- not a guess, grounded in the real
+          	features: Firebase Auth (email/name/user ID), Firestore chat/feed
+          	(user-authored text/photos/video/audio), Firebase Crashlytics (crash
+          	data), and Apple IAP/StoreKit entitlement tracking (purchase history).
+          	None of it is used for tracking (NSPrivacyCollectedDataTypeTracking is
+          	false throughout) or for third-party advertising.
+          	-->
+          	<key>NSPrivacyTracking</key>
+          	<false/>
+          	<key>NSPrivacyTrackingDomains</key>
+          	<array/>
+          	<key>NSPrivacyCollectedDataTypes</key>
+          	<array>
+          		<dict>
+          			<key>NSPrivacyCollectedDataType</key>
+          			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
+          			<key>NSPrivacyCollectedDataTypeLinked</key>
+          			<true/>
+          			<key>NSPrivacyCollectedDataTypeTracking</key>
+          			<false/>
+          			<key>NSPrivacyCollectedDataTypePurposes</key>
+          			<array>
+          				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+          			</array>
+          		</dict>
+          		<dict>
+          			<key>NSPrivacyCollectedDataType</key>
+          			<string>NSPrivacyCollectedDataTypeName</string>
+          			<key>NSPrivacyCollectedDataTypeLinked</key>
+          			<true/>
+          			<key>NSPrivacyCollectedDataTypeTracking</key>
+          			<false/>
+          			<key>NSPrivacyCollectedDataTypePurposes</key>
+          			<array>
+          				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+          			</array>
+          		</dict>
+          		<dict>
+          			<key>NSPrivacyCollectedDataType</key>
+          			<string>NSPrivacyCollectedDataTypeUserID</string>
+          			<key>NSPrivacyCollectedDataTypeLinked</key>
+          			<true/>
+          			<key>NSPrivacyCollectedDataTypeTracking</key>
+          			<false/>
+          			<key>NSPrivacyCollectedDataTypePurposes</key>
+          			<array>
+          				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+          			</array>
+          		</dict>
+          		<dict>
+          			<key>NSPrivacyCollectedDataType</key>
+          			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+          			<key>NSPrivacyCollectedDataTypeLinked</key>
+          			<true/>
+          			<key>NSPrivacyCollectedDataTypeTracking</key>
+          			<false/>
+          			<key>NSPrivacyCollectedDataTypePurposes</key>
+          			<array>
+          				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+          			</array>
+          		</dict>
+          		<dict>
+          			<key>NSPrivacyCollectedDataType</key>
+          			<string>NSPrivacyCollectedDataTypeAudioData</string>
+          			<key>NSPrivacyCollectedDataTypeLinked</key>
+          			<true/>
+          			<key>NSPrivacyCollectedDataTypeTracking</key>
+          			<false/>
+          			<key>NSPrivacyCollectedDataTypePurposes</key>
+          			<array>
+          				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+          			</array>
+          		</dict>
+          		<dict>
+          			<key>NSPrivacyCollectedDataType</key>
+          			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+          			<key>NSPrivacyCollectedDataTypeLinked</key>
+          			<true/>
+          			<key>NSPrivacyCollectedDataTypeTracking</key>
+          			<false/>
+          			<key>NSPrivacyCollectedDataTypePurposes</key>
+          			<array>
+          				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+          			</array>
+          		</dict>
+          		<dict>
+          			<key>NSPrivacyCollectedDataType</key>
+          			<string>NSPrivacyCollectedDataTypeCrashData</string>
+          			<key>NSPrivacyCollectedDataTypeLinked</key>
+          			<false/>
+          			<key>NSPrivacyCollectedDataTypeTracking</key>
+          			<false/>
+          			<key>NSPrivacyCollectedDataTypePurposes</key>
+          			<array>
+          				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+          			</array>
+          		</dict>
+          		<dict>
+          			<key>NSPrivacyCollectedDataType</key>
+          			<string>NSPrivacyCollectedDataTypePurchaseHistory</string>
+          			<key>NSPrivacyCollectedDataTypeLinked</key>
+          			<true/>
+          			<key>NSPrivacyCollectedDataTypeTracking</key>
+          			<false/>
+          			<key>NSPrivacyCollectedDataTypePurposes</key>
+          			<array>
+          				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+          			</array>
+          		</dict>
+          	</array>
+          	<!--
+          	Required Reason APIs used directly by this app's own Dart/plugin code
+          	(as opposed to inside a third-party SDK's own bundled .xcframework,
+          	which carries its own manifest). Covers:
+          	  - UserDefaults: shared_preferences (local prefs, e.g. cached
+          	    onboarding/session state).
+          	  - FileTimestamp: cached_network_image's on-disk cache manager reads
+          	    file modification times to expire cached images/media.
+          	If Xcode's own Privacy Report (Product > Archive > Generate Privacy
+          	Report) flags additional required-reason API usage once this project
+          	is actually archived on a Mac, add the corresponding category/reason
+          	here -- this list is grounded in pubspec.yaml's actual dependencies,
+          	not exhaustive static analysis of every linked library.
+          	-->
+          	<key>NSPrivacyAccessedAPITypes</key>
+          	<array>
+          		<dict>
+          			<key>NSPrivacyAccessedAPIType</key>
+          			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+          			<key>NSPrivacyAccessedAPITypeReasons</key>
+          			<array>
+          				<string>CA92.1</string>
+          			</array>
+          		</dict>
+          		<dict>
+          			<key>NSPrivacyAccessedAPIType</key>
+          			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+          			<key>NSPrivacyAccessedAPITypeReasons</key>
+          			<array>
+          				<string>C617.1</string>
+          			</array>
+          		</dict>
+          	</array>
+          </dict>
+          </plist>
+          XCPRIVACY
+
+          echo "✅ Info.plist, entitlements, Podfile, AppDelegate.swift, HighlightCompressionEngine.swift, PrivacyInfo.xcprivacy written"
 
       # ─────────────────────────────────────────
       # 4d. WRITE iOS GoogleService-Info.plist FROM SECRET
@@ -846,7 +1014,7 @@ jobs:
       # xcodeproj is already a transitive CocoaPods gem, but install it
       # defensively in case that ever changes.
       # ─────────────────────────────────────────
-      - name: Register GoogleService-Info.plist and wire Runner.entitlements
+      - name: Register GoogleService-Info.plist, PrivacyInfo.xcprivacy, and wire Runner.entitlements
         run: |
           set -euo pipefail
           gem list -i xcodeproj >/dev/null 2>&1 || gem install xcodeproj --no-document
@@ -884,6 +1052,15 @@ jobs:
           swift_already_included = target.source_build_phase.files.any? { |bf| bf.file_ref == swift_file_ref }
           target.add_file_references([swift_file_ref]) unless swift_already_included
 
+          # PrivacyInfo.xcprivacy: same root cause as GoogleService-Info.plist
+          # above -- Apple's privacy manifest is only honored by App Store
+          # Connect if it is actually copied into the shipped .app bundle, so
+          # it needs the same Copy Bundle Resources registration.
+          privacy_file_ref = runner_group.children.find { |c| c.respond_to?(:path) && c.path == 'PrivacyInfo.xcprivacy' } ||
+                              runner_group.new_reference('PrivacyInfo.xcprivacy')
+          privacy_already_included = target.resources_build_phase.files.any? { |bf| bf.file_ref == privacy_file_ref }
+          target.add_file_references([privacy_file_ref]) unless privacy_already_included
+
           target.build_configurations.each do |config|
             config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'Runner/Runner.entitlements'
           end
@@ -891,6 +1068,7 @@ jobs:
           project.save
           puts "GoogleService-Info.plist registered in Runner's Copy Bundle Resources"
           puts "HighlightCompressionEngine.swift registered in Runner's Compile Sources"
+          puts "PrivacyInfo.xcprivacy registered in Runner's Copy Bundle Resources"
           puts "CODE_SIGN_ENTITLEMENTS set to Runner/Runner.entitlements on all Runner build configurations"
           RUBY
 

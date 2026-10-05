@@ -21,6 +21,8 @@ import '../../../core/services/safe_image_picker.dart';
 import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../moderation/models/user_report.dart';
+import '../../moderation/presentation/report_sheet.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/private_chat_repository.dart';
 import '../models/private_message.dart';
@@ -386,6 +388,63 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
   }
 
+  Future<void> _handleMessageLongPress(
+    BuildContext context,
+    PrivateMessage m,
+    bool isMe,
+    ReactionsRepository reactionsRepo,
+  ) async {
+    if (isMe) {
+      // Can't report your own message -- go straight to the reaction picker,
+      // same behavior as before this menu was added.
+      final current = await reactionsRepo.watch().first;
+      if (!context.mounted) return;
+      final picked = await showReactionPicker(context, currentEmoji: current.myEmoji);
+      if (picked == null) return;
+      await reactionsRepo.toggle(picked);
+      return;
+    }
+
+    final l10n = context.l10n;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.emoji_emotions_outlined),
+              title: Text(l10n.tr('private_chat_react_action')),
+              onTap: () => Navigator.of(ctx).pop('react'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: Text(l10n.tr('moderation_report_tooltip')),
+              onTap: () => Navigator.of(ctx).pop('report'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (action == 'react') {
+      final current = await reactionsRepo.watch().first;
+      if (!context.mounted) return;
+      final picked = await showReactionPicker(context, currentEmoji: current.myEmoji);
+      if (picked == null) return;
+      await reactionsRepo.toggle(picked);
+    } else if (action == 'report') {
+      if (!context.mounted) return;
+      showReportSheet(
+        context,
+        targetUserId: m.senderId,
+        targetType: ReportTargetType.message,
+        contextId: m.id,
+        contextLocation: widget.threadId,
+      );
+    }
+  }
+
   Widget _buildImageBubble(BuildContext context, PrivateMessage m, bool isMe) {
     return ChatImageMedia(
       imageUrl: m.imageUrl,
@@ -507,16 +566,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                               : CrossAxisAlignment.start,
                           children: [
                             GestureDetector(
-                              onLongPress: () async {
-                                final current = await reactionsRepo.watch().first;
-                                if (!context.mounted) return;
-                                final picked = await showReactionPicker(
-                                  context,
-                                  currentEmoji: current.myEmoji,
-                                );
-                                if (picked == null) return;
-                                await reactionsRepo.toggle(picked);
-                              },
+                              onLongPress: () =>
+                                  _handleMessageLongPress(context, m, isMe, reactionsRepo),
                               child: Container(
                                 margin: const EdgeInsets.symmetric(vertical: 4),
                                 padding: isBubbleWithOwnBackground

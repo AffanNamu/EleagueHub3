@@ -16,6 +16,9 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../../highlights/presentation/highlight_player_screen.dart';
+import '../../moderation/models/user_report.dart';
+import '../../moderation/presentation/report_sheet.dart';
+import '../../profile/data/team_profile_repository.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/public_feed_repository.dart';
 import '../models/public_post.dart';
@@ -76,7 +79,18 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
   // rollback on failure) when the user taps the heart.
   final Map<String, bool> _likedCache = {};
 
+  Set<String> _blockedUserIds = <String>{};
+
   String get _selfUid => FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    TeamProfileRepository().fetchBlockedEitherWayUserIds().then((ids) {
+      if (!mounted) return;
+      setState(() => _blockedUserIds = ids);
+    });
+  }
 
   void _snack(String msg) {
     if (!mounted) return;
@@ -229,7 +243,9 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                           if (!snap.hasData) {
                             return const Center(child: CircularProgressIndicator());
                           }
-                          final posts = snap.data!;
+                          final posts = snap.data!
+                              .where((p) => !_blockedUserIds.contains(p.authorId))
+                              .toList(growable: false);
                           if (posts.isEmpty) {
                             return Center(
                               child: Padding(
@@ -389,6 +405,43 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback? onOpenLeague;
 
+  void _showPostActions(BuildContext context) {
+    final l10n = context.l10n;
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isOwner)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded),
+                title: Text(l10n.tr('public_feed_delete_post')),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  onDelete();
+                },
+              )
+            else
+              ListTile(
+                leading: const Icon(Icons.flag_outlined),
+                title: Text(l10n.tr('moderation_report_tooltip')),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  showReportSheet(
+                    context,
+                    targetUserId: post.authorId,
+                    targetType: ReportTargetType.post,
+                    contextId: post.postId,
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   DocumentReference<Map<String, dynamic>> get _postRef =>
       FirebaseFirestore.instance.collection('public_posts').doc(post.postId);
 
@@ -472,12 +525,11 @@ class _PostCard extends StatelessWidget {
                   style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 12),
                 ),
               ),
-              if (isOwner)
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(Icons.more_vert_rounded, color: AppTheme.secondaryText(brightness)),
-                  onPressed: onDelete,
-                ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.more_vert_rounded, color: AppTheme.secondaryText(brightness)),
+                onPressed: () => _showPostActions(context),
+              ),
             ],
           ),
           if (post.text.trim().isNotEmpty) ...[

@@ -64,7 +64,9 @@ export default async function ReportDetailPage({ params }: { params: { reportId:
 
         <div className="space-y-4">
           <div className="panel p-5">
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink-primary">Target User</h2>
+            <h2 className="mb-3 font-display text-sm font-semibold text-ink-primary">
+              {report.targetType && report.targetType !== 'profile' ? 'Content Author' : 'Target User'}
+            </h2>
             {target ? (
               <Link href={`/users/${target.userId}`} className="text-sm text-brand hover:underline">
                 {target.displayName}
@@ -73,6 +75,19 @@ export default async function ReportDetailPage({ params }: { params: { reportId:
               <p className="text-sm text-ink-secondary">{report.targetUserId} (profile not found)</p>
             )}
           </div>
+
+          {report.targetType && report.targetType !== 'profile' && (
+            <div className="panel p-5">
+              <h2 className="mb-3 font-display text-sm font-semibold text-ink-primary">Reported Content</h2>
+              <p className="text-sm text-ink-secondary capitalize">{report.targetType}</p>
+              {report.contextId && (
+                <p className="mt-1 text-xs text-ink-muted">ID: {report.contextId}</p>
+              )}
+              {report.contextLocation && (
+                <p className="mt-1 text-xs text-ink-muted">Location: {report.contextLocation}</p>
+              )}
+            </div>
+          )}
 
           <div className="panel p-5">
             <h2 className="mb-3 font-display text-sm font-semibold text-ink-primary">Filed By</h2>

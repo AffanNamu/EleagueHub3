@@ -20,6 +20,9 @@ import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../moderation/models/user_report.dart';
+import '../../moderation/presentation/report_sheet.dart';
+import '../../profile/data/team_profile_repository.dart';
 import '../data/chat_repository.dart';
 import '../models/chat_message.dart';
 import 'widgets/chat_bubble.dart';
@@ -82,6 +85,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   bool _globalChatBanned = false;
   bool _moderationResolved = false;
 
+  Set<String> _blockedUserIds = <String>{};
+
   User get _user => FirebaseAuth.instance.currentUser!;
 
   bool get _isSelecting => (_selectedMessageId.value ?? '').trim().isNotEmpty;
@@ -123,9 +128,16 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     _resolveLeaguePermissions();
     _resolveLeagueName();
     _watchModerationState();
+    _loadBlockedUserIds();
 
     PushMessagingService.instance.subscribeToLeagueTopic(widget.leagueId);
     PushMessagingService.instance.setActiveLeagueChat(widget.leagueId);
+  }
+
+  Future<void> _loadBlockedUserIds() async {
+    final ids = await TeamProfileRepository().fetchBlockedEitherWayUserIds();
+    if (!mounted) return;
+    setState(() => _blockedUserIds = ids);
   }
 
   void _watchModerationState() {
@@ -1074,6 +1086,18 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     }
   }
 
+  void _reportSelected(ChatMessage msg) {
+    if (_canDeleteMessage(msg)) return; // can't report your own message
+    _selectedMessageId.value = null;
+    showReportSheet(
+      context,
+      targetUserId: msg.senderId,
+      targetType: ReportTargetType.message,
+      contextId: msg.messageId,
+      contextLocation: widget.leagueId,
+    );
+  }
+
   Future<void> _copySelected(ChatMessage msg) async {
     if (msg.deleted) {
       _toast(context.l10n.tr('league_chat_nothing_to_copy'), error: true);
@@ -1199,6 +1223,12 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                   tooltip: context.l10n.tr('league_chat_pin_tooltip'),
                   onPressed: () => _pinSelected(selectedMsg),
                   icon: const Icon(Icons.push_pin_outlined),
+                ),
+              if (selectedMsg != null && !_canDeleteMessage(selectedMsg))
+                IconButton(
+                  tooltip: context.l10n.tr('moderation_report_tooltip'),
+                  onPressed: () => _reportSelected(selectedMsg),
+                  icon: const Icon(Icons.flag_outlined),
                 ),
             ],
           );
@@ -1355,7 +1385,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                           );
                         }
 
-                        final msgs = snap.data ?? const <ChatMessage>[];
+                        final msgs = (snap.data ?? const <ChatMessage>[])
+                            .where((m) => !_blockedUserIds.contains(m.senderId))
+                            .toList(growable: false);
                         if (msgs.isEmpty) {
                           return Center(
                             child: Text(

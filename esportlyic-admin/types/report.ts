@@ -26,6 +26,14 @@ export function reportReasonLabel(reason: string): string {
 
 export type ReportStatus = 'pending' | 'reviewed' | 'dismissed';
 
+// Mirrors ReportTargetType in user_report.dart / sessionOptions-style
+// client helpers. 'profile' (the original, and the default when the field
+// is absent on legacy docs) means targetUserId IS the reported profile;
+// 'message'/'post'/'comment' mean targetUserId is that content's author,
+// and contextId/contextLocation locate the specific item.
+export const REPORT_TARGET_TYPES = ['profile', 'message', 'post', 'comment'] as const;
+export type ReportTargetType = (typeof REPORT_TARGET_TYPES)[number];
+
 export interface UserReport {
   reportId: string;
   reporterId: string;
@@ -36,4 +44,10 @@ export interface UserReport {
   createdAtMs: number;
   reviewedAtMs: number;
   reviewedBy: string;
+  /** Absent on legacy docs written before this field existed -- treat as 'profile'. */
+  targetType?: ReportTargetType;
+  /** The reported message/post/comment's own id. Empty for 'profile' reports. */
+  contextId?: string;
+  /** Extra locator for contextId -- a leagueId/masterLeagueId for a chat message, or a postId for a comment's parent post. Empty for 'profile'/'post' reports. */
+  contextLocation?: string;
 }

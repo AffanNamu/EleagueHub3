@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/user_report.dart';
+
 class ReportRepositoryException implements Exception {
   final String message;
   const ReportRepositoryException(this.message);
@@ -57,15 +59,32 @@ class ReportRepository {
     throw const ReportRepositoryException('Something went wrong. Please try again.');
   }
 
+  /// Submits a report against a user profile, or against a specific piece
+  /// of that user's content (a chat message, a feed post, or a comment).
+  ///
+  /// [targetUserId] is always the content's author (or the profile itself
+  /// for [ReportTargetType.profile]) -- the admin review queue resolves it
+  /// to a profile regardless of [targetType]. [contextId] additionally
+  /// identifies the specific message/post/comment (e.g. a messageId or
+  /// postId) and [contextLocation] gives whatever extra path is needed to
+  /// find it (e.g. a leagueId/masterLeagueId for a chat message, or a
+  /// postId for a comment's parent post) -- both are opaque strings from
+  /// this repository's point of view, interpreted by the admin UI.
   Future<void> submitReport({
     required String targetUserId,
     required String reason,
     String details = '',
+    String targetType = ReportTargetType.profile,
+    String contextId = '',
+    String contextLocation = '',
   }) async {
     try {
       final authUid = _requireAuthUid();
       final target = targetUserId.trim();
       if (target.isEmpty || target == authUid) {
+        throw const ReportRepositoryException('Invalid report target.');
+      }
+      if (!ReportTargetType.all.contains(targetType)) {
         throw const ReportRepositoryException('Invalid report target.');
       }
 
@@ -82,6 +101,9 @@ class ReportRepository {
         'createdAtMs': now,
         'reviewedAtMs': 0,
         'reviewedBy': '',
+        'targetType': targetType,
+        'contextId': contextId.trim(),
+        'contextLocation': contextLocation.trim(),
       }).timeout(const Duration(seconds: 15));
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));

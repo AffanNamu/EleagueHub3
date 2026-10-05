@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -5,6 +6,9 @@ import '../../../../core/errors/user_friendly_error.dart';
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
+import '../../../moderation/models/user_report.dart';
+import '../../../moderation/presentation/report_sheet.dart';
+import '../../../profile/data/team_profile_repository.dart';
 import '../../data/public_feed_repository.dart';
 import '../../models/public_post_comment.dart';
 
@@ -31,6 +35,10 @@ Future<void> showCommentsSheet(
   final repo = PublicFeedRepository();
   final textController = TextEditingController();
   final l10n = context.l10n;
+  // Fetched once up front rather than per-build -- fails open to an empty
+  // set (nothing hidden) until it resolves, matching this app's existing
+  // fail-open convention, since this is a short-lived modal sheet.
+  final blockedIdsFuture = TeamProfileRepository().fetchBlockedEitherWayUserIds();
 
   return showModalBottomSheet<void>(
     context: context,
@@ -129,7 +137,11 @@ Future<void> showCommentsSheet(
                       ),
                     ),
                     Flexible(
-                      child: StreamBuilder<List<PublicPostComment>>(
+                      child: FutureBuilder<Set<String>>(
+                        future: blockedIdsFuture,
+                        builder: (context, blockedSnap) {
+                          final blockedIds = blockedSnap.data ?? const <String>{};
+                          return StreamBuilder<List<PublicPostComment>>(
                         stream: repo.watchComments(postId),
                         builder: (context, snap) {
                           if (snap.hasError) {
@@ -147,7 +159,9 @@ Future<void> showCommentsSheet(
                               child: Center(child: CircularProgressIndicator()),
                             );
                           }
-                          final all = snap.data!;
+                          final all = snap.data!
+                              .where((c) => !blockedIds.contains(c.authorId))
+                              .toList(growable: false);
                           if (all.isEmpty) {
                             return Padding(
                               padding: const EdgeInsets.all(24),
@@ -228,6 +242,8 @@ Future<void> showCommentsSheet(
                               );
                             },
                           );
+                        },
+                      );
                         },
                       ),
                     ),
@@ -376,6 +392,8 @@ class _CommentTile extends StatelessWidget {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
     final avatarRadius = isReply ? 12.0 : 15.0;
+    final selfUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final isOwnComment = selfUid.isNotEmpty && selfUid == comment.authorId;
 
     void openAuthorProfile() {
       try {
@@ -450,20 +468,48 @@ class _CommentTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: onReply,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Text(
-                      l10n.tr('comments_sheet_reply_button'),
-                      style: TextStyle(
-                        color: AppTheme.secondaryText(brightness),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 11,
+                Row(
+                  children: [
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: onReply,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(
+                          l10n.tr('comments_sheet_reply_button'),
+                          style: TextStyle(
+                            color: AppTheme.secondaryText(brightness),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    if (!isOwnComment) ...[
+                      const SizedBox(width: 14),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => showReportSheet(
+                          context,
+                          targetUserId: comment.authorId,
+                          targetType: ReportTargetType.comment,
+                          contextId: comment.commentId,
+                          contextLocation: comment.postId,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            l10n.tr('moderation_report_tooltip'),
+                            style: TextStyle(
+                              color: AppTheme.secondaryText(brightness),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),

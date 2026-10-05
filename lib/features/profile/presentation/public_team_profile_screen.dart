@@ -23,8 +23,8 @@ import '../../auth/models/user_profile.dart';
 import '../../chat/presentation/widgets/private_message_button.dart';
 import '../../leagues/presentation/upgrade_plan_screen.dart';
 import '../../master_leagues/domain/master_league_plan.dart';
-import '../../moderation/data/report_repository.dart';
 import '../../moderation/models/user_report.dart';
+import '../../moderation/presentation/report_sheet.dart';
 import '../../status/data/status_repository.dart';
 import '../../status/presentation/widgets/create_status_sheet.dart';
 import '../data/team_profile_repository.dart';
@@ -209,93 +209,10 @@ class _PublicTeamProfileScreenState extends State<PublicTeamProfileScreen> {
 
   // --- SECTION: Report Sheet ---
   void _showReportSheet() {
-    final ReportRepository reportRepo = ReportRepository();
-    final reasons = [
-      UserReportReason.spam,
-      UserReportReason.harassment,
-      UserReportReason.impersonation,
-      UserReportReason.cheating,
-      UserReportReason.other,
-    ];
-
-    final l10n = context.l10n;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        String? selectedReason;
-        final detailsController = TextEditingController();
-        bool submitting = false;
-
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(l10n.tr('public_profile_report_sheet_title'),
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: reasons
-                            .map((r) => ChoiceChip(
-                                  label: Text(UserReportReason.label(r)),
-                                  selected: selectedReason == r,
-                                  onSelected: (_) => setSheetState(() => selectedReason = r),
-                                ))
-                            .toList(),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: detailsController,
-                        maxLines: 3,
-                        maxLength: 500,
-                        decoration: InputDecoration(
-                            hintText: l10n.tr('public_profile_report_details_hint')),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: (selectedReason == null || submitting)
-                              ? null
-                              : () async {
-                                  setSheetState(() => submitting = true);
-                                  try {
-                                    await reportRepo.submitReport(
-                                      targetUserId: widget.userId,
-                                      reason: selectedReason!,
-                                      details: detailsController.text,
-                                    );
-                                    if (!ctx.mounted) return;
-                                    Navigator.of(ctx).pop();
-                                    _snack(l10n.tr('public_profile_report_submitted_snackbar'));
-                                  } catch (e) {
-                                    setSheetState(() => submitting = false);
-                                    if (!ctx.mounted) return;
-                                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.toString())));
-                                  }
-                                },
-                          child: submitting
-                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                              : Text(l10n.tr('public_profile_submit_report_button')),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+    showReportSheet(
+      context,
+      targetUserId: widget.userId,
+      targetType: ReportTargetType.profile,
     );
   }
 
