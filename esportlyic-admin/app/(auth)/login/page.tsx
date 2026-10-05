@@ -24,10 +24,27 @@ function friendlyAuthError(code: string): string {
   }
 }
 
+// Only ever a same-origin, relative path -- a raw `next` query param
+// (e.g. ?next=https://evil.example/phish or ?next=//evil.example) would
+// otherwise send a just-authenticated admin straight to an attacker's
+// page right after login, which is exactly the moment a phishing/token-
+// theft redirect is most dangerous.
+function safeNextPath(raw: string | null): string {
+  if (!raw) return '/dashboard';
+  // Reject protocol-relative ("//evil.example"), backslash-prefixed
+  // ("/\evil.example", which some browsers normalize to "//"), and any
+  // embedded scheme ("/x://evil.example") -- only a plain same-origin
+  // path is safe to redirect to.
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\') || raw.includes('://')) {
+    return '/dashboard';
+  }
+  return raw;
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = searchParams.get('next') ?? '/dashboard';
+  const nextPath = safeNextPath(searchParams.get('next'));
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
