@@ -20,6 +20,15 @@ class AuthService {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  // debugPrint is NOT stripped from release builds (it only throttles
+  // output) -- these calls log emails, token-presence flags, uids, and
+  // raw provider error text, all readable off a shipped device's system
+  // log (e.g. via ADB) by anything with log-reading access. Gated behind
+  // kDebugMode so none of it reaches a production build.
+  void _authDebugLog(String message) {
+    if (kDebugMode) debugPrint(message);
+  }
+
   /// Action links (verification + password reset) will redirect to:
   /// https://<projectId>.web.app/auth?mode=...&oobCode=...
   ///
@@ -122,32 +131,32 @@ class AuthService {
 
   Future<UserCredential> signInWithGoogle() async {
     try {
-      debugPrint('GOOGLE_AUTH: Starting Google Sign-In...');
+      _authDebugLog('GOOGLE_AUTH: Starting Google Sign-In...');
 
       final googleSignIn = GoogleSignIn(scopes: ['email']);
 
       // Ensure any previous session is cleared
       await googleSignIn.signOut().catchError((_) => null);
 
-      debugPrint('GOOGLE_AUTH: Calling signIn()...');
+      _authDebugLog('GOOGLE_AUTH: Calling signIn()...');
       final googleUser = await googleSignIn.signIn().timeout(const Duration(seconds: 30));
 
       if (googleUser == null) {
-        debugPrint('GOOGLE_AUTH: User cancelled sign-in');
+        _authDebugLog('GOOGLE_AUTH: User cancelled sign-in');
         throw const UserFriendlyException('Sign-in was cancelled.');
       }
 
-      debugPrint('GOOGLE_AUTH: Got user: ${googleUser.email}');
-      debugPrint('GOOGLE_AUTH: Getting authentication tokens...');
+      _authDebugLog('GOOGLE_AUTH: Got user: ${googleUser.email}');
+      _authDebugLog('GOOGLE_AUTH: Getting authentication tokens...');
 
       final googleAuth = await googleUser.authentication.timeout(const Duration(seconds: 20));
 
-      debugPrint('GOOGLE_AUTH: accessToken present: ${googleAuth.accessToken != null}');
-      debugPrint('GOOGLE_AUTH: idToken present: ${googleAuth.idToken != null}');
+      _authDebugLog('GOOGLE_AUTH: accessToken present: ${googleAuth.accessToken != null}');
+      _authDebugLog('GOOGLE_AUTH: idToken present: ${googleAuth.idToken != null}');
 
       if (googleAuth.idToken == null) {
-        debugPrint('GOOGLE_AUTH: CRITICAL — idToken is null!');
-        debugPrint('GOOGLE_AUTH: This means default_web_client_id is wrong or missing');
+        _authDebugLog('GOOGLE_AUTH: CRITICAL — idToken is null!');
+        _authDebugLog('GOOGLE_AUTH: This means default_web_client_id is wrong or missing');
         throw const UserFriendlyException(
           'Google Sign-In configuration error. Please contact support.',
         );
@@ -158,26 +167,26 @@ class AuthService {
         idToken: googleAuth.idToken,
       );
 
-      debugPrint('GOOGLE_AUTH: Signing into Firebase...');
+      _authDebugLog('GOOGLE_AUTH: Signing into Firebase...');
       final result = await _auth.signInWithCredential(cred).timeout(const Duration(seconds: 25));
-      debugPrint('GOOGLE_AUTH: SUCCESS — uid: ${result.user?.uid}');
+      _authDebugLog('GOOGLE_AUTH: SUCCESS — uid: ${result.user?.uid}');
 
       return result;
     } catch (e, stackTrace) {
-      debugPrint('GOOGLE_AUTH: ERROR — ${e.runtimeType}:$e');
-      debugPrint('GOOGLE_AUTH: STACK — $stackTrace');
+      _authDebugLog('GOOGLE_AUTH: ERROR — ${e.runtimeType}:$e');
+      _authDebugLog('GOOGLE_AUTH: STACK — $stackTrace');
 
       // Re-throw UserFriendlyException as-is
       if (e is UserFriendlyException) rethrow;
 
       // Show the REAL error for debugging (temporary — remove after fixing)
       if (e is FirebaseAuthException) {
-        debugPrint('GOOGLE_AUTH: FirebaseAuth code: ${e.code}, message:${e.message}');
+        _authDebugLog('GOOGLE_AUTH: FirebaseAuth code: ${e.code}, message:${e.message}');
         throw UserFriendlyException('Google sign-in failed: ${e.code} —${e.message}');
       }
 
       // Show platform exceptions (this is where error code 10 appears)
-      debugPrint('GOOGLE_AUTH: Raw error for debugging: $e');
+      _authDebugLog('GOOGLE_AUTH: Raw error for debugging: $e');
       throw UserFriendlyException('Google sign-in failed: $e');
     }
   }
@@ -191,22 +200,22 @@ class AuthService {
 
   Future<UserCredential> signInWithApple() async {
     try {
-      debugPrint('APPLE_AUTH: Starting Apple Sign-In...');
+      _authDebugLog('APPLE_AUTH: Starting Apple Sign-In...');
 
       final provider = AppleAuthProvider();
       provider.addScope('email');
       provider.addScope('name'); // Firebase automatically handles mapping this to user.displayName
 
-      debugPrint('APPLE_AUTH: Signing into Firebase...');
+      _authDebugLog('APPLE_AUTH: Signing into Firebase...');
       // signInWithProvider natively manages the iOS bottom sheet, nonces, and the secure token exchange.
       // This bypasses the OAuthProvider iOS bridge bug entirely.
       final result = await _auth.signInWithProvider(provider).timeout(const Duration(seconds: 60));
-      debugPrint('APPLE_AUTH: SUCCESS — uid: ${result.user?.uid}');
+      _authDebugLog('APPLE_AUTH: SUCCESS — uid: ${result.user?.uid}');
 
       return result;
     } catch (e, stackTrace) {
-      debugPrint('APPLE_AUTH: ERROR — ${e.runtimeType}:$e');
-      debugPrint('APPLE_AUTH: STACK — $stackTrace');
+      _authDebugLog('APPLE_AUTH: ERROR — ${e.runtimeType}:$e');
+      _authDebugLog('APPLE_AUTH: STACK — $stackTrace');
 
       if (e is UserFriendlyException) rethrow;
 
@@ -214,11 +223,11 @@ class AuthService {
         if (e.code == 'canceled' || e.code == 'web-context-cancelled') {
           throw const UserFriendlyException('Sign-in was cancelled.');
         }
-        debugPrint('APPLE_AUTH: FirebaseAuth code: ${e.code}, message:${e.message}');
+        _authDebugLog('APPLE_AUTH: FirebaseAuth code: ${e.code}, message:${e.message}');
         throw UserFriendlyException('Apple sign-in failed: ${e.code} —${e.message}');
       }
 
-      debugPrint('APPLE_AUTH: Raw error for debugging: $e');
+      _authDebugLog('APPLE_AUTH: Raw error for debugging: $e');
       throw UserFriendlyException('Apple sign-in failed: $e');
     }
   }
