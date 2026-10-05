@@ -1,9 +1,12 @@
 // lib/features/football_hub/presentation/football_team_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/services/push_messaging_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -38,6 +41,7 @@ class _FootballTeamScreenState extends State<FootballTeamScreen> {
   late Future<List<FootballFixture>> _lastFuture;
   late Future<List<FootballSquadPlayer>> _squadFuture;
   bool? _isFollowing;
+  bool _notifyEnabled = true;
 
   @override
   void initState() {
@@ -45,8 +49,12 @@ class _FootballTeamScreenState extends State<FootballTeamScreen> {
     _nextFuture = _service.getFixturesForTeam(teamId: widget.teamId, next: 1);
     _lastFuture = _service.getFixturesForTeam(teamId: widget.teamId, last: 5);
     _squadFuture = _service.getSquad(teamId: widget.teamId);
-    _follows.isFollowingTeam(widget.teamId).then((v) {
-      if (mounted) setState(() => _isFollowing = v);
+    _follows.getTeamNotifyEnabled(widget.teamId).then((notifyEnabled) {
+      if (!mounted) return;
+      setState(() {
+        _isFollowing = notifyEnabled != null;
+        _notifyEnabled = notifyEnabled ?? true;
+      });
     });
   }
 
@@ -61,11 +69,43 @@ class _FootballTeamScreenState extends State<FootballTeamScreen> {
           teamId: widget.teamId,
           name: widget.teamName,
           logoUrl: widget.teamLogoUrl,
+          notifyEnabled: _notifyEnabled,
         );
+        // Following defaults notifications on -- make sure the OS
+        // permission is actually granted, otherwise they'd silently never
+        // arrive. A no-op if already granted or already denied by the user.
+        unawaited(PushMessagingService.instance.requestNotificationPermission());
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isFollowing = currentlyFollowing);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> _toggleNotify() async {
+    if (!(_isFollowing ?? false)) return;
+    final prev = _notifyEnabled;
+    final next = !prev;
+    setState(() => _notifyEnabled = next);
+    try {
+      await _follows.setTeamNotifyEnabled(widget.teamId, next);
+      if (next) {
+        final granted =
+            await PushMessagingService.instance.requestNotificationPermission();
+        if (!granted && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Notifications are blocked for this app in system settings.',
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _notifyEnabled = prev);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
   }
@@ -130,6 +170,23 @@ class _FootballTeamScreenState extends State<FootballTeamScreen> {
                     ),
                   ),
                 ),
+                if (_isFollowing ?? false) ...[
+                  IconButton(
+                    tooltip: _notifyEnabled
+                        ? 'Turn off match notifications for this team'
+                        : 'Turn on match notifications for this team',
+                    onPressed: _toggleNotify,
+                    icon: Icon(
+                      _notifyEnabled
+                          ? Icons.notifications_active
+                          : Icons.notifications_off_outlined,
+                      color: _notifyEnabled
+                          ? AppTheme.limeAccentDark
+                          : AppTheme.secondaryText(brightness),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 OutlinedButton.icon(
                   onPressed: _toggleFollow,
                   icon: Icon((_isFollowing ?? false) ? Icons.check : Icons.add),

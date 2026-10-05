@@ -776,16 +776,24 @@ async function _firestoreQueryCollectionGroupEquals(env, collectionId, fieldPath
   const rows = await res.json();
   // Each doc's resource name looks like:
   // projects/P/databases/(default)/documents/users/{uid}/football_followed_teams/{teamId}
-  // -- the uid is the path segment right after "users".
-  const uids = new Set();
+  // -- the uid is the path segment right after "users". Returns {uid, fields}
+  // per match (not just uid) so callers can filter on other fields of that
+  // same doc -- e.g. _pollLiveFixturesAndNotify checking notifyEnabled --
+  // without a second round-trip or a composite index (a direct
+  // notifyEnabled==true equality filter would silently exclude every
+  // pre-existing follow doc that predates the field, since Firestore
+  // equality filters never match a missing field).
+  const seen = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
-    const name = row && row.document && row.document.name;
+    const doc = row && row.document;
+    const name = doc && doc.name;
     if (!name) continue;
     const parts = String(name).split("/");
     const idx = parts.indexOf("users");
-    if (idx >= 0 && parts[idx + 1]) uids.add(parts[idx + 1]);
+    const uid = idx >= 0 ? parts[idx + 1] : null;
+    if (uid && !seen.has(uid)) seen.set(uid, (doc && doc.fields) || {});
   }
-  return Array.from(uids);
+  return Array.from(seen.entries()).map(([uid, fields]) => ({ uid, fields }));
 }
 
 // ── FCM push (mirrors supabase/functions/follow-notify/index.ts's proven
@@ -3835,7 +3843,15 @@ async function _pollLiveFixturesAndNotify(env) {
         _firestoreQueryCollectionGroupEquals(env, "football_followed_teams", "teamId", String(f.homeTeamId)),
         _firestoreQueryCollectionGroupEquals(env, "football_followed_teams", "teamId", String(f.awayTeamId)),
       ]);
-      followerUids = Array.from(new Set([...homeFollowers, ...awayFollowers]));
+      // notifyEnabled defaults to true when absent (every follow doc
+      // written before this toggle existed), so only an explicit
+      // notifyEnabled=false opts a follower out.
+      const notifyWanted = (row) => row.fields.notifyEnabled
+        ? row.fields.notifyEnabled.booleanValue !== false
+        : true;
+      followerUids = Array.from(new Set(
+        [...homeFollowers, ...awayFollowers].filter(notifyWanted).map((row) => row.uid)
+      ));
     } catch (e) {
       console.error(`[football poll] follower lookup failed for fixture ${f.id}:`, e.message || String(e));
       continue;

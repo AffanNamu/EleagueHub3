@@ -1463,9 +1463,17 @@ service cloud.firestore {
           && (request.resource.data.teamId is string) && (request.resource.data.teamId == teamId)
           && (request.resource.data.teamName is string) && (request.resource.data.teamName.size() <= 200)
           && (!('teamLogoUrl' in request.resource.data) || (request.resource.data.teamLogoUrl is string && request.resource.data.teamLogoUrl.size() <= 500))
+          && (!('notifyEnabled' in request.resource.data) || request.resource.data.notifyEnabled is bool)
           && (request.resource.data.createdAtMs is int);
         allow delete: if signedIn() && request.auth.uid == userId;
-        allow update: if false;
+        // Only the notifyEnabled flag may ever change post-follow (the
+        // Following screen's per-team notification toggle; see
+        // FootballFollowsRepository.setTeamNotifyEnabled) -- teamId/
+        // teamName/createdAtMs etc. stay immutable, same as every other
+        // follow-style doc in this file.
+        allow update: if signedIn() && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['notifyEnabled'])
+          && request.resource.data.notifyEnabled is bool;
       }
 
       match /football_followed_players/{playerId} {

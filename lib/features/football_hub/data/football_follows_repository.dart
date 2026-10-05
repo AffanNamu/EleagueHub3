@@ -12,7 +12,18 @@ class FollowedFootballEntity {
   final String name;
   final String? imageUrl;
 
-  const FollowedFootballEntity({required this.id, required this.name, this.imageUrl});
+  /// Only meaningful for teams -- the Worker's live-score poller
+  /// (_pollLiveFixturesAndNotify) only ever queries football_followed_teams,
+  /// so there is no equivalent push for followed players today. Defaults to
+  /// true, matching every follow doc written before this toggle existed.
+  final bool notifyEnabled;
+
+  const FollowedFootballEntity({
+    required this.id,
+    required this.name,
+    this.imageUrl,
+    this.notifyEnabled = true,
+  });
 }
 
 class FootballFollowsRepository {
@@ -55,12 +66,18 @@ class FootballFollowsRepository {
   /// provider later").
   static const String _providerId = 'api-football';
 
-  Future<void> followTeam({required int teamId, required String name, String? logoUrl}) async {
+  Future<void> followTeam({
+    required int teamId,
+    required String name,
+    String? logoUrl,
+    bool notifyEnabled = true,
+  }) async {
     final uid = _requireAuthUid();
     await _teamsCol(uid).doc('$teamId').set(<String, dynamic>{
       'teamId': '$teamId',
       'teamName': name,
       if (logoUrl != null && logoUrl.trim().isNotEmpty) 'teamLogoUrl': logoUrl.trim(),
+      'notifyEnabled': notifyEnabled,
       'provider': _providerId,
       'createdAtMs': DateTime.now().millisecondsSinceEpoch,
     });
@@ -69,6 +86,16 @@ class FootballFollowsRepository {
   Future<void> unfollowTeam(int teamId) async {
     final uid = _requireAuthUid();
     await _teamsCol(uid).doc('$teamId').delete();
+  }
+
+  /// Toggles whether goal/kickoff/full-time pushes fire for an
+  /// already-followed team, without touching the follow itself. firestore.
+  /// rules only permits this exact single-field diff on this doc.
+  Future<void> setTeamNotifyEnabled(int teamId, bool enabled) async {
+    final uid = _requireAuthUid();
+    await _teamsCol(uid).doc('$teamId').update(<String, dynamic>{
+      'notifyEnabled': enabled,
+    });
   }
 
   Future<void> followPlayer({required int playerId, required String name, String? photoUrl}) async {
@@ -98,8 +125,20 @@ class FootballFollowsRepository {
               imageUrl: (d.data()['teamLogoUrl'] as String?)?.trim().isNotEmpty == true
                   ? d.data()['teamLogoUrl'] as String
                   : null,
+              notifyEnabled: d.data()['notifyEnabled'] as bool? ?? true,
             ))
         .toList(growable: false);
+  }
+
+  /// Returns null if not following the team at all; otherwise its current
+  /// notifyEnabled (defaulting true for follow docs written before this
+  /// field existed, same default used everywhere else in this file).
+  Future<bool?> getTeamNotifyEnabled(int teamId) async {
+    final uid = _auth.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) return null;
+    final doc = await _teamsCol(uid).doc('$teamId').get();
+    if (!doc.exists) return null;
+    return doc.data()?['notifyEnabled'] as bool? ?? true;
   }
 
   Future<List<FollowedFootballEntity>> getFollowedPlayers() async {
