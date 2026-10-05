@@ -1295,6 +1295,56 @@ async function _verifyFlutterwaveTransactionGeneric(env, transactionId) {
   };
 }
 
+// The full Flutterwave verify response includes customer name/email/phone
+// and card/account details -- never return or persist it wholesale to a
+// client. Whitelist only the fields the UI actually needs (a receipt
+// summary), matching what every call site here used to hand back as
+// `raw` in full.
+function _sanitizedFlutterwaveRaw(raw) {
+  const data = raw && typeof raw === "object" && raw.data && typeof raw.data === "object" ? raw.data : {};
+  return {
+    id: data.id ?? null,
+    tx_ref: data.tx_ref ?? null,
+    flw_ref: data.flw_ref ?? null,
+    amount: typeof data.amount === "number" ? data.amount : null,
+    currency: typeof data.currency === "string" ? data.currency : null,
+    charged_amount: typeof data.charged_amount === "number" ? data.charged_amount : null,
+    status: typeof data.status === "string" ? data.status : null,
+    payment_type: typeof data.payment_type === "string" ? data.payment_type : null,
+    created_at: typeof data.created_at === "string" ? data.created_at : null,
+  };
+}
+
+// Firestore ledger shared by every money-granting Flutterwave flow in this
+// file (master-league creation, Organizer Pro, Premium): a given real
+// Flutterwave transaction may only ever be consumed ONCE, by whichever of
+// these flows claims it first. Without this, a client-controlled receiptId
+// string ("FLW-{txId}") -- or a tampered payment_attempts.paymentId field,
+// which Firestore rules let a signed-in user set to anything on their own
+// attempt doc -- could be replayed indefinitely, or point at a completely
+// different user's real payment, to grant plans/leagues for free.
+async function _claimFlutterwaveTxOnce(env, txId, uid, usage) {
+  const paymentId = `flutterwave_${txId}`;
+  const existing = await _firestoreGetDocSA(env, `payments/${paymentId}`);
+  if (existing.ok && existing.doc) {
+    return { ok: false, status: 409, error: "This payment has already been used." };
+  }
+  const nowMs = Date.now();
+  await _firestoreCreateDocSA(env, `payments/${paymentId}`, {
+    paymentId,
+    attemptId: "",
+    status: "success",
+    provider: "flutterwave",
+    providerTransactionId: txId,
+    userId: uid,
+    usage,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+    paidAtMs: nowMs,
+  });
+  return { ok: true, paymentId };
+}
+
 async function _verifyFlutterwaveTransaction(env, transactionId) {
   const result = await _verifyFlutterwaveTransactionGeneric(env, transactionId);
   if (!result.ok) {
@@ -2558,27 +2608,38 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
     return { ok: false, status: 403, error: "Payment attempt does not belong to signed-in user." };
   }
 
+  // payment_attempts.paymentId is client-writable (firestore.rules allows
+  // the owning user to set it on their own attempt doc) and is NOT
+  // guaranteed to actually belong to this attempt/user -- never trust it
+  // on its own. Only short-circuit here if the payment doc it points to
+  // really was created for this exact uid + attemptId; otherwise ignore it
+  // and fall through to the real Flutterwave verification below.
   const existingPaymentId = String(attempt.paymentId || "").trim();
   if (existingPaymentId) {
     const existingPaymentRes = await _firestoreGetDocSA(env, `payments/${existingPaymentId}`);
     if (existingPaymentRes.ok && existingPaymentRes.doc) {
       const existingPayment = _fromFirestoreDoc(existingPaymentRes.doc);
-      const existingVerification = existingPayment.verification || {};
-      return {
-        ok: true,
-        success: existingVerification.verified === true,
-        provider: "flutterwave",
-        paymentId: existingPaymentId,
-        receiptId: String(existingPayment.receiptId || "").trim(),
-        paidAtMs: Number(existingPayment.paidAtMs || 0),
-        transactionId: String(existingPayment.providerTransactionId || transactionId).trim(),
-        txRef: String(existingPayment.txRef || txRefFromClient).trim(),
-        status: String(existingPayment.status || "success").trim(),
-        currency: String(existingPayment.currency || attempt.currency || "").trim(),
-        amount: Number(existingPayment.amount || attempt.amount || 0),
-        amountStr: String(existingPayment.amountStr || attempt.amountStr || "").trim(),
-        raw: existingPayment.rawFlutterwaveVerification || {},
-      };
+      const belongsToThisAttempt =
+        String(existingPayment.userId || "").trim() === verified.uid &&
+        String(existingPayment.attemptId || "").trim() === attemptId;
+      if (belongsToThisAttempt) {
+        const existingVerification = existingPayment.verification || {};
+        return {
+          ok: true,
+          success: existingVerification.verified === true,
+          provider: "flutterwave",
+          paymentId: existingPaymentId,
+          receiptId: String(existingPayment.receiptId || "").trim(),
+          paidAtMs: Number(existingPayment.paidAtMs || 0),
+          transactionId: String(existingPayment.providerTransactionId || transactionId).trim(),
+          txRef: String(existingPayment.txRef || txRefFromClient).trim(),
+          status: String(existingPayment.status || "success").trim(),
+          currency: String(existingPayment.currency || attempt.currency || "").trim(),
+          amount: Number(existingPayment.amount || attempt.amount || 0),
+          amountStr: String(existingPayment.amountStr || attempt.amountStr || "").trim(),
+          raw: _sanitizedFlutterwaveRaw(existingPayment.rawFlutterwaveVerification),
+        };
+      }
     }
   }
 
@@ -2698,28 +2759,38 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
   const paidAtMs = Date.now();
   const paymentId = `flutterwave_${verify.txId}`;
   const receiptId = `FLW-${verify.txId}`;
-  const attemptStatus = String(attempt.status || "").trim().toLowerCase();
 
-  if (attemptStatus === "fulfilled" || attemptStatus === "verified") {
-    const existingPaymentRes = await _firestoreGetDocSA(env, `payments/${paymentId}`);
-    if (existingPaymentRes.ok && existingPaymentRes.doc) {
-      const existingPayment = _fromFirestoreDoc(existingPaymentRes.doc);
-      return {
-        ok: true,
-        success: true,
-        provider: "flutterwave",
-        paymentId,
-        receiptId: String(existingPayment.receiptId || receiptId).trim(),
-        paidAtMs: Number(existingPayment.paidAtMs || paidAtMs),
-        transactionId: verify.txId,
-        txRef: verify.txRef,
-        status: "success",
-        currency: verify.currency,
-        amount: Number(verify.amount || 0),
-        amountStr: String(existingPayment.amountStr || attempt.amountStr || "").trim(),
-        raw: verify.raw || {},
-      };
+  // This exact Flutterwave transaction may already have been consumed --
+  // by a previous call for this same attempt (idempotent retry), or by
+  // ANY other attempt/uid/activation flow that reached this txId first
+  // (replay or a guessed/leaked transactionId). Checked unconditionally,
+  // not just when this attempt's own status looks "done" -- the latter
+  // only protects against retries of THIS attempt, never a different one
+  // racing to claim the same real transaction.
+  const existingPaymentRes = await _firestoreGetDocSA(env, `payments/${paymentId}`);
+  if (existingPaymentRes.ok && existingPaymentRes.doc) {
+    const existingPayment = _fromFirestoreDoc(existingPaymentRes.doc);
+    const belongsToThisAttempt =
+      String(existingPayment.userId || "").trim() === verified.uid &&
+      String(existingPayment.attemptId || "").trim() === attemptId;
+    if (!belongsToThisAttempt) {
+      return { ok: false, status: 409, error: "This transaction has already been used." };
     }
+    return {
+      ok: true,
+      success: true,
+      provider: "flutterwave",
+      paymentId,
+      receiptId: String(existingPayment.receiptId || receiptId).trim(),
+      paidAtMs: Number(existingPayment.paidAtMs || paidAtMs),
+      transactionId: verify.txId,
+      txRef: verify.txRef,
+      status: "success",
+      currency: verify.currency,
+      amount: Number(verify.amount || 0),
+      amountStr: String(existingPayment.amountStr || attempt.amountStr || "").trim(),
+      raw: _sanitizedFlutterwaveRaw(verify.raw),
+    };
   }
 
   await _firestoreCreateDocSA(env, `payments/${paymentId}`, {
@@ -2778,7 +2849,7 @@ async function _verifyMasterLeaguePayment(env, verified, body) {
     currency: verify.currency,
     amount: Number(verify.amount || 0),
     amountStr: String(attempt.amountStr || "").trim(),
-    raw: verify.raw || {},
+    raw: _sanitizedFlutterwaveRaw(verify.raw),
   };
 }
 
@@ -2925,6 +2996,18 @@ async function _activateOrganizerPro(env, verified, body) {
     };
   }
 
+  // receiptId is just "FLW-{txId}" -- entirely client-derivable, with no
+  // secrecy at all. Without this, the SAME real transaction (the caller's
+  // own old receipt, or anyone else's if the txId is guessed/leaked) could
+  // be replayed indefinitely to keep re-granting/extending a plan for
+  // free. Shares the same ledger payments/flutterwave_{txId} already used
+  // by _verifyMasterLeaguePayment, so a txId is consumed only once across
+  // every money-granting flow in this file. Claimed only now, after every
+  // validation check has passed, so a txId that fails validation is never
+  // burned.
+  const claim = await _claimFlutterwaveTxOnce(env, verify.txId, uid, "organizer_pro");
+  if (!claim.ok) return claim;
+
   const nowMs = Date.now();
   const expiryMs = nowMs + _durationDays(duration) * 24 * 60 * 60 * 1000;
 
@@ -3023,6 +3106,11 @@ async function _activatePremium(env, verified, body) {
       error: `Premium amount mismatch. Expected ${expected} ${verify.currency}, got ${verify.amount}.`,
     };
   }
+
+  // Same replay protection as _activateOrganizerPro's Flutterwave branch --
+  // see its comment. Claimed only now, after validation has passed.
+  const claim = await _claimFlutterwaveTxOnce(env, verify.txId, uid, "premium");
+  if (!claim.ok) return claim;
 
   const nowMs = Date.now();
   const durationDays = Number(cfg.premiumDurationDays || 30);
