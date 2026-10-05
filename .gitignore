@@ -71,6 +71,10 @@ esportlyic-admin/.next/
 .env
 .env.local
 .env.*.local
+# Any other *.env-suffixed file (e.g. esportlyic-admin/esportlyic.env, a
+# duplicate of .env.local that was committed under a name none of the
+# patterns above cover -- caught by a security audit; see that commit).
+*.env
 
 # dataconnect generated files
 .dataconnect
