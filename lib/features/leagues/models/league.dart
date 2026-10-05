@@ -378,6 +378,17 @@ class League {
       privacy: isPrivate ? LeaguePrivacy.private : LeaguePrivacy.public,
       region: map['region'] as String? ?? 'Global',
       maxTeams: (map['maxTeams'] as num?)?.toInt() ?? 20,
+      // Legacy fallback ONLY -- every new league write (see
+      // league_create_wizard.dart / league_creation_dashboard.dart) now
+      // passes an organizer-chosen session via CompetitionSessionOptions,
+      // so a doc missing this field entirely can only be a pre-existing
+      // production record from before that change. Deliberately a frozen
+      // literal, not DateTime.now().year.toString() -- computing "today's"
+      // year for an old record would be guessing the organizer's actual
+      // intent (explicitly against this feature's spec), and would keep
+      // drifting wrong the longer the app runs. '2026' reflects when this
+      // fallback was introduced, which is a reasonable snapshot for
+      // records that already predate it.
       season: map['season'] as String? ?? '2026',
       organizerUid: organizerUid,
       organizerUserId: organizerUserId,

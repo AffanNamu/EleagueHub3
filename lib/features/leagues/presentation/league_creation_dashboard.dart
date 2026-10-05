@@ -53,6 +53,7 @@ import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../../master_leagues/data/organizer_feed_firebase.dart';
 import '../data/leagues_repository_firebase.dart';
+import '../logic/competition_session_options.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
@@ -62,6 +63,7 @@ import '../models/football_category.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import 'widgets/competition_session_selector.dart';
 import '../../../core/config/payment_platform_config.dart';
 
 // ---------------------------------------------------------------------------
@@ -130,6 +132,12 @@ class _LeagueCreationDashboardState
 
   LeaguePrivacy _privacy = LeaguePrivacy.private;
   bool _homeAwayEnabled = false;
+
+  // Organizer-chosen competition session -- see CompetitionSessionOptions
+  // and the sibling league_create_wizard.dart for why this is a free-form
+  // String rather than a year, and why the suggested default is never
+  // forced through unchanged.
+  String _session = CompetitionSessionOptions.suggestedDefault();
 
   bool _submitting = false;
   League? _createdLeague;
@@ -1303,6 +1311,11 @@ class _LeagueCreationDashboardState
             l10n.tr('league_create_summary_max_teams_label'),
             '$_maxTeams',
           ),
+          _summaryRow(
+            Icons.event,
+            l10n.tr('competition_session_label'),
+            _session,
+          ),
           if (_supportsHomeAwayMatches)
             _summaryRow(
               Icons.swap_horiz,
@@ -2348,6 +2361,13 @@ class _LeagueCreationDashboardState
           ),
         ),
         const SizedBox(height: 12),
+        CompetitionSessionSelector(
+          value: _session,
+          enabled: !locked,
+          onChanged: (v) => setState(() => _session = v),
+        ),
+
+        const SizedBox(height: 12),
         _sectionTitle(
             l10n.tr('league_create_images_section_title'),
             Icons.image_outlined),
@@ -3327,6 +3347,10 @@ class _LeagueCreationDashboardState
           l10n.tr('league_create_error_name_required'));
       return;
     }
+    if (CompetitionSessionOptions.normalizeCustom(_session) == null) {
+      _showSnack(l10n.tr('competition_session_error_required'));
+      return;
+    }
     if (_submitting || _rewardGateInProgress) return;
 
     // ── Rewarded ad gate ────────────────────────────────────────────────
@@ -3431,7 +3455,7 @@ class _LeagueCreationDashboardState
         privacy: _privacy,
         region: 'Global',
         maxTeams: _maxTeams,
-        season: '2026',
+        season: _session,
         organizerUid: organizerAuthUid,
         organizerUserId: organizerUserId,
         code: joinCode,

@@ -24,6 +24,7 @@ import '../../../widgets/league_flip_card.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../data/leagues_repository_firebase.dart';
+import '../logic/competition_session_options.dart';
 import '../logic/coupon_config_service.dart';
 import '../logic/league_media_service.dart';
 import '../logic/league_premium_upgrade_helper.dart';
@@ -31,6 +32,7 @@ import '../models/enums.dart';
 import '../models/league.dart';
 import '../models/league_format.dart';
 import '../models/league_settings.dart';
+import 'widgets/competition_session_selector.dart';
 import 'screens/edit_league_rewards_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -83,6 +85,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
   WorldCupFormat _worldCupFormat = WorldCupFormat.fifa2022;
 
   LeaguePrivacy _privacy = LeaguePrivacy.private;
+
+  // Organizer-chosen competition session (e.g. "2026", "2026/2027", "Summer
+  // 2027") -- see CompetitionSessionOptions for why this is a free-form
+  // String rather than a year. Pre-filled with a sensible suggestion the
+  // organizer can change or replace with a custom value; never silently
+  // forced through to creation.
+  String _session = CompetitionSessionOptions.suggestedDefault();
 
   bool _doubleRoundRobin = false;
   bool _homeAwayEnabled = false;
@@ -892,6 +901,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
             _privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public'),
           ),
           row(Icons.groups, l10n.tr('league_create_summary_max_teams_label'), '$_maxTeams'),
+          row(Icons.event, l10n.tr('competition_session_label'), _session),
           if (_supportsHomeAwayMatches)
             row(
               Icons.swap_horiz,
@@ -1287,6 +1297,13 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         ],
 
         const SizedBox(height: 12),
+        CompetitionSessionSelector(
+          value: _session,
+          enabled: !locked,
+          onChanged: (v) => setState(() => _session = v),
+        ),
+
+        const SizedBox(height: 12),
         _sectionTitle(
             context.l10n.tr('league_create_images_section_title'),
             Icons.image_outlined),
@@ -1472,7 +1489,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
               ? l10n.tr('league_create_league_name_not_set')
               : _name.text.trim(),
           subtitle:
-              '${_format.displayName}$wcSuffix • $_maxTeams ${l10n.tr('league_create_wizard_teams_word_lower')} • ${_privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public')}',
+              '${_format.displayName}$wcSuffix • $_maxTeams ${l10n.tr('league_create_wizard_teams_word_lower')} • ${_privacy == LeaguePrivacy.private ? l10n.tr('league_create_private') : l10n.tr('league_create_public')} • $_session',
         ),
         const SizedBox(height: 10),
         if (_inMasterLeagueMode)
@@ -1803,6 +1820,10 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
       _showSnack(l10n.tr('league_create_error_name_required'));
       return;
     }
+    if (CompetitionSessionOptions.normalizeCustom(_session) == null) {
+      _showSnack(l10n.tr('competition_session_error_required'));
+      return;
+    }
 
     // ── Monetization gate ────────────────────────────────────────────────────
     if (!_isPaidPlanUser) {
@@ -1869,7 +1890,7 @@ class _LeagueCreateWizardState extends ConsumerState<LeagueCreateWizard> {
         privacy: _privacy,
         region: l10n.tr('common_region_global'),
         maxTeams: _maxTeams,
-        season: '2026',
+        season: _session,
         organizerUid: organizerUid,
         organizerUserId: organizerUserId,
         code: joinCode,

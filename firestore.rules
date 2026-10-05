@@ -156,6 +156,16 @@ service cloud.firestore {
       ]);
     }
 
+    // Competition/league "session" -- deliberately a free-form string, not
+    // a year or an enum, since a competition might be "2026", "2026/2027",
+    // "Summer 2027", etc. (see lib/features/leagues/logic/
+    // competition_session_options.dart for the full rationale). Just a
+    // type + length guard -- the organizer's exact chosen text is the
+    // canonical value, never normalized or rewritten here.
+    function validLeagueSeason(s) {
+      return (s is string) && (s.size() >= 1) && (s.size() <= 60);
+    }
+
     function validMasterLeagueOptionalFields(data) {
       return (!('bannerUrl' in data) || ((data.bannerUrl is string) && (data.bannerUrl.size() <= 2000)))
         && (!('logoUrl' in data) || ((data.logoUrl is string) && (data.logoUrl.size() <= 2000)))
@@ -2132,7 +2142,8 @@ service cloud.firestore {
         && (!('format' in request.resource.data) || validLeagueFormatIndex(request.resource.data.format))
         && (!('settings' in request.resource.data) || validLeagueSettingsMap(request.resource.data.settings))
         && validWorldCupTeamCount(request.resource.data)
-        && (!('footballCategory' in request.resource.data) || validFootballCategory(request.resource.data.footballCategory));
+        && (!('footballCategory' in request.resource.data) || validFootballCategory(request.resource.data.footballCategory))
+        && (!('season' in request.resource.data) || validLeagueSeason(request.resource.data.season));
 
       allow update: if (
           (
@@ -2151,6 +2162,7 @@ service cloud.firestore {
             && (!('settings' in request.resource.data) || validLeagueSettingsMap(request.resource.data.settings))
             && validWorldCupTeamCount(request.resource.data)
             && (!('footballCategory' in request.resource.data) || validFootballCategory(request.resource.data.footballCategory))
+            && (!('season' in request.resource.data) || validLeagueSeason(request.resource.data.season))
           )
         ) || (
           signedIn()

@@ -30,11 +30,13 @@ class TeamClaimPreview {
   final String teamName;
   final String teamLogoUrl;
   final String leagueName;
+  final String leagueSeason;
   final String organizerName;
   const TeamClaimPreview({
     required this.teamName,
     required this.teamLogoUrl,
     required this.leagueName,
+    required this.leagueSeason,
     required this.organizerName,
   });
 }
@@ -136,6 +138,7 @@ class TeamClaimRepository {
       teamName: (body['teamName'] as String?)?.trim() ?? '',
       teamLogoUrl: (body['teamLogoUrl'] as String?)?.trim() ?? '',
       leagueName: (body['leagueName'] as String?)?.trim() ?? '',
+      leagueSeason: (body['leagueSeason'] as String?)?.trim() ?? '',
       organizerName: (body['organizerName'] as String?)?.trim() ?? '',
     );
   }

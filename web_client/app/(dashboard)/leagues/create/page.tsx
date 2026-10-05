@@ -27,6 +27,7 @@ import { LeaguePrivacy, WorldCupFormat } from '@/lib/models/league';
 // now delegates to it instead of duplicating — and getting wrong —
 // that logic.
 import { detectPremiumUser, countCreatedLeagues, createNewLeagueWeb } from '@/lib/leagues/leaguesRepository';
+import { generateSessionOptions, suggestedDefaultSession, normalizeCustomSession, SESSION_MAX_LENGTH } from '@/lib/leagues/sessionOptions';
 import {
   Loader2, ArrowLeft, Image as ImageIcon, Trophy,
   ShieldAlert, Globe, LayoutGrid, ListOrdered, Lock,
@@ -94,6 +95,13 @@ function CreateLeagueScreenInner() {
 
   // World Cup Specific Settings
   const [worldCupFormat, setWorldCupFormat] = useState<WorldCupFormat>('fifa2022');
+
+  // Competition session (e.g. "2026", "2026/2027", "Summer 2027") -- a
+  // free-form string the organizer picks or types, never a hardcoded year.
+  // See sessionOptions.ts for why.
+  const sessionOptions = generateSessionOptions();
+  const [season, setSeason] = useState<string>(suggestedDefaultSession());
+  const [customSession, setCustomSession] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -189,6 +197,11 @@ function CreateLeagueScreenInner() {
       setError('League name is required.');
       return;
     }
+    const normalizedSeason = normalizeCustomSession(season);
+    if (!normalizedSeason) {
+      setError('Please select or enter a session for this competition.');
+      return;
+    }
     if (!authUid) return;
 
     setLoading(true);
@@ -214,6 +227,7 @@ function CreateLeagueScreenInner() {
         isPrivate: privacy === 'private',
         homeAway: effectiveHomeAway,
         organizerUid: authUid,
+        season: normalizedSeason,
         masterLeagueId: inMasterLeagueMode ? masterLeagueId : undefined,
         directKnockoutCapacity: format === 'directKnockout' ? selectedMaxTeams : undefined,
       });
@@ -454,6 +468,36 @@ function CreateLeagueScreenInner() {
                 >
                   {FOOTBALL_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
+              </div>
+
+              {/* Session */}
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Session</label>
+                <select
+                  value={customSession ? '__custom__' : season}
+                  onChange={(e) => {
+                    if (e.target.value === '__custom__') {
+                      setCustomSession(true);
+                      setSeason('');
+                    } else {
+                      setCustomSession(false);
+                      setSeason(e.target.value);
+                    }
+                  }}
+                  disabled={limitReached}
+                  className="w-full bg-[#070B14] border border-[#1E293B] rounded-xl p-3 text-sm font-bold text-white focus:border-[#BEF264] outline-none"
+                >
+                  {sessionOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                  <option value="__custom__">Custom Session</option>
+                </select>
+                {customSession && (
+                  <input
+                    type="text" value={season} onChange={(e) => setSeason(e.target.value)}
+                    maxLength={SESSION_MAX_LENGTH} disabled={limitReached} autoFocus
+                    className="mt-2 w-full bg-[#070B14] border border-[#1E293B] rounded-xl p-3 text-sm font-bold text-white focus:border-[#BEF264] outline-none"
+                    placeholder="e.g. Summer Cup 2027"
+                  />
+                )}
               </div>
 
               {/* Privacy */}

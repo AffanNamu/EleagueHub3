@@ -6,6 +6,7 @@ import 'package:eleaguehub3/core/errors/user_friendly_error.dart';
 import 'package:eleaguehub3/core/locale/app_localizations.dart';
 import 'package:eleaguehub3/core/theme/app_theme.dart';
 import 'package:eleaguehub3/core/services/plan_status_service.dart';
+import 'package:eleaguehub3/features/leagues/logic/competition_session_options.dart';
 import 'package:eleaguehub3/features/leagues/logic/coupon_codes_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_access_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
@@ -2985,7 +2986,11 @@ class _LeaguesListScreenState
               region:
                   l10n.tr('common_region_global'),
               maxTeams: 20,
-              season: '2026',
+              // Transient placeholder only -- joinLeagueLocallyByCode
+              // immediately re-fetches the real, already-persisted league
+              // doc from the server and returns that instead; this value
+              // is never written to Firestore.
+              season: CompetitionSessionOptions.suggestedDefault(),
               organizerUid: '',
               organizerUserId: '',
               code: code,

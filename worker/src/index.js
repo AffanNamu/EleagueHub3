@@ -1065,6 +1065,11 @@ async function _previewTeamClaim(env, token) {
     teamName: team.name || "",
     teamLogoUrl: team.teamImageUrl || "",
     leagueName: league.name || "",
+    // The competition's own canonical session -- read fresh from the
+    // league doc every time, never duplicated into the team_claims doc
+    // itself, so a later edit to the league's session is reflected in
+    // every outstanding claim link automatically.
+    leagueSeason: league.season || "",
     organizerName,
   };
 }

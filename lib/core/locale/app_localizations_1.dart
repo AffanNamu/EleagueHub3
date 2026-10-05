@@ -368,6 +368,12 @@ const Map<String, Map<String, String>> appLocalizationsPart1 = {
     'league_create_admin_notice': 'By creating, you will automatically become League Admin and League Organizer.',
     'league_create_create_league_button_upper': 'CREATE LEAGUE',
 
+    'competition_session_label': 'Session',
+    'competition_session_custom_chip': 'Custom Session',
+    'competition_session_custom_title': 'Enter Session',
+    'competition_session_custom_hint': 'e.g. Summer Cup 2027',
+    'competition_session_error_required': 'Please select or enter a session for this competition.',
+
     'league_create_error_select_type': 'Please select a league type',
     'league_create_error_name_required': 'League name is required',
     'league_create_error_complete_payment_to_continue': 'Complete payment to continue',

@@ -228,7 +228,7 @@ class _PreviewCard extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 13, height: 1.4),
           ),
-          if (preview.leagueName.isNotEmpty || preview.organizerName.isNotEmpty) ...[
+          if (preview.leagueName.isNotEmpty || preview.leagueSeason.isNotEmpty || preview.organizerName.isNotEmpty) ...[
             const SizedBox(height: 18),
             Container(
               width: double.infinity,
@@ -243,6 +243,10 @@ class _PreviewCard extends StatelessWidget {
                 children: [
                   if (preview.leagueName.isNotEmpty) ...[
                     _InfoRow(label: l10n.tr('team_claim_competition_label'), value: preview.leagueName),
+                    const SizedBox(height: 8),
+                  ],
+                  if (preview.leagueSeason.isNotEmpty) ...[
+                    _InfoRow(label: l10n.tr('competition_session_label'), value: preview.leagueSeason),
                     const SizedBox(height: 8),
                   ],
                   if (preview.organizerName.isNotEmpty)

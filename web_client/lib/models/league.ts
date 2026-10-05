@@ -131,6 +131,13 @@ export function leagueFromRemoteMap(map: Record<string, unknown>): LeagueData {
     privacy: isPrivate ? 'private' : 'public',
     region: stringFromAny(map.region) || 'Global',
     maxTeams,
+    // Legacy fallback ONLY -- mirrors league.dart's identical comment.
+    // Every new league write now passes an organizer-chosen session (see
+    // sessionOptions.ts), so a doc missing this field entirely can only be
+    // a pre-existing production record from before that change.
+    // Deliberately a frozen literal, not the current year -- guessing an
+    // old record's intended session is explicitly against this feature's
+    // spec, and a computed "current year" would keep drifting wrong.
     season: stringFromAny(map.season) || '2026',
     organizerUid,
     organizerUserId,

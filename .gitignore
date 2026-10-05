@@ -118,6 +118,7 @@ supabase/.temp/
 .flutter-plugins
 .flutter-plugins-dependencies
 pubspec.lock
+/build/
 android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 ios/Flutter/Generated.xcconfig
 ios/Flutter/flutter_export_environment.sh

@@ -318,6 +318,11 @@ export interface CreateLeagueFormPayload {
   isPrivate: boolean;
   homeAway: boolean;
   organizerUid: string;
+  // Organizer-chosen competition session (e.g. "2026", "2026/2027", "Summer
+  // 2027") -- see sessionOptions.ts for why this is a free-form string
+  // rather than a year. Required: the caller (the create-competition form)
+  // must have already run it through normalizeCustomSession.
+  season: string;
   // Set when this league is really a competition being created inside a
   // Master League workspace. Mirrors league_create_wizard.dart's
   // widget.masterLeagueId / _inMasterLeagueMode.
@@ -460,7 +465,7 @@ export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Prom
     isPrivate: payload.isPrivate,
     region: 'Global',
     maxTeams: maxTeams,
-    season: '2026',
+    season: payload.season,
 
     // Crucial for Firebase Rules evaluation:
     organizerUid: payload.organizerUid,
