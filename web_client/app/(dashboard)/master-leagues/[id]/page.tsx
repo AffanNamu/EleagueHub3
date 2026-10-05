@@ -345,12 +345,14 @@ export default function MasterLeagueDashboard() {
               <p className="text-xs font-semibold text-gray-500">No official links published.</p>
             ) : (
               <div className="space-y-3">
-                {Object.entries(masterLeague.socialLinks || {}).map(([platform, url]) => (
-                  <a key={platform} href={url as string} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 bg-[#070B14] rounded-xl border border-white/5 hover:border-white/20 transition-colors">
-                    <LinkIcon className="w-4 h-4 text-gray-400"/>
-                    <span className="text-sm font-bold text-white capitalize">{platform}</span>
-                  </a>
-                ))}
+                {Object.entries(masterLeague.socialLinks || {})
+                  .filter(([, url]) => /^https?:\/\/\S+$/i.test((url as string) ?? ''))
+                  .map(([platform, url]) => (
+                    <a key={platform} href={url as string} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 bg-[#070B14] rounded-xl border border-white/5 hover:border-white/20 transition-colors">
+                      <LinkIcon className="w-4 h-4 text-gray-400"/>
+                      <span className="text-sm font-bold text-white capitalize">{platform}</span>
+                    </a>
+                  ))}
               </div>
             )}
           </div>

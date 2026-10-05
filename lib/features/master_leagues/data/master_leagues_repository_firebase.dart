@@ -190,13 +190,21 @@ class MasterLeaguesRepositoryFirebase {
     return out.length <= max ? out : out.substring(0, max);
   }
 
+  // Matches firestore.rules' isSafeHttpUrl -- the real security boundary,
+  // since a client could bypass this repository and write via the
+  // Firestore SDK directly. web_client renders these social links
+  // straight into a clickable `<a href>` with no scheme check of its
+  // own, so a 'javascript:' URI stored here would run as arbitrary
+  // script in any web visitor's session the moment they clicked it.
+  static final RegExp _safeHttpUrlRe = RegExp(r'^https?://\S+$', caseSensitive: false);
+
   Map<String, String> _sanitizeSocialLinks(Map<String, String> input) {
     final out = <String, String>{};
     for (final entry in input.entries) {
       final key = entry.key.trim().toLowerCase();
       if (!_allowedSocialKeys.contains(key)) continue;
       final value = _trimUrl(entry.value);
-      if (value.isNotEmpty) {
+      if (value.isNotEmpty && _safeHttpUrlRe.hasMatch(value)) {
         out[key] = value;
       }
     }

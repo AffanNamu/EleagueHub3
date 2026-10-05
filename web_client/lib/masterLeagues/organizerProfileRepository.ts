@@ -32,12 +32,24 @@ function trim(value: string, max: number): string {
   return v.length <= max ? v : v.slice(0, max);
 }
 
+// Matches firestore.rules' isSafeHttpUrl -- the actual security boundary,
+// since a client could bypass this repository entirely and write via the
+// Firestore SDK directly. Rejected here too so a bad value never even
+// leaves the browser: without this, a 'javascript:' URI stored here would
+// run as arbitrary script in any visitor's session the moment they
+// clicked the rendered link (master-leagues/[id]/page.tsx renders these
+// straight into `<a href={url}>`).
+const SAFE_HTTP_URL_RE = /^https?:\/\/\S+$/i;
+
 function sanitizeSocialLinks(input: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of ALLOWED_SOCIAL_KEYS) {
     const value = input[key];
     if (typeof value === 'string' && value.trim().length > 0) {
-      out[key] = trim(value, 2000);
+      const trimmed = trim(value, 2000);
+      if (SAFE_HTTP_URL_RE.test(trimmed)) {
+        out[key] = trimmed;
+      }
     }
   }
   return out;

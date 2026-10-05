@@ -23,11 +23,14 @@ export function useWebCheckout() {
       });
 
       // --- CROSSMINT GATEWAY INTEGRATION ---
+      const idToken = await auth.currentUser.getIdToken();
       const response = await fetch('/api/crossmint/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
-          email: auth.currentUser.email,
           itemDetails: { name: paymentDetails.leagueName || "League Entry Fee" }
         }),
       });

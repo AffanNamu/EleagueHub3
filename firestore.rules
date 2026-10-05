@@ -57,21 +57,33 @@ service cloud.firestore {
       return (id is string) && (id.size() > 0) && (id.size() <= 200);
     }
 
+    // Rejects anything that isn't a plain http(s) URL -- in particular
+    // a 'javascript:' (or 'data:', 'vbscript:', etc.) URI. Both
+    // web_client's organizer-profile page and the Flutter app render
+    // these social links straight into a clickable link
+    // (web_client/app/(dashboard)/master-leagues/[id]/page.tsx:
+    // `<a href={url}>`) with no scheme check of its own, so without this,
+    // any organizer could plant a 'javascript:' link that runs arbitrary
+    // script in a visiting viewer's session the moment they click it.
+    function isSafeHttpUrl(s) {
+      return (s is string) && (s.size() <= 2000) && (s == '' || s.matches('^(?i)https?://[^\\s]+$'));
+    }
+
     function validMasterLeagueSocialLinksMap(links) {
       return (links is map)
         && links.keys().hasOnly([
           'website','facebook','instagram','x','twitter','discord',
           'youtube','twitch','tiktok'
         ])
-        && (!('website' in links) || ((links.website is string) && (links.website.size() <= 2000)))
-        && (!('facebook' in links) || ((links.facebook is string) && (links.facebook.size() <= 2000)))
-        && (!('instagram' in links) || ((links.instagram is string) && (links.instagram.size() <= 2000)))
-        && (!('x' in links) || ((links.x is string) && (links.x.size() <= 2000)))
-        && (!('twitter' in links) || ((links.twitter is string) && (links.twitter.size() <= 2000)))
-        && (!('discord' in links) || ((links.discord is string) && (links.discord.size() <= 2000)))
-        && (!('youtube' in links) || ((links.youtube is string) && (links.youtube.size() <= 2000)))
-        && (!('twitch' in links) || ((links.twitch is string) && (links.twitch.size() <= 2000)))
-        && (!('tiktok' in links) || ((links.tiktok is string) && (links.tiktok.size() <= 2000)));
+        && (!('website' in links) || isSafeHttpUrl(links.website))
+        && (!('facebook' in links) || isSafeHttpUrl(links.facebook))
+        && (!('instagram' in links) || isSafeHttpUrl(links.instagram))
+        && (!('x' in links) || isSafeHttpUrl(links.x))
+        && (!('twitter' in links) || isSafeHttpUrl(links.twitter))
+        && (!('discord' in links) || isSafeHttpUrl(links.discord))
+        && (!('youtube' in links) || isSafeHttpUrl(links.youtube))
+        && (!('twitch' in links) || isSafeHttpUrl(links.twitch))
+        && (!('tiktok' in links) || isSafeHttpUrl(links.tiktok));
     }
 
     function validInitialCompetitionMap(c) {

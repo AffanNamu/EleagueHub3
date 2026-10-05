@@ -1,10 +1,38 @@
 import { NextResponse } from 'next/server';
+import { adminAuth } from '@/lib/firebase-admin';
 
 export async function POST(req: Request) {
   try {
+    // 0. This endpoint mints a real NFT (billed through Crossmint) with
+    // no payment verification of its own -- it was completely open with
+    // no credentials required at all, letting anyone who found the URL
+    // mint NFTs to any email/wallet at the project's expense. Require the
+    // same Firebase ID token every other authenticated flow in this app
+    // uses; this does not make the endpoint safe to call at scale (it
+    // still has no actual payment check), but it closes the
+    // zero-credential abuse path.
+    const authHeader = req.headers.get('authorization') || '';
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (!match) {
+      return NextResponse.json({ error: 'Missing Authorization: Bearer <Firebase ID token>' }, { status: 401 });
+    }
+    let verifiedEmail: string | undefined;
+    try {
+      const decoded = await adminAuth.verifyIdToken(match[1].trim());
+      verifiedEmail = decoded.email;
+    } catch {
+      return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
+    }
+
     // 1. Parse the incoming data from your frontend
     const body = await req.json();
-    const { email, walletAddress, itemDetails } = body;
+    const { walletAddress, itemDetails } = body;
+    // Never trust a client-supplied email for the mint recipient -- use
+    // the identity the Firebase token just proved instead.
+    const email = verifiedEmail;
+    if (!walletAddress && !email) {
+      return NextResponse.json({ error: 'Signed-in account has no email and no walletAddress was provided.' }, { status: 400 });
+    }
 
     // 2. Load your secure API key
     const crossmintApiKey = process.env.CROSSMINT_API_KEY;
