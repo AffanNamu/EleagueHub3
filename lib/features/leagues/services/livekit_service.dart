@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 /// User-safe exception: if UI accidentally shows `$e`, it will still be a friendly message.
@@ -60,6 +61,23 @@ class LiveKitService {
     );
   }
 
+  /// The Worker requires this on every request -- it derives the LiveKit
+  /// identity from the verified uid, never from a client-sent userId, so
+  /// nobody can mint a token to join as someone else.
+  static Future<String> _requireFirebaseIdToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw const UserFriendlyException('Please sign in and try again.');
+    }
+    final token = ((await user.getIdToken()) ?? '').trim();
+    if (token.isEmpty) {
+      throw const UserFriendlyException(
+        'Authentication token unavailable. Please try again.',
+      );
+    }
+    return token;
+  }
+
   static Future<Map<String, dynamic>> _postJson(
     Uri url,
     Map<String, dynamic> body, {
@@ -67,10 +85,14 @@ class LiveKitService {
   }) async {
     final c = client ?? http.Client();
     try {
+      final idToken = await _requireFirebaseIdToken();
       final res = await c
           .post(
             url,
-            headers: const {'content-type': 'application/json'},
+            headers: {
+              'content-type': 'application/json',
+              'authorization': 'Bearer $idToken',
+            },
             body: jsonEncode(body),
           )
           .timeout(_requestTimeout);

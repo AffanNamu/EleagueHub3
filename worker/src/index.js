@@ -3891,6 +3891,20 @@ export default {
           return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
         }
 
+        let verified;
+        try {
+          verified = await _verifyFirebaseIdToken(env, request);
+        } catch (e) {
+          return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+        }
+        if (!verified.ok) {
+          return jsonResponse({ error: verified.error }, verified.status || 401);
+        }
+        // Identity is always the verified caller -- never the client-sent
+        // userId -- so nobody can mint a token to join as someone else.
+        const userId = String(verified.uid || "").trim();
+        if (!userId) return jsonResponse({ error: "Unauthenticated." }, 401);
+
         let body;
         try {
           body = await request.json();
@@ -3898,12 +3912,10 @@ export default {
           return jsonResponse({ error: "Invalid JSON" }, 400);
         }
 
-        const userId = (body.userId || "").toString().trim();
-        const role = (body.role || "participant").toString().trim();
+        let role = (body.role || "participant").toString().trim();
         const side = (body.side || "").toString().trim();
         const roomName = resolveRoomName(body);
 
-        if (!userId) return jsonResponse({ error: "userId required" }, 400);
         if (!roomName) {
           return jsonResponse(
             { error: "One of leagueId, matchId, callId, or roomName is required" },
@@ -3912,6 +3924,23 @@ export default {
         }
 
         const kind = kindFrom(body, roomName);
+
+        // Never trust a client-declared "host" role on its own -- only
+        // grant LiveKit roomAdmin to someone independently verified as the
+        // league's actual organizer/owner. Match/call rooms have no cheap
+        // server-side host check today (a bare matchId doesn't identify
+        // its owning league, and call rooms are ad hoc 8-char codes with
+        // no stored "host" concept) -- role stays client-declared there,
+        // same residual trust this endpoint already had, but now at least
+        // gated behind real Firebase auth instead of being fully open.
+        if (role === "host" && kind === "league") {
+          const leagueId = (body.leagueId || "").toString().trim();
+          const isOrganizer = leagueId
+            ? await _highlightUploaderCanManageLeague(env, leagueId, userId)
+            : false;
+          if (!isOrganizer) role = "participant";
+        }
+
         const metadata = JSON.stringify({
           role: role || "participant",
           side: side || null,
@@ -3953,6 +3982,18 @@ export default {
           return jsonResponse({ error: "Worker missing LiveKit env vars" }, 500);
         }
 
+        let verified;
+        try {
+          verified = await _verifyFirebaseIdToken(env, request);
+        } catch (e) {
+          return jsonResponse({ error: "Auth error: " + (e.message || String(e)) }, 500);
+        }
+        if (!verified.ok) {
+          return jsonResponse({ error: verified.error }, verified.status || 401);
+        }
+        const callerUid = String(verified.uid || "").trim();
+        if (!callerUid) return jsonResponse({ error: "Unauthenticated." }, 401);
+
         let body;
         try {
           body = await request.json();
@@ -3972,6 +4013,21 @@ export default {
             { error: "One of leagueId, matchId, callId, or roomName is required" },
             400
           );
+        }
+
+        // League Spaces: only the league's actual organizer/owner may
+        // mute/unmute another participant. Match/call rooms have no cheap
+        // server-side host check today (see the "/" handler's comment) --
+        // left client-trusted but now gated behind real Firebase auth.
+        const adminKind = kindFrom(body, roomName);
+        if (adminKind === "league") {
+          const leagueId = (body.leagueId || "").toString().trim();
+          const isOrganizer = leagueId
+            ? await _highlightUploaderCanManageLeague(env, leagueId, callerUid)
+            : false;
+          if (!isOrganizer) {
+            return jsonResponse({ error: "Only the league organizer can do this." }, 403);
+          }
         }
 
         if (action === "mute") {
