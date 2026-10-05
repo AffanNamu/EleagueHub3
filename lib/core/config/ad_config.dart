@@ -12,10 +12,13 @@
 // both rewarded (rewarded_ad_manager_mobile.dart) and banner placements.
 // Android must NEVER be pointed at a Google test ad unit ID.
 //
-// iOS does not have a production banner ad unit yet, so it uses Google's
-// official public TEST banner ID (ca-app-pub-3940256099942544/...) until
-// one is created in the same AdMob account. That is a deliberate,
-// temporary exception -- NOT a template to follow for Android.
+// iOS does not have a production banner ad unit yet. Rather than show
+// Google's public TEST banner ID in the shipped app, AppBannerAd
+// (app_banner_ad_mobile.dart) simply does not request a banner on iOS at
+// all, so `bannerAdUnitId` below is never actually read on iOS today.
+// `_bannerIOSTest` is kept only as a placeholder to swap in once a real
+// iOS banner ad unit exists in the same AdMob account -- NOT a template
+// to follow for Android, and not currently reachable in production.
 
 import 'package:flutter/foundation.dart';
 

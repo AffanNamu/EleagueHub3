@@ -12,10 +12,13 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../config/ad_config.dart';
 
-bool get _adsSupported =>
-    !kIsWeb &&
-    (defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS);
+// Android only. iOS has no real production banner ad unit yet (see
+// AdConfig's doc comment) -- rather than show Google's placeholder TEST
+// banner in the shipped app, iOS simply renders nothing here until a real
+// iOS banner ad unit exists. iOS rewarded ads are unaffected: those use a
+// real production ad unit and are gated separately in
+// rewarded_ad_manager_mobile.dart.
+bool get _adsSupported => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
 /// A standard, full-width, adaptive-height AdMob banner -- the same
 /// "anchored adaptive banner" format most free mobile apps use, sized to
