@@ -980,13 +980,29 @@ service cloud.firestore {
         );
     }
 
+    // A self-write must never be able to claim 'admin_granted' -- that
+    // source is reserved for isBadgeAdminWrite (gated on isPricingAdmin()
+    // below). Without this, any signed-in user could write
+    // verification.organizerSource/greenSource/staffSource =
+    // 'admin_granted' (with no expiry, since that source requires none)
+    // directly on their own user doc via the Firestore client SDK --
+    // bypassing the app's own admin-only UI entirely, since that UI is
+    // not a security boundary -- and permanently self-grant an
+    // admin-equivalent-trust verified badge for free.
+    function validSelfWriteVerificationMap(v) {
+      return validVerificationMap(v)
+        && (!('greenSource' in v) || (v.greenSource == null) || (v.greenSource != 'admin_granted'))
+        && (!('organizerSource' in v) || (v.organizerSource == null) || (v.organizerSource != 'admin_granted'))
+        && (!('staffSource' in v) || (v.staffSource == null) || (v.staffSource != 'admin_granted'));
+    }
+
     function isBadgeSelfWrite(targetUserId) {
       return signedIn()
         && request.auth.uid == targetUserId
         && request.resource.data.diff(resource.data).changedKeys().hasOnly(['verification'])
         && request.resource.data.diff(resource.data).removedKeys().size() == 0
         && (request.resource.data.verification is map)
-        && validVerificationMap(request.resource.data.verification);
+        && validSelfWriteVerificationMap(request.resource.data.verification);
     }
 
     function isBadgeAdminWrite(targetUserId) {
@@ -1372,11 +1388,30 @@ service cloud.firestore {
 
       match /stats/{docId} {
         allow get, list: if true;
+        // NOTE: deliberately NOT scoped to request.auth.uid == userId --
+        // both legitimate writers here are someone OTHER than the doc
+        // owner by design: team_profile_repository.dart's follow()/
+        // unfollow() increments the TARGET's followersCount from the
+        // follower's own client, and match_stats_service.dart's
+        // recordMatchResult() (called by the league organizer scoring a
+        // match) writes wins/draws/losses/goals to BOTH participants'
+        // stats docs, neither of which is the organizer's own uid.
+        // Tightening this to real per-writer authorization needs a
+        // server-side (Worker) rewrite of both flows -- out of scope
+        // here. What IS fixed below: followersCount/followingCount
+        // previously had NO type or range check at all (unlike every
+        // other field in this doc), so any signed-in user could set
+        // either to an arbitrary value or even a non-int, on anyone's
+        // profile.
         allow create, update: if signedIn()
           && docId == 'summary'
           && (
-            request.resource.data.diff(resource == null ? {} : resource.data)
-              .changedKeys().hasOnly(['followersCount', 'followingCount'])
+            (
+              request.resource.data.diff(resource == null ? {} : resource.data)
+                .changedKeys().hasOnly(['followersCount', 'followingCount'])
+              && (!('followersCount' in request.resource.data) || (request.resource.data.followersCount is int && request.resource.data.followersCount >= 0))
+              && (!('followingCount' in request.resource.data) || (request.resource.data.followingCount is int && request.resource.data.followingCount >= 0))
+            )
             || (
               request.resource.data.diff(resource == null ? {} : resource.data)
                 .changedKeys().hasOnly(['wins', 'draws', 'losses', 'goalsScored', 'goalsConceded', 'competitionsJoined', 'trophies'])
@@ -2185,7 +2220,13 @@ service cloud.firestore {
             && (request.resource.data.leagueId is string)
             && (request.resource.data.leagueId == leagueId)
             && (request.resource.data.role is int)
-            && (isMemberRole(request.resource.data.role) || isOrganizerRole(request.resource.data.role))
+            // Self-registration can only ever grant the MEMBER role.
+            // Organizer role must be granted by someone who already
+            // canManageLeague() this league (the owner, an existing
+            // organizer, or a super admin) -- otherwise any signed-in
+            // user could write role: 0 on their own membership doc and
+            // self-promote to organizer of any league.
+            && isMemberRole(request.resource.data.role)
           );
 
         allow update: if canManageLeague(leagueId)
@@ -2381,9 +2422,24 @@ service cloud.firestore {
     }
 
     match /league_spaces/{spaceId} {
+      // Previously create/update/delete were just signedIn() with no
+      // ownership check at all -- any signed-in user could forge a Space
+      // claiming to be hosted by someone else, or end/delete any league's
+      // live Space. read stays broad (any league member needs to see
+      // whether a Space is currently live before joining), mirroring
+      // call_rooms' ownership pattern directly below.
       allow read: if signedIn();
-      allow create: if signedIn();
-      allow update, delete: if signedIn();
+      allow create: if signedIn()
+        && (request.resource.data.hostUserId is string)
+        && (request.resource.data.hostUserId == request.auth.uid)
+        && (request.resource.data.leagueId is string)
+        && (request.resource.data.leagueId.size() > 0);
+      allow update, delete: if signedIn()
+        && resource != null
+        && (
+          (('hostUserId' in resource.data) && (resource.data.hostUserId is string) && (resource.data.hostUserId == request.auth.uid))
+          || (('leagueId' in resource.data) && (resource.data.leagueId is string) && canManageLeague(resource.data.leagueId))
+        );
     }
 
     match /call_rooms/{callId} {
@@ -3014,7 +3070,13 @@ service cloud.firestore {
       }
 
       allow get: if signedIn() && (request.auth.uid in threadParticipantIds(resource.data));
-      allow list: if signedIn();
+      // Previously just signedIn() with no participant check -- since
+      // this rule never reads resource.data, Firestore would allow an
+      // unfiltered query across the WHOLE collection, letting any
+      // signed-in user list every private DM thread in the app
+      // (participant ids, last-message preview, timestamps). Matches the
+      // `get` rule above now.
+      allow list: if signedIn() && (request.auth.uid in threadParticipantIds(resource.data));
 
       allow create: if signedIn()
         && (request.resource.data.participantIds is list)
