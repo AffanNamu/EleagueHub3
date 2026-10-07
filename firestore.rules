@@ -510,8 +510,20 @@ service cloud.firestore {
       return leagueId != '' && exists(path) && get(path).data.get('format', -1) == 3;
     }
 
+    // FIX: all three validators below are used in `allow write` rules,
+    // which cover delete as well as create/update -- but request.resource
+    // is null on a delete. Dereferencing request.resource.data
+    // unconditionally therefore made every delete through these rules
+    // evaluate to false (denied), even for a genuine organizer/owner,
+    // because the rules language treats an error mid-evaluation as "this
+    // condition is false," not as "skip it." This surfaced as
+    // saveTeams() failing with permission-denied whenever a league
+    // already had existing teams (its roster-replace deletes the
+    // existing team docs before writing the new list) -- e.g. an
+    // organizer using "Add me as participant" on a league that already
+    // has other teams joined.
     function validWorldCupGroupMatchWrite() {
-      return (!('groupId' in request.resource.data)
+      return request.resource == null || (!('groupId' in request.resource.data)
         || (
           (request.resource.data.groupId is string)
           && (request.resource.data.groupId.size() >= 1)
@@ -521,39 +533,41 @@ service cloud.firestore {
     }
 
     function validWorldCupTeamAggregateFields() {
-      let d = request.resource.data;
-      return (!('basePoints' in d) || ((d.basePoints is int) && (d.basePoints >= 0)))
-        && (!('goalDifference' in d) || (d.goalDifference is int))
-        && (!('goalsFor' in d) || ((d.goalsFor is int) && (d.goalsFor >= 0)))
-        && (!('goalsAgainst' in d) || ((d.goalsAgainst is int) && (d.goalsAgainst >= 0)))
-        && (!('wins' in d) || ((d.wins is int) && (d.wins >= 0)))
-        && (!('draws' in d) || ((d.draws is int) && (d.draws >= 0)))
-        && (!('losses' in d) || ((d.losses is int) && (d.losses >= 0)))
-        && (!('matchesPlayed' in d) || ((d.matchesPlayed is int) && (d.matchesPlayed >= 0)))
-        && (!('adminAdjustment' in d) || (d.adminAdjustment is int))
-        && (!('groupId' in d) || (d.groupId == null) || ((d.groupId is string) && (d.groupId.size() <= 10)))
-        && (!('participantType' in d) || (d.participantType in ['registered', 'external']))
-        && (!('claimStatus' in d)
-          || (d.claimStatus in ['not_claimed', 'claim_pending', 'claimed', 'revoked', 'expired']))
-        && (!('claimedAtMs' in d) || (d.claimedAtMs is int))
-        && (!('createdByUserId' in d) || (d.createdByUserId is string));
+      return request.resource == null || (
+        (!('basePoints' in request.resource.data) || ((request.resource.data.basePoints is int) && (request.resource.data.basePoints >= 0)))
+        && (!('goalDifference' in request.resource.data) || (request.resource.data.goalDifference is int))
+        && (!('goalsFor' in request.resource.data) || ((request.resource.data.goalsFor is int) && (request.resource.data.goalsFor >= 0)))
+        && (!('goalsAgainst' in request.resource.data) || ((request.resource.data.goalsAgainst is int) && (request.resource.data.goalsAgainst >= 0)))
+        && (!('wins' in request.resource.data) || ((request.resource.data.wins is int) && (request.resource.data.wins >= 0)))
+        && (!('draws' in request.resource.data) || ((request.resource.data.draws is int) && (request.resource.data.draws >= 0)))
+        && (!('losses' in request.resource.data) || ((request.resource.data.losses is int) && (request.resource.data.losses >= 0)))
+        && (!('matchesPlayed' in request.resource.data) || ((request.resource.data.matchesPlayed is int) && (request.resource.data.matchesPlayed >= 0)))
+        && (!('adminAdjustment' in request.resource.data) || (request.resource.data.adminAdjustment is int))
+        && (!('groupId' in request.resource.data) || (request.resource.data.groupId == null) || ((request.resource.data.groupId is string) && (request.resource.data.groupId.size() <= 10)))
+        && (!('participantType' in request.resource.data) || (request.resource.data.participantType in ['registered', 'external']))
+        && (!('claimStatus' in request.resource.data)
+          || (request.resource.data.claimStatus in ['not_claimed', 'claim_pending', 'claimed', 'revoked', 'expired']))
+        && (!('claimedAtMs' in request.resource.data) || (request.resource.data.claimedAtMs is int))
+        && (!('createdByUserId' in request.resource.data) || (request.resource.data.createdByUserId is string))
+      );
     }
 
     function validWorldCupKnockoutFields() {
-      let d = request.resource.data;
-      return (!('nextMatchId' in d) || (d.nextMatchId is string) || (d.nextMatchId == null))
-        && (!('loserGoesToMatchId' in d) || (d.loserGoesToMatchId is string) || (d.loserGoesToMatchId == null))
-        && (!('tiebreakWinnerTeamId' in d) || (d.tiebreakWinnerTeamId is string) || (d.tiebreakWinnerTeamId == null))
-        && (!('winnerId' in d) || (d.winnerId is string) || (d.winnerId == null))
-        && (!('loserId' in d) || (d.loserId is string) || (d.loserId == null))
-        && (!('roundName' in d)
+      return request.resource == null || (
+        (!('nextMatchId' in request.resource.data) || (request.resource.data.nextMatchId is string) || (request.resource.data.nextMatchId == null))
+        && (!('loserGoesToMatchId' in request.resource.data) || (request.resource.data.loserGoesToMatchId is string) || (request.resource.data.loserGoesToMatchId == null))
+        && (!('tiebreakWinnerTeamId' in request.resource.data) || (request.resource.data.tiebreakWinnerTeamId is string) || (request.resource.data.tiebreakWinnerTeamId == null))
+        && (!('winnerId' in request.resource.data) || (request.resource.data.winnerId is string) || (request.resource.data.winnerId == null))
+        && (!('loserId' in request.resource.data) || (request.resource.data.loserId is string) || (request.resource.data.loserId == null))
+        && (!('roundName' in request.resource.data)
           || (
-            (d.roundName is string)
-            && (d.roundName in [
+            (request.resource.data.roundName is string)
+            && (request.resource.data.roundName in [
               'Play-off','Round of 64','Round of 32','Round of 16','Quarter Finals','Semi Finals','Final','3rd Place'
             ])
           ))
-        && (!('qualificationSlot' in d) || (d.qualificationSlot is string) || (d.qualificationSlot == null));
+        && (!('qualificationSlot' in request.resource.data) || (request.resource.data.qualificationSlot is string) || (request.resource.data.qualificationSlot == null))
+      );
     }
 
     function highlightHasOnlyAllowedKeys() {

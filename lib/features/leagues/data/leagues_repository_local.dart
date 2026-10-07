@@ -349,8 +349,29 @@ class LocalLeaguesRepository {
     final organizerUid = (data['organizerUid'] as String? ?? '').trim();
     final ownerUid = (data['ownerUid'] as String? ?? '').trim();
 
+    // FIX: leagues created before organizerUid/ownerUid existed only ever
+    // had the legacy organizerUserId/ownerId fields populated -- those
+    // leagues' real organizer-check fields are empty here, so the direct
+    // equality checks above always failed for their actual organizer.
+    // This left the League Admin screen's own pre-check (which already
+    // falls back to these legacy fields -- see _isRulesOwnerForLeague and
+    // the remoteOrganizerUid/remoteOwnerUid resolution in
+    // league_admin_screen.dart) out of sync with this repository-level
+    // re-check: the button would show and the tap would pass the
+    // screen's check, only to be rejected here with "Permission denied"
+    // once it reached saveTeams/etc. Mirrors the same fallback so both
+    // checks agree on who the organizer actually is.
+    final legacyOrganizerUserId = (data['organizerUserId'] as String? ?? '').trim();
+    final legacyOwnerId = (data['ownerId'] as String? ?? '').trim();
+
     final ok = (organizerUid.isNotEmpty && organizerUid == authUid) ||
-        (ownerUid.isNotEmpty && ownerUid == authUid);
+        (ownerUid.isNotEmpty && ownerUid == authUid) ||
+        (organizerUid.isEmpty &&
+            _looksLikeFirebaseUid(legacyOrganizerUserId) &&
+            legacyOrganizerUserId == authUid) ||
+        (ownerUid.isEmpty &&
+            _looksLikeFirebaseUid(legacyOwnerId) &&
+            legacyOwnerId == authUid);
 
     if (!ok) {
       throw const UserFriendlyException(
