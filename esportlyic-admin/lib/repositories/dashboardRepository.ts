@@ -211,5 +211,33 @@ export async function getSystemHealthAlerts(): Promise<SystemHealthAlert[]> {
     });
   }
 
+  // Football Hub free-tier quota: the Worker (worker/src/index.js)
+  // increments rateLimitHits on football_metrics/{today} and
+  // football_news_metrics/{today} whenever api-football.com/GNews
+  // specifically report the daily quota exhausted (not just any provider
+  // error) -- see _looksLikeProviderRateLimitError. Read directly rather
+  // than through footballHubAdminRepository to avoid a circular import
+  // and because only today's two counters are needed here.
+  const today = new Date().toISOString().slice(0, 10);
+  const [footballMetricsSnap, newsMetricsSnap] = await Promise.all([
+    adminDb.collection('football_metrics').doc(today).get().catch(() => null),
+    adminDb.collection('football_news_metrics').doc(today).get().catch(() => null),
+  ]);
+  const footballRateLimitHits =
+    (footballMetricsSnap?.exists && typeof footballMetricsSnap.data()?.rateLimitHits === 'number'
+      ? footballMetricsSnap.data()!.rateLimitHits
+      : 0) +
+    (newsMetricsSnap?.exists && typeof newsMetricsSnap.data()?.rateLimitHits === 'number'
+      ? newsMetricsSnap.data()!.rateLimitHits
+      : 0);
+  if (footballRateLimitHits > 0) {
+    alerts.push({
+      id: 'football-hub-rate-limited',
+      severity: 'danger',
+      title: "Football Hub's free API quota is exhausted today",
+      detail: `${footballRateLimitHits} request(s) hit the daily limit today — users are seeing a "check back tomorrow" message instead of live football data. See Settings → Football Hub.`,
+    });
+  }
+
   return alerts;
 }

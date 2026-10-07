@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -86,13 +87,16 @@ class _FootballMatchScreenState extends State<FootballMatchScreen> {
         }
         final f = fixtureSnap.data;
         if (fixtureSnap.hasError || f == null) {
+          final message = fixtureSnap.hasError
+              ? UserFriendlyError.toMessage(fixtureSnap.error!)
+              : 'Football data temporarily unavailable. Please try again.';
           return GlassScaffold(
             appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
-            body: const SafeArea(
+            body: SafeArea(
               child: Center(
                 child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text('Football data temporarily unavailable. Please try again.', textAlign: TextAlign.center),
+                  padding: const EdgeInsets.all(24),
+                  child: Text(message, textAlign: TextAlign.center),
                 ),
               ),
             ),
@@ -218,7 +222,7 @@ class _MatchDetailsBody extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      'Football data temporarily unavailable. Please try again.',
+                      UserFriendlyError.toMessage(snap.error!),
                       style: TextStyle(color: AppTheme.secondaryText(brightness)),
                     ),
                   );

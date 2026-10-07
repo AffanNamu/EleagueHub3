@@ -45,6 +45,15 @@ async function get(urlBuilder: () => string | null, params: Record<string, strin
 
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // worker/src/index.js's _looksLikeProviderRateLimitError sets
+    // code: "rate_limited" (and status 429) specifically when the free
+    // API-Football/GNews daily quota is exhausted, distinct from any
+    // other provider error -- surface a curated, honest message instead
+    // of the Worker's raw provider-error text (mirrors
+    // FootballApiRateLimitException in football_api_service.dart).
+    if (body?.code === 'rate_limited' || res.status === 429) {
+      throw new Error("Live football data has reached today's free usage limit. Please check back tomorrow.");
+    }
     throw new Error(body?.error || `Football Hub error (${res.status})`);
   }
   return body;

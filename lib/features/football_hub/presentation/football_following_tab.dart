@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -60,7 +61,7 @@ class _FootballFollowingTabState extends State<FootballFollowingTab> with Single
       _reload();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(UserFriendlyError.toMessage(e))));
     }
   }
 
@@ -159,7 +160,7 @@ class _FollowedList extends StatelessWidget {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Text('${snap.error}', textAlign: TextAlign.center, style: TextStyle(color: AppTheme.secondaryText(brightness))),
+              child: Text(UserFriendlyError.toMessage(snap.error!), textAlign: TextAlign.center, style: TextStyle(color: AppTheme.secondaryText(brightness))),
             ),
           );
         }

@@ -23,6 +23,8 @@ export interface FootballHubMetrics {
   apiRequests: number;
   cacheHits: number;
   providerErrors: number;
+  /** Subset of providerErrors specifically identified as the free daily quota being exhausted. */
+  rateLimitHits: number;
   lastUpdatedMs: number | null;
 }
 
@@ -46,6 +48,7 @@ export async function getFootballHubMetrics(date?: string): Promise<FootballHubM
     apiRequests: typeof data.apiRequests === 'number' ? data.apiRequests : 0,
     cacheHits: typeof data.cacheHits === 'number' ? data.cacheHits : 0,
     providerErrors: typeof data.providerErrors === 'number' ? data.providerErrors : 0,
+    rateLimitHits: typeof data.rateLimitHits === 'number' ? data.rateLimitHits : 0,
     lastUpdatedMs: typeof data.lastUpdatedMs === 'number' ? data.lastUpdatedMs : null,
   };
 }

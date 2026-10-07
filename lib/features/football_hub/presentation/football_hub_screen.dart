@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -152,7 +153,7 @@ class _MatchesTabState extends State<_MatchesTab> {
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Text(
-                      'Could not load fixtures.\n${snap.error}',
+                      UserFriendlyError.toMessage(snap.error!),
                       textAlign: TextAlign.center,
                       style: TextStyle(color: AppTheme.secondaryText(brightness)),
                     ),
@@ -472,7 +473,7 @@ class _NewsTabState extends State<_NewsTab> {
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
-                'Could not load football news.\n${snap.error}',
+                UserFriendlyError.toMessage(snap.error!),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppTheme.secondaryText(brightness)),
               ),
@@ -691,7 +692,7 @@ class _LeaguesTabState extends State<_LeaguesTab> {
                 return Padding(
                   padding: const EdgeInsets.all(16),
                   child: Text(
-                    'Search failed: ${snap.error}',
+                    UserFriendlyError.toMessage(snap.error!),
                     style: TextStyle(color: AppTheme.secondaryText(brightness)),
                   ),
                 );
@@ -941,7 +942,7 @@ class _SearchTabState extends State<_SearchTab> {
               if (snap.hasError) {
                 return Center(
                   child: Text(
-                    'Could not search teams.\n${snap.error}',
+                    UserFriendlyError.toMessage(snap.error!),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppTheme.secondaryText(brightness)),
                   ),
@@ -999,7 +1000,7 @@ class _SearchTabState extends State<_SearchTab> {
               if (snap.hasError) {
                 return Center(
                   child: Text(
-                    'Could not search players.\n${snap.error}',
+                    UserFriendlyError.toMessage(snap.error!),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppTheme.secondaryText(brightness)),
                   ),

@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -58,7 +59,7 @@ class _FootballStandingsScreenState extends State<FootballStandingsScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text(
-                    'Could not load standings.\n${snap.error}',
+                    UserFriendlyError.toMessage(snap.error!),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppTheme.secondaryText(brightness)),
                   ),

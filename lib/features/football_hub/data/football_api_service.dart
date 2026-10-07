@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/config/backend_config.dart';
 import '../models/football_fixture.dart';
@@ -14,6 +15,35 @@ import '../models/football_player.dart';
 import '../models/football_standing.dart';
 import '../models/football_team.dart';
 import 'football_cache_service.dart';
+
+/// Thrown for any Football Hub request failure that isn't specifically a
+/// free-tier quota exhaustion -- carries a message already safe to show
+/// the user (never the Worker's raw provider-error text), picked up by
+/// UserFriendlyError.toMessage via its `message` getter + "*Exception"
+/// name, same convention as the rest of this codebase's repositories.
+class FootballApiException implements Exception {
+  const FootballApiException([
+    this.message = "We couldn't load football data right now. Please try again.",
+  ]);
+  final String message;
+  @override
+  String toString() => message;
+}
+
+/// Thrown specifically when the Worker reports the free API-Football/
+/// GNews daily quota has been exhausted (worker/src/index.js's
+/// `code: "rate_limited"` response -- see _looksLikeProviderRateLimitError)
+/// so the UI can show a specific, honest explanation instead of a generic
+/// failure message.
+class FootballApiRateLimitException implements Exception {
+  const FootballApiRateLimitException([
+    this.message =
+        "Live football data has reached today's free usage limit. Please check back tomorrow.",
+  ]);
+  final String message;
+  @override
+  String toString() => message;
+}
 
 /// Client for Football Hub's data, proxied through the Cloudflare Worker
 /// (worker/src/index.js's /football/* routes) rather than calling
@@ -42,12 +72,12 @@ class FootballApiService {
   Future<String> _requireFirebaseIdToken() async {
     final user = _auth.currentUser;
     if (user == null) {
-      throw StateError('Please sign in and try again.');
+      throw const FootballApiException('Please sign in and try again.');
     }
     final raw = (await user.getIdToken()) ?? '';
     final token = raw.trim();
     if (token.isEmpty) {
-      throw StateError('Authentication token unavailable. Please try again.');
+      throw const FootballApiException('Authentication token unavailable. Please try again.');
     }
     return token;
   }
@@ -65,7 +95,10 @@ class FootballApiService {
     bool forceRefresh = false,
   }) async {
     if (endpoint == null) {
-      throw StateError('Football Hub is not configured (EH_WORKER_BASE_URL missing).');
+      if (kDebugMode) {
+        debugPrint('[FootballApiService] not configured: EH_WORKER_BASE_URL missing.');
+      }
+      throw const FootballApiException();
     }
 
     final cacheKey = _cacheKeyFor(endpoint, queryParams);
@@ -109,19 +142,33 @@ class FootballApiService {
           .timeout(const Duration(seconds: 18));
 
       final data = res.data;
-      if (data is! Map) throw StateError('Invalid response from Football Hub.');
+      if (data is! Map) throw const FootballApiException();
       final body = data.cast<String, dynamic>();
       unawaited(FootballCacheService.instance.put(cacheKey, body));
       return body;
     } on DioException catch (e) {
-      final code = e.response?.statusCode;
+      final statusCode = e.response?.statusCode;
       final data = e.response?.data;
       String hint = '';
-      if (data is Map) hint = (data['error'] ?? '').toString();
-      hint = hint.trim().isNotEmpty ? hint.trim() : (e.message ?? 'Request failed');
-      throw StateError(code != null ? 'Football Hub error ($code): $hint' : 'Football Hub error: $hint');
+      String providerCode = '';
+      if (data is Map) {
+        hint = (data['error'] ?? '').toString().trim();
+        providerCode = (data['code'] ?? '').toString().trim();
+      }
+      if (kDebugMode) {
+        debugPrint(
+          '[FootballApiService] request failed (status=$statusCode, code=$providerCode): '
+          '${hint.isNotEmpty ? hint : (e.message ?? 'no detail')}',
+        );
+      }
+      if (providerCode == 'rate_limited' || statusCode == 429) {
+        throw const FootballApiRateLimitException();
+      }
+      throw const FootballApiException();
     } on TimeoutException {
-      throw StateError('Football Hub request timed out. Please try again.');
+      throw const FootballApiException(
+        'Football Hub request timed out. Please try again.',
+      );
     }
   }
 

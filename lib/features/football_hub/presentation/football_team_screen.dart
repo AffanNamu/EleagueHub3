@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -79,7 +80,7 @@ class _FootballTeamScreenState extends State<FootballTeamScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isFollowing = currentlyFollowing);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(UserFriendlyError.toMessage(e))));
     }
   }
 
@@ -106,7 +107,7 @@ class _FootballTeamScreenState extends State<FootballTeamScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _notifyEnabled = prev);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(UserFriendlyError.toMessage(e))));
     }
   }
 

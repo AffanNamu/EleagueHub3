@@ -3,6 +3,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+/// Carries an already-safe message, picked up by UserFriendlyError.toMessage
+/// via its `message` getter + "*Exception" name -- see that class's doc
+/// comment for why a plain StateError here would otherwise be discarded.
+class FootballFollowsRepositoryException implements Exception {
+  const FootballFollowsRepositoryException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
 /// A followed team/player row, enough to render the Following tab's list
 /// without an extra API-Football call per row (name/logo are cached at
 /// follow-time). See firestore.rules' football_followed_teams/players for
@@ -36,7 +46,7 @@ class FootballFollowsRepository {
 
   String _requireAuthUid() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
-    if (uid.isEmpty) throw StateError('Please sign in and try again.');
+    if (uid.isEmpty) throw const FootballFollowsRepositoryException('Please sign in and try again.');
     return uid;
   }
 

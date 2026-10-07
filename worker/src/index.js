@@ -3572,10 +3572,22 @@ async function _footballNewsRoute(env, request, url) {
   // GNews returns a non-2xx status with an `errors` array on failure
   // (bad/missing token, quota exceeded, invalid params).
   if (!upstreamRes.ok || data.errors) {
+    const rateLimited = _looksLikeProviderRateLimitError(upstreamRes, data);
     try {
       await _recordFootballNewsMetric(env, "providerErrors");
+      if (rateLimited) await _recordFootballNewsMetric(env, "rateLimitHits");
     } catch (_e2) {}
     const detail = _formatProviderErrors(data && data.errors);
+    if (rateLimited) {
+      return jsonResponse(
+        {
+          error: "Football news provider has reached today's free usage limit.",
+          code: "rate_limited",
+          details: data && data.errors,
+        },
+        429
+      );
+    }
     return jsonResponse(
       {
         error: detail
@@ -3631,6 +3643,28 @@ function _formatProviderErrors(errors) {
     ? errors.map(String)
     : Object.entries(errors).map(([k, v]) => `${k}: ${v}`);
   return parts.filter(Boolean).join("; ");
+}
+
+// Both free-tier providers (api-football.com, GNews) signal "you've used
+// up today's quota" differently and inconsistently -- neither reliably
+// returns a 429, and api-football.com returns HTTP 200 with the quota
+// error buried in `errors`. This is a best-effort heuristic combining the
+// one semi-reliable signal api-football.com sends (the
+// x-ratelimit-requests-remaining response header hitting 0) with a
+// keyword match over whatever error text the provider actually sent, so
+// a quota-exhausted condition can be told apart from a misconfigured key
+// or a bad request and surfaced to the client/admin dashboard distinctly
+// instead of folded into one generic "provider error" bucket.
+function _looksLikeProviderRateLimitError(upstreamRes, data) {
+  if (upstreamRes && upstreamRes.status === 429) return true;
+  const remaining = upstreamRes && upstreamRes.headers && upstreamRes.headers.get("x-ratelimit-requests-remaining");
+  if (remaining !== null && remaining !== undefined && parseInt(remaining, 10) <= 0) return true;
+  const errors = data && data.errors;
+  if (!errors) return false;
+  const keys = Array.isArray(errors) ? [] : Object.keys(errors);
+  if (keys.some((k) => /rate.?limit|requests?$/i.test(k))) return true;
+  const text = _formatProviderErrors(errors).toLowerCase();
+  return /rate limit|too many requests|quota|request limit|limit of your plan|daily limit|limit reached/.test(text);
 }
 
 async function _footballApiProxyRoute(env, request, url, operationName, ttlSeconds) {
@@ -3716,10 +3750,28 @@ async function _footballApiProxyRoute(env, request, url, operationName, ttlSecon
   }
 
   if (FOOTBALL_PROVIDER.isErrorResponse(upstreamRes, data)) {
+    const rateLimited = _looksLikeProviderRateLimitError(upstreamRes, data);
     try {
       await _recordFootballMetric(env, "providerErrors");
+      if (rateLimited) await _recordFootballMetric(env, "rateLimitHits");
     } catch (_e2) {}
     const detail = _formatProviderErrors(data && data.errors);
+    if (rateLimited) {
+      // Distinguishable from any other provider error (wrong code, bad
+      // params, etc.) so the client can show a specific "check back
+      // tomorrow" message instead of a generic failure, and the admin
+      // dashboard's rateLimitHits counter (see _recordFootballMetric
+      // above) can alert the owner -- see getSystemHealthAlerts in
+      // esportlyic-admin/lib/repositories/dashboardRepository.ts.
+      return jsonResponse(
+        {
+          error: "Football data provider has reached today's free usage limit.",
+          code: "rate_limited",
+          details: data && data.errors,
+        },
+        429
+      );
+    }
     return jsonResponse(
       {
         error: detail
@@ -3885,8 +3937,10 @@ async function _pollLiveFixturesAndNotify(env) {
     return;
   }
   if (FOOTBALL_PROVIDER.isErrorResponse(upstreamRes, data)) {
+    const rateLimited = _looksLikeProviderRateLimitError(upstreamRes, data);
     try {
       await _recordFootballMetric(env, "providerErrors");
+      if (rateLimited) await _recordFootballMetric(env, "rateLimitHits");
     } catch (_e) {}
     console.error("[football poll] provider error:", JSON.stringify(data && data.errors));
     return;

@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -58,7 +59,7 @@ class _FootballPlayerScreenState extends State<FootballPlayerScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isFollowing = currentlyFollowing);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(UserFriendlyError.toMessage(e))));
     }
   }
 
@@ -86,7 +87,7 @@ class _FootballPlayerScreenState extends State<FootballPlayerScreen> {
                   padding: const EdgeInsets.all(24),
                   child: Text(
                     snap.hasError
-                        ? 'Could not load player.\n${snap.error}'
+                        ? UserFriendlyError.toMessage(snap.error!)
                         : 'No stats available for this player this season.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppTheme.secondaryText(brightness)),
