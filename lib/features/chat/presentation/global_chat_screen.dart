@@ -48,6 +48,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   String _resolvedPhoto = '';
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _adminsSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _globalModerationSub;
   bool _allowSenderPinGlobal = false;
 
   bool _globalChatMuted = false;
@@ -89,7 +91,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   }
 
   void _watchGlobalModeration() {
-    _globalModerationDoc.snapshots(includeMetadataChanges: true).listen((snap) {
+    _globalModerationSub = _globalModerationDoc
+        .snapshots(includeMetadataChanges: true)
+        .listen((snap) {
       final data = snap.data() ?? <String, dynamic>{};
       if (!mounted) return;
       setState(() {
@@ -784,6 +788,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   void dispose() {
     PushMessagingService.instance.setActiveLeagueChat(null);
     _adminsSub?.cancel();
+    _globalModerationSub?.cancel();
     _scrollCtrl.dispose();
     _selectedMessageId.dispose();
     _replyTo.dispose();

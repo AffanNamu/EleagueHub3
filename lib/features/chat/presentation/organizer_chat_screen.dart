@@ -55,6 +55,9 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
   final ValueNotifier<ChatMessage?> _replyTo = ValueNotifier<ChatMessage?>(null);
 
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _moderationSub;
+
   bool _sending = false;
   bool _codeMode = false;
   bool _identityResolved = false;
@@ -260,7 +263,9 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
   }
 
   void _watchModerationState() {
-    _moderationDoc.snapshots(includeMetadataChanges: true).listen((snap) {
+    _moderationSub = _moderationDoc
+        .snapshots(includeMetadataChanges: true)
+        .listen((snap) {
       final data = snap.data() ?? <String, dynamic>{};
       if (!mounted) return;
       setState(() {
@@ -1041,6 +1046,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
   @override
   void dispose() {
     PushMessagingService.instance.setActiveLeagueChat(null);
+    _moderationSub?.cancel();
     _recordingTicker?.cancel();
     _recorder.dispose();
     _scrollCtrl.dispose();

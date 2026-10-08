@@ -22,8 +22,13 @@ final badgeServiceProvider = Provider<BadgeService>(
 ///
 /// Usage:
 ///   ref.watch(badgeStreamProvider('uid123'))
+///
+/// `autoDispose`: this is watched once per row in scrollable lists (search
+/// results, chat inbox, feed). Without it, every distinct userId ever
+/// scrolled past opens a permanent `users/{uid}` Firestore listener that
+/// never tears down for the life of the app session.
 final badgeStreamProvider =
-    StreamProvider.family<VerificationBadges, String>(
+    StreamProvider.autoDispose.family<VerificationBadges, String>(
   (ref, userId) {
     if (userId.trim().isEmpty) {
       return const Stream.empty();
