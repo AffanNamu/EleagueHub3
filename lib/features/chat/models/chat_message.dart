@@ -8,6 +8,13 @@ class ChatMessageType {
   static const String voice = 'voice';
 }
 
+/// Local-only send status for optimistic UI. Never persisted to Firestore
+/// and never set by [ChatMessage.fromDoc] (always [sent] there, since any
+/// message read back from Firestore is by definition already written) --
+/// only the sender's own device ever constructs a [sending]/[failed]
+/// instance, to show immediately while the write is still in flight.
+enum ChatDeliveryStatus { sent, sending, failed }
+
 class ChatMessage {
   final String messageId;
   final String senderId;
@@ -59,6 +66,8 @@ class ChatMessage {
   /// Type of replied-to message: text/image/voice/code (stored at send time).
   final String replyToType;
 
+  final ChatDeliveryStatus deliveryStatus;
+
   const ChatMessage({
     required this.messageId,
     required this.senderId,
@@ -83,7 +92,35 @@ class ChatMessage {
     required this.replyToSenderName,
     required this.replyToText,
     required this.replyToType,
+    this.deliveryStatus = ChatDeliveryStatus.sent,
   });
+
+  ChatMessage copyWith({ChatDeliveryStatus? deliveryStatus}) => ChatMessage(
+        messageId: messageId,
+        senderId: senderId,
+        senderName: senderName,
+        senderPhoto: senderPhoto,
+        text: text,
+        imageUrl: imageUrl,
+        voiceUrl: voiceUrl,
+        type: type,
+        voiceDurationMs: voiceDurationMs,
+        createdAt: createdAt,
+        createdAtMs: createdAtMs,
+        leagueId: leagueId,
+        timestamp: timestamp,
+        pinned: pinned,
+        pinnedAt: pinnedAt,
+        pinnedBy: pinnedBy,
+        deleted: deleted,
+        deletedAt: deletedAt,
+        deletedBy: deletedBy,
+        replyToMessageId: replyToMessageId,
+        replyToSenderName: replyToSenderName,
+        replyToText: replyToText,
+        replyToType: replyToType,
+        deliveryStatus: deliveryStatus ?? this.deliveryStatus,
+      );
 
   bool get hasText => text.trim().isNotEmpty;
 

@@ -139,6 +139,7 @@ const Map<String, Map<String, String>> appLocalizationsPart14 = {
     'chat_bubble_copied': 'Copied to clipboard.',
     'chat_bubble_deleted_message': 'This message was deleted.',
     'chat_bubble_reply_fallback': 'Unknown',
+    'chat_bubble_retry': 'Retry',
     'chat_input_cancel_reply_tooltip': 'Cancel reply',
     'chat_input_image_tooltip': 'Send a photo',
     'chat_input_message_hint': 'Message',
