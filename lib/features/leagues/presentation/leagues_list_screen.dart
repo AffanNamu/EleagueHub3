@@ -468,9 +468,17 @@ class _LeaguesListScreenState
         leagues = await _repo
             .listLeagues()
             .timeout(const Duration(seconds: 20));
-        memberships = await _repo
-            .listMemberships()
-            .timeout(const Duration(seconds: 25));
+        // listMemberships() used to be called here -- it fetches every
+        // participant's membership doc in every one of the viewer's
+        // leagues (a full subcollection scan per league) just so the loop
+        // below could filter it down to the viewer's own single row per
+        // league. Membership doc IDs are always the participant's own uid
+        // (every write site does `.collection('memberships').doc(uid)`),
+        // so the viewer's own membership is fetched directly per league
+        // inside the loop below via `_repo.getMembership(...)` instead --
+        // one single-document read per league rather than one full
+        // collection read per league.
+        memberships = const <Membership>[];
       }
 
       final Map<String, int> counts = {};
@@ -483,13 +491,22 @@ class _LeaguesListScreenState
               await _countParticipantsRemote(league.id);
           counts[league.id] = registered;
 
-          final isParticipant = memberships.any(
-            (m) =>
-                m.leagueId == league.id &&
-                m.userId == effectiveUserId &&
-                (m.role == LeagueRole.member ||
-                    m.role == LeagueRole.organizer),
-          );
+          final bool isParticipant;
+          if (kIsWeb) {
+            isParticipant = memberships.any(
+              (m) =>
+                  m.leagueId == league.id &&
+                  m.userId == effectiveUserId &&
+                  (m.role == LeagueRole.member ||
+                      m.role == LeagueRole.organizer),
+            );
+          } else {
+            final viewerMembership = await _repo.getMembership(
+              leagueId: league.id,
+              userId: effectiveUserId,
+            );
+            isParticipant = viewerMembership != null;
+          }
           viewerIsParticipant[league.id] = isParticipant;
 
           final isOwner =
@@ -620,26 +637,25 @@ class _LeaguesListScreenState
       _membershipsCol(String leagueId) =>
           _leagueRef(leagueId).collection('memberships');
 
+  // Was a full `.get()` of the entire memberships subcollection per league
+  // (O(member count) document transfer) just to count rows client-side.
+  // Firestore's count() aggregation computes the same count server-side
+  // without transferring any documents. The `role` filter is kept to
+  // match prior semantics exactly (guards against any malformed doc
+  // missing/with an invalid role field); every real membership write site
+  // always sets both `userId` and `role`, so dropping the old client-side
+  // `uid.isNotEmpty` check changes nothing for well-formed data.
   Future<int> _countParticipantsRemote(
       String leagueId) async {
-    final snap = await _membershipsCol(leagueId)
-        .get(const GetOptions(source: Source.server))
+    final agg = await _membershipsCol(leagueId)
+        .where('role', whereIn: [
+          LeagueRole.organizer.index,
+          LeagueRole.member.index,
+        ])
+        .count()
+        .get()
         .timeout(const Duration(seconds: 12));
-
-    var count = 0;
-    for (final d in snap.docs) {
-      final data = d.data();
-      final uid =
-          (data['userId'] as String?)?.trim() ?? '';
-      final roleIdx = (data['role'] as num?)?.toInt();
-      final isParticipantRole =
-          roleIdx == LeagueRole.organizer.index ||
-              roleIdx == LeagueRole.member.index;
-      if (uid.isNotEmpty && isParticipantRole) {
-        count++;
-      }
-    }
-    return count;
+    return agg.count ?? 0;
   }
 
   Future<bool> _hasPaidChargesRemote({

@@ -54,6 +54,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
   final ValueNotifier<ChatMessage?> _replyTo = ValueNotifier<ChatMessage?>(null);
 
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _globalModerationSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _organizerModerationSub;
+
   bool _sending = false;
   bool _codeMode = false;
   bool _identityResolved = false;
@@ -141,7 +146,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   }
 
   void _watchModerationState() {
-    _globalModerationDoc.snapshots(includeMetadataChanges: true).listen((snap) {
+    _globalModerationSub = _globalModerationDoc
+        .snapshots(includeMetadataChanges: true)
+        .listen((snap) {
       final data = snap.data() ?? <String, dynamic>{};
       if (!mounted) return;
       setState(() {
@@ -159,11 +166,12 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     });
 
     FirebaseFirestore.instance.collection('leagues').doc(widget.leagueId).get().then((snap) {
+      if (!mounted) return;
       final data = snap.data() ?? <String, dynamic>{};
       final masterLeagueId = (data['masterLeagueId'] ?? '').toString().trim();
       if (masterLeagueId.isEmpty) return;
 
-      FirebaseFirestore.instance
+      _organizerModerationSub = FirebaseFirestore.instance
           .collection('master_leagues')
           .doc(masterLeagueId)
           .collection('memberModeration')
@@ -1298,6 +1306,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   @override
   void dispose() {
     PushMessagingService.instance.setActiveLeagueChat(null);
+    _globalModerationSub?.cancel();
+    _organizerModerationSub?.cancel();
     _recordingTicker?.cancel();
     _recorder.dispose();
     _scrollCtrl.dispose();
