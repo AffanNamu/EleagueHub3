@@ -104,9 +104,21 @@ Future<void> main() async {
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
+    // Firestore's own on-device cache. Enabling this is what lets a
+    // screen whose query has no explicit GetOptions/source override (most
+    // chat message streams, for one) paint from the last-seen snapshot
+    // immediately on open instead of blocking on a network round trip,
+    // then silently reconcile once the live listener catches up --
+    // "cache-first" with zero extra plumbing, since this is exactly what
+    // the SDK already does once persistence is on. It changes nothing for
+    // the money/plan/participant-count reads elsewhere in the app that
+    // already pass `GetOptions(source: Source.server)` explicitly -- those
+    // keep forcing a server round trip regardless of this setting.
     try {
-      FirebaseFirestore.instance.settings =
-          const Settings(persistenceEnabled: false);
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: 100 * 1024 * 1024,
+      );
     } catch (_) {}
 
     try {

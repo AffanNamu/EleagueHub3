@@ -38,6 +38,13 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
   Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
 
+  /// Optimistic messages keyed by the client-generated id used as their
+  /// Firestore doc id, shown immediately on send before the write (and the
+  /// realtime listener's own echo of it) confirms. Dropped once the
+  /// listener delivers a doc with the same id (see the StreamBuilder
+  /// below) or replaced with a [ChatDeliveryStatus.failed] copy on error.
+  final Map<String, ChatMessage> _pendingMessages = <String, ChatMessage>{};
+
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
   final ValueNotifier<ChatMessage?> _replyTo = ValueNotifier<ChatMessage?>(null);
 
@@ -263,9 +270,64 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
     if (raw.isEmpty) return;
 
     final reply = _replyTo.value;
-    final messageId = _newMessageId();
+    final type = _codeMode ? ChatMessageType.code : ChatMessageType.text;
+    await _sendTextLike(
+      raw: raw,
+      type: type,
+      replyToMessageId: reply?.messageId ?? '',
+      replyToSenderName: reply?.displaySenderName ?? '',
+      replyToText: reply?.replyPreview() ?? '',
+      replyToType: reply?.type ?? '',
+    );
+  }
 
-    setState(() => _sending = true);
+  /// Shared by the first send and by retrying a failed one. Builds a local
+  /// "sending" bubble and shows it immediately (optimistic UI) -- the
+  /// caller doesn't wait on the network round trip to see their message.
+  Future<void> _sendTextLike({
+    required String raw,
+    required String type,
+    required String replyToMessageId,
+    required String replyToSenderName,
+    required String replyToText,
+    required String replyToType,
+    String? retryMessageId,
+  }) async {
+    final messageId = retryMessageId ?? _newMessageId();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    final optimistic = ChatMessage(
+      messageId: messageId,
+      senderId: _user.uid.trim(),
+      senderName: _senderName(),
+      senderPhoto: _senderPhoto(),
+      text: raw,
+      imageUrl: '',
+      voiceUrl: '',
+      type: type,
+      createdAt: null,
+      createdAtMs: nowMs,
+      leagueId: '',
+      timestamp: nowMs,
+      pinned: false,
+      pinnedAt: null,
+      pinnedBy: '',
+      deleted: false,
+      deletedAt: null,
+      deletedBy: '',
+      replyToMessageId: replyToMessageId,
+      replyToSenderName: replyToSenderName,
+      replyToText: replyToText,
+      replyToType: replyToType,
+      deliveryStatus: ChatDeliveryStatus.sending,
+    );
+
+    if (mounted) {
+      setState(() => _pendingMessages[messageId] = optimistic);
+    }
+    _textCtrl.clear();
+    _replyTo.value = null;
+
     try {
       await ConnectivityService.instance
           .requireOnline(timeout: const Duration(seconds: 4));
@@ -274,30 +336,46 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         senderId: _user.uid,
         senderName: _senderName(),
         senderPhoto: _senderPhoto(),
-        type: _codeMode ? ChatMessageType.code : ChatMessageType.text,
+        type: type,
         text: raw,
         messageIdOverride: messageId,
-        replyToMessageId: reply?.messageId ?? '',
-        replyToSenderName: reply?.displaySenderName ?? '',
-        replyToText: reply?.replyPreview() ?? '',
-        replyToType: reply?.type ?? '',
+        replyToMessageId: optimistic.replyToMessageId,
+        replyToSenderName: optimistic.replyToSenderName,
+        replyToText: optimistic.replyToText,
+        replyToType: optimistic.replyToType,
       );
 
       final preview = _previewForOutgoing(
-        type: ChatMessageType.text,
+        type: type,
         text: raw,
         imageUrl: '',
       );
       _notifyPush(messageId: messageId, preview: preview);
-
-      _textCtrl.clear();
-      _replyTo.value = null;
-
-      if (mounted) setState(() => _sending = false);
+      // _pendingMessages[messageId] is left as "sending" here on purpose --
+      // the realtime listener will deliver the confirmed doc under the
+      // same id within moments, which supersedes and clears it (see the
+      // StreamBuilder below). No need to flip a local "sent" state first.
     } catch (e) {
-      if (mounted) setState(() => _sending = false);
+      if (!mounted) return;
+      setState(() {
+        _pendingMessages[messageId] =
+            optimistic.copyWith(deliveryStatus: ChatDeliveryStatus.failed);
+      });
       _toastErr(e);
     }
+  }
+
+  void _retryFailedMessage(ChatMessage failed) {
+    _pendingMessages.remove(failed.messageId);
+    _sendTextLike(
+      raw: failed.text,
+      type: failed.type,
+      replyToMessageId: failed.replyToMessageId,
+      replyToSenderName: failed.replyToSenderName,
+      replyToText: failed.replyToText,
+      replyToType: failed.replyToType,
+      retryMessageId: failed.messageId,
+    );
   }
 
   Future<void> _pickAndSendImage() async {
@@ -679,7 +757,17 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
               final msgs = (snap.data ?? const <ChatMessage>[])
                   .where((m) => !_blockedUserIds.contains(m.senderId))
                   .toList(growable: false);
-              if (msgs.isEmpty) {
+
+              // Drop any optimistic message once the realtime listener
+              // has delivered the confirmed doc under the same id.
+              final confirmedIds = msgs.map((e) => e.messageId).toSet();
+              _pendingMessages.removeWhere((id, _) => confirmedIds.contains(id));
+
+              final pending = _pendingMessages.values.toList()
+                ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+              final combined = <ChatMessage>[...pending, ...msgs];
+
+              if (combined.isEmpty) {
                 return Center(
                   child: Text(
                     context.l10n.tr('global_chat_no_messages'),
@@ -693,18 +781,18 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                 );
               }
 
-              _msgById = {for (final m in msgs) m.messageId: m};
+              _msgById = {for (final m in combined) m.messageId: m};
 
-              final ids = msgs.map((e) => e.messageId).toSet();
+              final ids = combined.map((e) => e.messageId).toSet();
               _messageKeys.removeWhere((k, _) => !ids.contains(k));
 
               return ListView.builder(
                 controller: _scrollCtrl,
                 reverse: true,
                 padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 12, 12),
-                itemCount: msgs.length,
+                itemCount: combined.length,
                 itemBuilder: (_, i) {
-                  final m = msgs[i];
+                  final m = combined[i];
                   final isMe = m.senderId.trim() == _user.uid.trim();
 
                   final key = _messageKeys.putIfAbsent(
@@ -725,6 +813,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                           isMe: isMe,
                           selected: selectedId == m.messageId,
                           messageRef: _repo.globalMessageRef(m.messageId),
+                          onRetryFailed: m.deliveryStatus == ChatDeliveryStatus.failed
+                              ? () => _retryFailedMessage(m)
+                              : null,
                           onLongPress: () {
                             HapticFeedback.mediumImpact();
                             _replyTo.value = null;

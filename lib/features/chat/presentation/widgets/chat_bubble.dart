@@ -24,6 +24,7 @@ class ChatBubble extends StatelessWidget {
     this.onLongPress,
     this.onSwipeReply,
     this.messageRef,
+    this.onRetryFailed,
   });
 
   final ChatMessage message;
@@ -34,6 +35,11 @@ class ChatBubble extends StatelessWidget {
   final VoidCallback? onLongPress;
 
   final VoidCallback? onSwipeReply;
+
+  /// Called when the viewer taps the failed-send indicator on their own
+  /// message to retry it. Only ever relevant when [isMe] and
+  /// [ChatMessage.deliveryStatus] is [ChatDeliveryStatus.failed].
+  final VoidCallback? onRetryFailed;
 
   /// When set, renders live reaction pills under the bubble and lets the
   /// user react via a long-press-free emoji-smiley button. Omitted (null)
@@ -212,11 +218,48 @@ class ChatBubble extends StatelessWidget {
                     ),
                     if (isMe) ...[
                       const SizedBox(width: 6),
-                      Icon(
-                        Icons.done_all,
-                        size: 14,
-                        color: AppTheme.limeAccentDark.withOpacity(0.8),
-                      ),
+                      if (message.deliveryStatus == ChatDeliveryStatus.sending)
+                        SizedBox(
+                          width: 11,
+                          height: 11,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.6,
+                            color: AppTheme.secondaryText(brightness),
+                          ),
+                        )
+                      else if (message.deliveryStatus ==
+                          ChatDeliveryStatus.failed)
+                        InkWell(
+                          onTap: onRetryFailed,
+                          borderRadius: BorderRadius.circular(999),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.error_outline,
+                                size: 14,
+                                color: Colors.redAccent,
+                              ),
+                              if (onRetryFailed != null) ...[
+                                const SizedBox(width: 4),
+                                Text(
+                                  context.l10n.tr('chat_bubble_retry'),
+                                  style: const TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        )
+                      else
+                        Icon(
+                          Icons.done_all,
+                          size: 14,
+                          color: AppTheme.limeAccentDark.withOpacity(0.8),
+                        ),
                     ],
                   ],
                 ),
