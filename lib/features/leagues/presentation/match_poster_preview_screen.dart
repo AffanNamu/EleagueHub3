@@ -13,7 +13,8 @@ import '../models/fixture_match.dart';
 import '../models/match_poster_data.dart';
 import '../models/team.dart';
 import '../services/match_poster_export_service.dart';
-import '../widgets/match_poster_widget.dart';
+import '../widgets/poster/match_poster_template.dart';
+import '../widgets/poster/match_poster_templates.dart';
 
 class MatchPosterPreviewScreen extends StatefulWidget {
   const MatchPosterPreviewScreen({
@@ -40,6 +41,7 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
   final TextEditingController _venueCtrl = TextEditingController();
 
   MatchPosterFormat _format = MatchPosterFormat.portrait;
+  MatchPosterTemplate _template = matchPosterTemplates.first;
 
   bool _loading = true;
   bool _busy = false;
@@ -197,7 +199,7 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
                               borderRadius: BorderRadius.circular(22),
                               child: RepaintBoundary(
                                 key: _repaintKey,
-                                child: MatchPosterWidget(data: _renderData!),
+                                child: _template.build(context, _renderData!, _format),
                               ),
                             ),
                           ),
@@ -215,9 +217,15 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
                       const SizedBox(height: 8),
                       Wrap(
                         spacing: 8,
-                        children: [
-                          _StaticChoiceChip(label: context.l10n.tr('match_poster_template_classic'), selected: true),
-                        ],
+                        runSpacing: 8,
+                        children: matchPosterTemplates.map((t) {
+                          final selected = t.id == _template.id;
+                          return ChoiceChip(
+                            label: Text('${t.emoji} ${t.name}'),
+                            selected: selected,
+                            onSelected: (_) => setState(() => _template = t),
+                          );
+                        }).toList(growable: false),
                       ),
                       const SizedBox(height: 18),
                       Text(
@@ -320,21 +328,6 @@ class _MatchPosterPreviewScreenState extends State<MatchPosterPreviewScreen> {
                     ],
                   ),
       ),
-    );
-  }
-}
-
-class _StaticChoiceChip extends StatelessWidget {
-  const _StaticChoiceChip({required this.label, required this.selected});
-  final String label;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) {},
     );
   }
 }
