@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
+import '../../verification/logic/badge_providers.dart';
 import '../data/master_leagues_repository_firebase.dart';
 import '../data/organizer_feed_firebase.dart';
 import '../domain/competition_template.dart';
@@ -120,13 +121,18 @@ final masterLeagueUnlockedProvider =
 
 /// Watch the user's plan subscription from their Firestore profile.
 /// Uses a real-time stream so UI reacts immediately after payment.
+///
+/// Derived from currentUserProfileProvider's own stream (`.stream`) rather
+/// than opening a second independent users/{uid} Firestore listener --
+/// both providers now multiplex off the one shared subscription.
 final userPlanSubscriptionProvider =
     StreamProvider.autoDispose<UserPlanSubscription?>((ref) {
   final uid =
       FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
   if (uid.isEmpty) return Stream.value(null);
-  final repo = ref.watch(userProfileRepositoryProvider);
-  return repo.watchPlanSubscription(uid);
+  return ref
+      .watch(currentUserProfileProvider.stream)
+      .map((profile) => profile?.planSubscription);
 });
 
 /// Watch whether user has an active plan.
@@ -135,8 +141,9 @@ final userHasActivePlanProvider =
   final uid =
       FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
   if (uid.isEmpty) return Stream.value(false);
-  final repo = ref.watch(userProfileRepositoryProvider);
-  return repo.watchHasActivePlan(uid);
+  return ref
+      .watch(currentUserProfileProvider.stream)
+      .map((profile) => profile?.hasPlanActive ?? false);
 });
 
 // ── Workspace counts ──────────────────────────────────────────────────────
@@ -228,20 +235,6 @@ final allOrganizerWorkspacesProvider =
     FutureProvider.autoDispose<List<MasterLeague>>((ref) async {
   final repo = ref.watch(masterLeaguesRepositoryProvider);
   return repo.discoverAllOrganizers(limit: 20);
-});
-
-// ── Current user profile stream ───────────────────────────────────────────
-//
-// Used by MasterLeaguesListScreen to show the signed-in user's
-// display name and verification badges in the info card header.
-
-final currentUserProfileStreamProvider =
-    StreamProvider.autoDispose<UserProfile?>((ref) {
-  final uid =
-      FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-  if (uid.isEmpty) return Stream.value(null);
-  final repo = ref.watch(userProfileRepositoryProvider);
-  return repo.watchByUserId(uid);
 });
 
 // ── Owner profile by UID ──────────────────────────────────────────────────

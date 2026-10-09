@@ -16,6 +16,7 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
 import '../../leagues/logic/league_premium_upgrade_helper.dart';
+import '../../verification/logic/badge_providers.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../domain/master_league.dart';
 import '../domain/master_league_plan.dart';
@@ -511,7 +512,7 @@ class _MasterLeaguesListScreenState
   // ── User identity row (name + verification badge) ─────────────────────────
   //
   // Shows who is signed in and their current verification badge.
-  // Uses the Riverpod currentUserProfileStreamProvider so that badge
+  // Uses the shared currentUserProfileProvider so that badge
   // state updates (e.g. immediately after a plan purchase) are reflected
   // without a manual refresh.
 
@@ -521,11 +522,11 @@ class _MasterLeaguesListScreenState
         FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) return const SizedBox.shrink();
 
-    // Use the Riverpod stream provider (already set up in providers file)
-    // instead of creating a raw UserProfileRepository() — this respects
-    // the auth guard and shares the same stream across the widget tree.
+    // Shares the app-wide currentUserProfileProvider listener (badge_providers.dart)
+    // instead of a separate stream provider duplicating the same
+    // users/{uid} Firestore subscription.
     final profileAsync =
-        ref.watch(currentUserProfileStreamProvider);
+        ref.watch(currentUserProfileProvider);
 
     return profileAsync.when(
       loading: () => Padding(
@@ -635,7 +636,7 @@ class _MasterLeaguesListScreenState
     // FIXED: Also watch the real-time user profile stream so that the
     // plan status text reflects the Firestore profile immediately after
     // a Google Play purchase — before the claims-based providers update.
-    final profileAsync = ref.watch(currentUserProfileStreamProvider);
+    final profileAsync = ref.watch(currentUserProfileProvider);
     final l10n = context.l10n;
 
     return Glass(
