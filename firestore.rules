@@ -524,6 +524,7 @@ service cloud.firestore {
     // has other teams joined.
     function validWorldCupGroupMatchWrite() {
       return request.resource == null || (!('groupId' in request.resource.data)
+        || (request.resource.data.groupId == null)
         || (
           (request.resource.data.groupId is string)
           && (request.resource.data.groupId.size() >= 1)
