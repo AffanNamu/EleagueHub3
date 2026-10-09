@@ -52,18 +52,18 @@ class HomeLatestHighlight {
   final MatchHighlight highlight;
 }
 
-/// Bundles all 3 Home-tab dashboard sections from one shared scan of the
-/// user's recent leagues, instead of each section independently re-fetching
-/// the same league list and the same per-league teams/matches.
-class HomeDashboardData {
-  const HomeDashboardData({
+/// Bundles the standings + fixtures sections from one shared scan of the
+/// user's recent leagues (both need the same per-league teams/matches, so
+/// they're loaded together). Highlights are loaded as a separate, independent
+/// future -- see [HomeDashboardRepository.loadLatestHighlight] -- so a slow
+/// or timed-out highlights scan never blocks these two from rendering.
+class HomeStructuralDashboardData {
+  const HomeStructuralDashboardData({
     required this.standings,
-    required this.highlight,
     required this.fixtures,
   });
 
   final HomeStandingsSummary? standings;
-  final HomeLatestHighlight? highlight;
   final List<HomeUpcomingFixture> fixtures;
 }
 
@@ -187,14 +187,39 @@ class HomeDashboardRepository {
   int _highlightTimestampMs(MatchHighlight h) =>
       h.createdAt?.millisecondsSinceEpoch ?? 0;
 
+  /// Loads the standings + fixtures sections from one shared scan of the
+  /// user's recent leagues, instead of each section independently calling
+  /// listLeagues() and re-fetching the same per-league teams/matches (the
+  /// two previously did this work twice between them).
+  Future<HomeStructuralDashboardData> loadStructural(
+    String uid, {
+    int fixturesLimit = 4,
+  }) async {
+    final trimmedUid = uid.trim();
+    final leagues = await _recentLeagues();
+    final snapshots = await _loadLeagueSnapshots(leagues);
+
+    final standings = trimmedUid.isEmpty
+        ? null
+        : _featuredStandingsFrom(snapshots, trimmedUid);
+    final fixtures = _upcomingFixturesFrom(snapshots, limit: fixturesLimit);
+
+    return HomeStructuralDashboardData(
+      standings: standings,
+      fixtures: fixtures,
+    );
+  }
+
   /// The single most recent APPROVED highlight across the user's leagues.
-  /// Highlights live in their own subcollection (no overlap with
-  /// teams/matches), so this still scans per-league independently --
-  /// but off the one shared [leagues] list rather than a second
-  /// [_recentLeagues] call.
-  Future<HomeLatestHighlight?> _latestHighlightFrom(
-    List<League> leagues,
-  ) async {
+  /// Kept as its own independent future (own listLeagues() call, like
+  /// before) rather than folded into [loadStructural] -- each per-league
+  /// highlights read has an 8s timeout, and bundling it in would make a
+  /// slow/timed-out highlights scan block the standings/fixtures sections
+  /// from rendering, which previously could show as soon as they were
+  /// ready, independent of how long highlights took.
+  Future<HomeLatestHighlight?> loadLatestHighlight() async {
+    final leagues = await _recentLeagues();
+
     MatchHighlight? best;
     League? bestLeague;
 
@@ -220,30 +245,5 @@ class HomeDashboardRepository {
 
     if (best == null || bestLeague == null) return null;
     return HomeLatestHighlight(league: bestLeague, highlight: best);
-  }
-
-  /// Loads all 3 Home-tab dashboard sections from one shared scan of the
-  /// user's recent leagues. Replaces 3 independent loaders that each used
-  /// to call listLeagues() and re-fetch the same per-league teams/matches
-  /// on every Home tab open.
-  Future<HomeDashboardData> loadDashboard(
-    String uid, {
-    int fixturesLimit = 4,
-  }) async {
-    final trimmedUid = uid.trim();
-    final leagues = await _recentLeagues();
-    final snapshots = await _loadLeagueSnapshots(leagues);
-
-    final standings = trimmedUid.isEmpty
-        ? null
-        : _featuredStandingsFrom(snapshots, trimmedUid);
-    final fixtures = _upcomingFixturesFrom(snapshots, limit: fixturesLimit);
-    final highlight = await _latestHighlightFrom(leagues);
-
-    return HomeDashboardData(
-      standings: standings,
-      highlight: highlight,
-      fixtures: fixtures,
-    );
   }
 }
