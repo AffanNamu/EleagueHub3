@@ -16,6 +16,7 @@ import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/app_analytics_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/team_claim_repository.dart';
@@ -205,7 +206,7 @@ class _PreviewCard extends StatelessWidget {
               color: AppTheme.searchBackground(brightness),
               border: Border.all(color: AppTheme.cardBorder(brightness)),
               image: preview.teamLogoUrl.isNotEmpty
-                  ? DecorationImage(image: NetworkImage(preview.teamLogoUrl), fit: BoxFit.cover)
+                  ? DecorationImage(image: NetworkImage(CloudinaryUtils.thumb(preview.teamLogoUrl, size: 168)), fit: BoxFit.cover)
                   : null,
             ),
             child: preview.teamLogoUrl.isEmpty

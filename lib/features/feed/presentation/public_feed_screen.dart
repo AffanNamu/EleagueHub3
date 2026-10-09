@@ -11,6 +11,7 @@ import '../../../core/reactions/presentation/reaction_picker.dart';
 import '../../../core/reactions/presentation/reaction_pill_bar.dart';
 import '../../../core/reactions/reactions_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
@@ -33,7 +34,7 @@ String _cloudinaryVideoThumbnail(String videoUrl) {
   final idx = videoUrl.indexOf(marker);
   if (idx == -1) return '';
   final withTransform =
-      videoUrl.replaceFirst(marker, '${marker}so_0/');
+      videoUrl.replaceFirst(marker, '${marker}so_0,w_900,c_limit/');
   final dotIdx = withTransform.lastIndexOf('.');
   if (dotIdx <= idx) return '$withTransform.jpg';
   return '${withTransform.substring(0, dotIdx)}.jpg';
@@ -478,8 +479,9 @@ class _PostCard extends StatelessWidget {
                 child: CircleAvatar(
                   radius: 18,
                   backgroundColor: AppTheme.iconCircleBackground(brightness),
-                  backgroundImage:
-                      post.authorPhotoUrl.isNotEmpty ? NetworkImage(post.authorPhotoUrl) : null,
+                  backgroundImage: post.authorPhotoUrl.isNotEmpty
+                      ? NetworkImage(CloudinaryUtils.thumb(post.authorPhotoUrl, size: 72))
+                      : null,
                   child: post.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 18) : null,
                 ),
               ),
@@ -601,7 +603,7 @@ class _PostCard extends StatelessWidget {
                     child: SizedBox(
                       width: double.infinity,
                       child: Image.network(
-                        post.mediaUrl,
+                        CloudinaryUtils.fit(post.mediaUrl, width: 1080),
                         fit: BoxFit.cover, // Ensures normal social media crop
                         errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                       ),

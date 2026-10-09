@@ -23,6 +23,7 @@ import '../../../core/reactions/reactions_repository.dart';
 import '../../../core/routing/route_resolver.dart';
 import '../../../core/seo/web_meta_updater.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/content_unavailable_screen.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -239,7 +240,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             backgroundColor:
                                 AppTheme.iconCircleBackground(brightness),
                             backgroundImage: authorPhoto.isNotEmpty
-                                ? NetworkImage(authorPhoto)
+                                ? NetworkImage(CloudinaryUtils.thumb(authorPhoto, size: 96))
                                 : null,
                             child: authorPhoto.isEmpty
                                 ? const Icon(Icons.person_rounded)

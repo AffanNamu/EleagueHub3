@@ -675,7 +675,7 @@ class _CoverAndHeader extends StatelessWidget {
                 color: AppTheme.cardColor(brightness),
                 image: bannerUrl.isNotEmpty
                     ? DecorationImage(
-                        image: NetworkImage(bannerUrl),
+                        image: NetworkImage(CloudinaryUtils.fill(bannerUrl, width: 900, height: 320)),
                         fit: BoxFit.cover,
                         onError: (_, __) {},
                       )
@@ -725,7 +725,7 @@ class _CoverAndHeader extends StatelessWidget {
                     ),
                     color: AppTheme.iconCircleBackground(brightness),
                     image: avatarUrl.isNotEmpty
-                        ? DecorationImage(image: NetworkImage(avatarUrl), fit: BoxFit.cover)
+                        ? DecorationImage(image: NetworkImage(CloudinaryUtils.thumb(avatarUrl, size: 168)), fit: BoxFit.cover)
                         : null,
                   ),
                   child: Stack(

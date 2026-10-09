@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/routing/app_router.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../data/personal_notifications_repository.dart';
 import '../../data/platform_announcements_repository.dart';
 
@@ -130,7 +131,7 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
     if (avatar.isNotEmpty) {
       return CircleAvatar(
         radius: 18,
-        backgroundImage: NetworkImage(avatar),
+        backgroundImage: NetworkImage(CloudinaryUtils.thumb(avatar, size: 72)),
         onBackgroundImageError: (_, __) {},
         child: avatar.isEmpty
             ? Icon(_personalTypeIcon(item.type), size: 18)

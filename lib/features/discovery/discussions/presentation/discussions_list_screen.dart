@@ -8,6 +8,7 @@ import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../../auth/data/user_profile_repository.dart';
 import '../../../auth/models/user_profile.dart';
 import '../data/discussions_repository.dart';
@@ -118,8 +119,9 @@ class _DiscussionsListScreenState extends State<DiscussionsListScreen> {
                             CircleAvatar(
                               radius: 14,
                               backgroundColor: AppTheme.iconCircleBackground(brightness),
-                              backgroundImage:
-                                  thread.authorPhotoUrl.isNotEmpty ? NetworkImage(thread.authorPhotoUrl) : null,
+                              backgroundImage: thread.authorPhotoUrl.isNotEmpty
+                                  ? NetworkImage(CloudinaryUtils.thumb(thread.authorPhotoUrl, size: 64))
+                                  : null,
                               child: thread.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 14) : null,
                             ),
                             const SizedBox(width: 8),

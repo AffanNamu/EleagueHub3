@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/errors/user_friendly_error.dart';
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../moderation/models/user_report.dart';
 import '../../../moderation/presentation/report_sheet.dart';
@@ -411,7 +412,7 @@ class _CommentTile extends StatelessWidget {
             radius: avatarRadius,
             backgroundColor: AppTheme.iconCircleBackground(brightness),
             backgroundImage: comment.authorPhotoUrl.isNotEmpty
-                ? NetworkImage(comment.authorPhotoUrl)
+                ? NetworkImage(CloudinaryUtils.thumb(comment.authorPhotoUrl, size: 64))
                 : null,
             child: comment.authorPhotoUrl.isEmpty
                 ? Icon(Icons.person_rounded, size: avatarRadius)

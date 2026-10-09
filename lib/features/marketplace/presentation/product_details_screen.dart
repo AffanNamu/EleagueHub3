@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/marketplace_repository.dart';
@@ -222,7 +223,7 @@ class ProductDetailsScreen extends StatelessWidget {
                     aspectRatio: 1.1,
                     child: hasImg
                         ? CachedNetworkImage(
-                            imageUrl: img,
+                            imageUrl: CloudinaryUtils.fill(img, width: 900, height: 820),
                             fit: BoxFit.cover,
                             placeholder:
                                 (context, _) =>

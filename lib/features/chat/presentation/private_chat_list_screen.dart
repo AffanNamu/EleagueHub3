@@ -22,6 +22,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
@@ -485,8 +486,9 @@ class _PrivateRow extends StatelessWidget {
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             leading: CircleAvatar(
               backgroundColor: AppTheme.iconCircleBackground(brightness),
-              backgroundImage:
-                  avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+              backgroundImage: avatarUrl.isNotEmpty
+                  ? NetworkImage(CloudinaryUtils.thumb(avatarUrl, size: 96))
+                  : null,
               child: avatarUrl.isEmpty
                   ? const Icon(Icons.person_rounded)
                   : null,
