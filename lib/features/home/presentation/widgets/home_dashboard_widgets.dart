@@ -55,22 +55,24 @@ class _HomeDashboardSectionState extends ConsumerState<HomeDashboardSection> {
     leaguesRepo: LocalLeaguesRepository(ref.read(prefsServiceProvider)),
   );
 
-  // Previously 3 independent futures, each re-scanning the user's leagues
-  // (listLeagues() + per-league getTeams/getMatches) from scratch -- now
-  // one shared load so the league list and each league's teams/matches
-  // are fetched exactly once for all 3 sections combined.
-  late final Future<HomeDashboardData> _dashboardFuture =
-      _repo.loadDashboard(FirebaseAuth.instance.currentUser?.uid ?? '');
+  // Standings + fixtures share one scan of the user's recent leagues
+  // (previously each independently re-fetched the same per-league
+  // teams/matches). Highlights stay a separate, independent future so a
+  // slow/timed-out highlights read never blocks the other two from
+  // rendering as soon as they're ready.
+  late final Future<HomeStructuralDashboardData> _structuralFuture =
+      _repo.loadStructural(FirebaseAuth.instance.currentUser?.uid ?? '');
+  late final Future<HomeLatestHighlight?> _highlightFuture =
+      _repo.loadLatestHighlight();
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<HomeDashboardData>(
-      future: _dashboardFuture,
-      builder: (context, snap) {
-        final data = snap.data;
-        final fixtures = data?.fixtures ?? const <HomeUpcomingFixture>[];
-        final standings = data?.standings;
-        final highlight = data?.highlight;
+    return FutureBuilder<HomeStructuralDashboardData>(
+      future: _structuralFuture,
+      builder: (context, structuralSnap) {
+        final fixtures =
+            structuralSnap.data?.fixtures ?? const <HomeUpcomingFixture>[];
+        final standings = structuralSnap.data?.standings;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -80,51 +82,60 @@ class _HomeDashboardSectionState extends ConsumerState<HomeDashboardSection> {
                 padding: const EdgeInsets.only(bottom: 22),
                 child: _ComingUpNextSection(fixtures: fixtures),
               ),
-            if (standings != null || highlight != null)
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final narrow = constraints.maxWidth < 420;
-                  final standingsCard = standings == null
-                      ? null
-                      : _StandingsCard(summary: standings);
-                  final highlightCard = highlight == null
-                      ? null
-                      : _HighlightCard(data: highlight);
+            LayoutBuilder(
+              builder: (context, constraints) {
+                return FutureBuilder<HomeLatestHighlight?>(
+                  future: _highlightFuture,
+                  builder: (context, highlightSnap) {
+                    final highlight = highlightSnap.data;
+                    if (standings == null && highlight == null) {
+                      return const SizedBox.shrink();
+                    }
 
-                  if (narrow ||
-                      standingsCard == null ||
-                      highlightCard == null) {
+                    final narrow = constraints.maxWidth < 420;
+                    final standingsCard = standings == null
+                        ? null
+                        : _StandingsCard(summary: standings);
+                    final highlightCard = highlight == null
+                        ? null
+                        : _HighlightCard(data: highlight);
+
+                    if (narrow ||
+                        standingsCard == null ||
+                        highlightCard == null) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 22),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (standingsCard != null) ...[
+                              standingsCard,
+                              if (highlightCard != null)
+                                const SizedBox(height: 16),
+                            ],
+                            if (highlightCard != null) highlightCard,
+                          ],
+                        ),
+                      );
+                    }
+
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 22),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (standingsCard != null) ...[
-                            standingsCard,
-                            if (highlightCard != null)
-                              const SizedBox(height: 16),
+                      child: IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(child: standingsCard),
+                            const SizedBox(width: 16),
+                            Expanded(child: highlightCard),
                           ],
-                          if (highlightCard != null) highlightCard,
-                        ],
+                        ),
                       ),
                     );
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 22),
-                    child: IntrinsicHeight(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(child: standingsCard),
-                          const SizedBox(width: 16),
-                          Expanded(child: highlightCard),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
+                  },
+                );
+              },
+            ),
           ],
         );
       },
