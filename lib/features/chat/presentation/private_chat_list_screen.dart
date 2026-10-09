@@ -436,6 +436,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
               final item = items[i];
               if (item.kind == _RoomKind.private) {
                 return _PrivateRow(
+                  key: ValueKey('private_${item.thread!.id}'),
                   thread: item.thread!,
                   selfUid: selfUid,
                   profiles: _profiles,
@@ -450,8 +451,9 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
   }
 }
 
-class _PrivateRow extends StatelessWidget {
+class _PrivateRow extends StatefulWidget {
   const _PrivateRow({
+    super.key,
     required this.thread,
     required this.selfUid,
     required this.profiles,
@@ -462,15 +464,40 @@ class _PrivateRow extends StatelessWidget {
   final UserProfileRepository profiles;
 
   @override
+  State<_PrivateRow> createState() => _PrivateRowState();
+}
+
+// FIXED: this used to be a StatelessWidget whose build() called
+// profiles.fetchByUserId(otherUid) directly inside the FutureBuilder's
+// `future:` parameter -- a fresh Future every build. The parent screen
+// setState()s on *any* thread update across the whole inbox (a new
+// message anywhere re-emits the full thread list), which rebuilt every
+// visible row and re-ran a forced-server Firestore read for every other
+// participant's profile on every single incoming message, not just the
+// thread that changed. Fetching once in initState (with a ValueKey per
+// thread.id at the call site so Flutter doesn't reuse this State for a
+// different thread when the list reorders) keeps the profile fetched
+// exactly once per row's lifetime.
+class _PrivateRowState extends State<_PrivateRow> {
+  late Future<UserProfile?> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    final otherUid = widget.thread.otherParticipant(widget.selfUid);
+    _profileFuture = widget.profiles.fetchByUserId(otherUid);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final otherUid = thread.otherParticipant(selfUid);
+    final otherUid = widget.thread.otherParticipant(widget.selfUid);
 
     return FutureBuilder<UserProfile?>(
-      future: profiles.fetchByUserId(otherUid),
+      future: _profileFuture,
       builder: (context, profSnap) {
         final profile = profSnap.data;
-        final name = profiles.displayNameForProfile(
+        final name = widget.profiles.displayNameForProfile(
           profile,
           fallbackUserId: otherUid,
         );
@@ -510,15 +537,15 @@ class _PrivateRow extends StatelessWidget {
               ],
             ),
             subtitle: Text(
-              thread.lastMessage.isEmpty
+              widget.thread.lastMessage.isEmpty
                   ? context.l10n.tr('private_chat_empty_state')
-                  : thread.lastMessage,
+                  : widget.thread.lastMessage,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: AppTheme.secondaryText(brightness)),
             ),
             onTap: () => context.push(
-              '/chat/${thread.id}',
+              '/chat/${widget.thread.id}',
               extra: {'otherUserId': otherUid, 'otherName': name},
             ),
           ),
