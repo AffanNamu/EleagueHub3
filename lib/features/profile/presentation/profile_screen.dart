@@ -30,6 +30,7 @@ import '../../legal/privacy_policy_screen.dart';
 import '../../legal/terms_of_service_screen.dart';
 import '../../leagues/logic/coupon_config_service.dart';
 import '../../search/data/user_search_repository.dart';
+import '../../verification/logic/badge_providers.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -1156,12 +1157,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   padding: const EdgeInsets.all(18),
                   fill: AppTheme.cardColor(brightness),
                   borderColor: AppTheme.cardBorder(brightness),
-                  child: StreamBuilder<UserProfile?>(
-                    stream: uid.isEmpty
-                        ? const Stream<UserProfile?>.empty()
-                        : repo.watchByUserId(uid),
-                    builder: (context, snap) {
-                      final profile = snap.data;
+                  child: Consumer(
+                    builder: (context, ref, _) {
+                      // Shares the app-wide currentUserProfileProvider
+                      // listener instead of opening another live
+                      // users/{uid} Firestore subscription for this screen.
+                      final profile = uid.isEmpty
+                          ? null
+                          : ref.watch(currentUserProfileProvider).value;
 
                       final teamName = (profile != null &&
                               profile.teamName.trim().isNotEmpty)
