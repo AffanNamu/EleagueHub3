@@ -55,90 +55,79 @@ class _HomeDashboardSectionState extends ConsumerState<HomeDashboardSection> {
     leaguesRepo: LocalLeaguesRepository(ref.read(prefsServiceProvider)),
   );
 
-  late final Future<List<HomeUpcomingFixture>> _upcomingFuture =
-      _repo.loadUpcomingFixtures();
-  late final Future<HomeStandingsSummary?> _standingsFuture = _repo
-      .loadFeaturedStandings(FirebaseAuth.instance.currentUser?.uid ?? '');
-  late final Future<HomeLatestHighlight?> _highlightFuture =
-      _repo.loadLatestHighlight();
+  // Previously 3 independent futures, each re-scanning the user's leagues
+  // (listLeagues() + per-league getTeams/getMatches) from scratch -- now
+  // one shared load so the league list and each league's teams/matches
+  // are fetched exactly once for all 3 sections combined.
+  late final Future<HomeDashboardData> _dashboardFuture =
+      _repo.loadDashboard(FirebaseAuth.instance.currentUser?.uid ?? '');
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        FutureBuilder<List<HomeUpcomingFixture>>(
-          future: _upcomingFuture,
-          builder: (context, snap) {
-            final fixtures = snap.data ?? const <HomeUpcomingFixture>[];
-            if (fixtures.isEmpty) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 22),
-              child: _ComingUpNextSection(fixtures: fixtures),
-            );
-          },
-        ),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            return FutureBuilder<HomeStandingsSummary?>(
-              future: _standingsFuture,
-              builder: (context, standingsSnap) {
-                return FutureBuilder<HomeLatestHighlight?>(
-                  future: _highlightFuture,
-                  builder: (context, highlightSnap) {
-                    final standings = standingsSnap.data;
-                    final highlight = highlightSnap.data;
-                    if (standings == null && highlight == null) {
-                      return const SizedBox.shrink();
-                    }
+    return FutureBuilder<HomeDashboardData>(
+      future: _dashboardFuture,
+      builder: (context, snap) {
+        final data = snap.data;
+        final fixtures = data?.fixtures ?? const <HomeUpcomingFixture>[];
+        final standings = data?.standings;
+        final highlight = data?.highlight;
 
-                    final narrow = constraints.maxWidth < 420;
-                    final standingsCard = standings == null
-                        ? null
-                        : _StandingsCard(summary: standings);
-                    final highlightCard = highlight == null
-                        ? null
-                        : _HighlightCard(data: highlight);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (fixtures.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 22),
+                child: _ComingUpNextSection(fixtures: fixtures),
+              ),
+            if (standings != null || highlight != null)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 420;
+                  final standingsCard = standings == null
+                      ? null
+                      : _StandingsCard(summary: standings);
+                  final highlightCard = highlight == null
+                      ? null
+                      : _HighlightCard(data: highlight);
 
-                    if (narrow ||
-                        standingsCard == null ||
-                        highlightCard == null) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 22),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (standingsCard != null) ...[
-                              standingsCard,
-                              if (highlightCard != null)
-                                const SizedBox(height: 16),
-                            ],
-                            if (highlightCard != null) highlightCard,
-                          ],
-                        ),
-                      );
-                    }
-
+                  if (narrow ||
+                      standingsCard == null ||
+                      highlightCard == null) {
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 22),
-                      child: IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(child: standingsCard),
-                            const SizedBox(width: 16),
-                            Expanded(child: highlightCard),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (standingsCard != null) ...[
+                            standingsCard,
+                            if (highlightCard != null)
+                              const SizedBox(height: 16),
                           ],
-                        ),
+                          if (highlightCard != null) highlightCard,
+                        ],
                       ),
                     );
-                  },
-                );
-              },
-            );
-          },
-        ),
-      ],
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 22),
+                    child: IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: standingsCard),
+                          const SizedBox(width: 16),
+                          Expanded(child: highlightCard),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        );
+      },
     );
   }
 }
