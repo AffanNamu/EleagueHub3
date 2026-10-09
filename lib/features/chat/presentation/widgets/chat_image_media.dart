@@ -87,6 +87,7 @@ class ChatImageMedia extends StatelessWidget {
                             : CachedNetworkImage(
                                 imageUrl: thumbUrl,
                                 fit: BoxFit.cover,
+                                memCacheWidth: 640,
                                 errorWidget: (_, __, ___) => _BrokenImage(
                                   brightness: brightness,
                                 ),

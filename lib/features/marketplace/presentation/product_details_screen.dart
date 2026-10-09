@@ -225,6 +225,8 @@ class ProductDetailsScreen extends StatelessWidget {
                         ? CachedNetworkImage(
                             imageUrl: CloudinaryUtils.fill(img, width: 900, height: 820),
                             fit: BoxFit.cover,
+                            memCacheWidth: 900,
+                            memCacheHeight: 820,
                             placeholder:
                                 (context, _) =>
                                     Container(

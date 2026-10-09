@@ -451,6 +451,8 @@ class _ProductCardState extends State<_ProductCard>
                       ? CachedNetworkImage(
                           imageUrl: CloudinaryUtils.fill(img, width: 480, height: 400),
                           fit: BoxFit.cover,
+                          memCacheWidth: 480,
+                          memCacheHeight: 400,
                           placeholder:
                               (context, _) =>
                                   Container(
