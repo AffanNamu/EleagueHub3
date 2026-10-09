@@ -52,6 +52,35 @@ class HomeLatestHighlight {
   final MatchHighlight highlight;
 }
 
+/// Bundles all 3 Home-tab dashboard sections from one shared scan of the
+/// user's recent leagues, instead of each section independently re-fetching
+/// the same league list and the same per-league teams/matches.
+class HomeDashboardData {
+  const HomeDashboardData({
+    required this.standings,
+    required this.highlight,
+    required this.fixtures,
+  });
+
+  final HomeStandingsSummary? standings;
+  final HomeLatestHighlight? highlight;
+  final List<HomeUpcomingFixture> fixtures;
+}
+
+/// One league's teams + matches, fetched once and reused by both the
+/// standings and fixtures sections (previously each fetched independently).
+class _LeagueSnapshot {
+  const _LeagueSnapshot({
+    required this.league,
+    required this.teams,
+    required this.matches,
+  });
+
+  final League league;
+  final List<Team> teams;
+  final List<FixtureMatch> matches;
+}
+
 class HomeDashboardRepository {
   HomeDashboardRepository({
     required LocalLeaguesRepository leaguesRepo,
@@ -73,50 +102,103 @@ class HomeDashboardRepository {
     return sorted.take(_maxLeaguesScanned).toList(growable: false);
   }
 
-  /// The first league (most recently updated first) where the viewer has
-  /// their own team, with their live position/points in that table.
-  /// Returns null when the viewer has no team anywhere yet -- never a
-  /// fabricated placeholder row.
-  Future<HomeStandingsSummary?> loadFeaturedStandings(String uid) async {
-    final trimmedUid = uid.trim();
-    if (trimmedUid.isEmpty) return null;
-
-    for (final league in await _recentLeagues()) {
+  /// Fetches each recent league's teams + matches exactly once, so the
+  /// standings and fixtures sections below don't each re-fetch the same
+  /// per-league data. Leagues that fail to load are skipped (same
+  /// best-effort behavior the individual loaders used to have).
+  Future<List<_LeagueSnapshot>> _loadLeagueSnapshots(
+    List<League> leagues,
+  ) async {
+    final snapshots = await Future.wait(leagues.map((league) async {
       try {
         final teams = await _leaguesRepo.getTeams(league.id);
-        if (!teams.any((t) => t.id == trimmedUid)) continue;
-
         final matches = await _leaguesRepo.getMatches(league.id);
-        final rows = StandingsCalculator.calculate(
+        return _LeagueSnapshot(
+          league: league,
           teams: teams,
           matches: matches,
         );
-        final idx = rows.indexWhere((r) => r.teamId == trimmedUid);
-        if (idx < 0) continue;
-
-        return HomeStandingsSummary(
-          league: league,
-          position: idx + 1,
-          totalTeams: rows.length,
-          played: rows[idx].mp,
-          points: rows[idx].pts,
-        );
       } catch (_) {
-        // Skip a league we couldn't read and keep scanning the rest.
+        return null;
       }
+    }));
+    return snapshots.whereType<_LeagueSnapshot>().toList(growable: false);
+  }
+
+  HomeStandingsSummary? _featuredStandingsFrom(
+    List<_LeagueSnapshot> snapshots,
+    String uid,
+  ) {
+    for (final snap in snapshots) {
+      if (!snap.teams.any((t) => t.id == uid)) continue;
+
+      final rows = StandingsCalculator.calculate(
+        teams: snap.teams,
+        matches: snap.matches,
+      );
+      final idx = rows.indexWhere((r) => r.teamId == uid);
+      if (idx < 0) continue;
+
+      return HomeStandingsSummary(
+        league: snap.league,
+        position: idx + 1,
+        totalTeams: rows.length,
+        played: rows[idx].mp,
+        points: rows[idx].pts,
+      );
     }
     return null;
+  }
+
+  List<HomeUpcomingFixture> _upcomingFixturesFrom(
+    List<_LeagueSnapshot> snapshots, {
+    required int limit,
+  }) {
+    final result = <HomeUpcomingFixture>[];
+
+    for (final snap in snapshots) {
+      if (result.length >= limit) break;
+
+      final scheduled = snap.matches
+          .where((m) => m.status == MatchStatus.scheduled)
+          .toList()
+        ..sort((a, b) => a.sortIndex.compareTo(b.sortIndex));
+      if (scheduled.isEmpty) continue;
+
+      final teamsById = {for (final t in snap.teams) t.id: t};
+
+      for (final m in scheduled) {
+        if (result.length >= limit) break;
+        final home = teamsById[m.homeTeamId];
+        final away = teamsById[m.awayTeamId];
+        if (home == null || away == null) continue;
+        result.add(HomeUpcomingFixture(
+          league: snap.league,
+          match: m,
+          homeTeam: home,
+          awayTeam: away,
+        ));
+      }
+    }
+
+    return result;
   }
 
   int _highlightTimestampMs(MatchHighlight h) =>
       h.createdAt?.millisecondsSinceEpoch ?? 0;
 
   /// The single most recent APPROVED highlight across the user's leagues.
-  Future<HomeLatestHighlight?> loadLatestHighlight() async {
+  /// Highlights live in their own subcollection (no overlap with
+  /// teams/matches), so this still scans per-league independently --
+  /// but off the one shared [leagues] list rather than a second
+  /// [_recentLeagues] call.
+  Future<HomeLatestHighlight?> _latestHighlightFrom(
+    List<League> leagues,
+  ) async {
     MatchHighlight? best;
     League? bestLeague;
 
-    for (final league in await _recentLeagues()) {
+    for (final league in leagues) {
       try {
         final list = await _highlightsRepo
             .watchLeagueHighlights(leagueId: league.id, limit: 5)
@@ -140,44 +222,28 @@ class HomeDashboardRepository {
     return HomeLatestHighlight(league: bestLeague, highlight: best);
   }
 
-  /// The nearest not-yet-played fixtures across the user's leagues, in
-  /// each league's own round/sort order (no fabricated kickoff times --
-  /// this app's fixtures don't carry a scheduled-at field today).
-  Future<List<HomeUpcomingFixture>> loadUpcomingFixtures({
-    int limit = 4,
+  /// Loads all 3 Home-tab dashboard sections from one shared scan of the
+  /// user's recent leagues. Replaces 3 independent loaders that each used
+  /// to call listLeagues() and re-fetch the same per-league teams/matches
+  /// on every Home tab open.
+  Future<HomeDashboardData> loadDashboard(
+    String uid, {
+    int fixturesLimit = 4,
   }) async {
-    final result = <HomeUpcomingFixture>[];
+    final trimmedUid = uid.trim();
+    final leagues = await _recentLeagues();
+    final snapshots = await _loadLeagueSnapshots(leagues);
 
-    for (final league in await _recentLeagues()) {
-      if (result.length >= limit) break;
-      try {
-        final matches = await _leaguesRepo.getMatches(league.id);
-        final scheduled = matches
-            .where((m) => m.status == MatchStatus.scheduled)
-            .toList()
-          ..sort((a, b) => a.sortIndex.compareTo(b.sortIndex));
-        if (scheduled.isEmpty) continue;
+    final standings = trimmedUid.isEmpty
+        ? null
+        : _featuredStandingsFrom(snapshots, trimmedUid);
+    final fixtures = _upcomingFixturesFrom(snapshots, limit: fixturesLimit);
+    final highlight = await _latestHighlightFrom(leagues);
 
-        final teams = await _leaguesRepo.getTeams(league.id);
-        final teamsById = {for (final t in teams) t.id: t};
-
-        for (final m in scheduled) {
-          if (result.length >= limit) break;
-          final home = teamsById[m.homeTeamId];
-          final away = teamsById[m.awayTeamId];
-          if (home == null || away == null) continue;
-          result.add(HomeUpcomingFixture(
-            league: league,
-            match: m,
-            homeTeam: home,
-            awayTeam: away,
-          ));
-        }
-      } catch (_) {
-        // Skip a league we couldn't read and keep scanning the rest.
-      }
-    }
-
-    return result;
+    return HomeDashboardData(
+      standings: standings,
+      highlight: highlight,
+      fixtures: fixtures,
+    );
   }
 }
