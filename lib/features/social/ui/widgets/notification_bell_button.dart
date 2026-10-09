@@ -1,16 +1,23 @@
 // lib/features/social/ui/widgets/notification_bell_button.dart
 //
 // Self-contained AppBar action: a bell icon with an unread-count badge,
-// combining PlatformAnnouncementsRepository.watchUnreadCount() (admin
-// broadcast) and PersonalNotificationsRepository.watchUnreadCount()
-// (new follower, organizer posts, ...) into one total — the two stay
-// separate streams/collections, only their counts are summed here.
+// combining PlatformAnnouncementsRepository (admin broadcast) and
+// PersonalNotificationsRepository (new follower, organizer posts, ...)
+// into one total — the two stay separate streams/collections, only
+// their counts are summed here.
 // Badge text follows the standard convention: 1-9 shown exactly, 10+
 // shown as "9+". Tapping navigates to NotificationsListScreen, which
 // renders both sources merged into one list.
+//
+// Opens exactly one users/{uid} Firestore listener (for both cursor
+// fields at once) rather than each repository's unread-count stream
+// opening its own -- this widget is always mounted in the app shell, so
+// a second independent listener here ran for the entire app session.
 
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/locale/app_localizations.dart';
@@ -30,27 +37,54 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
   final _announcementsRepo = PlatformAnnouncementsRepository();
   final _personalRepo = PersonalNotificationsRepository();
 
-  int _announcementsCount = 0;
-  int _personalCount = 0;
+  int _lastSeenAnnouncementAtMs = 0;
+  int _lastSeenPersonalAtMs = 0;
+  List<PlatformAnnouncement> _announcementItems = const [];
+  List<PersonalNotification> _personalItems = const [];
 
-  StreamSubscription<int>? _announcementsSub;
-  StreamSubscription<int>? _personalSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
+  StreamSubscription<List<PlatformAnnouncement>>? _announcementsSub;
+  StreamSubscription<List<PersonalNotification>>? _personalSub;
 
   @override
   void initState() {
     super.initState();
-    _announcementsSub = _announcementsRepo.watchUnreadCount().listen((count) {
+
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isNotEmpty) {
+      _userDocSub = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .snapshots()
+          .listen((doc) {
+        if (!mounted) return;
+        final data = doc.data();
+        setState(() {
+          _lastSeenAnnouncementAtMs =
+              data?['lastSeenAnnouncementAtMs'] is int
+                  ? data!['lastSeenAnnouncementAtMs'] as int
+                  : 0;
+          _lastSeenPersonalAtMs =
+              data?['lastSeenPersonalNotificationAtMs'] is int
+                  ? data!['lastSeenPersonalNotificationAtMs'] as int
+                  : 0;
+        });
+      });
+    }
+
+    _announcementsSub = _announcementsRepo.watchRecent().listen((items) {
       if (!mounted) return;
-      setState(() => _announcementsCount = count);
+      setState(() => _announcementItems = items);
     });
-    _personalSub = _personalRepo.watchUnreadCount().listen((count) {
+    _personalSub = _personalRepo.watchRecent().listen((items) {
       if (!mounted) return;
-      setState(() => _personalCount = count);
+      setState(() => _personalItems = items);
     });
   }
 
   @override
   void dispose() {
+    _userDocSub?.cancel();
     _announcementsSub?.cancel();
     _personalSub?.cancel();
     super.dispose();
@@ -64,7 +98,15 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
 
   @override
   Widget build(BuildContext context) {
-    final count = _announcementsCount + _personalCount;
+    final announcementsCount = PlatformAnnouncementsRepository.countUnread(
+      _announcementItems,
+      _lastSeenAnnouncementAtMs,
+    );
+    final personalCount = PersonalNotificationsRepository.countUnread(
+      _personalItems,
+      _lastSeenPersonalAtMs,
+    );
+    final count = announcementsCount + personalCount;
     final label = _badgeLabel(count);
 
     return Stack(
