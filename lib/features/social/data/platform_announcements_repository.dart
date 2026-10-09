@@ -80,27 +80,22 @@ class PlatformAnnouncementsRepository {
     ).handleError((Object _, StackTrace __) => <PlatformAnnouncement>[]);
   }
 
-  /// Streams the current user's unread count against the same recent
-  /// window used by [watchRecent] — capped at 9+ display by the caller,
-  /// not here (this returns the real count).
-  Stream<int> watchUnreadCount() {
-    final uid = _auth.currentUser?.uid.trim() ?? '';
-    if (uid.isEmpty) return Stream<int>.value(0);
-
-    final userDocStream =
-        _firestore.collection('users').doc(uid).snapshots();
-
-    return userDocStream.asyncExpand<int>((userDoc) {
-      final lastSeenAtMs =
-          userDoc.data()?['lastSeenAnnouncementAtMs'] is int
-              ? userDoc.data()!['lastSeenAnnouncementAtMs'] as int
-              : 0;
-
-      return watchRecent().map<int>(
-        (items) =>
-            items.where((a) => a.createdAtMs > lastSeenAtMs).length,
-      );
-    }).handleError((Object _, StackTrace __) => 0);
+  /// Pure helper pairing [watchRecent]'s items with the per-user
+  /// lastSeenAnnouncementAtMs cursor (read from the user doc by the
+  /// caller) to get the unread count — capped at 9+ display by the
+  /// caller, not here (this returns the real count).
+  ///
+  /// This used to be its own watchUnreadCount() stream that opened a
+  /// second, independent users/{uid} Firestore listener (on top of
+  /// whatever else in the app is already watching that same doc) and
+  /// re-subscribed to watchRecent() on every unrelated profile write via
+  /// asyncExpand. Callers now read the cursor off a listener they already
+  /// hold and combine it with [watchRecent] themselves.
+  static int countUnread(
+    List<PlatformAnnouncement> items,
+    int lastSeenAtMs,
+  ) {
+    return items.where((a) => a.createdAtMs > lastSeenAtMs).length;
   }
 
   /// Marks all currently-visible announcements as seen by bumping the
