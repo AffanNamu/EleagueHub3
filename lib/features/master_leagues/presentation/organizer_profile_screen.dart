@@ -15,6 +15,7 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -189,43 +190,11 @@ class _OrganizerProfileScreenState
     int?   height,
     String crop = 'fill',
   }) {
-    final u = url.trim();
-    if (u.isEmpty) return u;
-    final isCloudinary = u.contains('res.cloudinary.com') &&
-        u.contains('/image/upload/');
-    if (!isCloudinary) return u;
-    final marker = '/image/upload/';
-    final idx    = u.indexOf(marker);
-    if (idx < 0) return u;
-
-    final prefix = u.substring(0, idx + marker.length);
-    final suffix = u.substring(idx + marker.length);
-
-    final transforms = <String>[
-      'f_auto',
-      'q_auto',
-      if (width  != null && width  > 0) 'w_$width',
-      if (height != null && height > 0) 'h_$height',
-      (crop == 'fit') ? 'c_fit' : 'c_fill',
-      if (crop != 'fit') 'g_auto',
-    ].join(',');
-
-    final parts = suffix.split('/');
-    if (parts.isEmpty) return '$prefix$transforms/$suffix';
-
-    final first = parts.first;
-    final isVersionOnly = first.startsWith('v') &&
-        int.tryParse(first.substring(1)) != null;
-
-    if (!isVersionOnly) {
-      if (first.contains('f_auto') ||
-          first.contains('q_auto')) return u;
-      parts[0] = 'f_auto,q_auto,$first';
-      return prefix + parts.join('/');
-    }
-
-    return '$prefix$transforms/$suffix';
+    return crop == 'fit'
+        ? CloudinaryUtils.fit(url, width: width, height: height)
+        : CloudinaryUtils.fill(url, width: width, height: height);
   }
+
 
   Future<String> _uploadToCloudinary({
     required PlatformFile picked,

@@ -8,6 +8,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../core/color_compat.dart';
 import '../core/theme/app_theme.dart';
+import '../core/utils/cloudinary_utils.dart';
 import '../core/widgets/glass.dart';
 import '../features/leagues/data/services/reward_firestore_service.dart';
 
@@ -1038,26 +1039,7 @@ class _LeagueHeroTile extends StatelessWidget {
   String _cloudinaryOptimizedUrl(String url, {required int width, required int height}) {
     final u = url.trim();
     if (u.isEmpty || u.startsWith('data:image')) return u;
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
-    if (!isCloudinary) return u;
-
-    final marker = '/image/upload/';
-    final idx = u.indexOf(marker);
-    if (idx < 0) return u;
-
-    final prefix = u.substring(0, idx + marker.length);
-    final suffix = u.substring(idx + marker.length);
-
-    final transforms = <String>[
-      'f_auto',
-      'q_auto',
-      'w_$width',
-      'h_$height',
-      'c_fill',
-      'g_auto',
-    ].join(',');
-
-    return '$prefix$transforms/$suffix';
+    return CloudinaryUtils.fill(u, width: width, height: height);
   }
 
   Widget _placeholder() {
