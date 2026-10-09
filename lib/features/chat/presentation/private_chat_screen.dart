@@ -25,6 +25,7 @@ import '../../moderation/models/user_report.dart';
 import '../../moderation/presentation/report_sheet.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
 import '../data/private_chat_repository.dart';
+import '../models/chat_message.dart' show ChatDeliveryStatus;
 import '../models/private_message.dart';
 import 'widgets/chat_image_media.dart';
 import 'widgets/voice_message_player.dart';
@@ -48,7 +49,13 @@ class PrivateChatScreen extends StatefulWidget {
 class _PrivateChatScreenState extends State<PrivateChatScreen> {
   final PrivateChatRepository _repo = PrivateChatRepository();
   final TextEditingController _input = TextEditingController();
-  bool _sending = false;
+
+  /// Optimistic messages keyed by the client-generated id used as their
+  /// Firestore doc id, shown immediately on send before the write (and the
+  /// realtime listener's own echo of it) confirms. Dropped once the
+  /// listener delivers a doc with the same id (see the StreamBuilder
+  /// below) or replaced with a [ChatDeliveryStatus.failed] copy on error.
+  final Map<String, PrivateMessage> _pendingMessages = <String, PrivateMessage>{};
 
   // ── Voice recording state (mirrors LeagueChatScreen's pattern) ──────────
   final AudioRecorder _recorder = AudioRecorder();
@@ -144,19 +151,62 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (text.isEmpty || _sending) return;
+    if (text.isEmpty) return;
+    await _sendTextLike(raw: text);
+  }
 
-    setState(() => _sending = true);
-    try {
-      final messageId =
-          await _repo.sendTextMessage(threadId: widget.threadId, text: text);
-      _input.clear();
-      unawaited(_notifyPush(messageId: messageId, preview: text));
-    } catch (e) {
-      _toastErr(e);
-    } finally {
-      if (mounted) setState(() => _sending = false);
+  /// Shared by the first send and by retrying a failed one. Shows the
+  /// bubble immediately (optimistic UI) instead of waiting on the
+  /// Firestore write to complete.
+  Future<void> _sendTextLike({
+    required String raw,
+    String? retryMessageId,
+  }) async {
+    final selfUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final messageId =
+        retryMessageId ?? _repo.newMessageId(widget.threadId);
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    final optimistic = PrivateMessage(
+      id: messageId,
+      senderId: selfUid,
+      type: PrivateMessageType.text,
+      text: raw,
+      imageUrl: '',
+      voiceUrl: '',
+      createdAtMs: nowMs,
+      deliveryStatus: ChatDeliveryStatus.sending,
+    );
+
+    if (mounted) {
+      setState(() => _pendingMessages[messageId] = optimistic);
     }
+    _input.clear();
+
+    try {
+      await _repo.sendTextMessage(
+        threadId: widget.threadId,
+        text: raw,
+        messageIdOverride: messageId,
+      );
+      unawaited(_notifyPush(messageId: messageId, preview: raw));
+      // _pendingMessages[messageId] is left as "sending" here on purpose --
+      // the realtime listener will deliver the confirmed doc under the
+      // same id within moments, which supersedes and clears it (see the
+      // StreamBuilder below).
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _pendingMessages[messageId] =
+            optimistic.copyWith(deliveryStatus: ChatDeliveryStatus.failed);
+      });
+      _toastErr(e);
+    }
+  }
+
+  void _retryFailedMessage(PrivateMessage failed) {
+    _pendingMessages.remove(failed.id);
+    _sendTextLike(raw: failed.text, retryMessageId: failed.id);
   }
 
   Future<void> _pickAndSendImage() async {
@@ -511,7 +561,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   if (!snap.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  final messages = snap.data!; // already newest-first
+                  final confirmed = snap.data!; // already newest-first
+
+                  // Drop any optimistic message once the realtime listener
+                  // has delivered the confirmed doc under the same id.
+                  final confirmedIds = confirmed.map((e) => e.id).toSet();
+                  _pendingMessages.removeWhere((id, _) => confirmedIds.contains(id));
+
+                  final pending = _pendingMessages.values.toList()
+                    ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+                  final messages = <PrivateMessage>[...pending, ...confirmed];
 
                   if (messages.isEmpty) {
                     return Center(
@@ -592,6 +651,43 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                                 child: content,
                               ),
                             ),
+                            if (isMe &&
+                                m.deliveryStatus != ChatDeliveryStatus.sent)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2, bottom: 2),
+                                child: m.deliveryStatus == ChatDeliveryStatus.sending
+                                    ? SizedBox(
+                                        width: 11,
+                                        height: 11,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 1.6,
+                                          color: AppTheme.secondaryText(brightness),
+                                        ),
+                                      )
+                                    : InkWell(
+                                        onTap: () => _retryFailedMessage(m),
+                                        borderRadius: BorderRadius.circular(999),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.error_outline,
+                                              size: 14,
+                                              color: Colors.redAccent,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              context.l10n.tr('chat_bubble_retry'),
+                                              style: const TextStyle(
+                                                color: Colors.redAccent,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                              ),
                             StreamBuilder<ReactionSummary>(
                               stream: reactionsRepo.watch(),
                               builder: (context, reactSnap) {
@@ -649,14 +745,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     ),
                     const SizedBox(width: 8),
                     IconButton(
-                      onPressed: _sending ? null : _send,
-                      icon: _sending
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.send_rounded),
+                      onPressed: _send,
+                      icon: const Icon(Icons.send_rounded),
                     ),
                   ],
                 ),

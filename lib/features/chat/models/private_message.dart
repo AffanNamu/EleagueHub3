@@ -1,6 +1,8 @@
 // lib/features/chat/models/private_message.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'chat_message.dart' show ChatDeliveryStatus;
+
 enum PrivateMessageType { text, image, voice }
 
 extension PrivateMessageTypeX on PrivateMessageType {
@@ -29,6 +31,7 @@ class PrivateMessage {
     required this.voiceUrl,
     this.voiceDurationMs = 0,
     required this.createdAtMs,
+    this.deliveryStatus = ChatDeliveryStatus.sent,
   });
 
   final String id;
@@ -43,6 +46,24 @@ class PrivateMessage {
   final int voiceDurationMs;
 
   final int createdAtMs;
+
+  /// Local-only send status for optimistic UI. Never persisted to
+  /// Firestore and never set by [fromDoc] (always [ChatDeliveryStatus.sent]
+  /// there) -- only the sender's own device ever constructs a
+  /// sending/failed instance.
+  final ChatDeliveryStatus deliveryStatus;
+
+  PrivateMessage copyWith({ChatDeliveryStatus? deliveryStatus}) => PrivateMessage(
+        id: id,
+        senderId: senderId,
+        type: type,
+        text: text,
+        imageUrl: imageUrl,
+        voiceUrl: voiceUrl,
+        voiceDurationMs: voiceDurationMs,
+        createdAtMs: createdAtMs,
+        deliveryStatus: deliveryStatus ?? this.deliveryStatus,
+      );
 
   factory PrivateMessage.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final map = doc.data() ?? {};
