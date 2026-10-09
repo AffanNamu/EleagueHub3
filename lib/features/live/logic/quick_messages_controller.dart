@@ -1,34 +1,45 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/persistence/prefs_service.dart';
 import '../../auth/data/user_profile_repository.dart';
+import '../../verification/logic/badge_providers.dart';
 import 'quick_message_policy.dart';
 
 final userProfileRepositoryProvider = Provider<UserProfileRepository>((ref) {
   return UserProfileRepository();
 });
 
+// FIXED: this used to read PreferencesService.getCurrentUserId(), which is
+// permanently hardcoded to return null (see prefs_service.dart's
+// online-only storage policy) -- so every provider below always saw an
+// empty uid, and every QuickMessagesController write threw "Missing user
+// id". Reads from FirebaseAuth directly instead, matching every other
+// current-user provider in the app.
 final currentUserIdProvider = Provider<String>((ref) {
-  final prefs = ref.read(prefsServiceProvider);
-  return prefs.getCurrentUserId() ?? '';
+  return FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 });
 
 /// Premium flag comes from Firestore: users/{uid}.isPremium
+///
+/// Derived from the app-wide currentUserProfileProvider's own stream
+/// rather than opening a second users/{uid} Firestore listener.
 final isPremiumProvider = StreamProvider<bool>((ref) {
   final uid = ref.watch(currentUserIdProvider);
   if (uid.trim().isEmpty) return Stream<bool>.value(false);
-  final repo = ref.watch(userProfileRepositoryProvider);
-  return repo.watchIsPremium(uid);
+  return ref
+      .watch(currentUserProfileProvider.stream)
+      .map((profile) => profile?.premiumActive ?? false);
 });
 
 /// Firestore list: users/{uid}.quickMessagesCustom
 final customQuickMessagesProvider = StreamProvider<List<String>>((ref) {
   final uid = ref.watch(currentUserIdProvider);
   if (uid.trim().isEmpty) return Stream<List<String>>.value(const <String>[]);
-  final repo = ref.watch(userProfileRepositoryProvider);
-  return repo.watchQuickMessagesCustom(uid);
+  return ref
+      .watch(currentUserProfileProvider.stream)
+      .map((profile) => profile?.quickMessagesCustom ?? const <String>[]);
 });
 
 /// Overlay list (localized defaults + premium custom). This is the list we
