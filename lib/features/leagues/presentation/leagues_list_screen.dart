@@ -137,16 +137,26 @@ class _LeaguesListScreenState
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.removeListener(_handleSearchChanged);
     _searchController.dispose();
     super.dispose();
   }
 
+  Timer? _searchDebounce;
+
   void _handleSearchChanged() {
     final next = _searchController.text;
     if (next == _searchQuery) return;
-    if (!mounted) return;
-    setState(() => _searchQuery = next);
+    // The filter itself is client-side (over the already-fetched
+    // _leagues list, see _filteredLeagues()), so debouncing isn't about
+    // avoiding extra Firestore reads -- it's about not rebuilding the
+    // whole grid of animated 3D-flip LeagueFlipCards on every keystroke.
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      setState(() => _searchQuery = next);
+    });
   }
 
   // ── FIX: Strictly use PlanStatusService ──────────────────────────────────
