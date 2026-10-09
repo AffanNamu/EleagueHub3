@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../data/player_photo_service.dart';
 import '../../models/squad.dart';
 
@@ -282,7 +283,7 @@ class _PlayerEditSheetState extends State<_PlayerEditSheet> {
                             radius: 18,
                             backgroundColor: AppTheme.iconCircleBackground(brightness),
                             backgroundImage: c.previewPhotoUrl.isNotEmpty
-                                ? NetworkImage(c.previewPhotoUrl)
+                                ? NetworkImage(CloudinaryUtils.thumb(c.previewPhotoUrl, size: 96))
                                 : null,
                             child: c.previewPhotoUrl.isEmpty
                                 ? Icon(Icons.person, color: AppTheme.primaryText(brightness))
@@ -364,7 +365,7 @@ class _PhotoPreview extends StatelessWidget {
         CircleAvatar(
           radius: 40,
           backgroundColor: AppTheme.iconCircleBackground(brightness),
-          backgroundImage: url.isNotEmpty ? NetworkImage(url) : null,
+          backgroundImage: url.isNotEmpty ? NetworkImage(CloudinaryUtils.thumb(url, size: 160)) : null,
           child: url.isEmpty
               ? Icon(Icons.person, size: 36, color: AppTheme.primaryText(brightness))
               : null,

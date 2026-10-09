@@ -10,6 +10,7 @@ import '../../../../core/reactions/presentation/reaction_picker.dart';
 import '../../../../core/reactions/presentation/reaction_pill_bar.dart';
 import '../../../../core/reactions/reactions_repository.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../models/chat_message.dart';
 import 'chat_image_media.dart';
 import 'voice_message_player.dart';
@@ -149,7 +150,7 @@ class ChatBubble extends StatelessWidget {
                               radius: 10,
                               backgroundColor:
                                   AppTheme.iconCircleBackground(brightness),
-                              backgroundImage: NetworkImage(senderPhoto),
+                              backgroundImage: NetworkImage(CloudinaryUtils.thumb(senderPhoto, size: 48)),
                               onBackgroundImageError: (_, __) {},
                             ),
                           ),

@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/country/country_resolver_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../profile/data/team_profile_repository.dart';
@@ -332,7 +333,9 @@ class _TeamTileState extends State<_TeamTile> {
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: AppTheme.iconCircleBackground(brightness),
-          backgroundImage: entry.avatarUrl.isNotEmpty ? NetworkImage(entry.avatarUrl) : null,
+          backgroundImage: entry.avatarUrl.isNotEmpty
+              ? NetworkImage(CloudinaryUtils.thumb(entry.avatarUrl, size: 96))
+              : null,
           child: entry.avatarUrl.isEmpty ? const Icon(Icons.person_rounded) : null,
         ),
         title: Row(

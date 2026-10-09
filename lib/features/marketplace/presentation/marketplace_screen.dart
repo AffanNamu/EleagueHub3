@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/marketplace_repository.dart';
@@ -448,7 +449,7 @@ class _ProductCardState extends State<_ProductCard>
                   aspectRatio: 1.2,
                   child: hasImg
                       ? CachedNetworkImage(
-                          imageUrl: img,
+                          imageUrl: CloudinaryUtils.fill(img, width: 480, height: 400),
                           fit: BoxFit.cover,
                           placeholder:
                               (context, _) =>

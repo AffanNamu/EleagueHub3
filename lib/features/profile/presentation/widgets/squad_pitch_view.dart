@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../models/formation_presets.dart';
 import '../../models/squad.dart';
@@ -517,7 +518,7 @@ class _InfoPanel extends StatelessWidget {
                     radius: 16,
                     backgroundColor: AppTheme.iconCircleBackground(brightness),
                     backgroundImage: p.photoUrl.trim().isNotEmpty
-                        ? NetworkImage(p.photoUrl)
+                        ? NetworkImage(CloudinaryUtils.thumb(p.photoUrl, size: 64))
                         : null,
                     child: p.photoUrl.trim().isEmpty
                         ? Text(

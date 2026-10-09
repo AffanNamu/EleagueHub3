@@ -7,6 +7,7 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../leagues/models/league.dart';
 import '../../leagues/models/football_category.dart';
 import '../../leagues/models/league_format.dart';
@@ -161,7 +162,7 @@ class _CompetitionTile extends StatelessWidget {
                 shape: BoxShape.circle,
                 color: AppTheme.iconCircleBackground(brightness),
                 image: league.leagueImageUrl.trim().isNotEmpty
-                    ? DecorationImage(image: NetworkImage(league.leagueImageUrl.trim()), fit: BoxFit.cover)
+                    ? DecorationImage(image: NetworkImage(CloudinaryUtils.thumb(league.leagueImageUrl.trim(), size: 104)), fit: BoxFit.cover)
                     : null,
               ),
               child: league.leagueImageUrl.trim().isEmpty

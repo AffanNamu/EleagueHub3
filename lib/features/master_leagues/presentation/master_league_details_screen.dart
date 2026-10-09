@@ -13,6 +13,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/routing/route_resolver.dart';
 import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -2321,8 +2322,9 @@ class _MasterLeagueDetailsScreenState
                                 .organizerProfile.logoUrl
                                 .trim()
                                 .isNotEmpty
-                            ? NetworkImage(
-                                master.organizerProfile.logoUrl.trim())
+                            ? NetworkImage(CloudinaryUtils.thumb(
+                                master.organizerProfile.logoUrl.trim(),
+                                size: 136))
                             : null,
                         child: master.organizerProfile.logoUrl.trim().isEmpty
                             ? Icon(

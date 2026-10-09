@@ -7,6 +7,7 @@ import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../../core/widgets/glass_scaffold.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../../auth/data/user_profile_repository.dart';
 import '../../../auth/models/user_profile.dart';
 import '../data/discussions_repository.dart';
@@ -149,7 +150,7 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
                                   radius: 16,
                                   backgroundColor: AppTheme.iconCircleBackground(brightness),
                                   backgroundImage: thread.authorPhotoUrl.isNotEmpty
-                                      ? NetworkImage(thread.authorPhotoUrl)
+                                      ? NetworkImage(CloudinaryUtils.thumb(thread.authorPhotoUrl, size: 72))
                                       : null,
                                   child: thread.authorPhotoUrl.isEmpty
                                       ? const Icon(Icons.person_rounded, size: 16)
@@ -304,7 +305,7 @@ class _ReplyTileState extends State<_ReplyTile> {
             radius: 14,
             backgroundColor: AppTheme.iconCircleBackground(brightness),
             backgroundImage: widget.reply.authorPhotoUrl.isNotEmpty
-                ? NetworkImage(widget.reply.authorPhotoUrl)
+                ? NetworkImage(CloudinaryUtils.thumb(widget.reply.authorPhotoUrl, size: 64))
                 : null,
             child: widget.reply.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 14) : null,
           ),

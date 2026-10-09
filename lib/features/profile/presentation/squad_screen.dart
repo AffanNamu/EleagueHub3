@@ -10,6 +10,7 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/team_profile_repository.dart';
@@ -482,7 +483,7 @@ class _SquadPhotoCard extends StatelessWidget {
           color: AppTheme.cardColor(brightness),
           border: Border.all(color: AppTheme.cardBorder(brightness)),
           image: hasPhoto
-              ? DecorationImage(image: NetworkImage(photoUrl), fit: BoxFit.cover)
+              ? DecorationImage(image: NetworkImage(CloudinaryUtils.fill(photoUrl, width: 700, height: 360)), fit: BoxFit.cover)
               : null,
         ),
         child: Stack(

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../models/squad.dart';
 
 /// FIFA-card-inspired token: a tall rounded card with the player's photo
@@ -105,7 +106,7 @@ class PitchPlayerMarker extends StatelessWidget {
                       height: cardHeight * 0.72,
                       child: _hasPhoto
                           ? Image.network(
-                              player!.photoUrl,
+                              CloudinaryUtils.thumb(player!.photoUrl, size: 160),
                               fit: BoxFit.cover,
                               gaplessPlayback: true,
                               filterQuality: FilterQuality.low,
