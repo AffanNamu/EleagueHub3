@@ -67,6 +67,12 @@ class _LeaguesListScreenState
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   late final TextEditingController _searchController;
 
+  /// Live listener for the viewer's own leagues list (native only -- see
+  /// _loadLeagues). Subscribed once and left alive for the screen's
+  /// lifetime, so cache-first/live updates keep working without
+  /// resubscribing on every refresh call.
+  StreamSubscription<List<League>>? _leaguesSub;
+
   List<League> _leagues = [];
   Map<String, int> _participantCounts = {};
   Map<String, LeagueAnnouncement?> _latestAnnouncements = {};
@@ -137,6 +143,7 @@ class _LeaguesListScreenState
 
   @override
   void dispose() {
+    _leaguesSub?.cancel();
     _searchDebounce?.cancel();
     _searchController.removeListener(_handleSearchChanged);
     _searchController.dispose();
@@ -447,14 +454,80 @@ class _LeaguesListScreenState
         throw FirebaseAuthException(code: 'unauthenticated');
       }
 
+      if (kIsWeb) {
+        final leagues = await _fetchLeaguesFromFirestoreForWeb(effectiveUserId);
+        final memberships = await _fetchMembershipsFromFirestoreForWeb(
+            effectiveUserId, leagues);
+        await _decorateAndApply(leagues, webMemberships: memberships);
+        return;
+      }
+
+      // Native: one persistent listener for the whole screen's lifetime,
+      // not re-created on every refresh. Firestore's own on-device cache
+      // (enabled in main.dart) paints the last-seen snapshot immediately
+      // if one exists, then this listener keeps the list in sync with
+      // the server for as long as the screen is alive -- new/left/
+      // deleted leagues show up without the user ever needing to pull
+      // to refresh. Only one listener for the whole list (not one per
+      // league), so this doesn't reopen the listener-count problem fixed
+      // elsewhere in this pass.
+      if (_leaguesSub == null) {
+        _leaguesSub = _repo.watchAllLeagues().listen(
+          (leagues) =>
+              _decorateAndApply(leagues, webMemberships: const <Membership>[]),
+          onError: (e) {
+            if (!mounted) return;
+            setState(() {
+              _checkingPlan = false;
+              _isLoading = false;
+            });
+            _snack(
+              UserFriendlyError.toMessage(
+                  e is Object ? e : Exception('unknown')),
+            );
+          },
+        );
+      } else if (_leagues.isNotEmpty) {
+        // Not the first load -- e.g. called again after a join/leave/pay
+        // mutation. Some of those (paying to unlock a full classic
+        // league) don't change the `leagues` collection query results at
+        // all, so the listener above may never fire again on its own;
+        // redecorate the list we already have instead of waiting for it.
+        await _decorateAndApply(_leagues, webMemberships: const <Membership>[]);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _checkingPlan = false;
+        _isLoading = false;
+      });
+      _snack(
+        UserFriendlyError.toMessage(
+            e is Object ? e : Exception('unknown')),
+      );
+    }
+  }
+
+  Future<void> _decorateAndApply(
+    List<League> leagues, {
+    required List<Membership> webMemberships,
+  }) async {
+    if (!mounted) return;
+
+    try {
+      final effectiveUserId = _authUidOrEmpty();
+      if (effectiveUserId.isEmpty) {
+        throw FirebaseAuthException(code: 'unauthenticated');
+      }
+
       final premium =
           await _detectPremiumUser(effectiveUserId);
 
       // Kick off ad preloading the moment we know entitlement status,
       // in parallel with the rest of the (potentially slow) league data
-      // load below, so the ad has the maximum possible time to finish
-      // loading before the user can double-tap a card. Never preload
-      // for premium/elite users, who are never shown ads.
+      // decoration below, so the ad has the maximum possible time to
+      // finish loading before the user can double-tap a card. Never
+      // preload for premium/elite users, who are never shown ads.
       if (!kIsWeb && !premium) {
         unawaited(
           RewardedAdManager.instance
@@ -467,29 +540,7 @@ class _LeaguesListScreenState
       final createdCount =
           await _countCreatedLeaguesAcrossAllFlows(effectiveUserId);
 
-      List<League> leagues;
-      List<Membership> memberships;
-
-      if (kIsWeb) {
-        leagues = await _fetchLeaguesFromFirestoreForWeb(effectiveUserId);
-        memberships = await _fetchMembershipsFromFirestoreForWeb(
-            effectiveUserId, leagues);
-      } else {
-        leagues = await _repo
-            .listLeagues()
-            .timeout(const Duration(seconds: 20));
-        // listMemberships() used to be called here -- it fetches every
-        // participant's membership doc in every one of the viewer's
-        // leagues (a full subcollection scan per league) just so the loop
-        // below could filter it down to the viewer's own single row per
-        // league. Membership doc IDs are always the participant's own uid
-        // (every write site does `.collection('memberships').doc(uid)`),
-        // so the viewer's own membership is fetched directly per league
-        // inside the loop below via `_repo.getMembership(...)` instead --
-        // one single-document read per league rather than one full
-        // collection read per league.
-        memberships = const <Membership>[];
-      }
+      final memberships = webMemberships;
 
       final Map<String, int> counts = {};
       final Map<String, bool> viewerIsParticipant = {};

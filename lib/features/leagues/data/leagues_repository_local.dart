@@ -732,6 +732,42 @@ class LocalLeaguesRepository {
     }
   }
 
+  /// Realtime counterpart to [getAllLeagues] -- same query, but as a
+  /// live listener instead of a one-time server-forced read. Deliberately
+  /// does NOT call `_requireOnline()` first: the whole point is that
+  /// Firestore's own on-device cache (enabled in main.dart) can paint the
+  /// last-seen snapshot immediately even when offline, then this listener
+  /// reconciles with the server once connectivity is back. Used by the
+  /// League List screen for cache-first/live updates; `getAllLeagues()`
+  /// (one-time, server-forced) stays as-is for other callers.
+  Stream<List<League>> watchAllLeagues() {
+    try {
+      final authUid = _requireAuthUid();
+
+      return _firestore
+          .collection('leagues')
+          .where('memberIds', arrayContains: authUid)
+          .snapshots()
+          .map((snapshot) {
+        final leagues = snapshot.docs
+            .map((d) => _docToLeague(d))
+            .toList(growable: false);
+
+        for (final doc in snapshot.docs) {
+          _silentlyPatchOrganizerUidIfNeeded(
+            leagueId: doc.id,
+            leagueData: doc.data(),
+            authUid: authUid,
+          );
+        }
+
+        return leagues;
+      });
+    } catch (e) {
+      return Stream.error(e);
+    }
+  }
+
   Future<League?> getLeagueById(String id) async {
     try {
       final authUid = _requireAuthUid();
