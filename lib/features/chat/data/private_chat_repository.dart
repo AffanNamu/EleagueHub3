@@ -67,6 +67,12 @@ class PrivateChatRepository {
     return _threads.doc(threadId).collection('messages').doc(messageId);
   }
 
+  /// A fresh Firestore-style id for a not-yet-written message, so the UI
+  /// can show an optimistic bubble under the exact id the write (via
+  /// [sendTextMessage]'s `messageIdOverride`) will later confirm.
+  String newMessageId(String threadId) =>
+      _threads.doc(threadId).collection('messages').doc().id;
+
   String _requireAuthUid() {
     final uid = _auth.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
@@ -330,6 +336,7 @@ class PrivateChatRepository {
   Future<String> sendTextMessage({
     required String threadId,
     required String text,
+    String messageIdOverride = '',
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return '';
@@ -342,7 +349,10 @@ class PrivateChatRepository {
       final now = DateTime.now().millisecondsSinceEpoch;
 
       final threadRef = _threads.doc(threadId);
-      final msgRef = threadRef.collection('messages').doc();
+      final overrideId = messageIdOverride.trim();
+      final msgRef = overrideId.isNotEmpty
+          ? threadRef.collection('messages').doc(overrideId)
+          : threadRef.collection('messages').doc();
 
       final messageData = <String, dynamic>{
         'senderId': authUid,
