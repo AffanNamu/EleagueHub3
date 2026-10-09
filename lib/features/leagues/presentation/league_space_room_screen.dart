@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/platform/overlay_bridge.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/platform/overlay_platform.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/widgets/glass.dart';
@@ -129,28 +130,7 @@ class _LeagueSpaceRoomScreenState extends State<LeagueSpaceRoomScreen> {
     int width = 96,
     int height = 96,
   }) {
-    final u = url.trim();
-    if (u.isEmpty) return u;
-    final isCloudinary =
-        u.contains('res.cloudinary.com') && u.contains('/image/upload/');
-    if (!isCloudinary) return u;
-    final marker = '/image/upload/';
-    final idx = u.indexOf(marker);
-    if (idx < 0) return u;
-    final prefix = u.substring(0, idx + marker.length);
-    final suffix = u.substring(idx + marker.length);
-    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
-    final parts = suffix.split('/');
-    if (parts.isEmpty) return '$prefix$transforms/$suffix';
-    final first = parts.first;
-    final isVersionOnly =
-        first.startsWith('v') && int.tryParse(first.substring(1)) != null;
-    if (!isVersionOnly) {
-      if (first.contains('f_auto') || first.contains('q_auto')) return u;
-      parts[0] = 'f_auto,q_auto,$first';
-      return prefix + parts.join('/');
-    }
-    return '$prefix$transforms/$suffix';
+    return CloudinaryUtils.fill(url, width: width, height: height);
   }
 
   String _bestEffortProfileImageUrlFromProfile(dynamic profile) {

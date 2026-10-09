@@ -12,6 +12,7 @@ import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/status_badge.dart';
@@ -1243,34 +1244,7 @@ class _TeamThumb extends StatelessWidget {
   }
 
   String _cloudinaryOptimizedUrl(String url, {int width = 64, int height = 64}) {
-    final u = url.trim();
-    if (u.isEmpty) return u;
-
-    final isCloudinary = u.contains('res.cloudinary.com') && u.contains('/image/upload/');
-    if (!isCloudinary) return u;
-
-    final marker = '/image/upload/';
-    final idx = u.indexOf(marker);
-    if (idx < 0) return u;
-
-    final prefix = u.substring(0, idx + marker.length);
-    final suffix = u.substring(idx + marker.length);
-
-    final transforms = 'f_auto,q_auto,w_$width,h_$height,c_fill,g_auto';
-
-    final parts = suffix.split('/');
-    if (parts.isEmpty) return '$prefix$transforms/$suffix';
-
-    final first = parts.first;
-    final isVersionOnly = first.startsWith('v') && int.tryParse(first.substring(1)) != null;
-
-    if (!isVersionOnly) {
-      if (first.contains('f_auto') || first.contains('q_auto')) return u;
-      parts[0] = 'f_auto,q_auto,$first';
-      return prefix + parts.join('/');
-    }
-
-    return '$prefix$transforms/$suffix';
+    return CloudinaryUtils.fill(url, width: width, height: height);
   }
 
   @override
