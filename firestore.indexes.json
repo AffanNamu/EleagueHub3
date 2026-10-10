@@ -15,6 +15,20 @@
       ]
     },
     {
+      "collectionGroup": "home_content",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAtMs",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "leagues",
       "queryScope": "COLLECTION",
       "fields": [

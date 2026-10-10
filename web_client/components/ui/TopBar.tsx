@@ -2,10 +2,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Bell, MessageSquare, ShieldCheck } from 'lucide-react';
+import { Search, Bell, Megaphone, MessageSquare, ShieldCheck } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { watchRecentAnnouncementsWeb, PlatformAnnouncement } from '@/lib/social/platformAnnouncementsRepository';
+import {
+  watchRecentAnnouncementsHomeContentWeb,
+  countUnreadHomeContentWeb,
+  HomeContentItem,
+} from '@/lib/social/homeContentRepository';
+
+function countUnreadLegacy(items: PlatformAnnouncement[], lastSeenAtMs: number): number {
+  return items.filter((a) => a.createdAtMs > lastSeenAtMs).length;
+}
 
 export const TopBar = () => {
   const [query, setQuery] = useState('');
@@ -59,6 +69,63 @@ export const TopBar = () => {
     return () => unsubscribe();
   }, []);
 
+  // Notification bell unread badge: combines the legacy platform_announcements
+  // collection (nothing writes here anymore, kept read-only for history) and
+  // the current home_content announcements collection against the matching
+  // per-user read cursors on the same users/{uid} doc. Opens one shared
+  // listener for both cursors rather than two independent ones.
+  const [lastSeenAnnouncementAtMs, setLastSeenAnnouncementAtMs] = useState(0);
+  const [lastSeenHomeAnnouncementAtMs, setLastSeenHomeAnnouncementAtMs] = useState(0);
+  const [legacyAnnouncements, setLegacyAnnouncements] = useState<PlatformAnnouncement[]>([]);
+  const [homeAnnouncements, setHomeAnnouncements] = useState<HomeContentItem[]>([]);
+
+  useEffect(() => {
+    // onAuthStateChanged's own callback return value is ignored by Firebase
+    // (only the outer subscription itself is cancelable) -- these per-user
+    // listeners are torn down and re-opened explicitly on every auth change
+    // instead, so switching/signing out never leaks a stale listener.
+    let teardownPerUserListeners: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      teardownPerUserListeners?.();
+      teardownPerUserListeners = null;
+
+      if (!currentUser) {
+        setLastSeenAnnouncementAtMs(0);
+        setLastSeenHomeAnnouncementAtMs(0);
+        setLegacyAnnouncements([]);
+        setHomeAnnouncements([]);
+        return;
+      }
+
+      const unsubscribeUserDoc = onSnapshot(doc(db, 'users', currentUser.uid), (snap) => {
+        const data = snap.data();
+        setLastSeenAnnouncementAtMs(typeof data?.lastSeenAnnouncementAtMs === 'number' ? data.lastSeenAnnouncementAtMs : 0);
+        setLastSeenHomeAnnouncementAtMs(
+          typeof data?.lastSeenHomeAnnouncementAtMs === 'number' ? data.lastSeenHomeAnnouncementAtMs : 0,
+        );
+      });
+      const unsubscribeLegacy = watchRecentAnnouncementsWeb(setLegacyAnnouncements);
+      const unsubscribeHomeContent = watchRecentAnnouncementsHomeContentWeb(setHomeAnnouncements);
+
+      teardownPerUserListeners = () => {
+        unsubscribeUserDoc();
+        unsubscribeLegacy();
+        unsubscribeHomeContent();
+      };
+    });
+
+    return () => {
+      teardownPerUserListeners?.();
+      unsubscribeAuth();
+    };
+  }, []);
+
+  const notificationCount =
+    countUnreadLegacy(legacyAnnouncements, lastSeenAnnouncementAtMs) +
+    countUnreadHomeContentWeb(homeAnnouncements, lastSeenHomeAnnouncementAtMs);
+  const notificationBadgeLabel = notificationCount <= 0 ? '' : notificationCount > 9 ? '9+' : `${notificationCount}`;
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
@@ -92,12 +159,21 @@ export const TopBar = () => {
           <button onClick={() => router.push('/discovery/feed')} className="hover:text-white transition-colors">Public Feed</button>
         </div>
 
-        {/* Action Icons (Mock data removed) */}
+        {/* Action Icons */}
         <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/organizer-feed')} title="Followed Organizer Feed" className="relative p-2.5 bg-[#0B1221] border border-[#1E293B] rounded-xl hover:bg-[#1E293B] transition-colors text-gray-400 hover:text-white">
+          <button onClick={() => router.push('/notifications')} title="Notifications" className="relative p-2.5 bg-[#0B1221] border border-[#1E293B] rounded-xl hover:bg-[#1E293B] transition-colors text-gray-400 hover:text-white">
             <Bell className="w-5 h-5" />
+            {notificationBadgeLabel && (
+              <span className="absolute -right-1 -top-1 flex min-w-[16px] items-center justify-center rounded-full bg-[#EF4444] px-1 text-[10px] font-bold leading-[16px] text-white">
+                {notificationBadgeLabel}
+              </span>
+            )}
           </button>
-          
+
+          <button onClick={() => router.push('/organizer-feed')} title="Followed Organizer Feed" className="relative p-2.5 bg-[#0B1221] border border-[#1E293B] rounded-xl hover:bg-[#1E293B] transition-colors text-gray-400 hover:text-white">
+            <Megaphone className="w-5 h-5" />
+          </button>
+
           <button onClick={() => router.push('/messages')} className="relative p-2.5 bg-[#0B1221] border border-[#1E293B] rounded-xl hover:bg-[#1E293B] transition-colors text-gray-400 hover:text-white">
             <MessageSquare className="w-5 h-5" />
           </button>

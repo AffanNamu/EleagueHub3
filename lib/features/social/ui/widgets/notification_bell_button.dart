@@ -1,15 +1,17 @@
 // lib/features/social/ui/widgets/notification_bell_button.dart
 //
 // Self-contained AppBar action: a bell icon with an unread-count badge,
-// combining PlatformAnnouncementsRepository (admin broadcast) and
-// PersonalNotificationsRepository (new follower, organizer posts, ...)
-// into one total — the two stay separate streams/collections, only
-// their counts are summed here.
+// combining 3 sources into one total (each stays a separate
+// stream/collection at the data layer, only the counts are summed here):
+//   - PlatformAnnouncementsRepository (admin broadcast, legacy)
+//   - HomeContentRepository announcements (admin broadcast, current --
+//     see watchRecentAnnouncements for why admin notifications moved here)
+//   - PersonalNotificationsRepository (new follower, organizer posts, ...)
 // Badge text follows the standard convention: 1-9 shown exactly, 10+
 // shown as "9+". Tapping navigates to NotificationsListScreen, which
-// renders both sources merged into one list.
+// renders all 3 sources merged into one list.
 //
-// Opens exactly one users/{uid} Firestore listener (for both cursor
+// Opens exactly one users/{uid} Firestore listener (for all 3 cursor
 // fields at once) rather than each repository's unread-count stream
 // opening its own -- this widget is always mounted in the app shell, so
 // a second independent listener here ran for the entire app session.
@@ -21,6 +23,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/locale/app_localizations.dart';
+import '../../data/home_content_repository.dart';
 import '../../data/personal_notifications_repository.dart';
 import '../../data/platform_announcements_repository.dart';
 import '../screens/notifications_list_screen.dart';
@@ -35,15 +38,19 @@ class NotificationBellButton extends StatefulWidget {
 
 class _NotificationBellButtonState extends State<NotificationBellButton> {
   final _announcementsRepo = PlatformAnnouncementsRepository();
+  final _homeContentRepo = HomeContentRepository();
   final _personalRepo = PersonalNotificationsRepository();
 
   int _lastSeenAnnouncementAtMs = 0;
+  int _lastSeenHomeAnnouncementAtMs = 0;
   int _lastSeenPersonalAtMs = 0;
   List<PlatformAnnouncement> _announcementItems = const [];
+  List<HomeContentItem> _homeAnnouncementItems = const [];
   List<PersonalNotification> _personalItems = const [];
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
   StreamSubscription<List<PlatformAnnouncement>>? _announcementsSub;
+  StreamSubscription<List<HomeContentItem>>? _homeAnnouncementsSub;
   StreamSubscription<List<PersonalNotification>>? _personalSub;
 
   @override
@@ -64,6 +71,10 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
               data?['lastSeenAnnouncementAtMs'] is int
                   ? data!['lastSeenAnnouncementAtMs'] as int
                   : 0;
+          _lastSeenHomeAnnouncementAtMs =
+              data?['lastSeenHomeAnnouncementAtMs'] is int
+                  ? data!['lastSeenHomeAnnouncementAtMs'] as int
+                  : 0;
           _lastSeenPersonalAtMs =
               data?['lastSeenPersonalNotificationAtMs'] is int
                   ? data!['lastSeenPersonalNotificationAtMs'] as int
@@ -76,6 +87,11 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
       if (!mounted) return;
       setState(() => _announcementItems = items);
     });
+    _homeAnnouncementsSub =
+        _homeContentRepo.watchRecentAnnouncements().listen((items) {
+      if (!mounted) return;
+      setState(() => _homeAnnouncementItems = items);
+    });
     _personalSub = _personalRepo.watchRecent().listen((items) {
       if (!mounted) return;
       setState(() => _personalItems = items);
@@ -86,6 +102,7 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
   void dispose() {
     _userDocSub?.cancel();
     _announcementsSub?.cancel();
+    _homeAnnouncementsSub?.cancel();
     _personalSub?.cancel();
     super.dispose();
   }
@@ -102,11 +119,15 @@ class _NotificationBellButtonState extends State<NotificationBellButton> {
       _announcementItems,
       _lastSeenAnnouncementAtMs,
     );
+    final homeAnnouncementsCount = HomeContentRepository.countUnread(
+      _homeAnnouncementItems,
+      _lastSeenHomeAnnouncementAtMs,
+    );
     final personalCount = PersonalNotificationsRepository.countUnread(
       _personalItems,
       _lastSeenPersonalAtMs,
     );
-    final count = announcementsCount + personalCount;
+    final count = announcementsCount + homeAnnouncementsCount + personalCount;
     final label = _badgeLabel(count);
 
     return Stack(

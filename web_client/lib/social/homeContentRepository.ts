@@ -7,7 +7,7 @@
 // flipping `active` automatically, so an item can be active=true outside
 // its window and still needs this check.
 
-import { collection, onSnapshot, orderBy, query, where, DocumentData, Unsubscribe, doc, setDoc } from 'firebase/firestore';
+import { collection, limit as fbLimit, onSnapshot, orderBy, query, where, DocumentData, Unsubscribe, doc, setDoc } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 
 export type HomeContentType = 'hero' | 'promo_card' | 'announcement';
@@ -63,6 +63,38 @@ export function watchHomeContentWeb(callback: (items: HomeContentItem[]) => void
     },
     () => callback([]),
   );
+}
+
+const RECENT_ANNOUNCEMENTS_LIMIT = 30;
+
+/**
+ * Streams up to [maxItems] most recent announcement-type home_content docs,
+ * newest first -- unlike watchHomeContentWeb, this does NOT filter by the
+ * start/end schedule window or `active` flag. This feeds the persistent
+ * Notifications history page, not the Home dashboard's dismissible banner,
+ * so an admin announcement should stay visible in history after it stops
+ * showing on the dashboard (schedule expired or toggled inactive).
+ */
+export function watchRecentAnnouncementsHomeContentWeb(
+  callback: (items: HomeContentItem[]) => void,
+  maxItems = RECENT_ANNOUNCEMENTS_LIMIT,
+): Unsubscribe {
+  const q = query(
+    collection(db, 'home_content'),
+    where('type', '==', 'announcement'),
+    orderBy('createdAtMs', 'desc'),
+    fbLimit(maxItems),
+  );
+  return onSnapshot(
+    q,
+    (snap) => callback(snap.docs.map((d) => fromDoc(d.id, d.data()))),
+    () => callback([]),
+  );
+}
+
+/** Pure helper counting unseen announcements against a per-user cursor, mirroring countUnread patterns elsewhere. */
+export function countUnreadHomeContentWeb(items: HomeContentItem[], lastSeenAtMs: number): number {
+  return items.filter((i) => i.createdAtMs > lastSeenAtMs).length;
 }
 
 /** Marks the given announcement as seen by this user, mirroring markAllSeenWeb's per-user cursor pattern. */

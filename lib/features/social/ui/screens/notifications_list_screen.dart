@@ -1,15 +1,19 @@
 // lib/features/social/ui/screens/notifications_list_screen.dart
 //
-// Unified Instagram/Twitter-style inbox: merges platform_announcements
-// (admin broadcast, PlatformAnnouncementsRepository) and personal
-// notifications (new follower, organizer announcements from workspaces
-// you follow, ...; PersonalNotificationsRepository) into one
-// chronologically-sorted list. The two stay separate collections/streams
-// at the data layer (very different security shape — one is public
-// broadcast, the other per-user private) and are only merged here, at
-// render time.
+// Unified Instagram/Twitter-style inbox: merges 3 sources into one
+// chronologically-sorted list:
+//   - platform_announcements (admin broadcast, legacy -- nothing writes
+//     here anymore, kept read-only so pre-cutover history isn't lost)
+//   - home_content announcements (admin broadcast, current -- see
+//     HomeContentRepository.watchRecentAnnouncements for why this is a
+//     separate, non-schedule-filtered query from the Home tab's own
+//     home_content read)
+//   - personal notifications (new follower, organizer announcements from
+//     workspaces you follow, ...; PersonalNotificationsRepository)
+// All 3 stay separate collections/streams at the data layer (very
+// different security shapes) and are only merged here, at render time.
 //
-// Marks everything seen (bumps both per-user read cursors) as soon as the
+// Marks everything seen (bumps all 3 per-user read cursors) as soon as the
 // screen opens — matches the standard "opening the inbox clears the
 // badge" convention.
 
@@ -20,6 +24,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/routing/app_router.dart';
 import '../../../../core/utils/cloudinary_utils.dart';
+import '../../data/home_content_repository.dart';
 import '../../data/personal_notifications_repository.dart';
 import '../../data/platform_announcements_repository.dart';
 
@@ -52,25 +57,38 @@ class _InboxEntry {
 
 class _NotificationsListScreenState extends State<NotificationsListScreen> {
   final _announcementsRepo = PlatformAnnouncementsRepository();
+  final _homeContentRepo = HomeContentRepository();
   final _personalRepo = PersonalNotificationsRepository();
 
   List<PlatformAnnouncement> _announcements = const <PlatformAnnouncement>[];
+  List<HomeContentItem> _homeAnnouncements = const <HomeContentItem>[];
   List<PersonalNotification> _personal = const <PersonalNotification>[];
   bool _loadedOnce = false;
 
   StreamSubscription<List<PlatformAnnouncement>>? _announcementsSub;
+  StreamSubscription<List<HomeContentItem>>? _homeAnnouncementsSub;
   StreamSubscription<List<PersonalNotification>>? _personalSub;
 
   @override
   void initState() {
     super.initState();
     _announcementsRepo.markAllSeen();
+    _homeContentRepo.markAnnouncementSeen(DateTime.now().millisecondsSinceEpoch);
     _personalRepo.markAllSeen();
 
     _announcementsSub = _announcementsRepo.watchRecent().listen((items) {
       if (!mounted) return;
       setState(() {
         _announcements = items;
+        _loadedOnce = true;
+      });
+    });
+
+    _homeAnnouncementsSub =
+        _homeContentRepo.watchRecentAnnouncements().listen((items) {
+      if (!mounted) return;
+      setState(() {
+        _homeAnnouncements = items;
         _loadedOnce = true;
       });
     });
@@ -87,6 +105,7 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
   @override
   void dispose() {
     _announcementsSub?.cancel();
+    _homeAnnouncementsSub?.cancel();
     _personalSub?.cancel();
     super.dispose();
   }
@@ -159,6 +178,16 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
           title: a.title,
           message: a.message,
           route: '',
+        ),
+      ),
+      ..._homeAnnouncements.map(
+        (a) => _InboxEntry(
+          createdAtMs: a.createdAtMs,
+          leading: Icon(_severityIcon(a.severity),
+              color: _severityColor(a.severity), size: 20),
+          title: a.title,
+          message: a.subtitle,
+          route: a.ctaRoute,
         ),
       ),
       ..._personal.map(
