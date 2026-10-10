@@ -3,29 +3,59 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { watchRecentAnnouncementsWeb, markAllSeenWeb, PlatformAnnouncement } from '@/lib/social/platformAnnouncementsRepository';
+import { watchRecentAnnouncementsHomeContentWeb, markAnnouncementSeenWeb, HomeContentItem } from '@/lib/social/homeContentRepository';
 import { Glass } from '@/components/ui/Glass';
 import { formatDistanceToNow } from 'date-fns';
 import { ArrowLeft, Loader2, AlertTriangle, AlertCircle, Megaphone } from 'lucide-react';
+
+interface InboxEntry {
+  id: string;
+  createdAtMs: number;
+  severity: string;
+  title: string;
+  message: string;
+}
 
 /**
  * Full "view all" announcements inbox — the web counterpart of
  * notifications_list_screen.dart. The 3-item preview on the dashboard
  * home page links here for the complete, scrollable history. Marks
- * everything seen (bumps the per-user read cursor) as soon as the page
+ * everything seen (bumps the per-user read cursors) as soon as the page
  * opens, same as the Dart screen.
+ *
+ * Merges 2 sources, same as the Dart screen:
+ *   - platform_announcements (legacy -- nothing writes here anymore,
+ *     kept read-only so pre-cutover history isn't lost)
+ *   - home_content announcements (current admin broadcast path)
  */
 export default function NotificationsPage() {
   const router = useRouter();
-  const [items, setItems] = useState<PlatformAnnouncement[]>([]);
+  const [legacyItems, setLegacyItems] = useState<PlatformAnnouncement[]>([]);
+  const [homeContentItems, setHomeContentItems] = useState<HomeContentItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     void markAllSeenWeb();
-    const unsubscribe = watchRecentAnnouncementsWeb((data) => {
-      setItems(data);
-      setLoading(false);
+    void markAnnouncementSeenWeb(Date.now());
+
+    let legacyLoaded = false;
+    let homeContentLoaded = false;
+
+    const unsubscribeLegacy = watchRecentAnnouncementsWeb((data) => {
+      setLegacyItems(data);
+      legacyLoaded = true;
+      if (homeContentLoaded) setLoading(false);
     });
-    return () => unsubscribe();
+    const unsubscribeHomeContent = watchRecentAnnouncementsHomeContentWeb((data) => {
+      setHomeContentItems(data);
+      homeContentLoaded = true;
+      if (legacyLoaded) setLoading(false);
+    });
+
+    return () => {
+      unsubscribeLegacy();
+      unsubscribeHomeContent();
+    };
   }, []);
 
   function severityColor(severity: string) {
@@ -33,6 +63,23 @@ export default function NotificationsPage() {
     if (severity === 'warning') return { text: 'text-brand-lime', bg: 'bg-brand-lime', Icon: AlertTriangle };
     return { text: 'text-[#A78BFA]', bg: 'bg-[#A78BFA]', Icon: Megaphone };
   }
+
+  const items: InboxEntry[] = [
+    ...legacyItems.map((a) => ({
+      id: `legacy_${a.id}`,
+      createdAtMs: a.createdAtMs,
+      severity: a.severity,
+      title: a.title,
+      message: a.message,
+    })),
+    ...homeContentItems.map((a) => ({
+      id: `home_${a.id}`,
+      createdAtMs: a.createdAtMs,
+      severity: a.severity,
+      title: a.title,
+      message: a.subtitle,
+    })),
+  ].sort((a, b) => b.createdAtMs - a.createdAtMs);
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">

@@ -104,6 +104,32 @@ class HomeContentRepository {
     }).handleError((Object _, StackTrace __) => <HomeContentItem>[]);
   }
 
+  /// Streams up to [limit] most recent announcement-type home_content docs,
+  /// newest first -- unlike [watchActive], this does NOT filter by the
+  /// start/end schedule window or `active` flag. This feeds the persistent
+  /// Notifications history list, not the "what's live on Home right now"
+  /// bottom sheet, so an admin announcement should stay visible in history
+  /// after it stops showing on Home (schedule expired or toggled inactive).
+  Stream<List<HomeContentItem>> watchRecentAnnouncements({int limit = 30}) {
+    return _firestore
+        .collection('home_content')
+        .where('type', isEqualTo: 'announcement')
+        .orderBy('createdAtMs', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map<List<HomeContentItem>>(
+          (snap) => snap.docs.map(HomeContentItem.fromDoc).toList(),
+        )
+        .handleError((Object _, StackTrace __) => <HomeContentItem>[]);
+  }
+
+  /// Pure helper counting unseen announcements against the per-user
+  /// lastSeenHomeAnnouncementAtMs cursor, same pattern as
+  /// PlatformAnnouncementsRepository.countUnread().
+  static int countUnread(List<HomeContentItem> items, int lastSeenAtMs) {
+    return items.where((i) => i.createdAtMs > lastSeenAtMs).length;
+  }
+
   /// Marks the given announcement as seen by this user, mirroring
   /// PlatformAnnouncementsRepository.markAllSeen's per-user cursor pattern.
   Future<void> markAnnouncementSeen(int announcementCreatedAtMs) async {
