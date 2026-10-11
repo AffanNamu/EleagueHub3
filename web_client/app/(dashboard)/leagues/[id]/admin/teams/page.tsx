@@ -2,7 +2,7 @@
 
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, setDoc, deleteDoc, writeBatch, collection, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
+import { doc, deleteDoc, writeBatch, collection, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { useLeagueTeams } from '@/hooks/useLeagueTeams';
 import { useLeagueDetail } from '@/hooks/useLeagueDetail';
@@ -15,7 +15,7 @@ import { resolveTeamParticipant, fetchUserProfileByUserId, ResolvedUserProfile }
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
 import { autoAssignWorldCupGroups } from '@/lib/algorithms/worldCupGrouping';
 import { SpinWheelDrawModal } from '@/components/leagues/SpinWheelDrawModal';
-import { fetchUnassignedMembers, assignMemberToTeamWeb, UnassignedMember } from '@/lib/leagues/leaguesRepository';
+import { fetchUnassignedMembers, assignMemberToTeamWeb, createTeamForMemberWeb, UnassignedMember } from '@/lib/leagues/leaguesRepository';
 
 const GROUPS_ALL = ['Group A','Group B','Group C','Group D','Group E','Group F','Group G','Group H','Group I','Group J','Group K','Group L'];
 
@@ -222,21 +222,17 @@ export default function ManageTeamsScreen() {
     setAdding(true);
     setError('');
     try {
-      const now = Date.now();
-      const teamRef = doc(db, 'leagues', leagueId, 'teams', profile.userId);
-      const newTeam: Partial<Team> = {
-        id: profile.userId,
-        leagueId,
+      // Creates the team AND syncs membership.teamId in one transaction
+      // -- see createTeamForMemberWeb's own comment for the consistency
+      // bug this fixes (a team with no membership.teamId pointing at it,
+      // which showed up as permanently "Unassigned" in Admin).
+      await createTeamForMemberWeb(leagueId, {
+        teamId: profile.userId,
         name: profile.teamName,
         ownerId: profile.userId,
         teamImageUrl: profile.photoUrl,
         groupId: isGroupFormat ? selectedGroup : undefined,
-        played: 0, won: 0, drawn: 0, lost: 0,
-        goalsFor: 0, goalsAgainst: 0, goalDifference: 0,
-        basePoints: 0, adminAdjustment: 0, finalPoints: 0,
-        updatedAtMs: now,
-      };
-      await setDoc(teamRef, newTeam, { merge: true });
+      });
       setSuggested((prev) => prev.filter((p) => p.userId !== profile.userId));
     } catch (err: any) {
       setError('Failed to add team: ' + err.message);

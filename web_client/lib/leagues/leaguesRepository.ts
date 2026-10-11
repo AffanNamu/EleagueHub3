@@ -14,6 +14,7 @@ import {
   deleteDoc,
   arrayRemove,
   arrayUnion,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { v4 as uuidv4 } from 'uuid';
@@ -30,6 +31,7 @@ import { MASTER_LEAGUE_PLANS, planFromString } from '@/types/masterLeague';
 import { addCompetitionCreatedEvent } from '@/lib/masterLeagues/organizerFeedRepository';
 import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
 import { decideMembershipAssignment } from './membershipAssignmentDecision';
+import { planCreateTeamForMember } from './createTeamForMemberPlan';
 
 export async function fetchLeaguesForUser(uid: string): Promise<LeagueData[]> {
   const trimmed = uid.trim();
@@ -229,6 +231,78 @@ export async function assignMemberToTeamWeb(leagueId: string, membershipId: stri
   }
 
   await updateDoc(membershipRef, { teamId: trimmedTeamId, updatedAtMs: Date.now() });
+}
+
+export interface CreateTeamForMemberInput {
+  /** Always the member's own uid, by this app's convention for a registered (non-external) team. */
+  teamId: string;
+  name: string;
+  ownerId: string;
+  teamImageUrl: string;
+  groupId?: string;
+}
+
+/**
+ * Creates a team for an already-joined, currently-teamless league member
+ * (the web "Already Joined -> Add" action in admin/teams/page.tsx) and
+ * synchronizes that member's membership.teamId in the SAME Firestore
+ * transaction.
+ *
+ * ROOT CAUSE FIXED: this flow used to just setDoc the team and never
+ * touch the membership doc at all, unlike Flutter's equivalent
+ * (LocalLeaguesRepository.saveTeams's STEP A/STEP B membership sync).
+ * The result was a team that existed with no membership.teamId pointing
+ * at it -- exactly the state that made "Al Haram" show up permanently
+ * under Admin's "Unassigned" bucket (fetchUnassignedMembers), since that
+ * bucket is defined purely by membership.teamId, not by whether a team
+ * doc happens to exist.
+ *
+ * Doing both writes in one transaction (rather than this write followed
+ * by a separate assignMemberToTeamWeb call) means a failure partway
+ * through can never leave the team created but the membership unsynced
+ * -- either both land or neither does.
+ */
+export async function createTeamForMemberWeb(leagueId: string, input: CreateTeamForMemberInput): Promise<void> {
+  const teamId = input.teamId.trim();
+  if (!teamId) throw new Error('Invalid participant.');
+
+  const teamRef = doc(db, 'leagues', leagueId, 'teams', teamId);
+  const membershipRef = doc(db, 'leagues', leagueId, 'memberships', teamId);
+
+  await runTransaction(db, async (tx) => {
+    const membershipSnap = await tx.get(membershipRef);
+
+    const currentTeamId =
+      membershipSnap.exists() && typeof membershipSnap.data()?.teamId === 'string'
+        ? (membershipSnap.data()!.teamId as string).trim()
+        : '';
+
+    const plan = planCreateTeamForMember({
+      leagueId,
+      teamId,
+      membershipExists: membershipSnap.exists(),
+      currentTeamId,
+      now: Date.now(),
+      teamFields: {
+        name: input.name,
+        ownerId: input.ownerId,
+        teamImageUrl: input.teamImageUrl,
+        groupId: input.groupId,
+      },
+    });
+
+    if (plan.outcome === 'blockedAlreadyOnDifferentTeam' || plan.teamWrite === null) {
+      throw new Error(
+        'This participant is already assigned to a different team. Remove them from their current team before reassigning them.',
+      );
+    }
+
+    tx.set(teamRef, plan.teamWrite, { merge: true });
+
+    if (plan.membershipWrite === null) return; // noopAlreadyOnTeam -- membership already correct
+
+    tx.set(membershipRef, plan.membershipWrite.data, { merge: true });
+  });
 }
 
 export interface LatestAnnouncement {
