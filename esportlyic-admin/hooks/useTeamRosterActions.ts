@@ -109,6 +109,38 @@ export function useRevokeClaim(leagueId: string) {
   return { revoke, revoking, error };
 }
 
+export function useAssignMemberToTeam(leagueId: string) {
+  const router = useRouter();
+  const [assigning, setAssigning] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function assign(membershipId: string, teamId: string): Promise<boolean> {
+    setAssigning(membershipId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/admin/leagues/${leagueId}/memberships/${membershipId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId }),
+      });
+      const body = await parseJson(response);
+      if (!response.ok) {
+        setError((body.error as string) ?? 'Something went wrong.');
+        return false;
+      }
+      router.refresh();
+      return true;
+    } catch {
+      setError('Network error. Please check your connection and try again.');
+      return false;
+    } finally {
+      setAssigning(null);
+    }
+  }
+
+  return { assign, assigning, error };
+}
+
 export function useRemoveTeamMember(leagueId: string) {
   const router = useRouter();
   const [removing, setRemoving] = useState<string | null>(null);

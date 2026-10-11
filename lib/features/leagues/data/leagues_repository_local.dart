@@ -11,6 +11,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/plan_status_service.dart';
 import '../logic/fixture_regeneration_planner.dart';
+import '../logic/membership_assignment_decision.dart';
 import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
 import '../models/league.dart';
@@ -1170,6 +1171,19 @@ class LocalLeaguesRepository {
     }
   }
 
+  /// Assigns an existing league member (identified by [userId]) onto an
+  /// existing team's roster by setting their membership's `teamId` --
+  /// this is a pure roster/membership change. It deliberately never
+  /// touches matches/fixtures/standings: see
+  /// FixtureRegenerationPlanner for why fixture regeneration is a
+  /// separate, organizer-triggered operation, not an automatic side
+  /// effect of roster changes.
+  ///
+  /// Validates the target team actually exists in this league (PHASE B2)
+  /// and refuses to silently move a member who is already on a
+  /// *different* team -- re-assigning them onto the SAME team they're
+  /// already on is treated as a successful no-op (idempotent), not an
+  /// error, so this is safe to call more than once.
   Future<void> assignTeamToUserInLeague({
     required String leagueId,
     required String userId,
@@ -1183,20 +1197,59 @@ class LocalLeaguesRepository {
         throw const UserFriendlyException('Please select a valid user.');
       }
 
-      final membershipRef =
-          _firestore.collection('leagues').doc(leagueId).collection('memberships').doc(uid);
+      final trimmedTeamId = teamId.trim();
+      if (trimmedTeamId.isEmpty) {
+        throw const UserFriendlyException('Please select a valid team.');
+      }
 
-      final now = DateTime.now().millisecondsSinceEpoch;
+      final leagueRef = _firestore.collection('leagues').doc(leagueId);
+
+      final teamSnap = await leagueRef
+          .collection('teams')
+          .doc(trimmedTeamId)
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 12));
+
+      final membershipRef = leagueRef.collection('memberships').doc(uid);
       final existing = await membershipRef
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 12));
+
+      final data = existing.data() ?? <String, dynamic>{};
+      final currentTeamId = (data['teamId'] as String?)?.trim() ?? '';
+
+      final outcome = MembershipAssignmentDecision.decide(
+        targetTeamExists: teamSnap.exists,
+        membershipExists: existing.exists,
+        currentTeamId: currentTeamId,
+        targetTeamId: trimmedTeamId,
+      );
+
+      switch (outcome) {
+        case MembershipAssignmentOutcome.blockedTeamMissing:
+          throw const UserFriendlyException(
+            'That team no longer exists in this competition. Please refresh and try again.',
+          );
+        case MembershipAssignmentOutcome.blockedAlreadyOnDifferentTeam:
+          throw const UserFriendlyException(
+            'This participant is already assigned to a different team. '
+            'Remove them from their current team before reassigning them.',
+          );
+        case MembershipAssignmentOutcome.noopAlreadyOnTeam:
+          // Already assigned to this exact team -- idempotent no-op.
+          return;
+        case MembershipAssignmentOutcome.assign:
+          break;
+      }
+
+      final now = DateTime.now().millisecondsSinceEpoch;
 
       if (!existing.exists) {
         final membership = Membership(
           id: uid,
           leagueId: leagueId,
           userId: uid,
-          teamId: teamId,
+          teamId: trimmedTeamId,
           role: LeagueRole.member,
           updatedAtMs: now,
           version: 1,
@@ -1208,13 +1261,12 @@ class LocalLeaguesRepository {
         return;
       }
 
-      final data = existing.data() ?? <String, dynamic>{};
       final currentVersion = (data['version'] as num?)?.toInt() ?? 1;
 
       await membershipRef
           .set(
             {
-              'teamId': teamId,
+              'teamId': trimmedTeamId,
               'updatedAtMs': now,
               'version': currentVersion + 1,
             },

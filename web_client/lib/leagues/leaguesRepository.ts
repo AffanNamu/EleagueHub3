@@ -29,6 +29,7 @@ import { LeagueFormat, leagueFormatIndex } from '@/lib/models/leagueFormat';
 import { MASTER_LEAGUE_PLANS, planFromString } from '@/types/masterLeague';
 import { addCompetitionCreatedEvent } from '@/lib/masterLeagues/organizerFeedRepository';
 import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
+import { decideMembershipAssignment } from './membershipAssignmentDecision';
 
 export async function fetchLeaguesForUser(uid: string): Promise<LeagueData[]> {
   const trimmed = uid.trim();
@@ -112,6 +113,122 @@ export async function countParticipants(leagueId: string): Promise<number> {
     if (uid && (roleIdx === 0 || roleIdx === 1)) count++;
   });
   return count;
+}
+
+export interface UnassignedMember {
+  membershipId: string;
+  userId: string;
+  displayName: string;
+  photoUrl: string;
+}
+
+/**
+ * League members with no team assigned yet (membership.teamId is unset),
+ * excluding the organizer (role 0) -- same definition
+ * esportlyic-admin's getTeamsWithRosters() uses, so Admin and Web never
+ * disagree about who is "unassigned". This is a roster/membership read
+ * only; it does not touch matches or teams.
+ */
+export async function fetchUnassignedMembers(leagueId: string): Promise<UnassignedMember[]> {
+  const snap = await getDocs(collection(db, 'leagues', leagueId, 'memberships'));
+
+  const unassigned = snap.docs
+    .map((d) => d.data())
+    .filter((data) => {
+      const role = Number(data.role);
+      const teamId = typeof data.teamId === 'string' ? data.teamId.trim() : '';
+      return role !== 0 && !teamId;
+    });
+
+  const profiles = await Promise.all(
+    unassigned.map(async (data) => {
+      const userId = typeof data.userId === 'string' ? data.userId.trim() : '';
+      let displayName = userId;
+      let photoUrl = '';
+      try {
+        const profile = await fetchUserProfileByUserId(userId);
+        if (profile) {
+          displayName = profile.teamName || userId;
+          photoUrl = profile.photoUrl || '';
+        }
+      } catch {
+        // Keep the uid as a fallback display name -- a profile lookup
+        // failure shouldn't hide that this member exists.
+      }
+      return {
+        membershipId: typeof data.id === 'string' && data.id ? data.id : userId,
+        userId,
+        displayName,
+        photoUrl,
+      };
+    }),
+  );
+
+  return profiles.filter((p) => p.userId);
+}
+
+/**
+ * Assigns an existing league member onto an existing team's roster by
+ * setting their membership's teamId. Pure roster/membership change --
+ * never touches matches, fixtures or standings. Mirrors
+ * LocalLeaguesRepository.assignTeamToUserInLeague
+ * (lib/features/leagues/data/leagues_repository_local.dart) and its
+ * decision rules exactly (see decideMembershipAssignment): assigning a
+ * member who is already on the SAME team is a successful no-op;
+ * assigning one already on a DIFFERENT team is refused.
+ */
+export async function assignMemberToTeamWeb(leagueId: string, membershipId: string, teamId: string): Promise<void> {
+  const trimmedTeamId = teamId.trim();
+  if (!trimmedTeamId) throw new Error('Please select a team.');
+
+  const teamRef = doc(db, 'leagues', leagueId, 'teams', trimmedTeamId);
+  const membershipRef = doc(db, 'leagues', leagueId, 'memberships', membershipId);
+
+  const [teamSnap, membershipSnap] = await Promise.all([getDoc(teamRef), getDoc(membershipRef)]);
+
+  const currentTeamId =
+    membershipSnap.exists() && typeof membershipSnap.data()?.teamId === 'string'
+      ? (membershipSnap.data()!.teamId as string).trim()
+      : '';
+
+  const outcome = decideMembershipAssignment({
+    targetTeamExists: teamSnap.exists(),
+    membershipExists: membershipSnap.exists(),
+    currentTeamId,
+    targetTeamId: trimmedTeamId,
+  });
+
+  switch (outcome) {
+    case 'blockedTeamMissing':
+      throw new Error('That team no longer exists in this competition. Please refresh and try again.');
+    case 'blockedAlreadyOnDifferentTeam':
+      throw new Error(
+        'This participant is already assigned to a different team. Remove them from their current team before reassigning them.',
+      );
+    case 'noopAlreadyOnTeam':
+      return;
+    case 'assign':
+      break;
+  }
+
+  if (!membershipSnap.exists()) {
+    await setDoc(
+      membershipRef,
+      {
+        id: membershipId,
+        leagueId,
+        userId: membershipId,
+        teamId: trimmedTeamId,
+        role: 1, // LeagueRole.member
+        updatedAtMs: Date.now(),
+        version: 1,
+      },
+      { merge: true },
+    );
+    return;
+  }
+
+  await updateDoc(membershipRef, { teamId: trimmedTeamId, updatedAtMs: Date.now() });
 }
 
 export interface LatestAnnouncement {

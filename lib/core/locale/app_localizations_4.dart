@@ -275,6 +275,16 @@ const Map<String, Map<String, String>> appLocalizationsPart4 = {
     'league_participants_team_prefix': 'Team ',
     'league_participants_role_organizer': 'Organizer',
     'league_participants_userid_prefix': 'userId: ',
+    'league_participants_assign_to_team_action': 'Assign to Team',
+    'league_participants_no_teams_to_assign': 'Add a team to this league before assigning participants.',
+    'league_participants_assign_to_team_prefix': 'Assign',
+    'league_participants_assign_to_team_subtitle': 'Choose an existing team for this participant to join.',
+    'league_participants_assign_confirm_title_prefix': 'Assign',
+    'league_participants_assign_confirm_title_to': 'to',
+    'league_participants_assign_confirm_message':
+        "They will become a member of this team's roster. Existing fixtures, results and standings are not affected.",
+    'league_participants_assign_confirm_action': 'Assign',
+    'league_participants_assign_success': 'Assigned to team.',
 
     'admin_knockout_appbar_title': 'Knockout Score Management',
     'admin_knockout_reload_tooltip': 'Reload',

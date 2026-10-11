@@ -240,6 +240,63 @@ export async function renameTeam(
   });
 }
 
+/**
+ * Assigns an existing league member (a membership with no teamId -- the
+ * "Unassigned" bucket from getTeamsWithRosters) onto an existing team's
+ * roster. Pure roster/membership change: never touches matches, fixtures
+ * or standings. Mirrors LocalLeaguesRepository.assignTeamToUserInLeague's
+ * validation (lib/features/leagues/data/leagues_repository_local.dart) --
+ * same rules, same source of truth, just a TS entry point for the admin
+ * dashboard.
+ *
+ * Assigning a member who is already on the SAME team is a successful
+ * no-op (idempotent). Assigning a member who is already on a DIFFERENT
+ * team is refused -- this operation only ever fills in a currently-empty
+ * teamId, it never silently moves someone.
+ */
+export async function assignMemberToTeam(
+  leagueId: string,
+  membershipId: string,
+  teamId: string,
+  actor: { uid: string; email?: string | null },
+): Promise<void> {
+  const trimmedTeamId = teamId.trim();
+  if (!trimmedTeamId) throw new TeamAdminError('Please select a team.');
+
+  const membershipRef = adminDb.collection(LEAGUES_COLLECTION).doc(leagueId).collection('memberships').doc(membershipId);
+  const teamRef = adminDb.collection(LEAGUES_COLLECTION).doc(leagueId).collection('teams').doc(trimmedTeamId);
+
+  const [membershipSnap, teamSnap] = await Promise.all([membershipRef.get(), teamRef.get()]);
+
+  if (!membershipSnap.exists) throw new TeamAdminError('Membership not found.');
+  if (!teamSnap.exists) throw new TeamAdminError('That team no longer exists in this competition.');
+
+  const membershipData = membershipSnap.data() ?? {};
+  const currentTeamId = typeof membershipData.teamId === 'string' ? membershipData.teamId.trim() : '';
+
+  if (currentTeamId === trimmedTeamId) {
+    // Already assigned to this exact team -- idempotent no-op.
+    return;
+  }
+  if (currentTeamId) {
+    throw new TeamAdminError(
+      'This participant is already assigned to a different team. Remove them from their current team before reassigning them.',
+    );
+  }
+
+  await membershipRef.update({ teamId: trimmedTeamId, updatedAtMs: Date.now() });
+
+  const teamName = (teamSnap.data()?.name as string) || trimmedTeamId;
+  await recordAuditLog({
+    actorUid: actor.uid,
+    actorEmail: actor.email,
+    action: 'team.assign_member',
+    targetType: 'team',
+    targetId: `${leagueId}/${membershipId}`,
+    summary: `Assigned membership ${membershipId} to team "${teamName}" in league ${leagueId}`,
+  });
+}
+
 export async function removeMemberFromTeam(
   leagueId: string,
   membershipId: string,

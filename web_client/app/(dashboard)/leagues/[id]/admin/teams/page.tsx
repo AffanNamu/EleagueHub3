@@ -15,6 +15,7 @@ import { resolveTeamParticipant, fetchUserProfileByUserId, ResolvedUserProfile }
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
 import { autoAssignWorldCupGroups } from '@/lib/algorithms/worldCupGrouping';
 import { SpinWheelDrawModal } from '@/components/leagues/SpinWheelDrawModal';
+import { fetchUnassignedMembers, assignMemberToTeamWeb, UnassignedMember } from '@/lib/leagues/leaguesRepository';
 
 const GROUPS_ALL = ['Group A','Group B','Group C','Group D','Group E','Group F','Group G','Group H','Group I','Group J','Group K','Group L'];
 
@@ -99,6 +100,61 @@ export default function ManageTeamsScreen() {
       cancelled = true;
     };
   }, [leagueId, teams, teamsLoading]);
+
+  // "Unassigned" -- league members whose membership.teamId is unset, the
+  // authoritative definition esportlyic-admin's roster view already uses
+  // (see getTeamsWithRosters). Distinct from "Already Joined" above: that
+  // list offers to CREATE a brand-new solo team for a joined-but-teamless
+  // member; this one offers to put an already-unassigned member onto an
+  // EXISTING team's roster without creating anything new.
+  const [unassignedMembers, setUnassignedMembers] = useState<UnassignedMember[]>([]);
+  const [unassignedLoading, setUnassignedLoading] = useState(true);
+  const [assignTargetByMembership, setAssignTargetByMembership] = useState<Record<string, string>>({});
+  const [assigningMembershipId, setAssigningMembershipId] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState('');
+
+  useEffect(() => {
+    if (!leagueId) return;
+    let cancelled = false;
+
+    (async () => {
+      setUnassignedLoading(true);
+      try {
+        const members = await fetchUnassignedMembers(leagueId);
+        if (!cancelled) setUnassignedMembers(members);
+      } catch (e) {
+        console.warn('[admin/teams] failed to load unassigned members:', e);
+      } finally {
+        if (!cancelled) setUnassignedLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Re-runs whenever the team list changes (an assignment or a new team
+    // being added both affect who counts as unassigned / eligible).
+  }, [leagueId, teams]);
+
+  const handleAssignToTeam = async (member: UnassignedMember) => {
+    const targetTeamId = assignTargetByMembership[member.membershipId] || teams[0]?.id;
+    if (!targetTeamId) return;
+    const team = teams.find((t) => t.id === targetTeamId);
+    if (!team) return;
+    if (!confirm(`Assign ${member.displayName} to ${team.name}? They will become a member of this team's roster.`)) {
+      return;
+    }
+    setAssigningMembershipId(member.membershipId);
+    setAssignError('');
+    try {
+      await assignMemberToTeamWeb(leagueId, member.membershipId, targetTeamId);
+      setUnassignedMembers((prev) => prev.filter((m) => m.membershipId !== member.membershipId));
+    } catch (err: any) {
+      setAssignError(err.message || 'Failed to assign participant.');
+    } finally {
+      setAssigningMembershipId(null);
+    }
+  };
 
   const isGroupFormat = league?.format === 'uclGroup';
   const isWorldCup = league?.format === 'worldCup';
@@ -429,6 +485,64 @@ export default function ManageTeamsScreen() {
                     >
                       Add
                     </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!unassignedLoading && unassignedMembers.length > 0 && (
+            <div className="bg-[#0B1221] border border-[#1E293B] rounded-3xl p-6 shadow-xl">
+              <h2 className="text-lg font-black text-white mb-1 flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-[#BEF264]" /> Unassigned
+              </h2>
+              <p className="text-xs font-semibold text-gray-400 mb-4">
+                {teams.length === 0
+                  ? 'Add a team to this league before assigning them.'
+                  : 'Not assigned to a team yet. Put them on an existing team\'s roster.'}
+              </p>
+              {assignError && (
+                <div className="text-xs font-bold text-red-500 mb-3 flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {assignError}
+                </div>
+              )}
+              <div className="space-y-2">
+                {unassignedMembers.map((member) => (
+                  <div key={member.membershipId} className="flex items-center gap-2 p-3 bg-[#070B14] border border-[#1E293B] rounded-xl flex-wrap">
+                    {member.photoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={member.photoUrl} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-[#1E293B] flex items-center justify-center shrink-0">
+                        <Shield className="w-4 h-4 text-gray-400" />
+                      </div>
+                    )}
+                    <span className="flex-1 min-w-0 text-sm font-black text-white truncate">{member.displayName}</span>
+                    {teams.length > 0 && (
+                      <>
+                        <select
+                          value={assignTargetByMembership[member.membershipId] ?? teams[0]?.id ?? ''}
+                          onChange={(e) =>
+                            setAssignTargetByMembership((prev) => ({ ...prev, [member.membershipId]: e.target.value }))
+                          }
+                          disabled={assigningMembershipId === member.membershipId}
+                          className="bg-[#0B1221] border border-[#1E293B] rounded-lg px-2 py-1.5 text-xs font-bold text-white outline-none focus:border-[#BEF264] disabled:opacity-60"
+                        >
+                          {teams.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => handleAssignToTeam(member)}
+                          disabled={assigningMembershipId === member.membershipId}
+                          className="px-3 py-1.5 bg-[#BEF264] text-[#0F172A] text-xs font-black rounded-lg hover:brightness-110 disabled:opacity-50 shrink-0"
+                        >
+                          {assigningMembershipId === member.membershipId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Assign to Team'}
+                        </button>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>

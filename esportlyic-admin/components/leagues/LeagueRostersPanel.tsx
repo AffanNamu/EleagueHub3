@@ -1,10 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { Shield, Pencil, Trash2, UserMinus, Check, X, Link2Off } from 'lucide-react';
+import { Shield, Pencil, Trash2, UserMinus, Check, X, Link2Off, UserPlus } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
-import { useTeamRename, useTeamDelete, useRemoveTeamMember, useRevokeClaim } from '@/hooks/useTeamRosterActions';
+import {
+  useTeamRename,
+  useTeamDelete,
+  useRemoveTeamMember,
+  useRevokeClaim,
+  useAssignMemberToTeam,
+} from '@/hooks/useTeamRosterActions';
 import type { RosterMember, TeamClaim, TeamWithRoster } from '@/types/team';
 
 function formatDate(ms: number): string {
@@ -199,18 +205,85 @@ function TeamCard({
   );
 }
 
-function UnassignedSection({ members }: { members: RosterMember[] }) {
+function UnassignedMemberRow({
+  leagueId,
+  member,
+  teams,
+  canManage,
+}: {
+  leagueId: string;
+  member: RosterMember;
+  teams: TeamWithRoster[];
+  canManage: boolean;
+}) {
+  const { assign, assigning, error } = useAssignMemberToTeam(leagueId);
+  const [selectedTeamId, setSelectedTeamId] = useState(teams[0]?.id ?? '');
+
+  async function handleAssign() {
+    if (!selectedTeamId) return;
+    const team = teams.find((t) => t.id === selectedTeamId);
+    if (!team) return;
+    if (!confirm(`Assign ${member.displayName} to ${team.name}? They will become a member of this team's roster.`)) {
+      return;
+    }
+    await assign(member.membershipId, selectedTeamId);
+  }
+
+  return (
+    <li className="flex flex-col gap-1.5 border-b border-base-border pb-2.5 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+      <span className="text-sm text-ink-secondary">{member.displayName}</span>
+      {canManage && teams.length > 0 && (
+        <div className="flex items-center gap-1.5">
+          <select
+            value={selectedTeamId}
+            onChange={(e) => setSelectedTeamId(e.target.value)}
+            disabled={assigning === member.membershipId}
+            className="rounded-sm border border-base-border bg-base-raised px-2 py-1 text-xs text-ink-primary outline-none focus:border-brand disabled:opacity-60"
+          >
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={handleAssign}
+            disabled={assigning === member.membershipId || !selectedTeamId}
+            className="flex items-center gap-1 rounded-sm bg-brand px-2 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
+          >
+            <UserPlus size={12} />
+            Assign to Team
+          </button>
+        </div>
+      )}
+      {error && <span className="text-xs text-signal-danger">{error}</span>}
+    </li>
+  );
+}
+
+function UnassignedSection({
+  leagueId,
+  members,
+  teams,
+  canManage,
+}: {
+  leagueId: string;
+  members: RosterMember[];
+  teams: TeamWithRoster[];
+  canManage: boolean;
+}) {
   if (members.length === 0) return null;
 
   return (
     <div className="panel p-5">
       <h3 className="font-display text-sm font-semibold text-ink-primary">Unassigned</h3>
-      <p className="mt-1 text-xs text-ink-muted">League members not on any team.</p>
+      <p className="mt-1 text-xs text-ink-muted">
+        League members not currently assigned to a team.
+        {canManage && teams.length === 0 ? ' Add a team to this league before assigning them.' : ''}
+      </p>
       <ul className="mt-3 space-y-1.5">
         {members.map((member) => (
-          <li key={member.membershipId} className="text-sm text-ink-secondary">
-            {member.displayName}
-          </li>
+          <UnassignedMemberRow key={member.membershipId} leagueId={leagueId} member={member} teams={teams} canManage={canManage} />
         ))}
       </ul>
     </div>
@@ -254,7 +327,7 @@ export function LeagueRostersPanel({
           />
         ))}
       </div>
-      <UnassignedSection members={unassigned} />
+      <UnassignedSection leagueId={leagueId} members={unassigned} teams={teams} canManage={canManage} />
     </div>
   );
 }
