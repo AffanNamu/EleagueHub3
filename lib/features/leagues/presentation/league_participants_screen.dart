@@ -8,11 +8,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
+import '../data/leagues_repository_local.dart';
 import '../models/membership.dart';
 import '../models/team.dart';
 
@@ -31,6 +34,7 @@ class LeagueParticipantsScreen extends ConsumerStatefulWidget {
 class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final UserProfileRepository _profiles = UserProfileRepository();
+  late LocalLeaguesRepository _localRepo;
 
   bool _loading = true;
   Object? _error;
@@ -41,9 +45,22 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
   Map<String, String> _teamNameByUserId = {};
   Map<String, String> _avatarUrlByUserId = {};
 
+  /// This screen is reachable by any league member (via League Detail's
+  /// "Teams" quick action), not just the organizer -- see league_detail_
+  /// screen.dart's comment on that entry point. "Assign to Team" must
+  /// only ever be offered to the organizer; assignTeamToUserInLeague()
+  /// enforces this server-side too, this is just so a regular member
+  /// never sees a button that would fail.
+  bool _isOrganizer = false;
+
+  /// Membership.userId currently being assigned, if any -- disables that
+  /// row's button while the write is in flight.
+  String? _assigningUserId;
+
   @override
   void initState() {
     super.initState();
+    _localRepo = LocalLeaguesRepository(ref.read(prefsServiceProvider));
     unawaited(_load());
   }
 
@@ -158,6 +175,10 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
 
       final leagueMembers = memberships.where((m) => m.leagueId == widget.leagueId).toList(growable: false);
 
+      final isOrganizer = leagueMembers.any(
+        (m) => m.userId == uid && m.role == LeagueRole.organizer,
+      );
+
       final uniqueUserIds = leagueMembers.map((m) => m.userId).where((id) => id.trim().isNotEmpty).toSet().toList();
 
       final Map<String, String> resolvedNames = {};
@@ -185,6 +206,7 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
         _teamsById = {for (final t in teams) t.id: t};
         _teamNameByUserId = resolvedNames;
         _avatarUrlByUserId = resolvedAvatars;
+        _isOrganizer = isOrganizer;
         _loading = false;
       });
     } catch (e) {
@@ -194,6 +216,165 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
         _loading = false;
       });
       _showSnack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    }
+  }
+
+  /// "Assign to Team" -- lets the organizer put an unassigned member
+  /// (membership.teamId empty) onto an existing team's roster. This is a
+  /// pure membership write: it never creates a team, never touches
+  /// matches/fixtures, and never changes a participant's identity. See
+  /// LocalLeaguesRepository.assignTeamToUserInLeague for the full
+  /// validation (team must exist, member must not already be on a
+  /// different team).
+  Future<void> _showAssignToTeamSheet(Membership member) async {
+    final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
+    final teams = _teamsById.values.toList(growable: false)
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    if (teams.isEmpty) {
+      _showSnack(l10n.tr('league_participants_no_teams_to_assign'));
+      return;
+    }
+
+    final displayName = (_teamNameByUserId[member.userId] ?? '').trim().isNotEmpty
+        ? _teamNameByUserId[member.userId]!.trim()
+        : l10n.tr('league_participants_fallback_title');
+
+    final selectedTeam = await showModalBottomSheet<Team>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Glass(
+                  borderRadius: 26,
+                  fill: AppTheme.cardColor(brightness),
+                  borderColor: AppTheme.cardBorder(brightness),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${l10n.tr('league_participants_assign_to_team_prefix')} $displayName',
+                          style: TextStyle(
+                            color: AppTheme.primaryText(brightness),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          l10n.tr('league_participants_assign_to_team_subtitle'),
+                          style: TextStyle(
+                            color: AppTheme.secondaryText(brightness),
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 320),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: teams.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 6),
+                            itemBuilder: (context, index) {
+                              final team = teams[index];
+                              return ListTile(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  side: BorderSide(color: AppTheme.cardBorder(brightness)),
+                                ),
+                                title: Text(
+                                  team.name,
+                                  style: TextStyle(
+                                    color: AppTheme.primaryText(brightness),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                onTap: () => Navigator.of(ctx).pop(team),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selectedTeam == null || !mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardColor(brightness),
+        title: Text(
+          '${l10n.tr('league_participants_assign_confirm_title_prefix')} $displayName '
+          '${l10n.tr('league_participants_assign_confirm_title_to')} ${selectedTeam.name}?',
+        ),
+        content: Text(l10n.tr('league_participants_assign_confirm_message')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l10n.tr('common_cancel')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l10n.tr('league_participants_assign_confirm_action')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _assigningUserId = member.userId);
+    try {
+      await _localRepo.assignTeamToUserInLeague(
+        leagueId: widget.leagueId,
+        userId: member.userId,
+        teamId: selectedTeam.id,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _memberships = _memberships
+            .map((m) => m.userId == member.userId
+                ? Membership(
+                    id: m.id,
+                    leagueId: m.leagueId,
+                    userId: m.userId,
+                    teamId: selectedTeam.id,
+                    role: m.role,
+                    updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+                    version: m.version + 1,
+                  )
+                : m)
+            .toList(growable: false);
+      });
+      _showSnack(l10n.tr('league_participants_assign_success'));
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+    } finally {
+      if (mounted) setState(() => _assigningUserId = null);
     }
   }
 
@@ -383,6 +564,9 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
 
     final avatarUrl = _avatarUrlForUserId(m.userId);
 
+    final showAssignAction = _isOrganizer && !isOrganizer && teamId.isEmpty;
+    final isAssigning = _assigningUserId == m.userId;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Glass(
@@ -408,6 +592,21 @@ class _LeagueParticipantsScreenState extends ConsumerState<LeagueParticipantsScr
               fontWeight: FontWeight.w600,
             ),
           ),
+          trailing: showAssignAction
+              ? TextButton(
+                  onPressed: isAssigning ? null : () => _showAssignToTeamSheet(m),
+                  child: isAssigning
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+                        )
+                      : Text(
+                          l10n.tr('league_participants_assign_to_team_action'),
+                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                        ),
+                )
+              : null,
         ),
       ),
     );
