@@ -32,11 +32,14 @@ import '../../../core/widgets/glass_scaffold.dart';
 import '../../../core/widgets/share_button.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../auth/models/user_profile.dart';
+import '../../master_leagues/domain/master_league_plan.dart';
+import '../../master_leagues/logic/master_leagues_providers.dart';
 import '../../team_claim/data/team_claim_repository.dart';
 import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/swiss_pairing.dart';
 import '../domain/logic/tournament_controller.dart';
 import '../logic/fixture_generator.dart';
+import '../logic/league_premium_upgrade_helper.dart';
 import '../logic/team_media_service.dart';
 import '../models/enums.dart';
 import '../models/fixture_match.dart';
@@ -906,6 +909,56 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
   }
 
+  /// Whether the signed-in organizer currently has a paid Pro/Elite plan.
+  /// Manually adding a team (no eSportlyic account required -- see
+  /// _showAddManualTeamDialog below) is gated to Pro/Elite only: left
+  /// free, organizers have no reason to ever require real signups, which
+  /// both invites abuse and suppresses app installs. firestore.rules'
+  /// /teams/{teamId} write rule enforces the same gate server-side.
+  bool get _canAddTeamsManually =>
+      ref.watch(userHasProOrEliteProvider).value ?? false;
+
+  Future<void> _onTapAddManually() async {
+    if (_canAddTeamsManually) {
+      await _showAddManualTeamDialog();
+      return;
+    }
+
+    final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
+
+    final upgrade = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardColor(brightness),
+        icon: Icon(Icons.lock_rounded, color: AppTheme.limeAccentDark),
+        title: Text(l10n.tr('add_teams_manual_locked_title')),
+        content: Text(l10n.tr('add_teams_manual_locked_message')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l10n.tr('common_cancel')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.limeAccent,
+              foregroundColor: AppTheme.darkText,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l10n.tr('common_upgrade')),
+          ),
+        ],
+      ),
+    );
+
+    if (upgrade == true && mounted) {
+      await LeaguePremiumUpgradeHelper.openUpgradeFlow(
+        context,
+        initialPlan: MasterLeaguePlan.pro,
+      );
+    }
+  }
+
   // "Add Manually" -- a real-world team that doesn't have an eSportlyic
   // account yet. Unlike every other add-path above (_addResolvedTeam),
   // this does NOT stage into _tempTeams/_saveTeamsOnly -- it writes the
@@ -913,6 +966,8 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
   // no membership/aggregate side effects -- see that method's own comment)
   // and adds the result straight into _existingTeams, exactly like
   // _autoAssignWorldCupGroups already does after a direct repo write.
+  // Gated to Pro/Elite -- see _onTapAddManually, which every call site
+  // must go through instead of calling this directly.
   Future<void> _showAddManualTeamDialog() async {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
@@ -2964,8 +3019,12 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: _busy ? null : _showAddManualTeamDialog,
-              icon: const Icon(Icons.group_add),
+              onPressed: _busy ? null : _onTapAddManually,
+              icon: Icon(
+                _canAddTeamsManually
+                    ? Icons.group_add
+                    : Icons.lock_rounded,
+              ),
               label: Text(l10n.tr('add_teams_add_manually')),
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppTheme.limeAccentDark,
@@ -2977,7 +3036,9 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Text(
-              l10n.tr('add_teams_add_manually_hint'),
+              _canAddTeamsManually
+                  ? l10n.tr('add_teams_add_manually_hint')
+                  : l10n.tr('add_teams_add_manually_locked_hint'),
               style: TextStyle(
                 color: AppTheme.secondaryText(brightness),
                 fontSize: 11,
