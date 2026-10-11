@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/plan_status_service.dart';
+import '../logic/fixture_regeneration_planner.dart';
 import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
 import '../models/league.dart';
@@ -2090,6 +2091,16 @@ class LocalLeaguesRepository {
     }
   }
 
+  /// Regenerates a league's round-robin-style schedule from [matches] (a
+  /// freshly-generated set), reconciled against whatever already exists in
+  /// Firestore via [FixtureRegenerationPlanner] -- it NEVER blindly deletes
+  /// the whole collection. If any existing match already has a saved
+  /// result, this throws [UserFriendlyException] and writes/deletes
+  /// nothing: a running competition's history (Matchday 1, Matchday 2, ...)
+  /// is never silently replaced just because the team list changed.
+  /// Unplayed pairings that still exist after regeneration keep their
+  /// original document id; only pairings with no counterpart in the new
+  /// set (e.g. a team was removed) are deleted.
   Future<void> replaceMatches(String leagueId, List<FixtureMatch> matches) async {
     try {
       await _requireOrganizerOrThrow(leagueId);
@@ -2098,29 +2109,48 @@ class LocalLeaguesRepository {
       await _requireOnline();
 
       final col = _firestore.collection('leagues').doc(leagueId).collection('matches');
-      final existing = await col
+      final existingSnap = await col
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
-      const chunkSize = 8;
+      final existingMatches = existingSnap.docs.map((d) {
+        final map = <String, dynamic>{...d.data()};
+        map['id'] = (map['id'] is String &&
+                (map['id'] as String).trim().isNotEmpty)
+            ? map['id']
+            : d.id;
+        map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+        return FixtureMatch.fromJson(map);
+      }).toList(growable: false);
 
-      if (existing.docs.isNotEmpty) {
-        for (var i = 0; i < existing.docs.length; i += chunkSize) {
+      FixtureRegenerationPlan plan;
+      try {
+        plan = FixtureRegenerationPlanner.plan(
+          existing: existingMatches,
+          generated: matches,
+        );
+      } on FixtureRegenerationBlockedException catch (e) {
+        throw UserFriendlyException(e.message);
+      }
+
+      const chunkSize = 8;
+      if (plan.idsToDelete.isNotEmpty) {
+        for (var i = 0; i < plan.idsToDelete.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(
+          final chunk = plan.idsToDelete.sublist(
             i,
-            (i + chunkSize > existing.docs.length)
-                ? existing.docs.length
+            (i + chunkSize > plan.idsToDelete.length)
+                ? plan.idsToDelete.length
                 : i + chunkSize,
           );
-          for (final d in chunk) {
-            batch.delete(d.reference);
+          for (final id in chunk) {
+            batch.delete(col.doc(id));
           }
           await batch.commit().timeout(const Duration(seconds: 30));
         }
       }
 
-      await saveMatches(leagueId, matches);
+      await saveMatches(leagueId, plan.toWrite);
     } catch (e) {
       _rethrowFriendly(
         e is Object ? e : Exception('unknown'),
