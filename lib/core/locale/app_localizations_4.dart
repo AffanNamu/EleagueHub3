@@ -56,6 +56,9 @@ const Map<String, Map<String, String>> appLocalizationsPart4 = {
     'add_teams_manual_name_required': 'Please enter a team name.',
     'add_teams_manual_name_hint': 'e.g. Gombi United FC',
     'add_teams_manual_team_added': 'Team added. Invite them to claim it anytime from the team list.',
+    'add_teams_add_manually_locked_hint': 'Upgrade to Pro or Elite to add teams manually.',
+    'add_teams_manual_locked_title': 'Pro or Elite required',
+    'add_teams_manual_locked_message': "Adding teams manually, without an eSportlyic account, is a Pro/Elite feature. Upgrade your plan to keep adding teams this way.",
 
     'team_claim_appbar_title': 'Claim Team',
     'team_claim_header': 'CLAIM YOUR TEAM',

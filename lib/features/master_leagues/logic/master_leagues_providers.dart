@@ -146,6 +146,20 @@ final userHasActivePlanProvider =
       .map((profile) => profile?.hasPlanActive ?? false);
 });
 
+/// Watch whether user has an active PAID plan (Pro or Elite). Unlike
+/// [userHasActivePlanProvider] (true for the free Basic plan too), this is
+/// false for Basic -- used to gate monetized-only actions, e.g. manually
+/// adding a team that has no eSportlyic account.
+final userHasProOrEliteProvider =
+    StreamProvider.autoDispose<bool>((ref) {
+  final uid =
+      FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  if (uid.isEmpty) return Stream.value(false);
+  return ref
+      .watch(currentUserProfileProvider.stream)
+      .map((profile) => profile?.hasProOrEliteAccess ?? false);
+});
+
 // ── Workspace counts ──────────────────────────────────────────────────────
 
 /// How many workspaces the current user currently owns.

@@ -233,6 +233,12 @@ class UserProfile {
   bool get canAccessLeagues => hasPlanActive;
   bool get canAccessMasterLeagues => hasPlanActive;
 
+  /// Unlike [hasPlanActive] (true for the free Basic plan too), this is
+  /// true only for a currently-active PAID plan (Pro or Elite). Used to
+  /// gate monetized-only actions, e.g. manually adding a team that has no
+  /// eSportlyic account.
+  bool get hasProOrEliteAccess => activePlan?.isFree == false;
+
   String get displayName {
     final name = teamName.trim();
     if (name.isNotEmpty) return name;

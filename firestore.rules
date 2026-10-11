@@ -235,6 +235,15 @@ service cloud.firestore {
         );
     }
 
+    // Manually-added teams (no eSportlyic account -- participantType
+    // 'external', see Team.participantTypeExternal in the Dart model and
+    // add_teams_screen.dart's "Add Manually" flow) are a paid-only feature:
+    // left free, organizers have no reason to ever require real signups,
+    // which both invites abuse and suppresses app installs.
+    function organizerHasProOrElite() {
+      return profileHasActivePlan('pro') || profileHasActivePlan('elite');
+    }
+
     // ── Free-tier daily rate limiting ───────────────────────────────────────
     // A per-user, per-kind rolling 24h usage counter, stored at
     // users/{uid}/rateLimits/{kind} (e.g. kind == 'chatMessages' or
@@ -2242,7 +2251,17 @@ service cloud.firestore {
       match /teams/{teamId} {
         allow read: if signedIn();
         allow write: if canManageLeague(leagueId)
-          && validWorldCupTeamAggregateFields();
+          && validWorldCupTeamAggregateFields()
+          // Creating a brand-new manually-added (no-account) team requires
+          // the organizer to be on a paid Pro/Elite plan -- mirrors the
+          // client-side gate in add_teams_screen.dart. Updates to any team
+          // (registered or external) and creates of registered teams are
+          // unaffected.
+          && (
+            resource != null
+            || request.resource.data.get('participantType', '') != 'external'
+            || organizerHasProOrElite()
+          );
       }
 
       match /matches/{matchId} {
