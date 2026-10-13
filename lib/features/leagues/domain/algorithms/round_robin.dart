@@ -15,7 +15,12 @@ class RoundRobinGenerator {
   /// FixtureRegenerationPlanner's id-reuse matching (Phase A) and a
   /// network retry both naturally dedupe at the document-id level, not
   /// just via business-logic matching.
-  static String _matchId({
+  ///
+  /// PHASE D: made public so LateJoinPlanner can mint ids for a late
+  /// joiner's new fixtures using the exact same formula a regular
+  /// generation run would -- a late-join fixture is indistinguishable
+  /// from one produced by a normal generate() call.
+  static String matchId({
     required String leagueId,
     String? groupId,
     required int roundNumber,
@@ -71,7 +76,7 @@ class RoundRobinGenerator {
 
         fixtures.add(
           FixtureMatch(
-            id: _matchId(
+            id: matchId(
               leagueId: leagueId,
               groupId: groupId,
               roundNumber: startRoundNumber + r,
@@ -99,7 +104,7 @@ class RoundRobinGenerator {
 
     final secondLeg = fixtures.mapIndexed((idx, m) {
       return FixtureMatch(
-        id: _matchId(
+        id: matchId(
           leagueId: leagueId,
           groupId: groupId,
           roundNumber: m.roundNumber + rounds,
