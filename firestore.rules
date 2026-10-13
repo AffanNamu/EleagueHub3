@@ -510,6 +510,57 @@ service cloud.firestore {
           || matchDocData.get('matchStatus', '') == 'FINISHED';
     }
 
+    // PHASE C: the League match/knockout schema (FixtureMatch.status /
+    // KnockoutMatch.status in lib/features/leagues/models/enums.dart --
+    // MatchStatus.isFinished) actually stores 'played' or 'completed'
+    // (lowercase, no separate isPlayed/matchStatus field), never the
+    // 'FINISHED' string matchIsFinished() above checks for -- that
+    // function is scoped to the highlight-upload write path's own schema
+    // and is left as-is. This is the correct predicate for League
+    // matches/knockout docs specifically, requiring both scores present
+    // too (matching FixtureMatch.isPlayed/KnockoutMatch.isFinished's own
+    // "status alone isn't enough" contract).
+    function leagueMatchIsFinished(matchDocData) {
+      return (matchDocData.get('status', '') in ['played', 'completed'])
+        && (matchDocData.get('homeScore', null) is int)
+        && (matchDocData.get('awayScore', null) is int);
+    }
+
+    // A finished league match's identity/structural fields are locked --
+    // only score/status/admin-metadata corrections remain possible, and
+    // deleting a finished match outright is blocked (request.resource ==
+    // null on a delete, which fails the "request.resource != null"
+    // check below, so the only way to satisfy this function for a
+    // finished match is an update that leaves every identity field
+    // alone). resource == null (a create) or an unfinished match is
+    // unaffected -- generation, normal score entry and group/round
+    // assignment before anything is played all keep working exactly as
+    // before.
+    function fixtureMatchWriteRespectsHistory() {
+      return !(resource != null && leagueMatchIsFinished(resource.data))
+        || (
+          request.resource != null
+          && request.resource.data.get('leagueId', '') == resource.data.get('leagueId', '')
+          && request.resource.data.get('homeTeamId', '') == resource.data.get('homeTeamId', '')
+          && request.resource.data.get('awayTeamId', '') == resource.data.get('awayTeamId', '')
+          && request.resource.data.get('roundNumber', -1) == resource.data.get('roundNumber', -1)
+          && request.resource.data.get('groupId', null) == resource.data.get('groupId', null)
+        );
+    }
+
+    function knockoutMatchWriteRespectsHistory() {
+      return !(resource != null && leagueMatchIsFinished(resource.data))
+        || (
+          request.resource != null
+          && request.resource.data.get('leagueId', '') == resource.data.get('leagueId', '')
+          && request.resource.data.get('homeTeamId', '') == resource.data.get('homeTeamId', '')
+          && request.resource.data.get('awayTeamId', '') == resource.data.get('awayTeamId', '')
+          && request.resource.data.get('roundName', '') == resource.data.get('roundName', '')
+          && request.resource.data.get('nextMatchId', null) == resource.data.get('nextMatchId', null)
+          && request.resource.data.get('loserGoesToMatchId', null) == resource.data.get('loserGoesToMatchId', null)
+        );
+    }
+
     function isParticipantTeam(matchDocData, teamId) {
       return matchDocData.get('homeTeamId', '') == teamId || matchDocData.get('awayTeamId', '') == teamId;
     }
@@ -2267,13 +2318,15 @@ service cloud.firestore {
       match /matches/{matchId} {
         allow read: if signedIn();
         allow write: if (canManageLeague(leagueId) || canManageCompetitionResults(leagueId))
-          && validWorldCupGroupMatchWrite();
+          && validWorldCupGroupMatchWrite()
+          && fixtureMatchWriteRespectsHistory();
       }
 
       match /knockout/{matchId} {
         allow read: if signedIn();
         allow write: if (canManageLeague(leagueId) || canManageCompetitionResults(leagueId))
-          && validWorldCupKnockoutFields();
+          && validWorldCupKnockoutFields()
+          && knockoutMatchWriteRespectsHistory();
       }
 
       match /memberships/{membershipId} {

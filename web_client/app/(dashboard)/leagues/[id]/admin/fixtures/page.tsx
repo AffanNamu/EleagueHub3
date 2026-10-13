@@ -13,6 +13,7 @@ import { Loader2, ArrowLeft, CalendarPlus, CalendarDays, Zap } from 'lucide-reac
 import { FixtureMatch } from '@/lib/models/leagueDetails';
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
 import { SwissPairingEngine } from '@/lib/algorithms/swissPairing';
+import { assertFixtureRegenerationAllowed, FixtureRegenerationBlockedError } from '@/lib/algorithms/fixtureRegenerationGuard';
 
 export default function ManageFixturesScreen() {
   const params = useParams();
@@ -134,8 +135,14 @@ export default function ManageFixturesScreen() {
       return;
     }
 
+    try {
+      assertFixtureRegenerationAllowed(matches);
+    } catch (err) {
+      setError(err instanceof FixtureRegenerationBlockedError ? err.message : 'Something went wrong.');
+      return;
+    }
     if (matches.length > 0) {
-      if (!confirm("This will generate additional matches. Are you sure? (Usually you only Auto-Generate once on an empty schedule).")) return;
+      if (!confirm("Fixtures already exist for this league. Generating again will replace the schedule. Continue?")) return;
     }
 
     setLoading(true);
