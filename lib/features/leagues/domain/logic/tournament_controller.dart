@@ -107,8 +107,19 @@ class TournamentController {
     required int nowMs,
     bool includeThirdPlace = false,
   }) {
-    String id(String prefix, int index) =>
-        '$leagueId-$idPrefix-$prefix-${nowMs}_$index';
+    // PHASE C.1: deliberately NOT interpolating nowMs into the id (it's
+    // kept as a parameter only so none of the 5 call sites below need to
+    // change). A match's identity within one bracket is already fully
+    // determined by (leagueId, idPrefix, round short-code, 1-based index)
+    // -- that tuple is unique within a single tree build, so dropping the
+    // timestamp makes two concurrent/retried first-time generations of
+    // the same bracket converge on identical ids instead of each minting
+    // its own, which previously let a race create a duplicate bracket.
+    // The trailing `_$index` is preserved exactly -- _seedIndexFromId
+    // parses everything after the LAST '_' as the seed position used for
+    // home/away slot assignment during advancement, and must keep working
+    // unchanged for both brand-new and (if ever read back) legacy brackets.
+    String id(String prefix, int index) => '$leagueId-$idPrefix-${prefix}_$index';
 
     final rounds = <String, List<KnockoutMatch>>{};
 
@@ -418,8 +429,13 @@ class TournamentController {
     if (n != 36 && n != 18) return [];
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    String id(String prefix, int index) =>
-        '$leagueId-SWISS-$prefix-${now}_$index';
+    // PHASE C.1: same rationale as _buildKnockoutTree's id() -- no
+    // timestamp in the id itself, so a repeated/concurrent generation
+    // converges on the same Play-off match ids instead of minting a
+    // duplicate set. `now` is still computed (and still passed through to
+    // _buildKnockoutTree below) purely to keep this function's shape
+    // unchanged elsewhere.
+    String id(String prefix, int index) => '$leagueId-SWISS-${prefix}_$index';
 
     if (n == 36) {
       final autoQualifiers = swissStandings.take(8).toList();

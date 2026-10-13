@@ -103,7 +103,17 @@ function buildKnockoutTree({
   nowMs: number;
   includeThirdPlace?: boolean;
 }): KnockoutMatch[] {
-  const id = (prefix: string, index: number) => `${leagueId}-${idPrefix}-${prefix}-${nowMs}_${index}`;
+  // PHASE C.1: deliberately NOT interpolating nowMs into the id (kept as
+  // a parameter only so none of the 5 call sites below need to change).
+  // A match's identity within one bracket is already fully determined by
+  // (leagueId, idPrefix, round short-code, 1-based index) -- unique
+  // within a single tree build -- so dropping the timestamp makes two
+  // concurrent/retried first-time generations of the same bracket
+  // converge on identical ids instead of each minting its own. The
+  // trailing `_${index}` is preserved exactly -- seedIndexFromId parses
+  // everything after the LAST '_' as the seed position used for
+  // home/away slot assignment during advancement.
+  const id = (prefix: string, index: number) => `${leagueId}-${idPrefix}-${prefix}_${index}`;
 
   const rounds: Record<string, KnockoutMatch[]> = {};
 
@@ -349,7 +359,13 @@ export function seedSwissKnockouts({
   if (n !== 36 && n !== 18) return [];
 
   const now = Date.now();
-  const id = (prefix: string, index: number) => `${leagueId}-SWISS-${prefix}-${now}_${index}`;
+  // PHASE C.1: same rationale as buildKnockoutTree's id() -- no timestamp
+  // in the id itself, so a repeated/concurrent generation converges on
+  // the same Play-off match ids instead of minting a duplicate set.
+  // `now` is still computed (and still passed through to
+  // buildKnockoutTree below) purely to keep this function's shape
+  // unchanged elsewhere.
+  const id = (prefix: string, index: number) => `${leagueId}-SWISS-${prefix}_${index}`;
 
   const buildTier = (autoCount: number, playoffCount: number, startRoundName: string, startMatchCount: number) => {
     const autoQualifiers = swissStandings.slice(0, autoCount);
