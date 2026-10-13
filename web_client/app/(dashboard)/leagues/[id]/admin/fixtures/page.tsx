@@ -14,6 +14,7 @@ import { FixtureMatch } from '@/lib/models/leagueDetails';
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
 import { SwissPairingEngine } from '@/lib/algorithms/swissPairing';
 import { assertFixtureRegenerationAllowed, FixtureRegenerationBlockedError } from '@/lib/algorithms/fixtureRegenerationGuard';
+import { regenerateFixtures } from '@/lib/leagues/fixturesRepository';
 
 export default function ManageFixturesScreen() {
   const params = useParams();
@@ -157,17 +158,16 @@ export default function ManageFixturesScreen() {
         newFixtures = FixtureGenerator.generateGroupStage(league, teams);
       }
 
-      // Batch write to Firestore (max 500 per batch)
-      const batch = writeBatch(db);
-      for (const match of newFixtures) {
-        const matchRef = doc(db, 'leagues', leagueId, 'matches', match.id!);
-        batch.set(matchRef, match);
-      }
-
-      await batch.commit();
-      alert(`Successfully generated ${newFixtures.length} matches!`);
-    } catch (err: any) {
-      setError(err.message);
+      // regenerateFixtures re-reads the current server state and reuses
+      // existing document ids for unchanged pairings (including any
+      // legacy random-UUID id from before deterministic ids shipped) --
+      // never a raw write of the freshly-generated array, which would
+      // leave a duplicate fixture behind for every pairing that already
+      // existed under a different id.
+      const plan = await regenerateFixtures(leagueId, newFixtures as FixtureMatch[]);
+      alert(`Successfully generated ${plan.toWrite.length} matches!`);
+    } catch (err) {
+      setError(err instanceof FixtureRegenerationBlockedError ? err.message : (err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);
     }

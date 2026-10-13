@@ -9,7 +9,7 @@ import { useLeagueDetail } from '@/hooks/useLeagueDetail';
 import { useMatches } from '@/hooks/useMatches';
 import { Glass } from '@/components/ui/Glass';
 import { Loader2, ArrowLeft, Shield, PlusCircle, Trash2, Edit2, Check, X, AlertTriangle, Wand2, Dice5, UserPlus } from 'lucide-react';
-import { Team } from '@/lib/models/leagueDetails';
+import { Team, FixtureMatch } from '@/lib/models/leagueDetails';
 import { CsvImporter } from '@/components/leagues/CsvImporter';
 import { resolveTeamParticipant, fetchUserProfileByUserId, ResolvedUserProfile } from '@/lib/services/userProfileRepository';
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
@@ -17,6 +17,7 @@ import { autoAssignWorldCupGroups } from '@/lib/algorithms/worldCupGrouping';
 import { SpinWheelDrawModal } from '@/components/leagues/SpinWheelDrawModal';
 import { fetchUnassignedMembers, assignMemberToTeamWeb, createTeamForMemberWeb, UnassignedMember } from '@/lib/leagues/leaguesRepository';
 import { assertFixtureRegenerationAllowed, FixtureRegenerationBlockedError } from '@/lib/algorithms/fixtureRegenerationGuard';
+import { regenerateFixtures } from '@/lib/leagues/fixturesRepository';
 
 const GROUPS_ALL = ['Group A','Group B','Group C','Group D','Group E','Group F','Group G','Group H','Group I','Group J','Group K','Group L'];
 
@@ -379,18 +380,18 @@ export default function ManageTeamsScreen() {
         return;
       }
 
-      const batch = writeBatch(db);
-      const matchesRef = collection(db, 'leagues', leagueId, 'matches');
-      for (const f of fixtures) {
-        const ref = doc(matchesRef, f.id);
-        batch.set(ref, f);
-      }
-      await batch.commit();
+      // regenerateFixtures re-reads the current server state and reuses
+      // existing document ids for unchanged pairings (including any
+      // legacy random-UUID id from before deterministic ids shipped) --
+      // never a raw write of the freshly-generated array, which would
+      // leave a duplicate fixture behind for every pairing that already
+      // existed under a different id.
+      const plan = await regenerateFixtures(leagueId, fixtures as FixtureMatch[]);
 
-      alert(`Generated ${fixtures.length} fixtures.`);
+      alert(`Generated ${plan.toWrite.length} fixtures.`);
       router.push(`/leagues/${leagueId}`);
     } catch (err: any) {
-      alert('Failed to generate fixtures: ' + err.message);
+      alert(err instanceof FixtureRegenerationBlockedError ? err.message : 'Failed to generate fixtures: ' + err.message);
     } finally {
       setGenerating(false);
     }
@@ -416,18 +417,12 @@ export default function ManageTeamsScreen() {
         return;
       }
 
-      const batch = writeBatch(db);
-      const matchesRef = collection(db, 'leagues', leagueId, 'matches');
-      for (const f of fixtures) {
-        const ref = doc(matchesRef, f.id);
-        batch.set(ref, f);
-      }
-      await batch.commit();
+      const plan = await regenerateFixtures(leagueId, fixtures as FixtureMatch[]);
 
-      alert(`Generated ${fixtures.length} fixtures.`);
+      alert(`Generated ${plan.toWrite.length} fixtures.`);
       router.push(`/leagues/${leagueId}`);
     } catch (err) {
-      alert('Failed to generate fixtures: ' + (err instanceof Error ? err.message : String(err)));
+      alert(err instanceof FixtureRegenerationBlockedError ? err.message : 'Failed to generate fixtures: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setGenerating(false);
     }
