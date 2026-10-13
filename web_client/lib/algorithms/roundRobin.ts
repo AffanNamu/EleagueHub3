@@ -1,8 +1,31 @@
 //lib/algorithms
 import { FixtureMatch } from '@/lib/models/leagueDetails';
-import { v4 as uuidv4 } from 'uuid';
 
 export class RoundRobinGenerator {
+  /**
+   * Deterministic match id from (league, group, round, home, away) --
+   * PHASE C: mirrors RoundRobinGenerator._matchId on the Dart side. A
+   * random UUID meant a retried or re-run generation produced a second,
+   * independent set of match documents instead of converging on the
+   * same ones.
+   */
+  private static matchId({
+    leagueId,
+    groupId,
+    roundNumber,
+    homeTeamId,
+    awayTeamId,
+  }: {
+    leagueId: string;
+    groupId?: string | null;
+    roundNumber: number;
+    homeTeamId: string;
+    awayTeamId: string;
+  }): string {
+    const g = (groupId || '').trim();
+    return `${leagueId}-RR-${g || 'POOL'}-${roundNumber}-${homeTeamId}-${awayTeamId}`;
+  }
+
   static generate({
     leagueId,
     teamIds,
@@ -51,7 +74,7 @@ export class RoundRobinGenerator {
         const away = swap ? a : b;
 
         fixtures.push({
-          id: uuidv4(),
+          id: this.matchId({ leagueId, groupId, roundNumber: startRoundNumber + r, homeTeamId: home, awayTeamId: away }),
           leagueId,
           groupId: groupId || null,
           roundNumber: startRoundNumber + r,
@@ -73,7 +96,13 @@ export class RoundRobinGenerator {
     // Generate Second Leg
     const secondLeg = fixtures.map((m) => ({
       ...m,
-      id: uuidv4(),
+      id: this.matchId({
+        leagueId,
+        groupId,
+        roundNumber: m.roundNumber! + rounds,
+        homeTeamId: m.awayTeamId!,
+        awayTeamId: m.homeTeamId!,
+      }),
       roundNumber: m.roundNumber! + rounds,
       homeTeamId: m.awayTeamId,
       awayTeamId: m.homeTeamId,

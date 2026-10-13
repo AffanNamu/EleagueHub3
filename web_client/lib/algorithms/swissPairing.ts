@@ -13,7 +13,6 @@
 // "Generate Next Round" after every match in the current round finishes),
 // not a full schedule upfront.
 
-import { v4 as uuidv4 } from 'uuid';
 import { FixtureMatch, Team } from '@/lib/models/leagueDetails';
 import { fnv1a32, makeRandom, shuffle } from './deterministicRandom';
 
@@ -185,10 +184,15 @@ function buildPairingBacktracking({
   return ok ? result : [];
 }
 
+/** Mirrors swiss_pairing.dart's SwissPairingEngine._matchId (Phase C). */
+function matchId({ leagueId, roundNumber, homeTeamId, awayTeamId }: { leagueId: string; roundNumber: number; homeTeamId: string; awayTeamId: string }): string {
+  return `${leagueId}-SWISS-${roundNumber}-${homeTeamId}-${awayTeamId}`;
+}
+
 function buildFixtures(leagueId: string, roundNumber: number, pairs: Pair[]): Partial<FixtureMatch>[] {
   const now = Date.now();
   return pairs.map((p, i) => ({
-    id: uuidv4(),
+    id: matchId({ leagueId, roundNumber, homeTeamId: p.home, awayTeamId: p.away }),
     leagueId,
     groupId: null,
     roundNumber,

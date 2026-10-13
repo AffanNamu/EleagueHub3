@@ -16,6 +16,7 @@ import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
 import { autoAssignWorldCupGroups } from '@/lib/algorithms/worldCupGrouping';
 import { SpinWheelDrawModal } from '@/components/leagues/SpinWheelDrawModal';
 import { fetchUnassignedMembers, assignMemberToTeamWeb, createTeamForMemberWeb, UnassignedMember } from '@/lib/leagues/leaguesRepository';
+import { assertFixtureRegenerationAllowed, FixtureRegenerationBlockedError } from '@/lib/algorithms/fixtureRegenerationGuard';
 
 const GROUPS_ALL = ['Group A','Group B','Group C','Group D','Group E','Group F','Group G','Group H','Group I','Group J','Group K','Group L'];
 
@@ -323,8 +324,14 @@ export default function ManageTeamsScreen() {
       router.push(`/leagues/${leagueId}/admin/fixtures`);
       return;
     }
+    try {
+      assertFixtureRegenerationAllowed(matches);
+    } catch (err) {
+      alert(err instanceof FixtureRegenerationBlockedError ? err.message : 'Something went wrong.');
+      return;
+    }
     if (matches.length > 0) {
-      if (!confirm('Fixtures already exist for this league. Generating again will add a new schedule on top of the existing one. Continue?')) return;
+      if (!confirm('Fixtures already exist for this league. Generating again will replace the schedule. Continue?')) return;
     }
 
     setGenerating(true);
@@ -399,6 +406,10 @@ export default function ManageTeamsScreen() {
     setShowSpinWheel(false);
     setGenerating(true);
     try {
+      // Re-checked here (not just in openSpinWheel) -- state could have
+      // changed while the wheel was open (another admin entered a
+      // result in the meantime).
+      assertFixtureRegenerationAllowed(matches);
       const fixtures = FixtureGenerator.generateClassicLeagueFixtures(league, orderedTeams);
       if (fixtures.length === 0) {
         alert('Failed to generate fixtures.');
@@ -431,8 +442,14 @@ export default function ManageTeamsScreen() {
       alert('You need at least 2 teams to use Spin Wheel draw.');
       return;
     }
+    try {
+      assertFixtureRegenerationAllowed(matches);
+    } catch (err) {
+      alert(err instanceof FixtureRegenerationBlockedError ? err.message : 'Something went wrong.');
+      return;
+    }
     if (matches.length > 0) {
-      if (!confirm('Fixtures already exist for this league. Generating again will add a new schedule on top of the existing one. Continue?')) return;
+      if (!confirm('Fixtures already exist for this league. Generating again will replace the schedule. Continue?')) return;
     }
     setShowSpinWheel(true);
   };

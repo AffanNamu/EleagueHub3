@@ -1,13 +1,31 @@
 
 ///league/domain/algorithms.
 import 'package:collection/collection.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../models/fixture_match.dart';
 import '../../models/enums.dart';
 
 /// The logic engine for generating league schedules.
 class RoundRobinGenerator {
+  /// Deterministic match id from (league, group, round, home, away) --
+  /// PHASE C: random UUIDs meant a retried or re-run generation produced a
+  /// second, independent set of match documents instead of converging on
+  /// the same ones. A deterministic id makes every write for the exact
+  /// same pairing/round land on the exact same Firestore document, so
+  /// FixtureRegenerationPlanner's id-reuse matching (Phase A) and a
+  /// network retry both naturally dedupe at the document-id level, not
+  /// just via business-logic matching.
+  static String _matchId({
+    required String leagueId,
+    String? groupId,
+    required int roundNumber,
+    required String homeTeamId,
+    required String awayTeamId,
+  }) {
+    final g = (groupId ?? '').trim();
+    return '$leagueId-RR-${g.isEmpty ? 'POOL' : g}-$roundNumber-$homeTeamId-$awayTeamId';
+  }
+
   static List<FixtureMatch> generate({
     required String leagueId,
     required List<String> teamIds,
@@ -16,7 +34,6 @@ class RoundRobinGenerator {
     required int startRoundNumber,
   }) {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final uuid = const Uuid();
 
     final ids = [...teamIds];
     ids.sort();
@@ -54,7 +71,13 @@ class RoundRobinGenerator {
 
         fixtures.add(
           FixtureMatch(
-            id: uuid.v4(),
+            id: _matchId(
+              leagueId: leagueId,
+              groupId: groupId,
+              roundNumber: startRoundNumber + r,
+              homeTeamId: home,
+              awayTeamId: away,
+            ),
             leagueId: leagueId,
             groupId: groupId,
             roundNumber: startRoundNumber + r,
@@ -76,7 +99,13 @@ class RoundRobinGenerator {
 
     final secondLeg = fixtures.mapIndexed((idx, m) {
       return FixtureMatch(
-        id: uuid.v4(),
+        id: _matchId(
+          leagueId: leagueId,
+          groupId: groupId,
+          roundNumber: m.roundNumber + rounds,
+          homeTeamId: m.awayTeamId,
+          awayTeamId: m.homeTeamId,
+        ),
         leagueId: leagueId,
         groupId: groupId,
         roundNumber: m.roundNumber + rounds,

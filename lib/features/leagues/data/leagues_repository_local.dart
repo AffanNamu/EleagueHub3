@@ -11,6 +11,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/plan_status_service.dart';
 import '../logic/fixture_regeneration_planner.dart';
+import '../logic/knockout_persistence_planner.dart';
 import '../logic/membership_assignment_decision.dart';
 import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
@@ -2236,6 +2237,15 @@ class LocalLeaguesRepository {
     }
   }
 
+  /// Upserts [matches] into the knockout bracket. PHASE C: previously
+  /// deleted every existing knockout document before writing the full
+  /// list back; now only ever upserts (merge) each match in [matches],
+  /// and only ever deletes a document that has no counterpart at all in
+  /// [matches] -- never one that's already finished. This matters
+  /// because this method is also how score submissions persist the
+  /// bracket (the full in-memory list, already-finished matches
+  /// included, round-trips through here on every result entered) -- see
+  /// KnockoutPersistencePlanner's own comment.
   Future<void> saveKnockoutMatches(
     String leagueId,
     List<KnockoutMatch> matches,
@@ -2248,23 +2258,38 @@ class LocalLeaguesRepository {
 
       final col = _firestore.collection('leagues').doc(leagueId).collection('knockout');
 
-      final existing = await col
+      final existingSnap = await col
           .get(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 20));
 
+      final existingMatches = existingSnap.docs.map((d) {
+        final map = <String, dynamic>{...d.data()};
+        map['id'] = (map['id'] is String &&
+                (map['id'] as String).trim().isNotEmpty)
+            ? map['id']
+            : d.id;
+        map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+        return KnockoutMatch.fromJson(map);
+      }).toList(growable: false);
+
+      final idsToPrune = KnockoutPersistencePlanner.idsToPrune(
+        existing: existingMatches,
+        matches: matches,
+      );
+
       const chunkSize = 8;
 
-      if (existing.docs.isNotEmpty) {
-        for (var i = 0; i < existing.docs.length; i += chunkSize) {
+      if (idsToPrune.isNotEmpty) {
+        for (var i = 0; i < idsToPrune.length; i += chunkSize) {
           final batch = _firestore.batch();
-          final chunk = existing.docs.sublist(
+          final chunk = idsToPrune.sublist(
             i,
-            (i + chunkSize > existing.docs.length)
-                ? existing.docs.length
+            (i + chunkSize > idsToPrune.length)
+                ? idsToPrune.length
                 : i + chunkSize,
           );
-          for (final d in chunk) {
-            batch.delete(d.reference);
+          for (final id in chunk) {
+            batch.delete(col.doc(id));
           }
           await batch.commit().timeout(const Duration(seconds: 30));
         }

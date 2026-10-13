@@ -1,7 +1,5 @@
 import 'dart:math';
 
-import 'package:uuid/uuid.dart';
-
 import '../../models/enums.dart';
 import '../../models/fixture_match.dart';
 import '../../models/team.dart';
@@ -16,7 +14,18 @@ import '../../models/team_stats.dart';
 /// This implementation uses a backtracking perfect-matching builder (not greedy),
 /// so it will not "get stuck" simply due to greedy choice when a valid pairing exists.
 class SwissPairingEngine {
-  static final _uuid = const Uuid();
+  /// Deterministic match id -- see RoundRobinGenerator._matchId's comment
+  /// (Phase C): a random UUID meant a retried/re-run generation produced
+  /// a second, independent set of docs instead of converging on the same
+  /// ones.
+  static String _matchId({
+    required String leagueId,
+    required int roundNumber,
+    required String homeTeamId,
+    required String awayTeamId,
+  }) {
+    return '$leagueId-SWISS-$roundNumber-$homeTeamId-$awayTeamId';
+  }
 
   static int _fnv1a32(String input) {
     const int fnvOffsetBasis = 0x811c9dc5;
@@ -277,7 +286,12 @@ class SwissPairingEngine {
     for (var i = 0; i < pairs.length; i++) {
       fixtures.add(
         FixtureMatch(
-          id: _uuid.v4(),
+          id: _matchId(
+            leagueId: leagueId,
+            roundNumber: roundNumber,
+            homeTeamId: pairs[i].home,
+            awayTeamId: pairs[i].away,
+          ),
           leagueId: leagueId,
           groupId: null,
           roundNumber: roundNumber,
@@ -376,7 +390,12 @@ class SwissPairingEngine {
     for (var i = 0; i < pairs.length; i++) {
       fixtures.add(
         FixtureMatch(
-          id: _uuid.v4(),
+          id: _matchId(
+            leagueId: leagueId,
+            roundNumber: nextRoundNumber,
+            homeTeamId: pairs[i].home,
+            awayTeamId: pairs[i].away,
+          ),
           leagueId: leagueId,
           groupId: null,
           roundNumber: nextRoundNumber,
