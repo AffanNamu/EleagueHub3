@@ -15,6 +15,7 @@ import { resolveTeamParticipant, fetchUserProfileByUserId, ResolvedUserProfile }
 import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
 import { autoAssignWorldCupGroups } from '@/lib/algorithms/worldCupGrouping';
 import { SpinWheelDrawModal } from '@/components/leagues/SpinWheelDrawModal';
+import { LateJoinDialog } from '@/components/leagues/LateJoinDialog';
 import { fetchUnassignedMembers, assignMemberToTeamWeb, createTeamForMemberWeb, UnassignedMember } from '@/lib/leagues/leaguesRepository';
 import { assertFixtureRegenerationAllowed, FixtureRegenerationBlockedError } from '@/lib/algorithms/fixtureRegenerationGuard';
 import { regenerateFixtures } from '@/lib/leagues/fixturesRepository';
@@ -46,6 +47,7 @@ export default function ManageTeamsScreen() {
   const [adding, setAdding] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [showSpinWheel, setShowSpinWheel] = useState(false);
+  const [showLateJoin, setShowLateJoin] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAdjustment, setEditAdjustment] = useState<number>(0);
@@ -653,6 +655,23 @@ export default function ManageTeamsScreen() {
                 Spin Wheel Draw
               </button>
             )}
+
+            {/* PHASE D: late joining only has a safe, well-defined answer
+                for Classic League (fixed group size / Swiss field size /
+                bracket size make every other format unsafe to insert a
+                team into mid-competition) -- see LateJoinPlanner's own
+                comment. Only offered once there's actually a schedule to
+                join into. */}
+            {isClassic && matches.length > 0 && (
+              <button
+                onClick={() => setShowLateJoin(true)}
+                disabled={generating}
+                className="w-full mt-2 py-3.5 bg-[#1E293B] border border-white/10 text-gray-300 font-black rounded-xl hover:bg-[#1E293B]/80 transition-all disabled:opacity-40 flex items-center justify-center gap-2 text-xs"
+              >
+                <UserPlus className="w-4 h-4" />
+                Add Late-Joining Team
+              </button>
+            )}
           </div>
         </div>
 
@@ -756,6 +775,19 @@ export default function ManageTeamsScreen() {
           teams={teams}
           onConfirm={handleSpinWheelConfirm}
           onCancel={() => setShowSpinWheel(false)}
+        />
+      )}
+
+      {showLateJoin && league && (
+        <LateJoinDialog
+          leagueId={leagueId}
+          format={league.format}
+          doubleRoundRobin={league.settings?.doubleRoundRobin ?? false}
+          onCancel={() => setShowLateJoin(false)}
+          onDone={({ teamName, newFixtureCount }) => {
+            setShowLateJoin(false);
+            alert(`Added "${teamName}" and ${newFixtureCount} new fixture(s).`);
+          }}
         />
       )}
     </div>

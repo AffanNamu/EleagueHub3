@@ -12,6 +12,7 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/plan_status_service.dart';
 import '../logic/fixture_regeneration_planner.dart';
 import '../logic/knockout_persistence_planner.dart';
+import '../logic/late_join_planner.dart';
 import '../logic/membership_assignment_decision.dart';
 import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
@@ -2172,6 +2173,159 @@ class LocalLeaguesRepository {
       _rethrowFriendly(
         e is Object ? e : Exception('unknown'),
         context: 'replacing matches',
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PHASE D — safe late-participant join.
+  //
+  // A late join never calls replaceMatches/saveTeams' full-collection
+  // rewrite: it only ever adds brand-new documents (new fixtures via
+  // saveMatches, which upserts by id and touches nothing else; the new
+  // team itself via createExternalTeam, a single additive doc write).
+  // previewLateJoin is read-only -- it does not write anything, so the
+  // organizer can see the plan before committing to it. commitLateJoin
+  // re-fetches and re-plans from scratch immediately before writing (the
+  // same "recheck state right before committing" pattern used by
+  // replaceMatches' web port) so a result entered while the preview was
+  // on screen is never silently overwritten.
+  // ---------------------------------------------------------------------------
+
+  Future<List<FixtureMatch>> _fetchMatchesFresh(String leagueId) async {
+    final snap = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .collection('matches')
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 20));
+
+    return snap.docs.map((d) {
+      final map = <String, dynamic>{...d.data()};
+      map['id'] = (map['id'] is String && (map['id'] as String).trim().isNotEmpty)
+          ? map['id']
+          : d.id;
+      map['leagueId'] = (map['leagueId'] as String?) ?? leagueId;
+      return FixtureMatch.fromJson(map);
+    }).toList(growable: false);
+  }
+
+  Future<List<String>> _fetchTeamIdsFresh(String leagueId) async {
+    final snap = await _firestore
+        .collection('leagues')
+        .doc(leagueId)
+        .collection('teams')
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 20));
+    return snap.docs.map((d) => d.id).toList(growable: false);
+  }
+
+  /// Placeholder id used only inside [previewLateJoin] -- the real team
+  /// doesn't exist yet at preview time (it's created in [commitLateJoin],
+  /// which then re-plans with the team's REAL id). Only the counts in the
+  /// returned [LateJoinPreview] are meaningful to show the organizer; the
+  /// placeholder never reaches Firestore.
+  static const _previewPlaceholderTeamId = '__late_join_preview__';
+
+  /// Read-only: computes what adding a new team to [leagueId] would do,
+  /// without writing anything or creating the team. Throws a
+  /// [UserFriendlyException] if the league's format doesn't support late
+  /// joining.
+  Future<LateJoinPreview> previewLateJoin({required String leagueId}) async {
+    try {
+      await _requireOrganizerOrThrow(leagueId);
+      _requireAuthUid();
+      await _requireOnline();
+
+      final league = await getLeagueById(leagueId);
+      if (league == null) {
+        throw const UserFriendlyException(
+          "We couldn't find this league. Please refresh and try again.",
+        );
+      }
+
+      final existingTeamIds = await _fetchTeamIdsFresh(leagueId);
+      final existingMatches = await _fetchMatchesFresh(leagueId);
+
+      try {
+        return LateJoinPlanner.preview(
+          format: league.format,
+          leagueId: leagueId,
+          existingMatches: existingMatches,
+          existingTeamIds: existingTeamIds,
+          newTeamId: _previewPlaceholderTeamId,
+          doubleRoundRobin: league.settings.doubleRoundRobin,
+        );
+      } on LateJoinUnsupportedFormatException catch (e) {
+        throw UserFriendlyException(e.message);
+      }
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        context: 'previewing late join',
+      );
+    }
+  }
+
+  /// Creates [newTeamName] as a new external team (via [createExternalTeam],
+  /// itself a single additive doc write) and then re-plans from the
+  /// CURRENT server state (never trusts a preview the caller computed
+  /// earlier) and writes only the new fixtures -- no existing match is
+  /// ever touched. Throws a [UserFriendlyException] (no team is created)
+  /// if the league's format doesn't support late joining.
+  Future<({Team team, LateJoinPreview preview})> commitLateJoin({
+    required String leagueId,
+    required String newTeamName,
+    String teamImageUrl = '',
+  }) async {
+    try {
+      await _requireOrganizerOrThrow(leagueId);
+      _requireAuthUid();
+      await _requireOnline();
+
+      final league = await getLeagueById(leagueId);
+      if (league == null) {
+        throw const UserFriendlyException(
+          "We couldn't find this league. Please refresh and try again.",
+        );
+      }
+      if (!LateJoinPlanner.supportsFormat(league.format)) {
+        throw UserFriendlyException(
+          LateJoinUnsupportedFormatException(league.format).message,
+        );
+      }
+
+      final existingTeamIds = await _fetchTeamIdsFresh(leagueId);
+      final existingMatches = await _fetchMatchesFresh(leagueId);
+
+      final team = await createExternalTeam(
+        leagueId: leagueId,
+        name: newTeamName,
+        teamImageUrl: teamImageUrl,
+      );
+
+      late final LateJoinPreview plan;
+      try {
+        plan = LateJoinPlanner.preview(
+          format: league.format,
+          leagueId: leagueId,
+          existingMatches: existingMatches,
+          existingTeamIds: existingTeamIds,
+          newTeamId: team.id,
+          doubleRoundRobin: league.settings.doubleRoundRobin,
+        );
+      } on LateJoinUnsupportedFormatException catch (e) {
+        throw UserFriendlyException(e.message);
+      } on LateJoinTeamAlreadyInLeagueException catch (e) {
+        throw UserFriendlyException(e.message);
+      }
+
+      await saveMatches(leagueId, plan.newFixtures);
+      return (team: team, preview: plan);
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        context: 'adding late-joining team',
       );
     }
   }

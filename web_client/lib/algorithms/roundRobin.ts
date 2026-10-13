@@ -8,8 +8,12 @@ export class RoundRobinGenerator {
    * random UUID meant a retried or re-run generation produced a second,
    * independent set of match documents instead of converging on the
    * same ones.
+   *
+   * PHASE D: made public so lateJoinPlanner.ts can mint ids for a late
+   * joiner's new fixtures using the exact same formula a regular
+   * generation run would.
    */
-  private static matchId({
+  static matchId({
     leagueId,
     groupId,
     roundNumber,

@@ -39,6 +39,7 @@ import '../data/leagues_repository_local.dart';
 import '../domain/algorithms/swiss_pairing.dart';
 import '../domain/logic/tournament_controller.dart';
 import '../logic/fixture_generator.dart';
+import '../logic/late_join_planner.dart';
 import '../logic/league_premium_upgrade_helper.dart';
 import '../logic/team_media_service.dart';
 import '../models/enums.dart';
@@ -1927,6 +1928,162 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
     }
   }
 
+  // PHASE D: safe late-participant join. A two-step dialog (name -> preview
+  // -> confirm/cancel) over LocalLeaguesRepository.previewLateJoin /
+  // commitLateJoin -- see LateJoinPlanner's own comment for why this is
+  // offered only for Classic League (gated at the AppBar action already,
+  // but re-checked here too since this method could in principle be
+  // reached some other way later).
+  Future<void> _openLateJoinDialog() async {
+    if (_league == null || _league!.format != LeagueFormat.classic) return;
+
+    final nameController = TextEditingController();
+    String? error;
+    bool loadingPreview = false;
+    LateJoinPreview? preview;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final theme = Theme.of(ctx);
+            final brightness = theme.brightness;
+
+            Future<void> doPreview() async {
+              final name = nameController.text.trim();
+              if (name.isEmpty) {
+                setDialogState(() => error = 'Please enter a team name.');
+                return;
+              }
+              setDialogState(() {
+                loadingPreview = true;
+                error = null;
+              });
+              try {
+                final result =
+                    await _localRepo.previewLateJoin(leagueId: widget.leagueId);
+                setDialogState(() => preview = result);
+              } catch (e) {
+                setDialogState(() =>
+                    error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+              } finally {
+                setDialogState(() => loadingPreview = false);
+              }
+            }
+
+            Future<void> doConfirm() async {
+              setDialogState(() => loadingPreview = true);
+              try {
+                final result = await _localRepo.commitLateJoin(
+                  leagueId: widget.leagueId,
+                  newTeamName: nameController.text.trim(),
+                );
+                if (ctx.mounted) Navigator.of(ctx).pop();
+                if (mounted) {
+                  _snackOk('Added "${result.team.name}" and '
+                      '${result.preview.newFixtureCount} new fixture(s).');
+                  unawaited(_loadExistingTeams());
+                }
+              } catch (e) {
+                setDialogState(() {
+                  loadingPreview = false;
+                  error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+                });
+              }
+            }
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: Glass(
+                borderRadius: 26,
+                padding: const EdgeInsets.all(18),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Add a Late-Joining Team',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: AppTheme.primaryText(brightness),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'This never changes an existing match. It only creates new '
+                        'fixtures between the new team and every current team.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppTheme.secondaryText(brightness),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (preview == null) ...[
+                        TextField(
+                          controller: nameController,
+                          enabled: !loadingPreview,
+                          decoration: const InputDecoration(
+                            labelText: 'Team name',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ] else ...[
+                        _LateJoinPreviewSummary(preview: preview!),
+                      ],
+                      if (error != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          error!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFFEF4444),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: loadingPreview ? null : () => Navigator.of(ctx).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.limeAccent,
+                              foregroundColor: AppTheme.darkText,
+                            ),
+                            onPressed: loadingPreview
+                                ? null
+                                : (preview == null ? doPreview : doConfirm),
+                            child: loadingPreview
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : Text(preview == null ? 'Preview' : 'Confirm & Add'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   // Bracket capacity must be exactly one of these -- seedTopNKnockouts
   // refuses anything else (matches league_detail_screen.dart's own
   // _directKnockoutBracketSizes).
@@ -2683,6 +2840,17 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          // PHASE D: late joining only has a safe, well-defined answer for
+          // Classic League (see LateJoinPlanner's own comment for why the
+          // other formats don't) -- the action only appears there.
+          if (_league?.format == LeagueFormat.classic)
+            IconButton(
+              tooltip: 'Add a late-joining team',
+              icon: const Icon(Icons.person_add_alt_1),
+              onPressed: _openLateJoinDialog,
+            ),
+        ],
       ),
       resizeToAvoidBottomInset: true,
       body: SafeArea(
@@ -4667,6 +4835,54 @@ class _ClaimManagementSection extends StatelessWidget {
             ],
           ),
         ],
+      ],
+    );
+  }
+}
+
+// PHASE D: shows the organizer exactly what a late join would do before
+// they confirm -- existing matches stay untouched (shown for context, not
+// as something at risk), only the new-fixtures count is new.
+class _LateJoinPreviewSummary extends StatelessWidget {
+  final LateJoinPreview preview;
+
+  const _LateJoinPreviewSummary({required this.preview});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+
+    Widget row(String label, String value) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: AppTheme.secondaryText(brightness)),
+            ),
+            Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppTheme.primaryText(brightness),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        row('Completed matches (untouched)', '${preview.completedMatchCount}'),
+        row('Future matches (untouched)', '${preview.futureMatchCount}'),
+        row('New fixtures to be created', '${preview.newFixtureCount}'),
+        row('Existing matches affected', '${preview.existingMatchesAffectedCount}'),
       ],
     );
   }
