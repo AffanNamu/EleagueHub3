@@ -14,6 +14,8 @@ import '../logic/fixture_regeneration_planner.dart';
 import '../logic/knockout_persistence_planner.dart';
 import '../logic/late_join_planner.dart';
 import '../logic/membership_assignment_decision.dart';
+import '../logic/replace_participant_planner.dart';
+import '../logic/team_ownership_transfer_decision.dart';
 import '../models/fixture_match.dart';
 import '../models/knockout_match.dart';
 import '../models/league.dart';
@@ -2362,6 +2364,307 @@ class LocalLeaguesRepository {
       _rethrowFriendly(
         e is Object ? e : Exception('unknown'),
         context: 'adding late-joining team',
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Safe participant replacement -- swap an inactive team for an eligible
+  // one in every unplayed/unfinished match, across every format. See
+  // ReplaceParticipantPlanner's own comment for the full rationale.
+  //
+  // Unlike saveTeams()'s full-collection delete/recreate and unlike a
+  // fixture regeneration, this never deletes or recreates anything: it
+  // only ever updates the home/away team-id FIELD of an already-existing
+  // match document, via the same additive saveMatches()/saveKnockoutMatches()
+  // primitives every other phase already uses. A completed/finished match
+  // is never included in what gets written -- enforced twice over: once
+  // by the planner (it simply never puts one in the update list), and
+  // again by the existing Firestore rule (fixtureMatchWriteRespectsHistory/
+  // knockoutMatchWriteRespectsHistory already reject any write that
+  // changes a finished match's team-id fields) -- so even a bug in this
+  // method's own filtering could not get past the server.
+  // ---------------------------------------------------------------------------
+
+  /// Teams with zero existing appearances in this league's matches/knockout
+  /// collections -- the organizer-facing "eligible replacement" list. The
+  /// team being replaced is excluded from its own candidate list.
+  Future<List<Team>> getEligibleReplacementTeams({
+    required String leagueId,
+    required String excludeTeamId,
+  }) async {
+    try {
+      _requireAuthUid();
+      await _requireOnline();
+
+      final teams = await getTeams(leagueId);
+      final matches = await _fetchMatchesFresh(leagueId);
+      final knockouts = await getKnockoutMatches(leagueId);
+
+      final playingTeamIds = <String>{
+        for (final m in matches) m.homeTeamId,
+        for (final m in matches) m.awayTeamId,
+        for (final m in knockouts)
+          if (m.homeTeamId != null) m.homeTeamId!,
+        for (final m in knockouts)
+          if (m.awayTeamId != null) m.awayTeamId!,
+      };
+
+      return teams
+          .where((t) => t.id != excludeTeamId.trim() && !playingTeamIds.contains(t.id))
+          .toList(growable: false);
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        context: 'loading eligible replacement teams',
+      );
+    }
+  }
+
+  /// Read-only: computes what replacing [oldTeamId] with [newTeamId] would
+  /// do, without writing anything. Both teams must already exist in the
+  /// league. Throws a [UserFriendlyException] if the replacement is
+  /// unsafe (see [ReplaceParticipantPlanner]).
+  Future<ReplaceParticipantPreview> previewReplaceParticipant({
+    required String leagueId,
+    required String oldTeamId,
+    required String newTeamId,
+  }) async {
+    try {
+      await _requireOrganizerOrThrow(leagueId);
+      _requireAuthUid();
+      await _requireOnline();
+
+      final existingTeamIds = await _fetchTeamIdsFresh(leagueId);
+      if (!existingTeamIds.contains(oldTeamId.trim())) {
+        throw const UserFriendlyException(
+          "We couldn't find the team being replaced. Please refresh and try again.",
+        );
+      }
+      if (!existingTeamIds.contains(newTeamId.trim())) {
+        throw const UserFriendlyException(
+          "We couldn't find the replacement team. Please refresh and try again.",
+        );
+      }
+
+      final existingMatches = await _fetchMatchesFresh(leagueId);
+      final existingKnockouts = await getKnockoutMatches(leagueId);
+
+      try {
+        return ReplaceParticipantPlanner.plan(
+          oldTeamId: oldTeamId,
+          newTeamId: newTeamId,
+          existingFixtureMatches: existingMatches,
+          existingKnockoutMatches: existingKnockouts,
+        );
+      } on ReplaceParticipantBlockedException catch (e) {
+        throw UserFriendlyException(e.reason);
+      }
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        context: 'previewing participant replacement',
+      );
+    }
+  }
+
+  /// Re-plans from the CURRENT server state (never trusts a preview the
+  /// caller computed earlier) and writes only the eligible matches.
+  /// Completed/finished matches are never written. Also records who
+  /// performed the replacement and when (mirrors createPointAdjustment's
+  /// own append-only audit pattern).
+  Future<ReplaceParticipantPreview> commitReplaceParticipant({
+    required String leagueId,
+    required String oldTeamId,
+    required String newTeamId,
+  }) async {
+    try {
+      await _requireOrganizerOrThrow(leagueId);
+      final authUid = _requireAuthUid();
+      await _requireOnline();
+
+      final existingTeamIds = await _fetchTeamIdsFresh(leagueId);
+      if (!existingTeamIds.contains(oldTeamId.trim())) {
+        throw const UserFriendlyException(
+          "We couldn't find the team being replaced. Please refresh and try again.",
+        );
+      }
+      if (!existingTeamIds.contains(newTeamId.trim())) {
+        throw const UserFriendlyException(
+          "We couldn't find the replacement team. Please refresh and try again.",
+        );
+      }
+
+      final existingMatches = await _fetchMatchesFresh(leagueId);
+      final existingKnockouts = await getKnockoutMatches(leagueId);
+
+      late final ReplaceParticipantPreview plan;
+      try {
+        plan = ReplaceParticipantPlanner.plan(
+          oldTeamId: oldTeamId,
+          newTeamId: newTeamId,
+          existingFixtureMatches: existingMatches,
+          existingKnockoutMatches: existingKnockouts,
+        );
+      } on ReplaceParticipantBlockedException catch (e) {
+        throw UserFriendlyException(e.reason);
+      }
+
+      if (plan.fixtureMatchesToUpdate.isNotEmpty) {
+        // saveMatches() only ever touches the ids it's given -- no
+        // diffing/pruning against the rest of the collection -- so
+        // writing just the changed subset is safe here.
+        await saveMatches(leagueId, plan.fixtureMatchesToUpdate);
+      }
+
+      if (plan.knockoutMatchesToUpdate.isNotEmpty) {
+        // saveKnockoutMatches(), unlike saveMatches(), diffs the FULL list
+        // it's given against what's already in Firestore to decide what
+        // to prune -- passing only the changed subset would make every
+        // OTHER unfinished knockout match look removed and prune it. Merge
+        // the updates back into the full existing bracket before calling it.
+        final updatedById = {
+          for (final m in plan.knockoutMatchesToUpdate) m.id: m,
+        };
+        final fullBracket = existingKnockouts
+            .map((m) => updatedById[m.id] ?? m)
+            .toList(growable: false);
+        await saveKnockoutMatches(leagueId, fullBracket);
+      }
+
+      final recordRef = _firestore
+          .collection('leagues')
+          .doc(leagueId)
+          .collection('participant_replacements')
+          .doc();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await recordRef.set(<String, dynamic>{
+        'id': recordRef.id,
+        'leagueId': leagueId,
+        'oldTeamId': oldTeamId,
+        'newTeamId': newTeamId,
+        'matchesUpdatedCount': plan.eligibleMatchCount,
+        'performedBy': authUid,
+        'performedAtMs': now,
+      });
+
+      return plan;
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        context: 'replacing participant',
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Individual-player replacement -- distinct from the team-level
+  // replacement above. Fixtures reference a TEAM id, never a person
+  // directly, so replacing WHO controls an existing team (same team id,
+  // same fixtures, same history) needs no fixture logic at all: it only
+  // ever changes Team.ownerId and the two affected memberships'
+  // teamId link, inside one transaction. See
+  // TeamOwnershipTransferDecision's own comment.
+  // ---------------------------------------------------------------------------
+
+  /// Transfers ownership of [teamId] from its current owner to
+  /// [newOwnerUserId]. No match, fixture, or standing is touched. Throws
+  /// a [UserFriendlyException] if the team doesn't exist or the new
+  /// owner is already on a team (this one or another) in this league; a
+  /// same-owner call is a no-op.
+  Future<void> transferTeamOwnership({
+    required String leagueId,
+    required String teamId,
+    required String newOwnerUserId,
+  }) async {
+    try {
+      await _requireOrganizerOrThrow(leagueId);
+      _requireAuthUid();
+      await _requireOnline();
+
+      final newOwnerId = newOwnerUserId.trim();
+      final teamRef = _firestore.collection('leagues').doc(leagueId).collection('teams').doc(teamId);
+      final membershipsCol = _firestore.collection('leagues').doc(leagueId).collection('memberships');
+      final newOwnerRef = membershipsCol.doc(newOwnerId);
+
+      await _firestore.runTransaction((tx) async {
+        final teamSnap = await tx.get(teamRef);
+        final currentOwnerId = (teamSnap.data()?['ownerId'] as String?)?.trim() ?? '';
+
+        final newOwnerSnap = await tx.get(newOwnerRef);
+        final newOwnerMembershipExists = newOwnerSnap.exists;
+        final newOwnerCurrentTeamId = (newOwnerSnap.data()?['teamId'] as String?)?.trim() ?? '';
+
+        final outcome = TeamOwnershipTransferDecision.decide(
+          teamExists: teamSnap.exists,
+          currentOwnerId: currentOwnerId,
+          newOwnerId: newOwnerId,
+          newOwnerMembershipExists: newOwnerMembershipExists,
+          newOwnerCurrentTeamId: newOwnerCurrentTeamId,
+        );
+
+        switch (outcome) {
+          case TeamOwnershipTransferOutcome.blockedTeamMissing:
+            throw const UserFriendlyException(
+              "We couldn't find this team. Please refresh and try again.",
+            );
+          case TeamOwnershipTransferOutcome.noopSameOwner:
+            return;
+          case TeamOwnershipTransferOutcome.blockedNewOwnerAlreadyOnATeam:
+            throw const UserFriendlyException(
+              'This person is already on a team in this league.',
+            );
+          case TeamOwnershipTransferOutcome.transfer:
+            break;
+        }
+
+        // Reads must precede writes in a Firestore transaction -- this
+        // get() still comes before any tx.set() below.
+        DocumentSnapshot<Map<String, dynamic>>? oldOwnerSnap;
+        if (currentOwnerId.isNotEmpty) {
+          oldOwnerSnap = await tx.get(membershipsCol.doc(currentOwnerId));
+        }
+
+        final now = DateTime.now().millisecondsSinceEpoch;
+
+        if (oldOwnerSnap != null && oldOwnerSnap.exists) {
+          tx.set(
+            membershipsCol.doc(currentOwnerId),
+            {'teamId': null, 'updatedAtMs': now},
+            SetOptions(merge: true),
+          );
+        }
+
+        tx.set(
+          teamRef,
+          {'ownerId': newOwnerId, 'updatedAtMs': now},
+          SetOptions(merge: true),
+        );
+
+        if (newOwnerMembershipExists) {
+          final currentVersion = (newOwnerSnap.data()?['version'] as num?)?.toInt() ?? 1;
+          tx.set(
+            newOwnerRef,
+            {'teamId': teamId, 'updatedAtMs': now, 'version': currentVersion + 1},
+            SetOptions(merge: true),
+          );
+        } else {
+          final membership = Membership(
+            id: newOwnerId,
+            leagueId: leagueId,
+            userId: newOwnerId,
+            teamId: teamId,
+            role: LeagueRole.member,
+            updatedAtMs: now,
+            version: 1,
+          );
+          tx.set(newOwnerRef, membership.toRemoteMap(), SetOptions(merge: true));
+        }
+      }).timeout(const Duration(seconds: 25));
+    } catch (e) {
+      _rethrowFriendly(
+        e is Object ? e : Exception('unknown'),
+        context: 'transferring team ownership',
       );
     }
   }
