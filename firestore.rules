@@ -2516,6 +2516,30 @@ service cloud.firestore {
         allow update: if false;
         allow delete: if false;
       }
+
+      // Append-only audit record for safe participant replacement --
+      // mirrors pointAdjustments' own pattern (create only, never
+      // update/delete, every field validated and performedBy pinned to
+      // the caller's own uid so it can never be spoofed).
+      match /participant_replacements/{replacementId} {
+        allow read: if canManageLeague(leagueId);
+
+        allow create: if canManageLeague(leagueId)
+          && request.resource.data.keys().hasOnly([
+            'id', 'leagueId', 'oldTeamId', 'newTeamId',
+            'matchesUpdatedCount', 'performedBy', 'performedAtMs'
+          ])
+          && (request.resource.data.id is string) && (request.resource.data.id == replacementId)
+          && (request.resource.data.leagueId is string) && (request.resource.data.leagueId == leagueId)
+          && (request.resource.data.oldTeamId is string) && (request.resource.data.oldTeamId.size() > 0)
+          && (request.resource.data.newTeamId is string) && (request.resource.data.newTeamId.size() > 0)
+          && (request.resource.data.matchesUpdatedCount is int) && (request.resource.data.matchesUpdatedCount >= 0)
+          && (request.resource.data.performedBy is string) && (request.resource.data.performedBy == request.auth.uid)
+          && (request.resource.data.performedAtMs is int);
+
+        allow update: if false;
+        allow delete: if false;
+      }
     }
 
     match /matches/{matchId} {

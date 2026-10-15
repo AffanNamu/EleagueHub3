@@ -8,7 +8,7 @@ import { useLeagueTeams } from '@/hooks/useLeagueTeams';
 import { useLeagueDetail } from '@/hooks/useLeagueDetail';
 import { useMatches } from '@/hooks/useMatches';
 import { Glass } from '@/components/ui/Glass';
-import { Loader2, ArrowLeft, Shield, PlusCircle, Trash2, Edit2, Check, X, AlertTriangle, Wand2, Dice5, UserPlus } from 'lucide-react';
+import { Loader2, ArrowLeft, Shield, PlusCircle, Trash2, Edit2, Check, X, AlertTriangle, Wand2, Dice5, UserPlus, Repeat } from 'lucide-react';
 import { Team, FixtureMatch } from '@/lib/models/leagueDetails';
 import { CsvImporter } from '@/components/leagues/CsvImporter';
 import { resolveTeamParticipant, fetchUserProfileByUserId, ResolvedUserProfile } from '@/lib/services/userProfileRepository';
@@ -16,6 +16,7 @@ import { FixtureGenerator } from '@/lib/algorithms/fixtureGenerator';
 import { autoAssignWorldCupGroups } from '@/lib/algorithms/worldCupGrouping';
 import { SpinWheelDrawModal } from '@/components/leagues/SpinWheelDrawModal';
 import { LateJoinDialog } from '@/components/leagues/LateJoinDialog';
+import { ReplaceParticipantDialog } from '@/components/leagues/ReplaceParticipantDialog';
 import { fetchUnassignedMembers, assignMemberToTeamWeb, createTeamForMemberWeb, UnassignedMember } from '@/lib/leagues/leaguesRepository';
 import { assertFixtureRegenerationAllowed, FixtureRegenerationBlockedError } from '@/lib/algorithms/fixtureRegenerationGuard';
 import { regenerateFixtures } from '@/lib/leagues/fixturesRepository';
@@ -48,6 +49,7 @@ export default function ManageTeamsScreen() {
   const [generating, setGenerating] = useState(false);
   const [showSpinWheel, setShowSpinWheel] = useState(false);
   const [showLateJoin, setShowLateJoin] = useState(false);
+  const [replacingTeam, setReplacingTeam] = useState<Team | null>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAdjustment, setEditAdjustment] = useState<number>(0);
@@ -748,7 +750,7 @@ export default function ManageTeamsScreen() {
                         )}
                       </div>
 
-                      <div className="w-20 flex justify-end gap-1">
+                      <div className="w-28 flex justify-end gap-1">
                         {isEditing ? (
                           <>
                             <button onClick={() => saveEdit(team)} className="p-2 text-[#BEF264] hover:bg-[#BEF264]/10 rounded-xl transition-colors"><Check className="w-4 h-4" /></button>
@@ -757,6 +759,17 @@ export default function ManageTeamsScreen() {
                         ) : (
                           <>
                             <button onClick={() => startEditing(team)} className="p-2 text-gray-400 hover:text-[#BEF264] hover:bg-[#BEF264]/10 rounded-xl transition-colors"><Edit2 className="w-4 h-4" /></button>
+                            {/* Safe participant replacement: swap this (inactive) team
+                                for an eligible one in every unplayed/unfinished match,
+                                without touching completed history or regenerating
+                                anything. Works for every format. */}
+                            <button
+                              onClick={() => setReplacingTeam(team)}
+                              title="Replace this team"
+                              className="p-2 text-gray-400 hover:text-[#BEF264] hover:bg-[#BEF264]/10 rounded-xl transition-colors"
+                            >
+                              <Repeat className="w-4 h-4" />
+                            </button>
                             <button onClick={() => handleDeleteTeam(team.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"><Trash2 className="w-4 h-4" /></button>
                           </>
                         )}
@@ -787,6 +800,18 @@ export default function ManageTeamsScreen() {
           onDone={({ teamName, newFixtureCount }) => {
             setShowLateJoin(false);
             alert(`Added "${teamName}" and ${newFixtureCount} new fixture(s).`);
+          }}
+        />
+      )}
+
+      {replacingTeam && (
+        <ReplaceParticipantDialog
+          leagueId={leagueId}
+          oldTeam={replacingTeam}
+          onCancel={() => setReplacingTeam(null)}
+          onDone={({ newTeamName, matchesUpdated }) => {
+            setReplacingTeam(null);
+            alert(`Replaced "${replacingTeam.name}" with "${newTeamName}" -- ${matchesUpdated} match(es) updated.`);
           }}
         />
       )}

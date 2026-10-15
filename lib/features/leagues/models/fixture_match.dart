@@ -37,6 +37,8 @@ class FixtureMatch {
       awayScore != null;
 
   FixtureMatch copyWith({
+    String? homeTeamId,
+    String? awayTeamId,
     int? homeScore,
     int? awayScore,
     MatchStatus? status,
@@ -47,8 +49,8 @@ class FixtureMatch {
       leagueId: leagueId,
       groupId: groupId,
       roundNumber: roundNumber,
-      homeTeamId: homeTeamId,
-      awayTeamId: awayTeamId,
+      homeTeamId: homeTeamId ?? this.homeTeamId,
+      awayTeamId: awayTeamId ?? this.awayTeamId,
       homeScore: homeScore ?? this.homeScore,
       awayScore: awayScore ?? this.awayScore,
       status: status ?? this.status,

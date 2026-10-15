@@ -41,6 +41,7 @@ import '../domain/logic/tournament_controller.dart';
 import '../logic/fixture_generator.dart';
 import '../logic/late_join_planner.dart';
 import '../logic/league_premium_upgrade_helper.dart';
+import '../logic/replace_participant_planner.dart';
 import '../logic/team_media_service.dart';
 import '../models/enums.dart';
 import '../models/fixture_match.dart';
@@ -2070,6 +2071,243 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                                     child: CircularProgressIndicator(strokeWidth: 2),
                                   )
                                 : Text(preview == null ? 'Preview' : 'Confirm & Add'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Safe participant replacement: a two-step dialog (pick a replacement ->
+  // preview -> confirm/cancel) over LocalLeaguesRepository.
+  // previewReplaceParticipant / commitReplaceParticipant -- works for
+  // every format, unlike late join, since the replacement slots into an
+  // EXISTING fixture position rather than requiring a new one. See
+  // ReplaceParticipantPlanner's own comment for the full rationale.
+  Future<void> _openReplaceParticipantDialog(Team oldTeam) async {
+    List<Team> eligible;
+    try {
+      eligible = await _localRepo.getEligibleReplacementTeams(
+        leagueId: widget.leagueId,
+        excludeTeamId: oldTeam.id,
+      );
+    } catch (e) {
+      _snackErr(UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+      return;
+    }
+
+    Team? selectedExisting = eligible.isNotEmpty ? eligible.first : null;
+    final newNameController = TextEditingController();
+    bool useNewTeam = eligible.isEmpty;
+    String? error;
+    bool busy = false;
+    ReplaceParticipantPreview? preview;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final theme = Theme.of(ctx);
+            final brightness = theme.brightness;
+
+            Future<String?> resolveReplacementTeamId() async {
+              if (!useNewTeam) return selectedExisting?.id;
+              final name = newNameController.text.trim();
+              if (name.isEmpty) {
+                setDialogState(() => error = 'Please enter a team name.');
+                return null;
+              }
+              final created = await _localRepo.createExternalTeam(
+                leagueId: widget.leagueId,
+                name: name,
+              );
+              return created.id;
+            }
+
+            Future<void> doPreview() async {
+              setDialogState(() {
+                busy = true;
+                error = null;
+              });
+              try {
+                final newTeamId = await resolveReplacementTeamId();
+                if (newTeamId == null) {
+                  setDialogState(() => busy = false);
+                  return;
+                }
+                final result = await _localRepo.previewReplaceParticipant(
+                  leagueId: widget.leagueId,
+                  oldTeamId: oldTeam.id,
+                  newTeamId: newTeamId,
+                );
+                setDialogState(() {
+                  preview = result;
+                  // Remember the resolved id (a freshly created team) so
+                  // confirm doesn't create a second one.
+                  if (useNewTeam) {
+                    selectedExisting = Team(
+                      id: newTeamId,
+                      leagueId: widget.leagueId,
+                      name: newNameController.text.trim(),
+                      ownerId: '',
+                      updatedAtMs: 0,
+                      version: 1,
+                    );
+                    useNewTeam = false;
+                  }
+                });
+              } catch (e) {
+                setDialogState(() =>
+                    error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown')));
+              } finally {
+                setDialogState(() => busy = false);
+              }
+            }
+
+            Future<void> doConfirm() async {
+              if (selectedExisting == null) return;
+              setDialogState(() => busy = true);
+              try {
+                final result = await _localRepo.commitReplaceParticipant(
+                  leagueId: widget.leagueId,
+                  oldTeamId: oldTeam.id,
+                  newTeamId: selectedExisting!.id,
+                );
+                if (ctx.mounted) Navigator.of(ctx).pop();
+                if (mounted) {
+                  _snackOk(
+                    'Replaced "${oldTeam.name}" with "${selectedExisting!.name}" -- '
+                    '${result.eligibleMatchCount} match(es) updated.',
+                  );
+                  unawaited(_loadExistingTeams());
+                }
+              } catch (e) {
+                setDialogState(() {
+                  busy = false;
+                  error = UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+                });
+              }
+            }
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: Glass(
+                borderRadius: 26,
+                padding: const EdgeInsets.all(18),
+                fill: AppTheme.cardColor(brightness),
+                borderColor: AppTheme.cardBorder(brightness),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Replace "${oldTeam.name}"',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: AppTheme.primaryText(brightness),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Completed matches are never changed. Only this team\'s '
+                        'upcoming, not-yet-played matches will be reassigned.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppTheme.secondaryText(brightness),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (preview == null) ...[
+                        if (eligible.isNotEmpty) ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: RadioListTile<bool>(
+                                  contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  title: const Text('Existing team'),
+                                  value: false,
+                                  groupValue: useNewTeam,
+                                  onChanged: (v) => setDialogState(() => useNewTeam = v!),
+                                ),
+                              ),
+                              Expanded(
+                                child: RadioListTile<bool>(
+                                  contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  title: const Text('New team'),
+                                  value: true,
+                                  groupValue: useNewTeam,
+                                  onChanged: (v) => setDialogState(() => useNewTeam = v!),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (!useNewTeam && eligible.isNotEmpty)
+                          DropdownButton<Team>(
+                            isExpanded: true,
+                            value: selectedExisting,
+                            items: eligible
+                                .map((t) => DropdownMenuItem(value: t, child: Text(t.name)))
+                                .toList(),
+                            onChanged: (t) => setDialogState(() => selectedExisting = t),
+                          )
+                        else
+                          TextField(
+                            controller: newNameController,
+                            enabled: !busy,
+                            decoration: const InputDecoration(
+                              labelText: 'New team name',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                      ] else ...[
+                        _ReplaceParticipantPreviewSummary(preview: preview!),
+                      ],
+                      if (error != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          error!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFFEF4444),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: busy ? null : () => Navigator.of(ctx).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.limeAccent,
+                              foregroundColor: AppTheme.darkText,
+                            ),
+                            onPressed: busy ? null : (preview == null ? doPreview : doConfirm),
+                            child: busy
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : Text(preview == null ? 'Preview' : 'Confirm Replacement'),
                           ),
                         ],
                       ),
@@ -4299,41 +4537,58 @@ class _AddTeamsScreenState extends ConsumerState<AddTeamsScreen> {
                               ],
                             ),
                             const SizedBox(height: 8),
-                            Align(
-                              alignment:
-                                  AlignmentDirectional
-                                      .centerEnd,
-                              child: TextButton.icon(
-                                onPressed: () async {
-                                  Navigator.of(ctx).pop();
-                                  setState(() {
-                                    _existingTeams
-                                        .removeAt(index);
-                                  });
-                                  try {
-                                    await _saveTeamsOnly(
-                                        silent: true);
-                                  } catch (_) {
-                                    await _loadExistingTeams();
-                                  }
-                                },
-                                icon: Icon(
-                                  Icons.delete,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .error,
-                                  size: 16,
+                            Row(
+                              mainAxisAlignment:
+                                  MainAxisAlignment.end,
+                              children: [
+                                // Safe participant replacement: swap this
+                                // (inactive) team for an eligible one in
+                                // every unplayed/unfinished match, without
+                                // touching completed history or
+                                // regenerating anything.
+                                TextButton.icon(
+                                  onPressed: () {
+                                    Navigator.of(ctx).pop();
+                                    _openReplaceParticipantDialog(team);
+                                  },
+                                  icon: const Icon(
+                                    Icons.swap_horiz,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Replace'),
                                 ),
-                                label: Text(
-                                  l10n.tr(
-                                      'add_teams_remove_team'),
-                                  style: TextStyle(
+                                TextButton.icon(
+                                  onPressed: () async {
+                                    Navigator.of(ctx).pop();
+                                    setState(() {
+                                      _existingTeams
+                                          .removeAt(index);
+                                    });
+                                    try {
+                                      await _saveTeamsOnly(
+                                          silent: true);
+                                    } catch (_) {
+                                      await _loadExistingTeams();
+                                    }
+                                  },
+                                  icon: Icon(
+                                    Icons.delete,
                                     color: Theme.of(context)
                                         .colorScheme
                                         .error,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    l10n.tr(
+                                        'add_teams_remove_team'),
+                                    style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .error,
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
                             if (team.isExternal) ...[
                               const SizedBox(height: 14),
@@ -4883,6 +5138,55 @@ class _LateJoinPreviewSummary extends StatelessWidget {
         row('Future matches (untouched)', '${preview.futureMatchCount}'),
         row('New fixtures to be created', '${preview.newFixtureCount}'),
         row('Existing matches affected', '${preview.existingMatchesAffectedCount}'),
+      ],
+    );
+  }
+}
+
+// Safe participant replacement: shows the organizer exactly what the
+// operation would do before they confirm -- completed matches stay
+// untouched (shown for context, not as something at risk), only the
+// eligible-match count is new.
+class _ReplaceParticipantPreviewSummary extends StatelessWidget {
+  final ReplaceParticipantPreview preview;
+
+  const _ReplaceParticipantPreviewSummary({required this.preview});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final brightness = theme.brightness;
+
+    Widget row(String label, String value) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: AppTheme.secondaryText(brightness)),
+            ),
+            Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppTheme.primaryText(brightness),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        row('Completed matches (untouched)', '${preview.completedMatchCount}'),
+        row('Fixtures to be reassigned', '${preview.fixtureMatchesToUpdate.length}'),
+        row('Knockout matches to be reassigned', '${preview.knockoutMatchesToUpdate.length}'),
+        row('Completed matches affected', '${preview.completedMatchesAffectedCount}'),
       ],
     );
   }
