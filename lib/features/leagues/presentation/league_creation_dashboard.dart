@@ -58,6 +58,7 @@ import '../logic/coupon_config_service.dart';
 import '../logic/league_creation_payment_service.dart';
 import '../logic/league_media_service.dart';
 import '../logic/league_premium_upgrade_helper.dart';
+import '../logic/region_locale_detector.dart';
 import '../models/enums.dart';
 import '../models/football_category.dart';
 import '../models/league.dart';
@@ -3453,7 +3454,15 @@ class _LeagueCreationDashboardState
         footballCategory: _footballCategory,
         format: _format,
         privacy: _privacy,
-        region: 'Global',
+        // Zero-permission locale-based default -- never a location
+        // permission prompt, just the organizer's own device locale
+        // (same signal RegionLocaleDetector uses for the discovery
+        // list's sort bias). Non-European locales keep the pre-existing
+        // 'Global' default unchanged.
+        region: RegionLocaleDetector.defaultRegionFor(
+          Localizations.maybeLocaleOf(context) ??
+              WidgetsBinding.instance.platformDispatcher.locale,
+        ),
         maxTeams: _maxTeams,
         season: _session,
         organizerUid: organizerAuthUid,

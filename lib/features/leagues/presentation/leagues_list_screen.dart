@@ -11,6 +11,7 @@ import 'package:eleaguehub3/features/leagues/logic/coupon_codes_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_access_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_payment_service.dart';
 import 'package:eleaguehub3/features/leagues/logic/league_charges_store.dart';
+import 'package:eleaguehub3/features/leagues/logic/region_locale_detector.dart';
 import 'package:eleaguehub3/features/leagues/models/enums.dart';
 import 'package:eleaguehub3/features/leagues/models/football_category.dart';
 import 'package:eleaguehub3/features/leagues/models/league.dart';
@@ -1682,6 +1683,20 @@ class _LeaguesListScreenState
     if (catFilter != null) {
       base = base.where((l) => l.footballCategory == catFilter).toList();
     }
+
+    // Zero-permission locale-based sort bias: when this device's own
+    // locale resolves to Europe, Europe-tagged leagues are moved ahead
+    // of everything else -- a pure reorder, never a filter (every league
+    // base already contained is still here, in the same relative order
+    // otherwise). Non-European devices see no change at all. See
+    // RegionLocaleDetector's own comment for why this never requests a
+    // location permission.
+    final viewerLocale = Localizations.maybeLocaleOf(context) ??
+        WidgetsBinding.instance.platformDispatcher.locale;
+    base = RegionLocaleDetector.sortForViewer(
+      leagues: base,
+      viewerLocale: viewerLocale,
+    );
 
     if (q.isEmpty) return base;
 
