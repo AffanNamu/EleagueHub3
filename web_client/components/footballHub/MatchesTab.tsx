@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getFixturesByDate } from '@/lib/footballHub/footballHubRepository';
+import { sortLeagueGroupsForViewer } from '@/lib/footballHub/footballLeagueRegionBias';
 import { FootballFixture, isFinishedFixture, isLiveFixture } from '@/lib/footballHub/types';
 
 function dateStripDays(): Date[] {
@@ -46,7 +47,14 @@ export function MatchesTab() {
       if (!map.has(f.leagueId)) map.set(f.leagueId, []);
       map.get(f.leagueId)!.push(f);
     }
-    return Array.from(map.values());
+    // Zero-permission locale-based sort bias: when this browser's own
+    // locale resolves to Europe, European competitions (and UEFA club
+    // competitions filed under country "World") are moved ahead of
+    // every other league group -- a pure reorder, never a filter.
+    // Non-European browsers see no change at all. See
+    // footballLeagueRegionBias.ts's own comment for why this never
+    // requests a location permission.
+    return sortLeagueGroupsForViewer(Array.from(map.values()));
   }, [fixtures]);
 
   const today = days[3];
