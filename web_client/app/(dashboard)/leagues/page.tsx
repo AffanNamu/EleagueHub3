@@ -20,6 +20,7 @@ import {
   leaveLeagueWeb,
   joinLeagueByCode,
 } from '@/lib/leagues/leaguesRepository';
+import { sortLeaguesForViewer } from '@/lib/leagues/regionLocaleDetector';
 import { LeagueCard, LeagueCardSkeleton } from '@/components/leagues/LeagueCard';
 import { FootballCategoryChip } from '@/components/leagues/FootballCategoryChip';
 import { JoinLeagueModal } from '@/components/leagues/JoinLeagueModal';
@@ -146,6 +147,13 @@ export default function LeaguesListPage() {
   const filtered = useMemo(() => {
     let base = tab === 'leagues' ? normalLeagues : masterLeagues;
     if (categoryFilter) base = base.filter((l) => l.footballCategory === categoryFilter);
+
+    // Zero-permission locale-based sort bias: when this browser's own
+    // locale resolves to Europe, Europe-tagged leagues are moved ahead
+    // of everything else -- a pure reorder, never a filter. Non-European
+    // browsers see no change at all. See regionLocaleDetector.ts's own
+    // comment for why this never requests a location permission.
+    base = sortLeaguesForViewer(base);
 
     const q = search.trim().toLowerCase();
     if (!q) return base;

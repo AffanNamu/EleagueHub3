@@ -32,6 +32,7 @@ import { addCompetitionCreatedEvent } from '@/lib/masterLeagues/organizerFeedRep
 import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
 import { decideMembershipAssignment } from './membershipAssignmentDecision';
 import { planCreateTeamForMember } from './createTeamForMemberPlan';
+import { defaultRegionForCurrentLocale } from './regionLocaleDetector';
 
 export async function fetchLeaguesForUser(uid: string): Promise<LeagueData[]> {
   const trimmed = uid.trim();
@@ -654,7 +655,11 @@ export async function createNewLeagueWeb(payload: CreateLeagueFormPayload): Prom
     footballCategory: categoryStorageValue(payload.category),
     format: leagueFormatIndex(payload.format),
     isPrivate: payload.isPrivate,
-    region: 'Global',
+    // Zero-permission locale-based default -- never a location
+    // permission prompt, just the organizer's own browser locale (same
+    // signal regionLocaleDetector.ts uses for the discovery list's sort
+    // bias). Non-European locales keep the pre-existing 'Global' default.
+    region: defaultRegionForCurrentLocale(),
     maxTeams: maxTeams,
     season: payload.season,
 
