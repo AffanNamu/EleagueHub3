@@ -12,6 +12,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../data/football_api_service.dart';
+import '../logic/football_league_region_bias.dart';
 import '../models/football_fixture.dart';
 import '../models/football_league.dart';
 import '../models/football_news_article.dart';
@@ -171,7 +172,7 @@ class _MatchesTabState extends State<_MatchesTab> {
               }
 
               final byLeague = <int, List<FootballFixture>>{};
-              final leagueOrder = <int>[];
+              var leagueOrder = <int>[];
               for (final f in fixtures) {
                 if (!byLeague.containsKey(f.leagueId)) {
                   byLeague[f.leagueId] = [];
@@ -179,6 +180,20 @@ class _MatchesTabState extends State<_MatchesTab> {
                 }
                 byLeague[f.leagueId]!.add(f);
               }
+
+              // Zero-permission locale-based sort bias: when this device's
+              // own locale resolves to Europe, European competitions (and
+              // UEFA club competitions filed under country "World") are
+              // moved ahead of every other league group -- a pure reorder,
+              // never a filter. Non-European devices see no change at all.
+              // See FootballLeagueRegionBias's own comment for why this
+              // never requests a location permission.
+              leagueOrder = FootballLeagueRegionBias.sortLeagueOrderForViewer(
+                leagueOrder: leagueOrder,
+                fixturesByLeague: byLeague,
+                viewerLocale: Localizations.maybeLocaleOf(context) ??
+                    WidgetsBinding.instance.platformDispatcher.locale,
+              );
 
               return RefreshIndicator(
                 onRefresh: _refresh,
