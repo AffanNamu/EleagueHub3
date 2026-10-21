@@ -173,7 +173,7 @@ const Map<String, Map<String, String>> appLocalizationsPart6 = {
     'qr_scanner_allow_camera_access_description':
         'Para escanear QR de ligas, habilita el permiso de cámara.\n\nO toca "INGRESAR CÓDIGO" para unirte manualmente.',
     'qr_scanner_open_settings': 'Abrir ajustes',
-    'qr_scanner_grant_permission': 'Conceder permiso',
+    'qr_scanner_grant_permission': 'Continuar',
 
     'qr_scanner_scan_again': 'Escanear de nuevo',
 
@@ -373,7 +373,7 @@ const Map<String, Map<String, String>> appLocalizationsPart6 = {
     'qr_scanner_allow_camera_access_description':
         'Чтобы сканировать QR‑коды лиг, разрешите доступ к камере.\n\nИли нажмите «ВВЕСТИ КОД», чтобы войти вручную.',
     'qr_scanner_open_settings': 'Открыть настройки',
-    'qr_scanner_grant_permission': 'Дать разрешение',
+    'qr_scanner_grant_permission': 'Продолжить',
 
     'qr_scanner_scan_again': 'Сканировать снова',
 
@@ -572,7 +572,7 @@ const Map<String, Map<String, String>> appLocalizationsPart6 = {
     'qr_scanner_allow_camera_access_description':
         'Ili kuskani QR za ligi, washa ruhusa ya kamera.\n\nAu bonyeza "INGIZA MSIMBO" kujiunga kwa mkono.',
     'qr_scanner_open_settings': 'Fungua mipangilio',
-    'qr_scanner_grant_permission': 'Toa ruhusa',
+    'qr_scanner_grant_permission': 'Endelea',
 
     'qr_scanner_scan_again': 'Skani tena',
 
