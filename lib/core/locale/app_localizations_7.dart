@@ -158,7 +158,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'qr_scanner_allow_camera_access_description':
         'Pour scanner les QR des ligues, activez l’autorisation caméra.\n\nOu appuyez sur « SAISIR LE CODE » pour rejoindre manuellement.',
     'qr_scanner_open_settings': 'Ouvrir les paramètres',
-    'qr_scanner_grant_permission': 'Accorder l’autorisation',
+    'qr_scanner_grant_permission': 'Continuer',
 
     'qr_scanner_scan_again': 'Scanner à nouveau',
 
@@ -358,7 +358,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'qr_scanner_allow_camera_access_description':
         'Para escanear QR de ligas, habilite a permissão de câmera.\n\nOu toque em “INSERIR CÓDIGO” para entrar manualmente.',
     'qr_scanner_open_settings': 'Abrir configurações',
-    'qr_scanner_grant_permission': 'Conceder permissão',
+    'qr_scanner_grant_permission': 'Continuar',
 
     'qr_scanner_scan_again': 'Escanear novamente',
 
@@ -557,7 +557,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'qr_scanner_allow_camera_access_description':
         'Untuk memindai QR liga, aktifkan izin kamera.\n\nAtau ketuk “MASUKKAN KODE” untuk bergabung manual.',
     'qr_scanner_open_settings': 'Buka pengaturan',
-    'qr_scanner_grant_permission': 'Berikan izin',
+    'qr_scanner_grant_permission': 'Lanjutkan',
 
     'qr_scanner_scan_again': 'Pindai lagi',
 
@@ -756,7 +756,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'qr_scanner_allow_camera_access_description':
         'Lig QR kodlarını taramak için kamera iznini etkinleştirin.\n\nVeya “KODU GİR” ile manuel katılın.',
     'qr_scanner_open_settings': 'Ayarları aç',
-    'qr_scanner_grant_permission': 'İzin ver',
+    'qr_scanner_grant_permission': 'Devam et',
 
     'qr_scanner_scan_again': 'Tekrar tara',
 
@@ -949,7 +949,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'qr_scanner_allow_camera_access_description':
         'リーグのQRをスキャンするにはカメラ権限を有効にしてください。\n\nまたは「コード入力」で手動参加できます。',
     'qr_scanner_open_settings': '設定を開く',
-    'qr_scanner_grant_permission': '許可する',
+    'qr_scanner_grant_permission': '続ける',
 
     'qr_scanner_scan_again': 'もう一度スキャン',
 
@@ -1141,7 +1141,7 @@ const Map<String, Map<String, String>> appLocalizationsPart7 = {
     'qr_scanner_allow_camera_access_description':
         '리그 QR을 스캔하려면 카메라 권한을 허용하세요.\n\n또는 “코드 입력”으로 수동 참가할 수 있습니다.',
     'qr_scanner_open_settings': '설정 열기',
-    'qr_scanner_grant_permission': '권한 허용',
+    'qr_scanner_grant_permission': '계속',
 
     'qr_scanner_scan_again': '다시 스캔',
 

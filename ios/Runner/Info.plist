@@ -121,19 +121,18 @@
 	</array>
 
 	<!-- ══════════════════════════════════════════════════════════
-	     BACKGROUND MODES — mapped from the Android foreground
-	     services, with the reality check that iOS does not allow a
-	     background-camera/screen-capture service the way Android's
-	     mediaProjection|camera|microphone foreground service does.
-	     "audio" keeps voice/audio sessions alive in background
-	     (covers OverlayVoiceForegroundService's actual iOS-legal
-	     equivalent). Screen capture is handled separately via a
-	     ReplayKit Broadcast Upload Extension target (not creatable
-	     via this script — added in Xcode directly).
+	     BACKGROUND MODES — OverlayVoiceForegroundService (voice
+	     chat continuing while backgrounded) is Android-only;
+	     OverlayPlatform's every method early-returns on iOS, so
+	     there is no iOS-side feature behind a background "audio"
+	     mode and declaring it is unsupportable at App Store review
+	     (rejected under Guideline 2.5.4 on 2026-10). Screen capture
+	     is handled separately via a ReplayKit Broadcast Upload
+	     Extension target (not creatable via this script — added in
+	     Xcode directly).
 	     ══════════════════════════════════════════════════════════ -->
 	<key>UIBackgroundModes</key>
 	<array>
-		<string>audio</string>
 		<string>remote-notification</string>
 	</array>
 

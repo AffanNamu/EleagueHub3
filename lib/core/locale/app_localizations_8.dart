@@ -49,7 +49,7 @@ const Map<String, Map<String, String>> appLocalizationsPart8 = {
     'qr_scanner_allow_camera_access_description':
         'لمسح رموز QR للدوري، فعّل إذن الكاميرا.\n\nأو اضغط على "أدخل الرمز" للانضمام يدويًا.',
     'qr_scanner_open_settings': 'فتح الإعدادات',
-    'qr_scanner_grant_permission': 'منح الإذن',
+    'qr_scanner_grant_permission': 'متابعة',
     'qr_scanner_scan_again': 'مسح مرة أخرى',
 
     'match_detail_appbar_title': 'تفاصيل المباراة',
@@ -211,7 +211,7 @@ const Map<String, Map<String, String>> appLocalizationsPart8 = {
     'qr_scanner_allow_camera_access_description':
         'כדי לסרוק קודי QR של ליגות, אפשר הרשאת מצלמה.\n\nאו לחץ "הזן קוד" כדי להצטרף ידנית.',
     'qr_scanner_open_settings': 'פתח הגדרות',
-    'qr_scanner_grant_permission': 'תן הרשאה',
+    'qr_scanner_grant_permission': 'המשך',
     'qr_scanner_scan_again': 'סרוק שוב',
 
     'match_detail_appbar_title': 'פרטי משחק',

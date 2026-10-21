@@ -505,7 +505,7 @@ const Map<String, Map<String, String>> appLocalizationsPart4 = {
     'qr_scanner_allow_camera_access_description':
         'To scan league QR codes, enable camera permission.\n\nOr tap ENTER CODE to join manually.',
     'qr_scanner_open_settings': 'Open settings',
-    'qr_scanner_grant_permission': 'Grant permission',
+    'qr_scanner_grant_permission': 'Continue',
 
     'qr_scanner_scan_again': 'Scan again',
 
