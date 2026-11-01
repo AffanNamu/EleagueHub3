@@ -48,6 +48,18 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   final TextEditingController _textCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
 
+  // Created once here, not inline in a StreamBuilder's `stream:` --
+  // calling _repo.leagueChatStream(...)/leaguePinnedMessageStream(...)
+  // directly there means a NEW Firestore listener is created on every
+  // rebuild (this screen has many setState() calls), and StreamBuilder
+  // treats each new stream instance as starting fresh -- the message
+  // list flashed back to its loading spinner on nearly every
+  // interaction before "reloading" moments later.
+  late final Stream<List<ChatMessage>> _messagesStream =
+      _repo.leagueChatStream(widget.leagueId);
+  late final Stream<ChatMessage?> _pinnedMessageStream =
+      _repo.leaguePinnedMessageStream(widget.leagueId);
+
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
   Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
 
@@ -1424,7 +1436,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                   _buildSpaceBanner(context),
                   _moderationBanner(context),
                   StreamBuilder<ChatMessage?>(
-                    stream: _repo.leaguePinnedMessageStream(widget.leagueId),
+                    stream: _pinnedMessageStream,
                     builder: (context, snap) {
                       final pinned = snap.data;
                       if (pinned == null) return const SizedBox.shrink();
@@ -1436,7 +1448,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                   ),
                   Expanded(
                     child: StreamBuilder<List<ChatMessage>>(
-                      stream: _repo.leagueChatStream(widget.leagueId),
+                      stream: _messagesStream,
                       builder: (context, snap) {
                         if (snap.hasError) {
                           final msg = UserFriendlyError.toMessage(

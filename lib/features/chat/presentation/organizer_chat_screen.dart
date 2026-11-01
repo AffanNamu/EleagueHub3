@@ -49,6 +49,18 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
   final TextEditingController _textCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
 
+  // Created once here, not inline in a StreamBuilder's `stream:` --
+  // calling the repository's stream methods directly there means a
+  // NEW Firestore listener is created on every rebuild (this screen
+  // has many setState() calls), and StreamBuilder treats each new
+  // stream instance as starting fresh -- the message list flashed back
+  // to its loading spinner on nearly every interaction before
+  // "reloading" moments later.
+  late final Stream<List<ChatMessage>> _messagesStream =
+      _repo.organizerChatStream(widget.masterLeagueId);
+  late final Stream<ChatMessage?> _pinnedMessageStream =
+      _repo.organizerPinnedMessageStream(widget.masterLeagueId);
+
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
   Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
 
@@ -1291,8 +1303,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                 ),
                               ),
                             StreamBuilder<ChatMessage?>(
-                              stream: _repo.organizerPinnedMessageStream(
-                                  widget.masterLeagueId),
+                              stream: _pinnedMessageStream,
                               builder: (context, snap) {
                                 final pinned = snap.data;
                                 if (pinned == null) return const SizedBox.shrink();
@@ -1305,8 +1316,7 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                             ),
                             Expanded(
                               child: StreamBuilder<List<ChatMessage>>(
-                                stream: _repo.organizerChatStream(
-                                    widget.masterLeagueId),
+                                stream: _messagesStream,
                                 builder: (context, snap) {
                                   if (snap.hasError) {
                                     final msg = UserFriendlyError.toMessage(

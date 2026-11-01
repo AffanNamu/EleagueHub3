@@ -67,11 +67,21 @@ class ConnectivityService {
 
     try {
       final results = await _connectivity.checkConnectivity().timeout(timeout);
-      await _updateStatus(results);
+      // `timeout` used to only bound this interface check, not the DNS
+      // probe inside _updateStatus() -- which could still run up to
+      // hosts.length * 2s (6s) past whatever budget a caller like
+      // requireOnline(timeout: Duration(seconds: 4)) asked for.
+      await _updateStatus(results).timeout(timeout);
       return isConnected.value;
     } catch (_) {
-      _setConnected(false);
-      return false;
+      // Ambiguous (a timeout or a plugin hiccup), not a confirmed "no
+      // internet" -- keep the last known state rather than forcing
+      // offline. requireOnline() gates writes across the whole app
+      // (chat sends, uploads, league admin actions, ...), and wrongly
+      // forcing "offline" here blocks an action that would very likely
+      // have succeeded; a real lack of connectivity still surfaces its
+      // own accurate error from the actual network call that follows.
+      return isConnected.value;
     }
   }
 
@@ -131,16 +141,22 @@ class ConnectivityService {
       'example.com',
     ];
 
-    for (final host in hosts) {
+    // Checked in parallel, not one host at a time: a sequential loop
+    // could take up to hosts.length * 2s (6s) to confirm "offline",
+    // which made a slow-but-working network indistinguishable from a
+    // genuinely dead one, and blew well past the few-second budget
+    // every caller of requireOnline() expects. A single resolved host
+    // is still enough to call it online.
+    final oks = await Future.wait(hosts.map((host) async {
       try {
         final result =
             await InternetAddress.lookup(host).timeout(const Duration(seconds: 2));
-        if (result.isNotEmpty && result.first.rawAddress.isNotEmpty) return true;
+        return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
       } catch (_) {
-        // try next host
+        return false;
       }
-    }
-    return false;
+    }));
+    return oks.any((ok) => ok);
   }
 
   void dispose() {
