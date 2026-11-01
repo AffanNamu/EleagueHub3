@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/widgets/glass.dart';
+import 'voice_record_controls.dart';
 
 class ChatInputBar extends StatelessWidget {
   const ChatInputBar({
@@ -14,8 +15,15 @@ class ChatInputBar extends StatelessWidget {
     required this.onSend,
     required this.enabled,
 
-    // Voice (optional) — merged WhatsApp-style into trailing button
-    this.onRecordVoice,
+    // Voice (optional) — Telegram-style press-and-hold on the trailing
+    // button: press starts recording, release sends, slide left cancels,
+    // slide up locks into hands-free recording. All four are required
+    // together (a screen either offers voice or it doesn't).
+    this.onRecordStart,
+    this.onRecordCancel,
+    this.onRecordStop,
+    this.onRecordLock,
+    this.onRecordDragUpdate,
     this.voiceTooltip,
 
     // Reply (optional)
@@ -38,8 +46,12 @@ class ChatInputBar extends StatelessWidget {
   final VoidCallback onSend;
   final bool enabled;
 
-  // Voice action (optional)
-  final VoidCallback? onRecordVoice;
+  // Voice action (optional) -- see VoiceRecordButton for the gesture contract.
+  final VoidCallback? onRecordStart;
+  final VoidCallback? onRecordCancel;
+  final VoidCallback? onRecordStop;
+  final VoidCallback? onRecordLock;
+  final ValueChanged<VoiceRecordDrag>? onRecordDragUpdate;
   final String? voiceTooltip;
 
   // Reply context (WhatsApp-style)
@@ -61,7 +73,12 @@ class ChatInputBar extends StatelessWidget {
         final hasText = text.isNotEmpty;
 
         final canSend = enabled && !isSending;
-        final canRecord = enabled && !isSending && onRecordVoice != null;
+        final canRecord = enabled &&
+            !isSending &&
+            onRecordStart != null &&
+            onRecordCancel != null &&
+            onRecordStop != null &&
+            onRecordLock != null;
 
         final trailingIsSend = hasText;
         final trailingEnabled = trailingIsSend ? canSend : canRecord;
@@ -182,44 +199,61 @@ class ChatInputBar extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Tooltip(
-                      message: trailingIsSend
-                          ? context.l10n.tr('chat_input_send_tooltip')
-                          : ((voiceTooltip ?? '').trim().isNotEmpty
-                              ? voiceTooltip!.trim()
-                              : context.l10n.tr('chat_input_record_voice_tooltip')),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: trailingEnabled ? (trailingIsSend ? onSend : onRecordVoice) : null,
-                          borderRadius: BorderRadius.circular(999),
-                          child: Ink(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: trailingBg,
-                            ),
-                            child: Center(
-                              child: isSending && trailingIsSend
-                                  ? SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                    if (trailingIsSend)
+                      Tooltip(
+                        message: context.l10n.tr('chat_input_send_tooltip'),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: trailingEnabled ? onSend : null,
+                            borderRadius: BorderRadius.circular(999),
+                            child: Ink(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: trailingBg,
+                              ),
+                              child: Center(
+                                child: isSending
+                                    ? SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: trailingFg,
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.send_rounded,
+                                        size: 20,
                                         color: trailingFg,
                                       ),
-                                    )
-                                  : Icon(
-                                      trailingIsSend ? Icons.send_rounded : Icons.mic,
-                                      size: 20,
-                                      color: trailingFg,
-                                    ),
+                              ),
                             ),
                           ),
                         ),
+                      )
+                    else
+                      Tooltip(
+                        message: (voiceTooltip ?? '').trim().isNotEmpty
+                            ? voiceTooltip!.trim()
+                            : context.l10n.tr('chat_input_record_voice_tooltip'),
+                        // Press and hold to record (Telegram-style) -- see
+                        // VoiceRecordButton for the full gesture contract
+                        // (release to send, slide left to cancel, slide up
+                        // to lock hands-free). A plain tap does nothing by
+                        // design, same as Telegram: only a sustained press
+                        // starts a recording.
+                        child: VoiceRecordButton(
+                          enabled: trailingEnabled,
+                          onRecordStart: onRecordStart ?? () {},
+                          onRecordCancel: onRecordCancel ?? () {},
+                          onRecordStop: onRecordStop ?? () {},
+                          onRecordLock: onRecordLock ?? () {},
+                          onDragUpdate: onRecordDragUpdate,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ],

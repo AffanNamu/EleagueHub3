@@ -29,7 +29,9 @@ import '../data/private_chat_repository.dart';
 import '../models/chat_message.dart' show ChatDeliveryStatus;
 import '../models/private_message.dart';
 import 'widgets/chat_image_media.dart';
+import 'widgets/chat_input_bar.dart';
 import 'widgets/voice_message_player.dart';
+import 'widgets/voice_record_controls.dart';
 
 class PrivateChatScreen extends StatefulWidget {
   const PrivateChatScreen({
@@ -85,6 +87,13 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   String? _recordingPath;
   DateTime? _recordingStartedAt;
   Timer? _recordingTicker;
+
+  // Telegram-style press-and-hold recording: true once the user has
+  // dragged up past the lock threshold and lifted their finger (recording
+  // keeps going hands-free until Cancel/Send is tapped explicitly).
+  // _recordDrag mirrors the live finger position while NOT yet locked.
+  bool _recordingLocked = false;
+  VoiceRecordDrag _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
 
   bool _busyWithAttachment = false;
 
@@ -323,10 +332,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       setState(() {
         _isRecording = true;
         _recordingPath = outPath;
+        _recordingLocked = false;
+        _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
       });
     } catch (e) {
       _toastErr(e);
     }
+  }
+
+  /// Finger dragged up past the lock threshold: recording keeps going even
+  /// after the finger lifts -- only an explicit Cancel/Send in the
+  /// RecordingOverlay now ends it.
+  void _lockRecording() {
+    if (!mounted) return;
+    setState(() => _recordingLocked = true);
   }
 
   Future<void> _cancelRecording() async {
@@ -351,6 +370,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       setState(() {
         _isRecording = false;
         _recordingPath = null;
+        _recordingLocked = false;
+        _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
       });
     } catch (e) {
       _toastErr(e);
@@ -412,69 +433,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _recordingPath = null;
         _recordingStartedAt = null;
         _isVoiceSending = false;
+        _recordingLocked = false;
+        _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _isVoiceSending = false);
       _toastErr(e);
     }
-  }
-
-  String _recordingElapsed() {
-    final started = _recordingStartedAt;
-    if (!_isRecording || started == null) return '00:00';
-    final d = DateTime.now().difference(started);
-    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$mm:$ss';
-  }
-
-  Widget _buildRecordingBar(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final brightness = theme.brightness;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppTheme.cardColor(brightness),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.cardBorder(brightness)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.mic, color: cs.primary),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                "${context.l10n.tr('private_chat_recording_prefix')}${_recordingElapsed()}",
-                style: TextStyle(
-                  color: AppTheme.primaryText(brightness),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: _isVoiceSending ? null : _cancelRecording,
-              child: Text(context.l10n.tr('common_cancel')),
-            ),
-            const SizedBox(width: 6),
-            FilledButton(
-              onPressed: _isVoiceSending ? null : _sendRecording,
-              child: _isVoiceSending
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(context.l10n.tr('private_chat_send')),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _handleMessageLongPress(
@@ -747,50 +713,37 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 },
               ),
             ),
-            if (_isRecording) _buildRecordingBar(context),
-            if (!_isRecording)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    IconButton(
-                      tooltip: context.l10n.tr('private_chat_send_photo_tooltip'),
-                      onPressed: _busyWithAttachment ? null : _pickAndSendImage,
-                      icon: _busyWithAttachment
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.image_outlined),
-                    ),
-                    IconButton(
-                      tooltip: _recordingPermissionDenied
-                          ? context.l10n.tr('private_chat_mic_permission_required_tooltip')
-                          : context.l10n.tr('private_chat_record_voice_tooltip'),
-                      onPressed: (_busyWithAttachment || _isVoiceSending)
-                          ? null
-                          : _startRecording,
-                      icon: const Icon(Icons.mic_none_rounded),
-                    ),
-                    Expanded(
-                      child: TextField(
-                        controller: _input,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _send(),
-                        decoration: InputDecoration(
-                          hintText: context.l10n.tr('private_chat_message_hint'),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      onPressed: _send,
-                      icon: const Icon(Icons.send_rounded),
-                    ),
-                  ],
-                ),
+            if (_isRecording && _recordingStartedAt != null)
+              RecordingOverlay(
+                recordingStartedAt: _recordingStartedAt!,
+                drag: _recordDrag,
+                locked: _recordingLocked,
+                isSending: _isVoiceSending,
+                onCancel: _cancelRecording,
+                onSend: _sendRecording,
               ),
+            ChatInputBar(
+              controller: _input,
+              isSending: _busyWithAttachment,
+              codeMode: false,
+              onToggleCodeMode: () {},
+              enabled: !_isRecording,
+              onPickImage: _pickAndSendImage,
+              onSend: _send,
+              onRecordStart: (!_busyWithAttachment && !_isVoiceSending && !_isRecording)
+                  ? _startRecording
+                  : () {},
+              onRecordCancel: _cancelRecording,
+              onRecordStop: _sendRecording,
+              onRecordLock: _lockRecording,
+              onRecordDragUpdate: (drag) {
+                if (!mounted) return;
+                setState(() => _recordDrag = drag);
+              },
+              voiceTooltip: _recordingPermissionDenied
+                  ? context.l10n.tr('private_chat_mic_permission_required_tooltip')
+                  : context.l10n.tr('private_chat_record_voice_tooltip'),
+            ),
           ],
         ),
       ),

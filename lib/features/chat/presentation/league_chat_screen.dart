@@ -28,6 +28,7 @@ import '../models/chat_message.dart';
 import 'widgets/chat_bubble.dart';
 import 'widgets/chat_input_bar.dart';
 import 'widgets/pinned_message_bar.dart';
+import 'widgets/voice_record_controls.dart';
 
 class LeagueChatScreen extends StatefulWidget {
   final String leagueId;
@@ -97,6 +98,14 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   String? _recordingPath;
   DateTime? _recordingStartedAt;
   Timer? _recordingTicker;
+
+  // Telegram-style press-and-hold recording: set once the user slides up
+  // past the lock threshold (finger already lifted at that point, so the
+  // recording keeps going hands-free until Cancel/Send is tapped
+  // explicitly). _recordDrag mirrors the live finger position while NOT
+  // locked, for the slide-to-cancel/lock hint animation.
+  bool _recordingLocked = false;
+  VoiceRecordDrag _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
 
   final Map<String, _CachedIdentity> _identityCache = <String, _CachedIdentity>{};
   final Set<String> _identityLoading = <String>{};
@@ -997,10 +1006,20 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       setState(() {
         _isRecording = true;
         _recordingPath = outPath;
+        _recordingLocked = false;
+        _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
       });
     } catch (e) {
       _toastErr(e);
     }
+  }
+
+  /// Finger dragged up past the lock threshold: recording keeps going even
+  /// after the finger lifts -- only an explicit Cancel/Send in the
+  /// RecordingOverlay now ends it.
+  void _lockRecording() {
+    if (!mounted) return;
+    setState(() => _recordingLocked = true);
   }
 
   Future<void> _cancelRecording() async {
@@ -1025,6 +1044,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       setState(() {
         _isRecording = false;
         _recordingPath = null;
+        _recordingLocked = false;
+        _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
       });
     } catch (e) {
       _toastErr(e);
@@ -1117,21 +1138,14 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         _recordingPath = null;
         _recordingStartedAt = null;
         _isVoiceSending = false;
+        _recordingLocked = false;
+        _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _isVoiceSending = false);
       _toastErr(e);
     }
-  }
-
-  String _recordingElapsed() {
-    final started = _recordingStartedAt;
-    if (!_isRecording || started == null) return '00:00';
-    final d = DateTime.now().difference(started);
-    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$mm:$ss';
   }
 
   Future<void> _softDeleteSelected(ChatMessage msg) async {
@@ -1232,48 +1246,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
       alignment: 0.2,
-    );
-  }
-
-  Widget _buildRecordingBar(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-      child: Glass(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            Icon(Icons.mic, color: cs.primary),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                "${context.l10n.tr('league_chat_recording_prefix')}${_recordingElapsed()}",
-                style: TextStyle(
-                  color: cs.onSurface.withOpacity(0.85),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: _isVoiceSending ? null : _cancelRecording,
-              child: Text(context.l10n.tr('common_cancel')),
-            ),
-            const SizedBox(width: 6),
-            FilledButton(
-              onPressed: _isVoiceSending ? null : _sendRecording,
-              child: _isVoiceSending
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(context.l10n.tr('league_chat_send')),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -1560,13 +1532,28 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                       },
                     ),
                   ),
-                  if (_isRecording) _buildRecordingBar(context),
+                  if (_isRecording && _recordingStartedAt != null)
+                    RecordingOverlay(
+                      recordingStartedAt: _recordingStartedAt!,
+                      drag: _recordDrag,
+                      locked: _recordingLocked,
+                      isSending: _isVoiceSending,
+                      onCancel: _cancelRecording,
+                      onSend: _sendRecording,
+                    ),
                   if (!_chatBlocked)
                     AnimatedBuilder(
                       animation: Listenable.merge([_selectedMessageId, _replyTo]),
                       builder: (context, _) {
                         final selecting = (_selectedMessageId.value ?? '').trim().isNotEmpty;
                         final reply = _replyTo.value;
+
+                        final canStartRecording = !_sending &&
+                            !_isVoiceSending &&
+                            !_isRecording &&
+                            !selecting &&
+                            !_chatReadOnly &&
+                            !_chatBlocked;
 
                         return ChatInputBar(
                           controller: _textCtrl,
@@ -1582,9 +1569,14 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                             if (_chatReadOnly || _chatBlocked) return;
                             _sendText();
                           },
-                          onRecordVoice: (_sending || _isVoiceSending || _isRecording || selecting || _chatReadOnly)
-                              ? null
-                              : _startRecording,
+                          onRecordStart: canStartRecording ? _startRecording : () {},
+                          onRecordCancel: _cancelRecording,
+                          onRecordStop: _sendRecording,
+                          onRecordLock: _lockRecording,
+                          onRecordDragUpdate: (drag) {
+                            if (!mounted) return;
+                            setState(() => _recordDrag = drag);
+                          },
                           voiceTooltip: _recordingPermissionDenied
                               ? context.l10n.tr('league_chat_mic_permission_required_tooltip')
                               : context.l10n.tr('league_chat_record_voice_tooltip'),
