@@ -530,6 +530,27 @@ class CallSessionController extends StateNotifier<CallSessionState> {
   @override
   void dispose() {
     _reconnectTimer?.cancel();
+    // Safety net: if this controller is ever torn down directly (the
+    // UI layer is expected to call leave() first -- see
+    // CallRoomScreen.dispose()), never leave the LiveKit room connected
+    // and the mic publishing with nothing left able to call leave() on
+    // it.
+    unawaited(OverlayPlatform.stopOverlayVoiceForegroundService());
+    try {
+      _listener?.dispose();
+    } catch (_) {}
+    final room = _room;
+    _room = null;
+    if (room != null) {
+      unawaited(() async {
+        try {
+          await room.disconnect();
+        } catch (_) {}
+        try {
+          await room.dispose();
+        } catch (_) {}
+      }());
+    }
     super.dispose();
   }
 

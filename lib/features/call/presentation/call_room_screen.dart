@@ -124,6 +124,30 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
   void dispose() {
     _incomingHideTimer?.cancel();
     _codeCtrl.dispose();
+
+    // Leaving this screen must not leave the LiveKit room connected and
+    // the mic hot with nothing left to manage or end it --
+    // CallSessionController itself never disconnects on its own
+    // disposal (it's a plain, never-auto-disposed StateNotifierProvider,
+    // and its own dispose() only cancels a reconnect timer), so unless
+    // something here explicitly calls leave(), popping this screen via
+    // the back button/gesture -- not just the in-screen "Leave" button
+    // -- left the session running indefinitely. On Android, the
+    // floating overlay bubble (Platform.isAndroid-gated; see
+    // overlay_platform.dart) is the one legitimate way to keep a call
+    // connected after leaving this screen: it's backed by a real
+    // foreground service declaration and gives the user a visible
+    // control to end the call later. iOS has no such mechanism at all
+    // (no background audio capability is declared, and there is no
+    // overlay), so a call left running after this screen closes on iOS
+    // is pure leaked state -- the mic stays live with no way for the
+    // user to see or stop it short of force-quitting the app.
+    final overlayActivelyTakingOver =
+        Platform.isAndroid && _overlayEnabled && _overlayGranted;
+    if (!overlayActivelyTakingOver) {
+      unawaited(ref.read(callSessionControllerProvider.notifier).leave());
+    }
+
     super.dispose();
   }
 
