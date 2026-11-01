@@ -124,23 +124,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
   void initState() {
     super.initState();
 
-    _privateSub = _privateRepo.watchInbox().listen(
-      (threads) {
-        if (!mounted) return;
-        setState(() {
-          _privateThreads = threads;
-          _privateLoaded = true;
-          _privateError = null;
-        });
-      },
-      onError: (e) {
-        if (!mounted) return;
-        setState(() {
-          _privateError = e;
-          _privateLoaded = true;
-        });
-      },
-    );
+    _privateSub = _watchPrivateInbox();
 
     _leaguesSub = _leaguesRepo.watchLeagues().listen((leagues) {
       _syncRooms(
@@ -161,6 +145,41 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
       if (!mounted) return;
       setState(() => _organizerLoaded = true);
     });
+  }
+
+  StreamSubscription<List<PrivateThread>> _watchPrivateInbox() {
+    return _privateRepo.watchInbox().listen(
+      (threads) {
+        if (!mounted) return;
+        setState(() {
+          _privateThreads = threads;
+          _privateLoaded = true;
+          _privateError = null;
+        });
+      },
+      onError: (e) {
+        if (!mounted) return;
+        setState(() {
+          _privateError = e;
+          _privateLoaded = true;
+        });
+      },
+    );
+  }
+
+  /// The "Try Again" action. A Firestore `.snapshots()` listener that
+  /// has already emitted an error is dead and will never recover or
+  /// retry on its own, so the only way to actually retry after
+  /// [_privateError] is set is to tear the old subscription down and
+  /// start a fresh one -- a bare `setState(() {})` (the previous "Try
+  /// Again" behavior) left the screen stuck on the error state forever.
+  void _retryPrivateInbox() {
+    _privateSub?.cancel();
+    setState(() {
+      _privateLoaded = false;
+      _privateError = null;
+    });
+    _privateSub = _watchPrivateInbox();
   }
 
   @override
@@ -376,7 +395,7 @@ class _PrivateChatListScreenState extends State<PrivateChatListScreen> {
                     ),
                     const SizedBox(height: 14),
                     OutlinedButton.icon(
-                      onPressed: () => setState(() {}),
+                      onPressed: _retryPrivateInbox,
                       icon: const Icon(Icons.refresh_rounded),
                       label: Text(context.l10n.tr('private_chat_list_try_again')),
                     ),

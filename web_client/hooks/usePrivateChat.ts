@@ -7,6 +7,8 @@ import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpl
 export function usePrivateThreads() {
   const [threads, setThreads] = useState<PrivateThread[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     // auth.onAuthStateChanged does not use a callback's return value for
@@ -28,9 +30,13 @@ export function usePrivateThreads() {
 
       if (!user) {
         setThreads([]);
+        setError(null);
         setLoading(false);
         return;
       }
+
+      setLoading(true);
+      setError(null);
 
       const q = query(
         collection(db, 'private_threads'),
@@ -40,9 +46,16 @@ export function usePrivateThreads() {
 
       activeUnsub = onSnapshot(q, (snap) => {
         setThreads(snap.docs.map(d => ({ id: d.id, ...d.data() } as PrivateThread)));
+        setError(null);
         setLoading(false);
       }, (err) => {
         console.error(err);
+        // A `.snapshots()`/onSnapshot listener that has errored is dead
+        // and will never recover on its own -- surface the error (never
+        // fake an empty thread list, which would read as "no
+        // conversations" when threads actually failed to load) so the
+        // UI can offer a retry that re-runs this effect via retryKey.
+        setError(err);
         setLoading(false);
       });
     });
@@ -51,9 +64,9 @@ export function usePrivateThreads() {
       unsubAuth();
       if (activeUnsub) activeUnsub();
     };
-  }, []);
+  }, [retryKey]);
 
-  return { threads, loading };
+  return { threads, loading, error, retry: () => setRetryKey((k) => k + 1) };
 }
 
 export function usePrivateMessages(threadId: string) {

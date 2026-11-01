@@ -8,7 +8,7 @@ import { auth } from '@/lib/firebase';
 import { useMessagesInbox, InboxItem } from '@/hooks/useMessagesInbox';
 import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
 import { getOtherParticipant } from '@/lib/chat/privateChatRepository';
-import { Loader2, MessageCircle, Image as ImageIcon, Mic, Trophy, Network } from 'lucide-react';
+import { Loader2, MessageCircle, Image as ImageIcon, Mic, Trophy, Network, RefreshCw } from 'lucide-react';
 
 interface ResolvedRow {
   item: InboxItem;
@@ -30,7 +30,7 @@ function hrefFor(item: InboxItem): string {
 
 export default function MessagesInboxPage() {
   const [authUid, setAuthUid] = useState<string | null>(null);
-  const { items, loading } = useMessagesInbox();
+  const { items, loading, error, retry } = useMessagesInbox();
   const [rows, setRows] = useState<ResolvedRow[]>([]);
   const [resolving, setResolving] = useState(true);
 
@@ -76,6 +76,16 @@ export default function MessagesInboxPage() {
 
       {loading || resolving ? (
         <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-[#BEF264]" /></div>
+      ) : error && items.length === 0 ? (
+        <div className="text-center bg-[#0B1221] border border-[#1E293B] rounded-3xl p-16">
+          <p className="text-white font-black text-lg">Couldn&apos;t load your chats.</p>
+          <button
+            onClick={retry}
+            className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-[#1E293B] text-[#BEF264] font-bold text-sm hover:bg-[#1E293B]/50 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" /> Try Again
+          </button>
+        </div>
       ) : rows.length === 0 ? (
         <div className="text-center bg-[#0B1221] border border-[#1E293B] rounded-3xl p-16">
           <MessageCircle className="w-12 h-12 text-[#1E293B] mx-auto mb-4" />

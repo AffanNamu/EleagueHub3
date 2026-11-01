@@ -96,7 +96,7 @@ export function useMessagesInbox() {
     return () => unsub();
   }, []);
 
-  const { threads, loading: privateLoading } = usePrivateThreads();
+  const { threads, loading: privateLoading, error: privateError, retry: retryPrivate } = usePrivateThreads();
   const { leagues, loading: leaguesLoading } = useLeagues();
   const { created, joined, loading: mlLoading } = useMyMasterLeagues(authUid);
 
@@ -129,5 +129,11 @@ export function useMessagesInbox() {
     })),
   ].sort((a, b) => b.lastActivityMs - a.lastActivityMs);
 
-  return { items, loading: privateLoading || leaguesLoading || mlLoading, authUid };
+  return {
+    items,
+    loading: privateLoading || leaguesLoading || mlLoading,
+    authUid,
+    error: privateError,
+    retry: retryPrivate,
+  };
 }
