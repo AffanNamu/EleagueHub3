@@ -20,7 +20,14 @@ jobs:
 
     env:
       FLUTTER_CHANNEL: stable
-      FLUTTER_VERSION: 3.24.5
+      # Matches android.yml/ios.yml's pin. Must stay >= the version whose
+      # bundled flutter_test first depends on meta ^1.16.0 -- pubspec.yaml's
+      # dependency_overrides pins device_info_plus to 12.3.0 (for an
+      # unrelated iOS SDK reason, see its own comment there), and that
+      # version requires meta ^1.16.0. The old 3.24.5 pin's flutter_test
+      # depends on meta 1.15.0 exactly, which made `flutter pub get` fail
+      # version solving on every push to main.
+      FLUTTER_VERSION: 3.47.1
       PUB_CACHE: ${{ github.workspace }}/.pub-cache
 
       # Helps reduce DNS/IPv6 flakiness on some runners
@@ -62,7 +69,10 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Flutter Web with HTML Renderer
+      # Flutter removed the HTML renderer (and the --web-renderer flag
+      # entirely) in a later SDK release -- CanvasKit is now the only web
+      # renderer, so there's no flag to pass for it.
+      - name: Build Flutter Web
         env:
           EH_WORKER_BASE_URL: ${{ secrets.EH_WORKER_BASE_URL }}
           FLW_PUBLIC_KEY_TEST: ${{ secrets.FLW_PUBLIC_KEY_TEST }}
@@ -86,7 +96,7 @@ jobs:
             DART_DEFINES="${DART_DEFINES} --dart-define=FLW_TEST_MODE=true"
           fi
 
-          flutter build web --release --web-renderer html ${DART_DEFINES}
+          flutter build web --release ${DART_DEFINES}
 
       - name: Verify web output
         run: |
