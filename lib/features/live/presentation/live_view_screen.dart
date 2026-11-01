@@ -963,12 +963,19 @@ class _LiveViewScreenState extends ConsumerState<LiveViewScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () => BatteryOptimizationGuide.show(context),
-              icon: const Icon(Icons.battery_alert_outlined),
-              label: Text(_trOr(l10n, 'live_view_battery_background_help', 'Battery / Background Help')),
-            ),
+            // Battery-optimization exemptions are an Android-only OS
+            // concept (no iOS equivalent setting exists, and every
+            // BatteryOptimizationGuide action is a no-op on iOS) --
+            // shown only on Android so iOS never sees a button whose
+            // steps and controls don't apply to it.
+            if (Platform.isAndroid) ...[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => BatteryOptimizationGuide.show(context),
+                icon: const Icon(Icons.battery_alert_outlined),
+                label: Text(_trOr(l10n, 'live_view_battery_background_help', 'Battery / Background Help')),
+              ),
+            ],
           ],
         ),
       );

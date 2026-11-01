@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -487,28 +488,37 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
         title: Text(_trOr(l10n, 'call_room_title', 'Voice Room')),
         actions: [
           // ── Overlay Toggle Button (Top-Right) ───────────────────────────
-          IconButton(
-            tooltip: _overlayEnabled
-                ? (_overlayGranted
-                    ? _trOr(
-                        l10n,
-                        'live_overlay_on_tooltip',
-                        'Overlay is ON',
-                      )
-                    : _trOr(
-                        l10n,
-                        'live_overlay_permission_needed_tooltip',
-                        'Overlay needs permission',
-                      ))
-                : _trOr(
-                    l10n,
-                    'live_overlay_off_tooltip',
-                    'Overlay is OFF',
-                  ),
-            onPressed: _toggleOverlay,
-            icon: Icon(overlayIcon, color: overlayIconColor),
-          ),
-          const SizedBox(width: 8),
+          // Android-only OS concept (floating "appear on top" overlay) --
+          // no iOS equivalent exists and OverlayPlatform's methods are
+          // all no-ops on iOS, so this button is only shown on Android.
+          // Without this gate, tapping it on iOS would set
+          // _overlayEnabled=true, never actually grant anything, and
+          // leave the icon permanently stuck on its "needs permission"
+          // warning state with no way to resolve it.
+          if (Platform.isAndroid) ...[
+            IconButton(
+              tooltip: _overlayEnabled
+                  ? (_overlayGranted
+                      ? _trOr(
+                          l10n,
+                          'live_overlay_on_tooltip',
+                          'Overlay is ON',
+                        )
+                      : _trOr(
+                          l10n,
+                          'live_overlay_permission_needed_tooltip',
+                          'Overlay needs permission',
+                        ))
+                  : _trOr(
+                      l10n,
+                      'live_overlay_off_tooltip',
+                      'Overlay is OFF',
+                    ),
+              onPressed: _toggleOverlay,
+              icon: Icon(overlayIcon, color: overlayIconColor),
+            ),
+            const SizedBox(width: 8),
+          ],
         ],
       ),
       body: SafeArea(

@@ -1,6 +1,7 @@
 // lib/features/profile/presentation/settings_screen.dart
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -1277,48 +1278,58 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 const SizedBox(height: 16),
 
                 // ── Live Overlay ──────────────────────────────────────────
-                _SectionLabel(
-                  icon: Icons.picture_in_picture_alt_rounded,
-                  label: l10n.liveOverlayTitle,
-                ),
-                const SizedBox(height: 8),
-                Glass(
-                  borderRadius: 20,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.liveOverlayHint,
-                        style: TextStyle(
-                          color: onSurface.withOpacity(0.55),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          height: 1.4,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _OverlayStatusCard(
-                        enabled: _overlayEnabled,
-                        granted: _overlayPermissionGranted,
-                        statusText: overlayStatusText,
-                        onGrant: () async {
-                          await OverlayPlatform
-                              .requestOverlayPermission();
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _SettingsToggle(
-                        icon: Icons.layers_rounded,
-                        title: l10n.liveOverlaySwitchTitle,
-                        subtitle: l10n.liveOverlaySwitchSubtitle,
-                        value: _overlayEnabled,
-                        onChanged: (v) async =>
-                            _setOverlayEnabled(v),
-                      ),
-                    ],
+                // The floating "appear on top of other apps" overlay is an
+                // Android-only OS concept with no iOS equivalent -- iOS
+                // never allows one app to draw over another at all --
+                // and every OverlayPlatform method is a no-op on iOS, so
+                // this whole section (whose own hint text says "Android
+                // only") is shown only on Android rather than offering
+                // iOS users a toggle and a "grant permission" button that
+                // can never do anything.
+                if (Platform.isAndroid) ...[
+                  _SectionLabel(
+                    icon: Icons.picture_in_picture_alt_rounded,
+                    label: l10n.liveOverlayTitle,
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  Glass(
+                    borderRadius: 20,
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.liveOverlayHint,
+                          style: TextStyle(
+                            color: onSurface.withOpacity(0.55),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _OverlayStatusCard(
+                          enabled: _overlayEnabled,
+                          granted: _overlayPermissionGranted,
+                          statusText: overlayStatusText,
+                          onGrant: () async {
+                            await OverlayPlatform
+                                .requestOverlayPermission();
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        _SettingsToggle(
+                          icon: Icons.layers_rounded,
+                          title: l10n.liveOverlaySwitchTitle,
+                          subtitle: l10n.liveOverlaySwitchSubtitle,
+                          value: _overlayEnabled,
+                          onChanged: (v) async =>
+                              _setOverlayEnabled(v),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 16),
 
