@@ -255,7 +255,14 @@ class _NotificationsListScreenState extends State<NotificationsListScreen> {
                 borderRadius: BorderRadius.circular(12),
                 onTap: item.route.trim().isEmpty
                     ? null
-                    : () => appRouter.go(item.route.trim()),
+                    // push (not go): this screen is itself pushed on top
+                    // of wherever the user already was. go() replaces the
+                    // whole navigation stack with the target route alone,
+                    // which wipes out both this inbox screen and
+                    // everything beneath it -- so tapping a notification
+                    // (e.g. a new follower's /team/{id} profile) left
+                    // nothing for the back button to return to.
+                    : () => appRouter.push(item.route.trim()),
                 child: Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(

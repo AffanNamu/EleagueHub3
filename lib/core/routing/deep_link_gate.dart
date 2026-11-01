@@ -110,9 +110,16 @@ class _DeepLinkGateState extends State<DeepLinkGate> {
     // /org/{id} (and any future entity type registered in RouteResolver).
     // See core/deep_links/deep_link_service.dart and
     // core/routing/route_resolver.dart.
+    //
+    // push (not go): unlike the auth action links above (a terminal,
+    // security-sensitive flow where replacing the whole stack is
+    // correct), this is the user opening a piece of shared content --
+    // same expectation as a notification tap, and the same bug class:
+    // go() would replace the entire stack with just the target screen,
+    // leaving nothing for the back button to return to.
     final handledByShareSystem = DeepLinkService.tryHandle(
       uri,
-      navigate: (path) => appRouter.go(path),
+      navigate: (path) => appRouter.push(path),
     );
     if (handledByShareSystem) return;
 
@@ -121,10 +128,13 @@ class _DeepLinkGateState extends State<DeepLinkGate> {
     // Routes to /join?code=XXXXXX which is registered in app_router.dart.
     // On web  → shows WebJoinScreen (inline code-entry + join flow).
     // On mobile → shows QRScannerScreen with code pre-filled.
+    // push (not go), same reasoning as the sharing entity links above --
+    // a user who opens a join link and decides not to join should be
+    // able to back out of it.
     final joinCode = _tryParseJoinCode(uri);
     if (joinCode != null && joinCode.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        appRouter.go(
+        appRouter.push(
           '/join?code=${Uri.encodeQueryComponent(joinCode.toUpperCase())}',
         );
       });

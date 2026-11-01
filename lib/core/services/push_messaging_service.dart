@@ -308,10 +308,19 @@ class PushMessagingService {
       await FollowedOrganizerNotificationsService.instance.init();
     } catch (_) {}
 
+    // push (not go): go() replaces the router's whole stack with just
+    // the notification's target route, leaving nothing for the back
+    // button to return to -- whether the app was already running
+    // (onMessageOpenedApp, with a real stack from whatever screen the
+    // user was on) or just cold-started by the tap (getInitialMessage,
+    // where appRouter's own initialLocation -- '/bootstrap' on mobile --
+    // already seeds one entry beneath it; the router's auth redirect
+    // logic still applies to the pushed target exactly as it would to
+    // go(), so this never bypasses a sign-in/onboarding check).
     _onOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen((m) {
       final route = (m.data['route'] ?? '').toString().trim();
       if (route.isEmpty || !route.startsWith('/')) return;
-      appRouter.go(route);
+      appRouter.push(route);
     });
 
     try {
@@ -319,7 +328,7 @@ class PushMessagingService {
       if (initial != null) {
         final route = (initial.data['route'] ?? '').toString().trim();
         if (route.isNotEmpty && route.startsWith('/')) {
-          scheduleMicrotask(() => appRouter.go(route));
+          scheduleMicrotask(() => appRouter.push(route));
         }
       }
     } catch (_) {}

@@ -116,7 +116,13 @@ class _NotificationTapRouterState extends State<_NotificationTapRouter> {
       if (!r.startsWith('/')) return;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        appRouter.go(r);
+        // push (not go): by the time a notification is tapped, the
+        // router already has a real stack -- either wherever the user
+        // was before backgrounding the app, or (on a cold start) the
+        // app's normal initial route. go() replaces that whole stack
+        // with the notification's target alone, leaving nothing for
+        // the back button to return to.
+        appRouter.push(r);
       });
     });
   }

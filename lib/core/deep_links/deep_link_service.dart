@@ -32,7 +32,7 @@ class DeepLinkService {
   /// link silently.
   ///
   /// [navigate] is injected by the caller (typically
-  /// `(path) => appRouter.go(path)`) rather than imported directly here,
+  /// `(path) => appRouter.push(path)`) rather than imported directly here,
   /// so this service has no compile-time dependency on the app's router
   /// singleton or its file location.
   static bool tryHandle(Uri uri, {required void Function(String path) navigate}) {
