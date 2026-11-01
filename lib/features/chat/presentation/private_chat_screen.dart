@@ -21,6 +21,7 @@ import '../../../core/services/safe_image_picker.dart';
 import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass_scaffold.dart';
+import '../../auth/data/user_profile_repository.dart';
 import '../../moderation/models/user_report.dart';
 import '../../moderation/presentation/report_sheet.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
@@ -48,7 +49,26 @@ class PrivateChatScreen extends StatefulWidget {
 
 class _PrivateChatScreenState extends State<PrivateChatScreen> {
   final PrivateChatRepository _repo = PrivateChatRepository();
+  final UserProfileRepository _profiles = UserProfileRepository();
   final TextEditingController _input = TextEditingController();
+
+  // Created once here rather than inline in the StreamBuilder below --
+  // calling _repo.watchMessages(...) directly as a StreamBuilder's
+  // `stream:` means a NEW Firestore listener is created on every
+  // rebuild (and this screen has many setState() calls: recording,
+  // attachments, reactions, pending messages...). StreamBuilder treats
+  // each new stream instance as starting fresh, so the message list
+  // flashed back to its loading spinner on nearly every interaction
+  // before "reloading" moments later.
+  late final Stream<List<PrivateMessage>> _messagesStream =
+      _repo.watchMessages(widget.threadId);
+
+  // The name passed via GoRoute `extra` (e.g. tapping a thread from the
+  // inbox list, which always sets it) — but a notification tap or deep
+  // link into `/chat/:threadId` carries no `extra` at all, so
+  // app_router.dart's route falls back to the literal string 'User'.
+  // Resolved for real below whenever that happens.
+  late String _resolvedOtherUserName = widget.otherUserName;
 
   /// Optimistic messages keyed by the client-generated id used as their
   /// Firestore doc id, shown immediately on send before the write (and the
@@ -75,6 +95,25 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     // looking at this thread (mirrors LeagueChatScreen's
     // setActiveLeagueChat pattern).
     PushMessagingService.instance.setActiveThread(widget.threadId);
+
+    if (_resolvedOtherUserName.trim().isEmpty ||
+        _resolvedOtherUserName.trim() == 'User') {
+      unawaited(_resolveOtherUserName());
+    }
+  }
+
+  Future<void> _resolveOtherUserName() async {
+    final otherId = _extractOtherUserId();
+    if (otherId == null || otherId.isEmpty) return;
+    try {
+      final name = await _profiles.fetchDisplayNameByUserId(otherId);
+      if (!mounted) return;
+      if (name.trim().isNotEmpty) {
+        setState(() => _resolvedOtherUserName = name.trim());
+      }
+    } catch (_) {
+      // Keep whatever name (possibly the 'User' fallback) is already showing.
+    }
   }
 
   @override
@@ -533,7 +572,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             children: [
               Flexible(
                 child: Text(
-                  widget.otherUserName,
+                  _resolvedOtherUserName,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -556,7 +595,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           children: [
             Expanded(
               child: StreamBuilder<List<PrivateMessage>>(
-                stream: _repo.watchMessages(widget.threadId),
+                stream: _messagesStream,
                 builder: (context, snap) {
                   if (!snap.hasData) {
                     return const Center(child: CircularProgressIndicator());
@@ -617,6 +656,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                       final reactionsRepo = ReactionsRepository(messageRef);
 
                       return Align(
+                        key: ValueKey(m.id),
                         alignment:
                             isMe ? Alignment.centerRight : Alignment.centerLeft,
                         child: Column(

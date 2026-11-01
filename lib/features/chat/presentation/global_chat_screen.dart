@@ -35,6 +35,16 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
   final TextEditingController _textCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
 
+  // Created once here, not inline in a StreamBuilder's `stream:` --
+  // calling the repository's stream methods directly there means a
+  // NEW Firestore listener is created on every rebuild (this screen
+  // has many setState() calls), and StreamBuilder treats each new
+  // stream instance as starting fresh -- the message list flashed back
+  // to its loading spinner on nearly every interaction before
+  // "reloading" moments later.
+  late final Stream<List<ChatMessage>> _messagesStream = _repo.globalChatStream();
+  late final Stream<ChatMessage?> _pinnedMessageStream = _repo.globalPinnedMessageStream();
+
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
   Map<String, ChatMessage> _msgById = <String, ChatMessage>{};
 
@@ -688,7 +698,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
       children: [
         _moderationBanner(context),
         StreamBuilder<ChatMessage?>(
-          stream: _repo.globalPinnedMessageStream(),
+          stream: _pinnedMessageStream,
           builder: (context, snap) {
             final pinned = snap.data;
             if (pinned == null) return const SizedBox.shrink();
@@ -700,7 +710,7 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         ),
         Expanded(
           child: StreamBuilder<List<ChatMessage>>(
-            stream: _repo.globalChatStream(),
+            stream: _messagesStream,
             builder: (context, snap) {
               if (snap.hasError) {
                 final err = snap.error;
