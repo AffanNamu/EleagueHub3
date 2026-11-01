@@ -57,6 +57,31 @@ jobs:
           [ "${ok}" -eq 1 ] || { echo "ERROR: Checkout failed"; exit 1; }
 
       # ─────────────────────────────────────────
+      # 1b. FREE DISK SPACE
+      # ─────────────────────────────────────────
+      # This build has been failing with "No space left on device"
+      # (Gradle, mid-compile) on nearly every run -- ubuntu-latest
+      # ships with several GB of pre-installed toolchains this job
+      # never touches (.NET, Haskell/GHC, the hosted tool cache of
+      # pre-staged Node/Python/Go/Ruby versions, assorted pre-pulled
+      # Docker images), and this project's native dependencies then
+      # pull down their own multi-GB Android NDK on top of that plus
+      # Gradle's own build cache. Clearing the unused toolchains first
+      # -- before Flutter/Java/Gradle/NDK start consuming the disk --
+      # routinely frees 20+ GB on these runners, which is what this
+      # build actually needs to finish. `|| true` on every line: never
+      # let a path that doesn't exist on a given runner image fail the
+      # job.
+      - name: Free disk space
+        run: |
+          set -x
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc /usr/local/.ghcup || true
+          sudo rm -rf "${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}" || true
+          sudo docker image prune --all --force || true
+          df -h /
+
+      # ─────────────────────────────────────────
       # 2. PREPARE DIRECTORIES
       # ─────────────────────────────────────────
       - name: Prepare directories
