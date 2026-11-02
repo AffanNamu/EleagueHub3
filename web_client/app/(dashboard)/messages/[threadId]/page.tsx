@@ -8,6 +8,8 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { usePrivateMessages } from '@/hooks/usePrivateChat';
 import { fetchUserProfileByUserId } from '@/lib/services/userProfileRepository';
+import { isPaidPlanActive } from '@/lib/plans/rateLimitService';
+import { PrivateChatFilesRequirePremiumError } from '@/lib/chat/privateChatRepository';
 import { PrivateChatBubble } from '@/components/chat/PrivateChatBubble';
 import { ArrowLeft, ImageIcon, Mic, Send, Loader2, StopCircle } from 'lucide-react';
 
@@ -23,6 +25,7 @@ export default function PrivateChatThreadPage() {
   const [sending, setSending] = useState(false);
   const [attaching, setAttaching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filesRequirePremium, setFilesRequirePremium] = useState(false);
 
   // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -80,11 +83,27 @@ export default function PrivateChatThreadPage() {
       return;
     }
 
-    setAttaching(true);
     setError(null);
+    setFilesRequirePremium(false);
+
+    // Pre-check before uploading anything -- a free (no Pro/Elite plan)
+    // user can't send file attachments at all until they upgrade
+    // (firestore.rules enforces this authoritatively too), so there's no
+    // point spending an upload just to have the Firestore write rejected
+    // afterward. Mirrors private_chat_screen.dart's _handleImagePick().
+    if (authUid && !(await isPaidPlanActive(authUid))) {
+      setFilesRequirePremium(true);
+      setError('Sending files requires an active Pro or Elite plan.');
+      return;
+    }
+
+    setAttaching(true);
     try {
       await sendImage(file);
     } catch (err) {
+      if (err instanceof PrivateChatFilesRequirePremiumError) {
+        setFilesRequirePremium(true);
+      }
       setError(err instanceof Error ? err.message : 'Could not send image.');
     } finally {
       setAttaching(false);
@@ -177,7 +196,19 @@ export default function PrivateChatThreadPage() {
 
       {/* ── INPUT AREA ── */}
       <div className="p-4 bg-[#0B1221] border-t border-[#1E293B]">
-        {error && <p className="text-xs font-bold text-red-500 mb-2">{error}</p>}
+        {error && (
+          <div className="mb-2">
+            <p className="text-xs font-bold text-red-500">{error}</p>
+            {filesRequirePremium && (
+              <button
+                onClick={() => router.push('/premium')}
+                className="mt-1.5 px-3 py-1.5 bg-[#BEF264] text-[#0F172A] text-xs font-black rounded-lg hover:brightness-110 transition-all"
+              >
+                Upgrade to send files
+              </button>
+            )}
+          </div>
+        )}
 
         {isRecording ? (
           <div className="flex items-center gap-3 p-3 rounded-2xl bg-[#1E293B] border border-red-500/30">

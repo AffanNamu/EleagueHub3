@@ -16,12 +16,14 @@ import '../../../core/reactions/presentation/reaction_picker.dart';
 import '../../../core/reactions/presentation/reaction_pill_bar.dart';
 import '../../../core/reactions/reactions_repository.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/plan_status_service.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
 import '../../../core/services/supabase_edge_notifications_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
+import '../../leagues/presentation/upgrade_plan_screen.dart';
 import '../../moderation/models/user_report.dart';
 import '../../moderation/presentation/report_sheet.dart';
 import '../../verification/presentation/widgets/verification_badge_widget.dart';
@@ -290,6 +292,40 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       if (mounted) setState(() => _busyWithAttachment = false);
       _toastErr(e);
     }
+  }
+
+  /// Free (no active Pro/Elite plan) users can already read and reply in
+  /// an existing private thread, but sending a file attachment is a
+  /// paid-only action until they upgrade -- mirrors how
+  /// PrivateMessageButton gates STARTING a new thread: redirect to
+  /// UpgradePlanScreen instead of letting the picker open and the
+  /// Firestore write fail with a raw permission-denied (firestore.rules'
+  /// private DM message rule requires an active plan outright for
+  /// type == 'image', no free-tier allowance). Checked live rather than
+  /// cached, since PlanStatusService is the authoritative, always-fresh
+  /// source and this is only a quick single-document read.
+  Future<void> _handleImagePick() async {
+    if (_busyWithAttachment || _isRecording) return;
+
+    setState(() => _busyWithAttachment = true);
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    bool isPaid = false;
+    try {
+      isPaid = uid.isEmpty
+          ? false
+          : await PlanStatusService.instance.isPaidPlanActive(uid);
+    } catch (_) {
+      isPaid = false;
+    }
+    if (!mounted) return;
+    setState(() => _busyWithAttachment = false);
+
+    if (!isPaid) {
+      final upgraded = await UpgradePlanScreen.open(context);
+      if (!upgraded || !mounted) return;
+    }
+
+    await _pickAndSendImage();
   }
 
   Future<void> _startRecording() async {
@@ -728,7 +764,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               codeMode: false,
               onToggleCodeMode: () {},
               enabled: !_isRecording,
-              onPickImage: _pickAndSendImage,
+              onPickImage: _handleImagePick,
               onSend: _send,
               onRecordStart: (!_busyWithAttachment && !_isVoiceSending && !_isRecording)
                   ? _startRecording
