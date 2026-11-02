@@ -1,6 +1,5 @@
 import { collection, doc, getDoc, setDoc, query, where, orderBy, limit, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { detectPremiumUser } from '@/lib/leagues/leaguesRepository';
 import {
   isPaidPlanActive,
   runWithRateLimit,
@@ -43,6 +42,30 @@ export class PrivateChatFilesRequirePremiumError extends Error {
   }
 }
 
+// Mirrors UserProfile.hasPlanActive (lib/features/auth/models/
+// user_profile.dart) -- true for ANY recognized plan including the free
+// Basic tier, not just a paid one. leaguesRepository's detectPremiumUser()
+// is paid-only by design and used elsewhere for genuinely paid-gated
+// features (creating/joining leagues); starting a private chat is not one
+// of those -- firestore.rules' requesterCanStartPrivateChat() already
+// lets a free Basic-plan user create a thread, so this must match or the
+// UI shows "Premium required" for a write the rule would actually accept.
+async function hasAnyPlanActive(uid: string): Promise<boolean> {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    const data = snap.data() ?? {};
+    const activePlanId = typeof data.activePlanId === 'string' ? data.activePlanId.trim().toLowerCase() : '';
+    if (activePlanId === 'basic') return true;
+    if (activePlanId === 'pro' || activePlanId === 'elite') {
+      const planExpiresAtMs = Number(data.planExpiresAtMs) || 0;
+      if (planExpiresAtMs > Date.now()) return true;
+    }
+  } catch (e) {
+    console.warn('[privateChatRepository] hasAnyPlanActive failed:', e);
+  }
+  return false;
+}
+
 // Deterministic Thread ID (Mirrors Flutter)
 export function getThreadId(uidA: string, uidB: string): string {
   const sorted = [uidA, uidB].sort();
@@ -71,16 +94,17 @@ export async function checkChatAccessWeb(authUid: string, targetUid: string) {
     if (e.code !== 'permission-denied') throw e;
   }
 
-  // Check if user is premium to start a new chat
-  const isPremium = await detectPremiumUser(authUid);
+  // Any active plan (free Basic included) can start a new chat -- only
+  // sending a FILE attachment inside one requires an actual paid plan.
+  const canStart = await hasAnyPlanActive(authUid);
 
-  return isPremium ? 'canStart' : 'locked';
+  return canStart ? 'canStart' : 'locked';
 }
 
 export async function startOrGetThreadWeb(authUid: string, targetUid: string): Promise<PrivateThread> {
   const access = await checkChatAccessWeb(authUid, targetUid);
   if (access === 'blocked') throw new Error('You cannot message this user.');
-  if (access === 'locked') throw new Error('Starting a private chat requires a Premium plan.');
+  if (access === 'locked') throw new Error('Please finish setting up your profile before starting a chat.');
 
   const threadId = getThreadId(authUid, targetUid);
   const ref = doc(db, 'private_threads', threadId);

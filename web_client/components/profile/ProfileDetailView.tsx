@@ -231,9 +231,9 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
   const handleMessage = async () => {
     // Mirrors PrivateMessageIconButton.dart's tap handling: check access
     // first so an existing thread opens with no write at all, a blocked
-    // relationship never attempts a write, and a free (non-Premium) user
-    // gets the same upsell copy as the app instead of a raw Firestore
-    // permission error. Previously this button pushed straight to
+    // relationship never attempts a write, and an unresolvable profile
+    // gets a friendly message instead of a raw Firestore permission
+    // error. Previously this button pushed straight to
     // `/messages/{targetUid}` — the wrong id entirely (private_threads
     // docs are keyed by the deterministic `dm_{sortedUidPair}` id, not a
     // single user's uid) and never created the thread doc, so starting
@@ -247,7 +247,7 @@ export function ProfileDetailView({ routeUid }: { routeUid: string }) {
         return;
       }
       if (access === 'locked') {
-        alert(`Starting a private chat requires Premium. ${displayName || 'This user'} can still message you first.`);
+        alert('Please finish setting up your profile before starting a chat.');
         return;
       }
       const threadId = access === 'threadExists'
