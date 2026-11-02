@@ -12,6 +12,7 @@ import '../../../../core/services/connectivity_service.dart';
 import '../../../../core/services/safe_image_picker.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../highlights/data/video_compression_service.dart';
+import '../../../leagues/presentation/upgrade_plan_screen.dart';
 import '../../data/public_feed_repository.dart';
 
 /// Raw video picks larger than this are rejected before we spend time
@@ -163,6 +164,7 @@ Future<bool?> showCreatePostSheet(
       bool busy = false;
       String? busyStatus;
       String? error;
+      bool showUpgradeCta = false;
 
       return StatefulBuilder(
         builder: (ctx, setSheetState) {
@@ -242,6 +244,7 @@ Future<bool?> showCreatePostSheet(
               busy = true;
               busyStatus = null;
               error = null;
+              showUpgradeCta = false;
             });
 
             try {
@@ -283,6 +286,7 @@ Future<bool?> showCreatePostSheet(
                 error = e is StateError
                     ? e.message
                     : UserFriendlyError.toMessage(e is Object ? e : Exception('unknown'));
+                showUpgradeCta = e is PublicFeedRateLimitExceededException;
               });
             }
           }
@@ -495,6 +499,31 @@ Future<bool?> showCreatePostSheet(
                           fontSize: 12,
                         ),
                       ),
+                      if (showUpgradeCta) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.limeAccent,
+                              foregroundColor: AppTheme.darkText,
+                            ),
+                            onPressed: busy
+                                ? null
+                                : () async {
+                                    final upgraded = await UpgradePlanScreen.open(ctx);
+                                    if (!upgraded || !ctx.mounted) return;
+                                    setSheetState(() {
+                                      error = null;
+                                      showUpgradeCta = false;
+                                    });
+                                    submit();
+                                  },
+                            icon: const Icon(Icons.workspace_premium_rounded, size: 18),
+                            label: Text(l10n.tr('create_post_upgrade_button')),
+                          ),
+                        ),
+                      ],
                     ],
 
                     const SizedBox(height: 16),
