@@ -18,10 +18,13 @@ import '../models/private_thread.dart';
 enum PrivateChatAccess {
   /// A thread already exists — either side can open/reply freely.
   threadExists,
-  /// No thread yet, but the viewer has an active paid plan and can start one.
+  /// No thread yet, but the viewer has a resolvable profile with any
+  /// active plan (free Basic included) and can start one.
   canStart,
-  /// No thread yet, and the viewer is free — cannot start, must wait
-  /// for the other user to message first.
+  /// No thread yet, and the viewer's profile couldn't be resolved at
+  /// all (e.g. not signed in, or an incomplete/missing profile) — not a
+  /// plan restriction. See requesterCanStartPrivateChat() in
+  /// firestore.rules.
   locked,
   /// Either party has blocked the other — messaging is unavailable
   /// regardless of plan status, and the button should not be shown
@@ -175,10 +178,15 @@ class PrivateChatRepository {
 
   /// Starts a new thread with [otherUserId], or returns the existing one.
   ///
-  /// FREE users cannot start a new thread — this is enforced both here
-  /// (fast, friendly error) and in Firestore rules (authoritative).
-  /// Once a thread exists, either participant can reply regardless of
-  /// their own plan status.
+  /// Any signed-in user with a resolvable profile (free Basic plan
+  /// included, not just Pro/Elite) can start a new thread — this is
+  /// enforced both here (fast, friendly error) and in Firestore rules'
+  /// requesterCanStartPrivateChat() (authoritative). Once a thread
+  /// exists, either participant can reply regardless of their own plan
+  /// status. Sending a FILE attachment inside a thread is the one
+  /// action that still requires an actual paid plan — see
+  /// PrivateChatScreen's image-pick flow and firestore.rules' messages
+  /// create rule.
   Future<PrivateThread> startOrGetThread(String otherUserId) async {
     try {
       final authUid = _requireAuthUid();
@@ -210,15 +218,16 @@ class PrivateChatRepository {
         return PrivateThread.fromDoc(existing);
       }
 
-      // Only the initiator needs an active paid plan. Check via the
-      // same authoritative source as the rest of the app.
+      // The initiator just needs a resolvable profile with any active
+      // plan (free Basic included) -- see requesterCanStartPrivateChat()
+      // in firestore.rules. A missing/unresolvable profile is the only
+      // way this is actually false in practice.
       final profile = await _userProfiles.fetchByUserId(authUid);
       final canStart = profile?.hasPlanActive ?? false;
 
       if (!canStart) {
         throw const PrivateChatException(
-          'Starting a private chat requires a Premium plan. '
-          'Free accounts can reply once a Premium user messages you first.',
+          'Please finish setting up your profile before starting a chat.',
         );
       }
 

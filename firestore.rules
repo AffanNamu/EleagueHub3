@@ -3210,8 +3210,27 @@ service cloud.firestore {
           && !exists(/databases/$(database)/documents/users/$(request.auth.uid)/blocked_by/$(otherUid));
       }
 
-      function requesterHasActivePlan() {
-        return profileHasActivePlan('pro') || profileHasActivePlan('elite');
+      // Mirrors UserProfile.hasPlanActive (lib/features/auth/models/
+      // user_profile.dart) -- true for ANY recognized plan including the
+      // free Basic tier, not just a paid one. profileHasActivePlan()
+      // above is deliberately paid-only (pro/elite) and used everywhere
+      // that specifically gates a paid-only feature; starting a private
+      // chat is NOT one of those -- the client's own checkAccess()/
+      // startOrGetThread() already let a free (Basic-plan) user start a
+      // new thread, so this rule was rejecting a write the client told
+      // the user it would allow, surfacing as "permission-denied" on
+      // every attempt. Only sending a FILE attachment inside a thread
+      // requires an actual paid plan (see the messages subcollection's
+      // create rule below) -- text/voice stay available to everyone.
+      function requesterCanStartPrivateChat() {
+        let path = /databases/$(database)/documents/users/$(request.auth.uid);
+        return profileHasActivePlan('pro')
+          || profileHasActivePlan('elite')
+          || (
+            signedIn()
+            && exists(path)
+            && (get(path).data.get('activePlanId', '') == 'basic')
+          );
       }
 
       allow get: if signedIn() && (request.auth.uid in threadParticipantIds(resource.data));
@@ -3233,7 +3252,7 @@ service cloud.firestore {
         && (request.resource.data.lastMessageAtMs is int)
         && (request.resource.data.lastSenderId is string)
         && (request.resource.data.createdAtMs is int)
-        && requesterHasActivePlan()
+        && requesterCanStartPrivateChat()
         && notBlockedEitherWay(otherParticipant(request.resource.data.participantIds));
 
       allow update: if signedIn()
