@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { PublicPost, toggleLikeWeb, deletePostWeb, createPostWeb } from '@/lib/feed/publicFeedRepository';
+import { RateLimitExceededError } from '@/lib/plans/rateLimitService';
 import { PostCard } from '@/components/feed/PostCard';
 import { CommentsModal } from '@/components/feed/CommentsModal';
 import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
@@ -23,6 +24,8 @@ export default function PublicFeedScreen() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [showUpgradeCta, setShowUpgradeCta] = useState(false);
 
   // NEW: which post's comments sheet is open, if any. Previously there
   // was no comments UI on web at all.
@@ -52,6 +55,8 @@ export default function PublicFeedScreen() {
     if (!postText.trim() && !imageFile && !audioFile) return alert("Add text, an image, or sound.");
     
     setUploading(true);
+    setCreateError(null);
+    setShowUpgradeCta(false);
     try {
       let mediaUrl = '';
       let audioUrl = '';
@@ -80,7 +85,12 @@ export default function PublicFeedScreen() {
       setImageFile(null);
       setAudioFile(null);
     } catch (err: any) {
-      alert("Upload failed: " + err.message);
+      if (err instanceof RateLimitExceededError) {
+        setCreateError(err.message);
+        setShowUpgradeCta(true);
+      } else {
+        alert("Upload failed: " + err.message);
+      }
     } finally {
       setUploading(false);
     }
@@ -120,8 +130,8 @@ export default function PublicFeedScreen() {
 
       {/* ── CREATE FAB ── */}
       {authUid && (
-        <button 
-          onClick={() => setIsModalOpen(true)}
+        <button
+          onClick={() => { setCreateError(null); setShowUpgradeCta(false); setIsModalOpen(true); }}
           className="fixed bottom-20 right-6 md:right-10 w-14 h-14 bg-[#BEF264] text-[#0F172A] rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform z-40"
         >
           <Plus className="w-6 h-6" />
@@ -159,7 +169,21 @@ export default function PublicFeedScreen() {
               </div>
             </div>
 
-            <button 
+            {createError && (
+              <div className="mb-3">
+                <p className="text-xs font-bold text-red-500">{createError}</p>
+                {showUpgradeCta && (
+                  <button
+                    onClick={() => { setIsModalOpen(false); router.push('/premium'); }}
+                    className="mt-1.5 px-3 py-1.5 bg-[#BEF264] text-[#0F172A] text-xs font-black rounded-lg hover:brightness-110 transition-all"
+                  >
+                    Upgrade Plan
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button
               onClick={handleCreateSubmit} disabled={uploading}
               className="w-full py-4 bg-[#BEF264] text-[#0F172A] font-black rounded-xl hover:brightness-110 disabled:opacity-50 flex justify-center shadow-lg shadow-[#BEF264]/10"
             >

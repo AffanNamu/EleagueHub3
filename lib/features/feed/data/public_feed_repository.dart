@@ -18,6 +18,15 @@ class PublicFeedRepositoryException implements Exception {
   String toString() => message;
 }
 
+/// Specifically the free-tier daily post cap being hit (not blocked, not
+/// offline, not a real permission problem) -- kept as its own type rather
+/// than collapsing into the generic [PublicFeedRepositoryException] so
+/// the UI can show an actionable "Upgrade" button instead of just an
+/// error string.
+class PublicFeedRateLimitExceededException extends PublicFeedRepositoryException {
+  const PublicFeedRateLimitExceededException(super.message);
+}
+
 /// Data layer for Feature 3 — the Public Feed.
 /// Firestore path: public_posts/{postId}
 class PublicFeedRepository {
@@ -142,7 +151,7 @@ class PublicFeedRepository {
         ).timeout(const Duration(seconds: 20));
       }
     } on RateLimitExceededException catch (e) {
-      throw PublicFeedRepositoryException(e.message);
+      throw PublicFeedRateLimitExceededException(e.message);
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }

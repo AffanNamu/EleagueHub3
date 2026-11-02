@@ -3,7 +3,6 @@ import { db } from '@/lib/firebase';
 import {
   isPaidPlanActive,
   runWithRateLimit,
-  RateLimitExceededError,
   RATE_LIMIT_KIND_FEED_POSTS,
   FREE_FEED_POSTS_PER_DAY,
 } from '@/lib/plans/rateLimitService';
@@ -82,17 +81,16 @@ export async function createPostWeb({
     return;
   }
 
-  try {
-    await runWithRateLimit({
-      uid: authorId,
-      kind: RATE_LIMIT_KIND_FEED_POSTS,
-      maxPerDay: FREE_FEED_POSTS_PER_DAY,
-      writeMore: (tx) => tx.set(newPostDoc, postData),
-    });
-  } catch (e) {
-    if (e instanceof RateLimitExceededError) throw new Error(e.message);
-    throw e;
-  }
+  // Let RateLimitExceededError propagate as-is (rather than flattening to
+  // a generic Error) so the UI can show an actionable "Upgrade" button
+  // instead of just an error string -- mirrors
+  // create_post_sheet.dart/PublicFeedRateLimitExceededException.
+  await runWithRateLimit({
+    uid: authorId,
+    kind: RATE_LIMIT_KIND_FEED_POSTS,
+    maxPerDay: FREE_FEED_POSTS_PER_DAY,
+    writeMore: (tx) => tx.set(newPostDoc, postData),
+  });
 }
 
 export async function toggleLikeWeb(postId: string, userId: string) {
