@@ -379,6 +379,7 @@ const Map<String, Map<String, String>> appLocalizationsPart1 = {
     'moderation_report_own_content_blocked': "You can't report your own content.",
     'private_chat_react_action': 'React',
     'public_feed_delete_post': 'Delete post',
+    'public_feed_edit_post': 'Edit post',
 
     'league_create_error_select_type': 'Please select a league type',
     'league_create_error_name_required': 'League name is required',

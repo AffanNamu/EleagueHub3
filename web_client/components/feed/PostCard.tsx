@@ -3,9 +3,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { PublicPost } from '@/lib/feed/publicFeedRepository';
+import { PublicPost, PUBLIC_POST_EDIT_WINDOW_MS } from '@/lib/feed/publicFeedRepository';
 import { Glass } from '@/components/ui/Glass';
-import { MoreVertical, Trophy, Heart, MessageCircle, Music2, Volume2, VolumeX, ShieldCheck } from 'lucide-react';
+import { MoreVertical, Trophy, Heart, MessageCircle, Music2, Volume2, VolumeX, ShieldCheck, Pencil, Trash2 } from 'lucide-react';
 import { ReactionPicker } from '@/components/reactions/ReactionPicker';
 import { ReactionPillBar } from '@/components/reactions/ReactionPillBar';
 import { watchReactions, toggleReaction } from '@/lib/reactions/reactionsRepository';
@@ -15,6 +15,7 @@ interface PostCardProps {
   post: PublicPost;
   isOwner: boolean;
   onLike: () => void;
+  onEdit: () => void;
   onDelete: () => void;
   onOpenLeague: () => void;
   // NEW: previously this button had no handler at all, so tapping it did
@@ -33,9 +34,12 @@ function timeAgo(ms: number) {
   return `${Math.floor(diff / 1440)}d`;
 }
 
-export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague, onComment, onOpenAuthor }: PostCardProps) {
+export function PostCard({ post, isOwner, onLike, onEdit, onDelete, onOpenLeague, onComment, onOpenAuthor }: PostCardProps) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+
+  const withinEditWindow = Date.now() - post.createdAtMs <= PUBLIC_POST_EDIT_WINDOW_MS;
 
   const postRef = doc(db, 'public_posts', post.postId);
   const [reactions, setReactions] = useState<ReactionSummary>(EMPTY_REACTION_SUMMARY);
@@ -76,9 +80,32 @@ export function PostCard({ post, isOwner, onLike, onDelete, onOpenLeague, onComm
           </div>
         </div>
         {isOwner && (
-          <button onClick={() => { if(confirm('Delete post?')) onDelete(); }} className="p-2 text-gray-500 hover:text-red-500 transition-colors">
-            <MoreVertical className="w-4 h-4" />
-          </button>
+          <div className="relative">
+            <button onClick={() => setMenuOpen(v => !v)} className="p-2 text-gray-500 hover:text-white transition-colors">
+              <MoreVertical className="w-4 h-4" />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 w-40 bg-[#0F172A] border border-[#1E293B] rounded-xl shadow-xl z-20 overflow-hidden">
+                  {withinEditWindow && (
+                    <button
+                      onClick={() => { setMenuOpen(false); onEdit(); }}
+                      className="w-full px-4 py-2.5 text-left text-xs font-bold text-white hover:bg-white/5 flex items-center gap-2"
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setMenuOpen(false); if (confirm('Delete post?')) onDelete(); }}
+                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-red-500 hover:bg-white/5 flex items-center gap-2"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
 

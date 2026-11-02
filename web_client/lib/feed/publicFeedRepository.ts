@@ -126,6 +126,45 @@ export async function deletePostWeb(postId: string, userId: string) {
   await updateDoc(ref, { deleted: true });
 }
 
+// How long after posting the author may still edit it. Mirrors
+// PublicFeedRepository.editWindow (lib/features/feed/data/
+// public_feed_repository.dart) and firestore.rules' public_posts update
+// rule (7200000ms). Exported so PostCard.tsx can decide whether to show
+// the Edit option without duplicating the magic number.
+export const PUBLIC_POST_EDIT_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+// Edits a post's text within PUBLIC_POST_EDIT_WINDOW_MS of when it was
+// created. Media/audio/postType can't be changed after posting -- only
+// fixing what was written. Mirrors PublicFeedRepository.editPost();
+// firestore.rules enforces the same boundary for real.
+export async function editPostWeb(postId: string, userId: string, text: string) {
+  const ref = doc(db, 'public_posts', postId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('This post no longer exists.');
+
+  const data = snap.data();
+  if (data.authorId !== userId) {
+    throw new Error('You can only edit your own posts.');
+  }
+  if (data.deleted === true) {
+    throw new Error('This post has been deleted.');
+  }
+
+  const createdAtMs = Number(data.createdAtMs) || 0;
+  if (Date.now() - createdAtMs > PUBLIC_POST_EDIT_WINDOW_MS) {
+    throw new Error('This post can no longer be edited -- edits are only allowed within 2 hours of posting.');
+  }
+
+  const trimmedText = text.trim().substring(0, 2000);
+  const mediaUrl = (data.mediaUrl as string) || '';
+  const audioUrl = (data.audioUrl as string) || '';
+  if (!trimmedText && !mediaUrl && !audioUrl) {
+    throw new Error("A post can't be left completely empty.");
+  }
+
+  await updateDoc(ref, { text: trimmedText });
+}
+
 // ── Comments ─────────────────────────────────────────────────────────────
 //
 // NEW: this repository previously had no comment support at all — Flutter's

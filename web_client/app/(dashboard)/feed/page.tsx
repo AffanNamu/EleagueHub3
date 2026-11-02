@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { PublicPost, toggleLikeWeb, deletePostWeb, createPostWeb } from '@/lib/feed/publicFeedRepository';
+import { PublicPost, toggleLikeWeb, deletePostWeb, createPostWeb, editPostWeb } from '@/lib/feed/publicFeedRepository';
 import { RateLimitExceededError } from '@/lib/plans/rateLimitService';
 import { PostCard } from '@/components/feed/PostCard';
 import { CommentsModal } from '@/components/feed/CommentsModal';
@@ -30,6 +30,13 @@ export default function PublicFeedScreen() {
   // NEW: which post's comments sheet is open, if any. Previously there
   // was no comments UI on web at all.
   const [activeCommentsPostId, setActiveCommentsPostId] = useState<string | null>(null);
+
+  // Edit Modal State -- mirrors edit_post_sheet.dart: text-only, media
+  // stays as posted.
+  const [editingPost, setEditingPost] = useState<PublicPost | null>(null);
+  const [editText, setEditText] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const imageRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLInputElement>(null);
@@ -96,6 +103,26 @@ export default function PublicFeedScreen() {
     }
   };
 
+  const openEditModal = (post: PublicPost) => {
+    setEditingPost(post);
+    setEditText(post.text);
+    setEditError(null);
+  };
+
+  const handleEditSubmit = async () => {
+    if (!authUid || !editingPost) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await editPostWeb(editingPost.postId, authUid, editText);
+      setEditingPost(null);
+    } catch (err: any) {
+      setEditError(err.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto pb-24 px-4 sm:px-0">
       
@@ -117,8 +144,9 @@ export default function PublicFeedScreen() {
             <PostCard 
               key={post.postId} 
               post={post} 
-              isOwner={post.authorId === authUid} 
+              isOwner={post.authorId === authUid}
               onLike={() => authUid && toggleLikeWeb(post.postId, authUid)}
+              onEdit={() => openEditModal(post)}
               onDelete={() => authUid && deletePostWeb(post.postId, authUid)}
               onOpenLeague={() => router.push(`/leagues/${post.leagueId}`)}
               onComment={() => setActiveCommentsPostId(post.postId)}
@@ -188,6 +216,42 @@ export default function PublicFeedScreen() {
               className="w-full py-4 bg-[#BEF264] text-[#0F172A] font-black rounded-xl hover:brightness-110 disabled:opacity-50 flex justify-center shadow-lg shadow-[#BEF264]/10"
             >
               {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Post to Feed'}
+            </button>
+          </Glass>
+        </div>
+      )}
+
+      {/* ── EDIT MODAL ── */}
+      {editingPost && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <Glass className="w-full max-w-lg bg-[#0F172A] border border-[#1E293B] rounded-3xl p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-black text-white">Edit Post</h2>
+              <button onClick={() => !editSaving && setEditingPost(null)} className="text-gray-500 hover:text-white"><X className="w-5 h-5"/></button>
+            </div>
+            <p className="text-xs text-gray-500 font-semibold mb-4">You can edit your post within 2 hours of posting.</p>
+
+            <textarea
+              value={editText} onChange={e => setEditText(e.target.value)}
+              placeholder="What's happening in your competitive scene?"
+              className="w-full h-32 bg-[#0B1221] border border-[#1E293B] rounded-xl p-4 text-white resize-none outline-none focus:border-[#BEF264] mb-2"
+              disabled={editSaving}
+              maxLength={2000}
+            />
+
+            {(editingPost.mediaUrl || editingPost.audioUrl) && (
+              <p className="text-[11px] text-gray-500 font-semibold mb-4">
+                Media can&apos;t be changed after posting -- only the text above.
+              </p>
+            )}
+
+            {editError && <p className="text-xs font-bold text-red-500 mb-3">{editError}</p>}
+
+            <button
+              onClick={handleEditSubmit} disabled={editSaving}
+              className="w-full py-4 bg-[#BEF264] text-[#0F172A] font-black rounded-xl hover:brightness-110 disabled:opacity-50 flex justify-center shadow-lg shadow-[#BEF264]/10"
+            >
+              {editSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Save Changes'}
             </button>
           </Glass>
         </div>
