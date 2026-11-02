@@ -10,6 +10,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -52,6 +53,7 @@ class VoiceRecordButton extends StatefulWidget {
     required this.onRecordStop,
     required this.onRecordLock,
     this.onDragUpdate,
+    this.onQuickTap,
     this.size = 48,
   });
 
@@ -81,6 +83,16 @@ class VoiceRecordButton extends StatefulWidget {
   /// live visual feedback can omit it.
   final ValueChanged<VoiceRecordDrag>? onDragUpdate;
 
+  /// A quick tap -- released before the long-press deadline, so none of
+  /// the onRecord* callbacks above fire at all. By design (same as
+  /// Telegram) a tap never starts a recording, but a tap in total
+  /// silence with no feedback whatsoever reads as "this button is
+  /// broken" rather than "hold it down" -- this gives the caller a hook
+  /// to show that hint (a toast/snackbar). A light haptic always fires
+  /// on tap regardless of whether this is set, so the press itself is
+  /// never silent even without a caller-provided hint.
+  final VoidCallback? onQuickTap;
+
   final double size;
 
   @override
@@ -104,6 +116,16 @@ class _VoiceRecordButtonState extends State<VoiceRecordButton> {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
+      // Coexists fine with the onLongPress* handlers below -- a release
+      // before the long-press deadline resolves as a tap, a sustained
+      // hold resolves as a long press; GestureDetector arbitrates this
+      // itself since both recognizers belong to the same detector.
+      onTap: !widget.enabled
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              widget.onQuickTap?.call();
+            },
       onLongPressStart: !widget.enabled
           ? null
           : (details) {

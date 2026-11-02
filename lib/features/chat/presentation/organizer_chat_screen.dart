@@ -1492,6 +1492,8 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
                                       if (!mounted) return;
                                       setState(() => _recordDrag = drag);
                                     },
+                                    onRecordQuickTap: () => _toast(
+                                        context.l10n.tr('chat_input_hold_to_record_hint')),
                                     voiceTooltip: _recordingPermissionDenied
                                         ? context.l10n
                                             .tr('organizer_chat_mic_permission_required_tooltip')

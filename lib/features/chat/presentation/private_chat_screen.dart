@@ -776,6 +776,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 if (!mounted) return;
                 setState(() => _recordDrag = drag);
               },
+              onRecordQuickTap: () =>
+                  _toast(context.l10n.tr('chat_input_hold_to_record_hint')),
               voiceTooltip: _recordingPermissionDenied
                   ? context.l10n.tr('private_chat_mic_permission_required_tooltip')
                   : context.l10n.tr('private_chat_record_voice_tooltip'),

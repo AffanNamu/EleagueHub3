@@ -24,6 +24,7 @@ class ChatInputBar extends StatelessWidget {
     this.onRecordStop,
     this.onRecordLock,
     this.onRecordDragUpdate,
+    this.onRecordQuickTap,
     this.voiceTooltip,
 
     // Reply (optional)
@@ -52,6 +53,11 @@ class ChatInputBar extends StatelessWidget {
   final VoidCallback? onRecordStop;
   final VoidCallback? onRecordLock;
   final ValueChanged<VoiceRecordDrag>? onRecordDragUpdate;
+
+  /// Fires on a quick tap (released before the long-press deadline, so
+  /// no recording ever started) -- lets the screen show a "hold to
+  /// record" hint instead of the tap doing nothing visible at all.
+  final VoidCallback? onRecordQuickTap;
   final String? voiceTooltip;
 
   // Reply context (WhatsApp-style)
@@ -239,12 +245,27 @@ class ChatInputBar extends StatelessWidget {
                         message: (voiceTooltip ?? '').trim().isNotEmpty
                             ? voiceTooltip!.trim()
                             : context.l10n.tr('chat_input_record_voice_tooltip'),
+                        // Tooltip defaults to TooltipTriggerMode.longPress,
+                        // which installs its own competing long-press
+                        // recognizer on this child, alongside
+                        // VoiceRecordButton's own below. In practice the
+                        // child's recognizer wins that race (confirmed
+                        // against the recognizer/arena source), so this
+                        // wasn't the cause of recordings failing to start --
+                        // but it's a real, known Flutter footgun regardless,
+                        // so forcing tap mode here removes it on general
+                        // principle: a quick tap now shows the tooltip
+                        // bubble instead of competing for the long-press at
+                        // all, and holding still starts recording exactly
+                        // as before.
+                        //
                         // Press and hold to record (Telegram-style) -- see
                         // VoiceRecordButton for the full gesture contract
                         // (release to send, slide left to cancel, slide up
-                        // to lock hands-free). A plain tap does nothing by
-                        // design, same as Telegram: only a sustained press
-                        // starts a recording.
+                        // to lock hands-free). A plain tap/quick-release
+                        // never starts a recording by design, same as
+                        // Telegram -- but it's not silent: see onQuickTap.
+                        triggerMode: TooltipTriggerMode.tap,
                         child: VoiceRecordButton(
                           enabled: trailingEnabled,
                           onRecordStart: onRecordStart ?? () {},
@@ -252,6 +273,7 @@ class ChatInputBar extends StatelessWidget {
                           onRecordStop: onRecordStop ?? () {},
                           onRecordLock: onRecordLock ?? () {},
                           onDragUpdate: onRecordDragUpdate,
+                          onQuickTap: onRecordQuickTap,
                         ),
                       ),
                   ],
