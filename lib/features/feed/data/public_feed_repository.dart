@@ -351,4 +351,64 @@ class PublicFeedRepository {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
   }
+
+  /// How long after posting the author may still edit it. Mirrors the
+  /// 7200000ms (2h) window enforced authoritatively in firestore.rules'
+  /// public_posts update rule.
+  static const Duration editWindow = Duration(hours: 2);
+
+  /// Edits a post's text within [editWindow] of when it was created.
+  /// Media/audio/postType can't be changed after posting -- only fixing
+  /// what was written. Throws a friendly error once the window has
+  /// passed; firestore.rules enforces the same boundary for real.
+  Future<void> editPost({
+    required String postId,
+    required String text,
+  }) async {
+    try {
+      final authUid = _requireAuthUid();
+      final trimmedText = text.trim();
+
+      final ref = _postsCol.doc(postId);
+      final snap = await ref
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 10));
+
+      if (!snap.exists) {
+        throw const PublicFeedRepositoryException('This post no longer exists.');
+      }
+      final data = snap.data() ?? <String, dynamic>{};
+
+      final authorId = (data['authorId'] as String? ?? '').trim();
+      if (authorId != authUid) {
+        throw const PublicFeedRepositoryException('You can only edit your own posts.');
+      }
+
+      if (data['deleted'] == true) {
+        throw const PublicFeedRepositoryException('This post has been deleted.');
+      }
+
+      final createdAtMs = (data['createdAtMs'] as num?)?.toInt() ?? 0;
+      final elapsedMs = DateTime.now().millisecondsSinceEpoch - createdAtMs;
+      if (elapsedMs > editWindow.inMilliseconds) {
+        throw const PublicFeedRepositoryException(
+          'This post can no longer be edited -- edits are only allowed within 2 hours of posting.',
+        );
+      }
+
+      final mediaUrl = (data['mediaUrl'] as String? ?? '').trim();
+      final audioUrl = (data['audioUrl'] as String? ?? '').trim();
+      if (trimmedText.isEmpty && mediaUrl.isEmpty && audioUrl.isEmpty) {
+        throw const PublicFeedRepositoryException(
+          "A post can't be left completely empty.",
+        );
+      }
+
+      await ref.update(<String, dynamic>{
+        'text': trimmedText.length > 2000 ? trimmedText.substring(0, 2000) : trimmedText,
+      }).timeout(const Duration(seconds: 15));
+    } catch (e) {
+      _rethrowFriendly(e is Object ? e : Exception('unknown'));
+    }
+  }
 }

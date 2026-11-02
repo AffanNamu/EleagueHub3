@@ -25,6 +25,7 @@ import '../data/public_feed_repository.dart';
 import '../models/public_post.dart';
 import 'widgets/comments_sheet.dart';
 import 'widgets/create_post_sheet.dart';
+import 'widgets/edit_post_sheet.dart';
 
 /// Cloudinary can generate a still frame for any uploaded video by
 /// swapping `/video/upload/` for `/video/upload/so_0/` and the extension
@@ -157,6 +158,13 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
     );
   }
 
+  Future<void> _handleEdit(PublicPost post) async {
+    final result = await showEditPostSheet(context, post: post);
+    if (result == true && mounted) {
+      _snack(context.l10n.tr('edit_post_saved'));
+    }
+  }
+
   Future<void> _confirmDelete(String postId) async {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
@@ -276,6 +284,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                 isLiked: isLiked,
                                 onLike: () => _handleLike(post.postId),
                                 onComment: () => _handleComment(post.postId, account),
+                                onEdit: () => _handleEdit(post),
                                 onDelete: () => _confirmDelete(post.postId),
                                 onOpenLeague: post.leagueId.trim().isEmpty
                                     ? null
@@ -394,6 +403,7 @@ class _PostCard extends StatelessWidget {
     required this.isLiked,
     required this.onLike,
     required this.onComment,
+    required this.onEdit,
     required this.onDelete,
     required this.onOpenLeague,
   });
@@ -403,8 +413,13 @@ class _PostCard extends StatelessWidget {
   final bool isLiked;
   final VoidCallback onLike;
   final VoidCallback onComment;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onOpenLeague;
+
+  bool get _withinEditWindow =>
+      DateTime.now().millisecondsSinceEpoch - post.createdAtMs <=
+      PublicFeedRepository.editWindow.inMilliseconds;
 
   void _showPostActions(BuildContext context) {
     final l10n = context.l10n;
@@ -414,7 +429,16 @@ class _PostCard extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isOwner)
+            if (isOwner) ...[
+              if (_withinEditWindow)
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: Text(l10n.tr('public_feed_edit_post')),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    onEdit();
+                  },
+                ),
               ListTile(
                 leading: const Icon(Icons.delete_outline_rounded),
                 title: Text(l10n.tr('public_feed_delete_post')),
@@ -422,8 +446,8 @@ class _PostCard extends StatelessWidget {
                   Navigator.of(ctx).pop();
                   onDelete();
                 },
-              )
-            else
+              ),
+            ] else
               ListTile(
                 leading: const Icon(Icons.flag_outlined),
                 title: Text(l10n.tr('moderation_report_tooltip')),

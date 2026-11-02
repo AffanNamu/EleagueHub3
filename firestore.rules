@@ -3064,6 +3064,28 @@ service cloud.firestore {
         && (request.resource.data.deleted is bool)
         && (request.resource.data.deleted == true);
 
+      // Author can edit a post's TEXT within 2 hours of posting -- after
+      // that window, no edits at all (the client also checks this for a
+      // friendly "too late to edit" message instead of a raw
+      // permission-denied, but this is the authoritative boundary).
+      // Media/audio/type and every other field stay immutable after
+      // creation -- editing is scoped to fixing what you wrote, not
+      // re-attaching different content.
+      allow update: if signedIn()
+        && ('authorId' in resource.data)
+        && (resource.data.authorId is string)
+        && (resource.data.authorId == request.auth.uid)
+        && !(('deleted' in resource.data) && (resource.data.deleted is bool) && (resource.data.deleted == true))
+        && (resource.data.createdAtMs is int)
+        && ((request.time.toMillis() - resource.data.createdAtMs) <= 7200000)
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['text'])
+        && (request.resource.data.text is string) && (request.resource.data.text.size() <= 2000)
+        && (
+          (request.resource.data.text.size() > 0)
+          || (resource.data.get('mediaUrl', '').size() > 0)
+          || (resource.data.get('audioUrl', '').size() > 0)
+        );
+
       allow update: if signedIn()
         && !(('deleted' in resource.data) && (resource.data.deleted is bool) && (resource.data.deleted == true))
         && request.resource.data.diff(resource.data).changedKeys().hasOnly(['likeCount'])
