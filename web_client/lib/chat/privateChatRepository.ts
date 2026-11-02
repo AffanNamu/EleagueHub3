@@ -42,28 +42,28 @@ export class PrivateChatFilesRequirePremiumError extends Error {
   }
 }
 
-// Mirrors UserProfile.hasPlanActive (lib/features/auth/models/
-// user_profile.dart) -- true for ANY recognized plan including the free
-// Basic tier, not just a paid one. leaguesRepository's detectPremiumUser()
-// is paid-only by design and used elsewhere for genuinely paid-gated
-// features (creating/joining leagues); starting a private chat is not one
-// of those -- firestore.rules' requesterCanStartPrivateChat() already
-// lets a free Basic-plan user create a thread, so this must match or the
-// UI shows "Premium required" for a write the rule would actually accept.
-async function hasAnyPlanActive(uid: string): Promise<boolean> {
+// Starting a private chat is NOT plan-gated at all -- any signed-in user
+// with a resolvable profile doc can. This deliberately does NOT check
+// activePlanId: userProfileRepository's profile-creation flow
+// (lib/features/auth/data/user_profile_repository.dart's
+// createIfMissing()) writes a brand-new account's activePlanId as an
+// EMPTY STRING, never 'basic' -- so an earlier version of this function
+// that checked activePlanId === 'basic' only matched an account some
+// other flow had explicitly set to 'basic', not an ordinary free user
+// who's never purchased anything. That mismatch made the "Message"
+// button look usable while every real attempt still hit
+// permission-denied. Only sending a FILE attachment inside a thread
+// requires an actual paid plan (isPaidPlanActive, used elsewhere in this
+// file) -- text/voice stay available to everyone, and so does starting
+// the thread itself. Mirrors firestore.rules' requesterCanStartPrivateChat().
+async function hasResolvableProfile(uid: string): Promise<boolean> {
   try {
     const snap = await getDoc(doc(db, 'users', uid));
-    const data = snap.data() ?? {};
-    const activePlanId = typeof data.activePlanId === 'string' ? data.activePlanId.trim().toLowerCase() : '';
-    if (activePlanId === 'basic') return true;
-    if (activePlanId === 'pro' || activePlanId === 'elite') {
-      const planExpiresAtMs = Number(data.planExpiresAtMs) || 0;
-      if (planExpiresAtMs > Date.now()) return true;
-    }
+    return snap.exists();
   } catch (e) {
-    console.warn('[privateChatRepository] hasAnyPlanActive failed:', e);
+    console.warn('[privateChatRepository] hasResolvableProfile failed:', e);
+    return false;
   }
-  return false;
 }
 
 // Deterministic Thread ID (Mirrors Flutter)
@@ -94,9 +94,9 @@ export async function checkChatAccessWeb(authUid: string, targetUid: string) {
     if (e.code !== 'permission-denied') throw e;
   }
 
-  // Any active plan (free Basic included) can start a new chat -- only
-  // sending a FILE attachment inside one requires an actual paid plan.
-  const canStart = await hasAnyPlanActive(authUid);
+  // Starting a chat isn't plan-gated -- only sending a FILE attachment
+  // inside one requires an actual paid plan.
+  const canStart = await hasResolvableProfile(authUid);
 
   return canStart ? 'canStart' : 'locked';
 }
