@@ -7,8 +7,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../../core/services/plan_status_service.dart';
-import '../../../core/services/rate_limit_service.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../marketplace/data/cloudinary_upload_service.dart';
 import '../../profile/data/team_profile_repository.dart';
@@ -100,7 +98,7 @@ class PrivateChatRepository {
       switch (e.code) {
         case 'permission-denied':
           throw const PrivateChatException(
-            'Private chat requires Premium to start a new conversation.',
+            "You don't have permission to do that right now. Please try again.",
           );
         case 'unavailable':
         case 'deadline-exceeded':
@@ -344,9 +342,11 @@ class PrivateChatRepository {
     );
   }
 
-  /// Sends a message. No plan check here — once a thread exists, both
-  /// participants (premium or free) can reply. Rules enforce that the
-  /// sender must be a participant.
+  /// Sends a message. No plan check and no daily cap here — once a thread
+  /// exists, both participants (premium or free) can send text/voice
+  /// messages freely. Rules enforce that the sender must be a participant
+  /// (and that only an image attachment is paid-gated, in the messages
+  /// create rule).
   /// Returns the sent message's id (used by the caller to also trigger a
   /// push notification via SupabaseEdgeNotificationsService).
   Future<String> sendTextMessage({
@@ -384,29 +384,11 @@ class PrivateChatRepository {
         'lastSenderId': authUid,
       };
 
-      // Free (no Pro/Elite plan) senders share the same daily chat-message
-      // cap as league/organizer/global chat (RateLimitService), enforced
-      // for real by firestore.rules. Paid senders write directly, no cap.
-      final isPaid = await PlanStatusService.instance.isPaidPlanActive(authUid);
-      if (isPaid) {
-        final batch = _firestore.batch();
-        batch.set(msgRef, messageData);
-        batch.set(threadRef, threadUpdate, SetOptions(merge: true));
-        await batch.commit().timeout(const Duration(seconds: 15));
-      } else {
-        await RateLimitService.runWithLimit(
-          uid: authUid,
-          kind: RateLimitService.kindChatMessages,
-          maxPerDay: RateLimitService.freeChatMessagesPerDay,
-          writeMore: (tx) {
-            tx.set(msgRef, messageData);
-            tx.set(threadRef, threadUpdate, SetOptions(merge: true));
-          },
-        ).timeout(const Duration(seconds: 15));
-      }
+      final batch = _firestore.batch();
+      batch.set(msgRef, messageData);
+      batch.set(threadRef, threadUpdate, SetOptions(merge: true));
+      await batch.commit().timeout(const Duration(seconds: 15));
       return msgRef.id;
-    } on RateLimitExceededException catch (e) {
-      throw PrivateChatException(e.message);
     } catch (e) {
       _rethrowFriendly(e is Object ? e : Exception('unknown'));
     }
@@ -454,11 +436,9 @@ class PrivateChatRepository {
     }
   }
 
-  /// NEW: sends a voice-note message. Mirrors sendImageMessage exactly —
-  /// same batch pattern, same thread-preview update — just with `type:
-  /// 'voice'` and `voiceUrl` populated instead of `imageUrl`. The
-  /// Firestore rule for `private_threads/{id}/messages` already accepts
-  /// `type in ['text','image','voice']`, so no rules change is required.
+  /// Sends a voice-note message. Same shape as sendTextMessage — a direct
+  /// batch write, no plan check and no daily cap (private chat text/voice
+  /// is free for everyone; only an image attachment is paid-gated).
   ///
   /// Returns the sent message's id.
   Future<String> sendVoiceMessage({

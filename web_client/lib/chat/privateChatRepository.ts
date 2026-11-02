@@ -1,12 +1,6 @@
 import { collection, doc, getDoc, setDoc, query, where, orderBy, limit, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import {
-  isPaidPlanActive,
-  runWithRateLimit,
-  RateLimitExceededError,
-  RATE_LIMIT_KIND_CHAT_MESSAGES,
-  FREE_CHAT_MESSAGES_PER_DAY,
-} from '@/lib/plans/rateLimitService';
+import { isPaidPlanActive } from '@/lib/plans/rateLimitService';
 
 export interface PrivateThread {
   id: string;
@@ -31,10 +25,10 @@ export interface PrivateMessage {
 // Mirrors lib/features/chat/presentation/private_chat_screen.dart's
 // _handleImagePick() gate -- sending a file attachment in private chat is
 // a paid-only action, no free-tier allowance at all (unlike text/voice,
-// which get a small daily rate-limited allowance). firestore.rules'
-// private DM message create rule enforces this authoritatively for
-// type == 'image'; this error lets the UI show a friendly "upgrade to
-// send files" prompt instead of a raw permission-denied.
+// which are fully unrestricted for everyone). firestore.rules' private DM
+// message create rule enforces this authoritatively for type == 'image';
+// this error lets the UI show a friendly "upgrade to send files" prompt
+// instead of a raw permission-denied.
 export class PrivateChatFilesRequirePremiumError extends Error {
   constructor() {
     super('Sending files requires an active Pro or Elite plan. Upgrade your account to send images in private chat.');
@@ -158,27 +152,19 @@ export async function sendPrivateMessageWeb(
     lastSenderId: senderId,
   };
 
-  const isPaid = await isPaidPlanActive(senderId);
-  if (isPaid) {
-    const batch = writeBatch(db);
-    batch.set(msgRef, messageData);
-    batch.set(threadRef, threadUpdate, { merge: true });
-    await batch.commit();
-    return;
+  // Text/voice messages in private chat are unrestricted -- no daily cap,
+  // no plan requirement, for anyone. Only an image/file attachment is
+  // ever paid-gated; the caller (usePrivateChat.ts's sendImage()) already
+  // pre-checks that and throws PrivateChatFilesRequirePremiumError before
+  // this is reached for a free sender, but this stays as a defensive
+  // backstop matching firestore.rules' private DM message create rule.
+  if (type === 'image') {
+    const isPaid = await isPaidPlanActive(senderId);
+    if (!isPaid) throw new PrivateChatFilesRequirePremiumError();
   }
 
-  try {
-    await runWithRateLimit({
-      uid: senderId,
-      kind: RATE_LIMIT_KIND_CHAT_MESSAGES,
-      maxPerDay: FREE_CHAT_MESSAGES_PER_DAY,
-      writeMore: (tx) => {
-        tx.set(msgRef, messageData);
-        tx.set(threadRef, threadUpdate, { merge: true });
-      },
-    });
-  } catch (e) {
-    if (e instanceof RateLimitExceededError) throw new Error(e.message);
-    throw e;
-  }
+  const batch = writeBatch(db);
+  batch.set(msgRef, messageData);
+  batch.set(threadRef, threadUpdate, { merge: true });
+  await batch.commit();
 }
