@@ -3232,27 +3232,24 @@ service cloud.firestore {
           && !exists(/databases/$(database)/documents/users/$(request.auth.uid)/blocked_by/$(otherUid));
       }
 
-      // Mirrors UserProfile.hasPlanActive (lib/features/auth/models/
-      // user_profile.dart) -- true for ANY recognized plan including the
-      // free Basic tier, not just a paid one. profileHasActivePlan()
-      // above is deliberately paid-only (pro/elite) and used everywhere
-      // that specifically gates a paid-only feature; starting a private
-      // chat is NOT one of those -- the client's own checkAccess()/
-      // startOrGetThread() already let a free (Basic-plan) user start a
-      // new thread, so this rule was rejecting a write the client told
-      // the user it would allow, surfacing as "permission-denied" on
-      // every attempt. Only sending a FILE attachment inside a thread
-      // requires an actual paid plan (see the messages subcollection's
-      // create rule below) -- text/voice stay available to everyone.
+      // Starting a private chat is NOT plan-gated at all -- any signed-in
+      // user with a resolvable profile doc can. This deliberately does
+      // NOT reuse UserProfile.hasPlanActive's notion of "free Basic
+      // plan": createIfMissing() (lib/features/auth/data/
+      // user_profile_repository.dart) writes a brand-new account's
+      // activePlanId as an EMPTY STRING, never 'basic' -- so checking
+      // for activePlanId == 'basic' here (an earlier version of this
+      // function did) only worked for an account that had explicitly
+      // been set to 'basic' by some other flow, not for an ordinary free
+      // user who has never purchased anything. That mismatch made the
+      // client's own "Message" button look usable while every real
+      // attempt still hit permission-denied. Only sending a FILE
+      // attachment inside a thread requires an actual paid plan (see the
+      // messages subcollection's create rule below) -- text/voice stay
+      // available to everyone, and so does starting the thread itself.
       function requesterCanStartPrivateChat() {
-        let path = /databases/$(database)/documents/users/$(request.auth.uid);
-        return profileHasActivePlan('pro')
-          || profileHasActivePlan('elite')
-          || (
-            signedIn()
-            && exists(path)
-            && (get(path).data.get('activePlanId', '') == 'basic')
-          );
+        return signedIn()
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid));
       }
 
       allow get: if signedIn() && (request.auth.uid in threadParticipantIds(resource.data));

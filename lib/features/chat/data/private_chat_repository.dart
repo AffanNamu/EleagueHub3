@@ -163,8 +163,14 @@ class PrivateChatRepository {
         );
       }
 
+      // Starting a chat isn't plan-gated at all -- any signed-in user with
+      // a resolvable profile can. (hasPlanActive is NOT what "free" means
+      // here: createIfMissing() writes activePlanId as an empty string
+      // for a brand-new account, never 'basic', so hasPlanActive is false
+      // for every user who hasn't purchased anything -- using it here
+      // would re-lock exactly the free users this is meant to allow.)
       final profile = await _userProfiles.fetchByUserId(authUid);
-      final canStart = profile?.hasPlanActive ?? false;
+      final canStart = profile != null;
 
       return PrivateChatAccessResult(
         access: canStart ? PrivateChatAccess.canStart : PrivateChatAccess.locked,
@@ -178,8 +184,8 @@ class PrivateChatRepository {
 
   /// Starts a new thread with [otherUserId], or returns the existing one.
   ///
-  /// Any signed-in user with a resolvable profile (free Basic plan
-  /// included, not just Pro/Elite) can start a new thread — this is
+  /// Any signed-in user with a resolvable profile can start a new
+  /// thread -- not plan-gated at all. This is
   /// enforced both here (fast, friendly error) and in Firestore rules'
   /// requesterCanStartPrivateChat() (authoritative). Once a thread
   /// exists, either participant can reply regardless of their own plan
@@ -218,12 +224,13 @@ class PrivateChatRepository {
         return PrivateThread.fromDoc(existing);
       }
 
-      // The initiator just needs a resolvable profile with any active
-      // plan (free Basic included) -- see requesterCanStartPrivateChat()
-      // in firestore.rules. A missing/unresolvable profile is the only
-      // way this is actually false in practice.
+      // The initiator just needs a resolvable profile -- not an active
+      // plan (see requesterCanStartPrivateChat() in firestore.rules).
+      // hasPlanActive is false for every free user who's never purchased
+      // anything (createIfMissing() writes activePlanId as '', not
+      // 'basic'), so checking it here would wrongly re-lock free users.
       final profile = await _userProfiles.fetchByUserId(authUid);
-      final canStart = profile?.hasPlanActive ?? false;
+      final canStart = profile != null;
 
       if (!canStart) {
         throw const PrivateChatException(
