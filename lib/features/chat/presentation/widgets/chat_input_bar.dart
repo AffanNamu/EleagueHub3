@@ -15,17 +15,11 @@ class ChatInputBar extends StatelessWidget {
     required this.onSend,
     required this.enabled,
 
-    // Voice (optional) — Telegram-style press-and-hold on the trailing
-    // button: press starts recording, release PAUSES it (never
-    // auto-sends -- see VoiceRecordButton.onRecordPause), slide left
-    // cancels, slide up locks into hands-free active recording. All four
-    // are required together (a screen either offers voice or it doesn't).
+    // Voice (optional): tapping the trailing button starts recording
+    // immediately -- see VoiceRecordButton.onRecordStart. The caller's own
+    // RecordingOverlay takes over with Pause/Resume/Cancel/Send once a
+    // recording is in progress.
     this.onRecordStart,
-    this.onRecordCancel,
-    this.onRecordPause,
-    this.onRecordLock,
-    this.onRecordDragUpdate,
-    this.onRecordQuickTap,
     this.voiceTooltip,
 
     // Reply (optional)
@@ -48,17 +42,8 @@ class ChatInputBar extends StatelessWidget {
   final VoidCallback onSend;
   final bool enabled;
 
-  // Voice action (optional) -- see VoiceRecordButton for the gesture contract.
+  // Voice action (optional) -- see VoiceRecordButton for the tap contract.
   final VoidCallback? onRecordStart;
-  final VoidCallback? onRecordCancel;
-  final VoidCallback? onRecordPause;
-  final VoidCallback? onRecordLock;
-  final ValueChanged<VoiceRecordDrag>? onRecordDragUpdate;
-
-  /// Fires on a quick tap (released before the long-press deadline, so
-  /// no recording ever started) -- lets the screen show a "hold to
-  /// record" hint instead of the tap doing nothing visible at all.
-  final VoidCallback? onRecordQuickTap;
   final String? voiceTooltip;
 
   // Reply context (WhatsApp-style)
@@ -80,12 +65,7 @@ class ChatInputBar extends StatelessWidget {
         final hasText = text.isNotEmpty;
 
         final canSend = enabled && !isSending;
-        final canRecord = enabled &&
-            !isSending &&
-            onRecordStart != null &&
-            onRecordCancel != null &&
-            onRecordPause != null &&
-            onRecordLock != null;
+        final canRecord = enabled && !isSending && onRecordStart != null;
 
         final trailingIsSend = hasText;
         final trailingEnabled = trailingIsSend ? canSend : canRecord;
@@ -243,39 +223,18 @@ class ChatInputBar extends StatelessWidget {
                       )
                     else
                       Tooltip(
+                        // Default (long-press) trigger mode -- doesn't
+                        // conflict with VoiceRecordButton's own onTap
+                        // below, since the button has no long-press
+                        // handling of its own. A tap starts recording
+                        // immediately; a long press (or hover, on
+                        // desktop/web) just shows this hint.
                         message: (voiceTooltip ?? '').trim().isNotEmpty
                             ? voiceTooltip!.trim()
                             : context.l10n.tr('chat_input_record_voice_tooltip'),
-                        // Tooltip defaults to TooltipTriggerMode.longPress,
-                        // which installs its own competing long-press
-                        // recognizer on this child, alongside
-                        // VoiceRecordButton's own below. In practice the
-                        // child's recognizer wins that race (confirmed
-                        // against the recognizer/arena source), so this
-                        // wasn't the cause of recordings failing to start --
-                        // but it's a real, known Flutter footgun regardless,
-                        // so forcing tap mode here removes it on general
-                        // principle: a quick tap now shows the tooltip
-                        // bubble instead of competing for the long-press at
-                        // all, and holding still starts recording exactly
-                        // as before.
-                        //
-                        // Press and hold to record (Telegram-style) -- see
-                        // VoiceRecordButton for the full gesture contract
-                        // (release pauses -- never auto-sends, see
-                        // onRecordPause -- slide left to cancel, slide up
-                        // to lock hands-free). A plain tap/quick-release
-                        // never starts a recording by design, same as
-                        // Telegram -- but it's not silent: see onQuickTap.
-                        triggerMode: TooltipTriggerMode.tap,
                         child: VoiceRecordButton(
                           enabled: trailingEnabled,
                           onRecordStart: onRecordStart ?? () {},
-                          onRecordCancel: onRecordCancel ?? () {},
-                          onRecordPause: onRecordPause ?? () {},
-                          onRecordLock: onRecordLock ?? () {},
-                          onDragUpdate: onRecordDragUpdate,
-                          onQuickTap: onRecordQuickTap,
                         ),
                       ),
                   ],
