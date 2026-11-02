@@ -3319,14 +3319,14 @@ service cloud.firestore {
               // redirects to the upgrade flow instead of ever reaching
               // this write for a free sender.
               ? (isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite'))
-              // Free (no Pro/Elite plan) senders are capped at 2 chat
-              // messages per rolling 24h, combined across
-              // league/organizer/global/DM chat (shared 'chatMessages'
-              // rate-limit kind). See rateLimitOk().
-              : (
-                isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite')
-                || rateLimitOk(request.auth.uid, 'chatMessages', 2)
-              )
+              // Text/voice messages in private chat are unrestricted --
+              // no daily cap, no plan requirement, for anyone. Private
+              // chat is free for everyone; only a file/image attachment
+              // (above) is ever paid-gated. (Deliberately NOT the same
+              // as league/organizer/global chat, which still cap free
+              // senders via rateLimitOk() -- this is a private-chat-only
+              // relaxation.)
+              : true
           );
 
         allow update, delete: if false;
