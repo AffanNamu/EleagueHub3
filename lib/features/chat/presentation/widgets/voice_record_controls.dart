@@ -1,12 +1,14 @@
 // lib/features/chat/presentation/widgets/voice_record_controls.dart
 //
-// Tap-to-record voice messages: tapping the mic button starts recording
-// immediately -- no press-and-hold, no drag gesture, nothing to miss. The
-// moment it starts, the caller's persistent RecordingOverlay takes over
-// with explicit Pause/Resume, Cancel, and Send controls, so the user is
-// never stuck mid-gesture and never has to guess what state the recording
-// is in. Shared by every chat screen's input bar so the behavior and
-// visuals stay identical everywhere.
+// Tap-to-record voice messages: touching the mic button starts recording
+// the instant the finger touches down (not on release -- see
+// VoiceRecordButton's onTapDown) -- no press-and-hold delay, no drag
+// gesture, nothing to miss, and holding does the same thing a quick tap
+// does. The moment it starts, the caller's persistent RecordingOverlay
+// takes over with explicit Pause/Resume, Cancel, and Send controls,
+// actively recording (never paused) until the user explicitly taps pause
+// -- release never pauses or stops it. Shared by every chat screen's input
+// bar so the behavior and visuals stay identical everywhere.
 
 import 'dart:async';
 
@@ -31,9 +33,13 @@ class VoiceRecordButton extends StatelessWidget {
 
   final bool enabled;
 
-  /// Tapped: begin recording immediately. The caller's RecordingOverlay
-  /// (Pause/Resume/Cancel/Send) takes over from there -- this button has
-  /// nothing left to do once a recording is in progress.
+  /// Touched: begin recording immediately. Fires on touch-DOWN (see
+  /// onTapDown below), not on release, so a sustained hold starts
+  /// recording the instant the finger lands rather than waiting for it to
+  /// lift -- release carries no special meaning at all once recording has
+  /// started. The caller's RecordingOverlay (Pause/Resume/Cancel/Send)
+  /// takes over from there -- this button has nothing left to do once a
+  /// recording is in progress.
   final VoidCallback onRecordStart;
 
   final double size;
@@ -44,9 +50,14 @@ class VoiceRecordButton extends StatelessWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: !enabled
+      // onTapDown (not onTap) deliberately -- onTap only fires once the
+      // finger lifts, which would make a sustained hold sit there doing
+      // nothing until release. onTapDown fires the instant the finger
+      // touches down, so both a quick tap and a long hold start recording
+      // immediately and identically.
+      onTapDown: !enabled
           ? null
-          : () {
+          : (_) {
               HapticFeedback.selectionClick();
               onRecordStart();
             },
