@@ -96,15 +96,28 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   bool _isVoiceSending = false;
   bool _recordingPermissionDenied = false;
   String? _recordingPath;
-  DateTime? _recordingStartedAt;
+
+  // When the CURRENTLY ACTIVE recording segment started -- null while
+  // _recordingPaused (there is no active segment). _recordedMsBeforePause
+  // accumulates every completed segment's duration, so pausing/resuming
+  // any number of times still produces a correct total -- see
+  // _pauseRecording()/_resumeRecording().
+  DateTime? _recordingSegmentStartedAt;
+  int _recordedMsBeforePause = 0;
   Timer? _recordingTicker;
 
-  // Telegram-style press-and-hold recording: set once the user slides up
-  // past the lock threshold (finger already lifted at that point, so the
-  // recording keeps going hands-free until Cancel/Send is tapped
-  // explicitly). _recordDrag mirrors the live finger position while NOT
-  // locked, for the slide-to-cancel/lock hint animation.
+  // Telegram-style press-and-hold recording: _recordingLocked is set once
+  // the user slides up past the lock threshold, OR simply releases without
+  // canceling (a plain release pauses rather than sending -- see
+  // _pauseRecording()) -- either way the finger is no longer needed, and
+  // the screen shows persistent Cancel/Pause-or-Resume/Send controls
+  // instead of requiring the gesture to still be held. _recordingPaused
+  // tracks whether audio is actively being captured right now (false) or
+  // paused (true) within that locked state. _recordDrag mirrors the live
+  // finger position while NOT yet locked, for the slide-to-cancel/lock
+  // hint animation.
   bool _recordingLocked = false;
+  bool _recordingPaused = false;
   VoiceRecordDrag _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
 
   final Map<String, _CachedIdentity> _identityCache = <String, _CachedIdentity>{};
@@ -996,7 +1009,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       );
 
       _recordingTicker?.cancel();
-      _recordingStartedAt = DateTime.now();
+      _recordingSegmentStartedAt = DateTime.now();
       _recordingTicker = Timer.periodic(const Duration(milliseconds: 250), (_) {
         if (!mounted) return;
         setState(() {});
@@ -1007,6 +1020,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         _isRecording = true;
         _recordingPath = outPath;
         _recordingLocked = false;
+        _recordingPaused = false;
+        _recordedMsBeforePause = 0;
         _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
       });
     } catch (e) {
@@ -1015,18 +1030,68 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   }
 
   /// Finger dragged up past the lock threshold: recording keeps going even
-  /// after the finger lifts -- only an explicit Cancel/Send in the
-  /// RecordingOverlay now ends it.
+  /// after the finger lifts -- only an explicit Cancel/Pause/Send in the
+  /// RecordingOverlay now ends or affects it. Stays actively recording
+  /// (not paused) -- the whole point of locking is to keep talking
+  /// hands-free.
   void _lockRecording() {
     if (!mounted) return;
     setState(() => _recordingLocked = true);
   }
 
+  /// Finger released without sliding to cancel or lock -- PAUSES rather
+  /// than sends (unlike plain Telegram), so a user who got interrupted
+  /// mid-message doesn't have to finish in one unbroken hold. Puts the
+  /// screen in the same persistent Cancel/Resume/Send state locking does,
+  /// just starting out paused. The underlying recorder is paused for
+  /// real (record package's AudioRecorder.pause(), confirmed implemented
+  /// on both Android and iOS) -- resuming continues the SAME file/session,
+  /// nothing is stitched together client-side.
+  Future<void> _pauseRecording() async {
+    if (!_isRecording || _recordingPaused) return;
+    try {
+      await _recorder.pause();
+      final segmentStart = _recordingSegmentStartedAt;
+      if (!mounted) return;
+      setState(() {
+        if (segmentStart != null) {
+          _recordedMsBeforePause +=
+              DateTime.now().difference(segmentStart).inMilliseconds;
+        }
+        _recordingSegmentStartedAt = null;
+        _recordingLocked = true;
+        _recordingPaused = true;
+      });
+    } catch (e) {
+      _toastErr(e);
+    }
+  }
+
+  /// Resumes a paused recording from the Cancel/Resume/Send bar.
+  Future<void> _resumeRecording() async {
+    if (!_isRecording || !_recordingPaused) return;
+    try {
+      await _recorder.resume();
+      if (!mounted) return;
+      setState(() {
+        _recordingSegmentStartedAt = DateTime.now();
+        _recordingPaused = false;
+      });
+    } catch (e) {
+      _toastErr(e);
+    }
+  }
+
+  /// Tap the pause/resume icon in the RecordingOverlay -- toggles between
+  /// the two methods above.
+  Future<void> _togglePauseRecording() =>
+      _recordingPaused ? _resumeRecording() : _pauseRecording();
+
   Future<void> _cancelRecording() async {
     try {
       _recordingTicker?.cancel();
       _recordingTicker = null;
-      _recordingStartedAt = null;
+      _recordingSegmentStartedAt = null;
 
       if (_isRecording) {
         await _recorder.stop();
@@ -1045,6 +1110,8 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         _isRecording = false;
         _recordingPath = null;
         _recordingLocked = false;
+        _recordingPaused = false;
+        _recordedMsBeforePause = 0;
         _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
       });
     } catch (e) {
@@ -1084,9 +1151,13 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         throw StateError(context.l10n.tr('league_chat_recording_not_found'));
       }
 
-      final recordedMs = _recordingStartedAt == null
-          ? 0
-          : DateTime.now().difference(_recordingStartedAt!).inMilliseconds;
+      // Total captured duration = every completed segment (already
+      // accumulated across any pause/resume cycles) plus whatever's been
+      // captured in the currently-active segment, if any (not paused).
+      final recordedMs = _recordedMsBeforePause +
+          (_recordingPaused || _recordingSegmentStartedAt == null
+              ? 0
+              : DateTime.now().difference(_recordingSegmentStartedAt!).inMilliseconds);
 
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
@@ -1136,9 +1207,11 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       setState(() {
         _isRecording = false;
         _recordingPath = null;
-        _recordingStartedAt = null;
+        _recordingSegmentStartedAt = null;
+        _recordedMsBeforePause = 0;
         _isVoiceSending = false;
         _recordingLocked = false;
+        _recordingPaused = false;
         _recordDrag = const VoiceRecordDrag(cancelProgress: 0, lockProgress: 0);
       });
     } catch (e) {
@@ -1532,14 +1605,17 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                       },
                     ),
                   ),
-                  if (_isRecording && _recordingStartedAt != null)
+                  if (_isRecording)
                     RecordingOverlay(
-                      recordingStartedAt: _recordingStartedAt!,
+                      recordedMsBeforePause: _recordedMsBeforePause,
+                      activeSegmentStartedAt: _recordingSegmentStartedAt,
                       drag: _recordDrag,
                       locked: _recordingLocked,
+                      paused: _recordingPaused,
                       isSending: _isVoiceSending,
                       onCancel: _cancelRecording,
                       onSend: _sendRecording,
+                      onPauseResume: _togglePauseRecording,
                     ),
                   if (!_chatBlocked)
                     AnimatedBuilder(
@@ -1571,7 +1647,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                           },
                           onRecordStart: canStartRecording ? _startRecording : () {},
                           onRecordCancel: _cancelRecording,
-                          onRecordStop: _sendRecording,
+                          onRecordPause: _pauseRecording,
                           onRecordLock: _lockRecording,
                           onRecordDragUpdate: (drag) {
                             if (!mounted) return;

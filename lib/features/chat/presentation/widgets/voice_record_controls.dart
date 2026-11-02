@@ -1,11 +1,16 @@
 // lib/features/chat/presentation/widgets/voice_record_controls.dart
 //
-// Telegram-style press-and-hold voice recording: a mic button that starts
-// recording on press, sends on release, cancels if you slide left past a
-// threshold, and locks into hands-free recording if you slide up past a
-// threshold (so you can lift your finger and keep recording, with explicit
-// Cancel/Send controls shown instead). Shared by every chat screen's input
-// bar so the gesture, thresholds, and visuals stay identical everywhere.
+// Telegram-style press-and-hold voice recording, with pause/resume on top
+// (which Telegram itself doesn't have): a mic button that starts recording
+// on press, pauses on release (showing explicit Cancel/Pause-or-Resume/Send
+// controls -- never auto-sends), cancels if you slide left past a
+// threshold, and locks into hands-free *active* recording if you slide up
+// past a threshold instead of pausing (so you can lift your finger and keep
+// talking). Either way, once the finger is up, the same persistent control
+// row is shown, so there's always a visible way to pause what you're
+// recording, resume it later, send it, or discard it -- nothing happens
+// silently on release. Shared by every chat screen's input bar so the
+// gesture, thresholds, and visuals stay identical everywhere.
 
 import 'dart:async';
 
@@ -50,7 +55,7 @@ class VoiceRecordButton extends StatefulWidget {
     required this.enabled,
     required this.onRecordStart,
     required this.onRecordCancel,
-    required this.onRecordStop,
+    required this.onRecordPause,
     required this.onRecordLock,
     this.onDragUpdate,
     this.onQuickTap,
@@ -68,13 +73,16 @@ class VoiceRecordButton extends StatefulWidget {
   final VoidCallback onRecordCancel;
 
   /// Finger released over/near the button, not past the cancel threshold,
-  /// and not locked: stop and send the recording.
-  final VoidCallback onRecordStop;
+  /// and not locked: PAUSE the recording (never auto-send) and hand off to
+  /// the caller's persistent Cancel/Resume/Send controls (see
+  /// [RecordingOverlay]'s locked state -- pausing on release puts it in
+  /// that same state, just starting out paused).
+  final VoidCallback onRecordPause;
 
   /// Finger dragged up past the lock threshold: recording continues
-  /// hands-free. The caller is now responsible for its own explicit
-  /// Cancel/Send controls (see [RecordingOverlay]'s locked state) --
-  /// this button stops tracking the gesture once locked.
+  /// hands-free (NOT paused). The caller is now responsible for its own
+  /// explicit Cancel/Pause/Send controls (see [RecordingOverlay]'s locked
+  /// state) -- this button stops tracking the gesture once locked.
   final VoidCallback onRecordLock;
 
   /// Fires on every drag update while recording and not yet locked, so the
@@ -169,7 +177,7 @@ class _VoiceRecordButtonState extends State<VoiceRecordButton> {
       onLongPressEnd: (details) {
         if (!_tracking) return;
         _reset();
-        widget.onRecordStop();
+        widget.onRecordPause();
       },
       onLongPressCancel: () {
         if (!_tracking) return;
@@ -196,26 +204,50 @@ class _VoiceRecordButtonState extends State<VoiceRecordButton> {
 /// Shown above the input bar while a press-and-hold voice recording is in
 /// progress (mirrors Telegram's own recording bar): a pulsing red dot with
 /// a live timer, a "< Slide to cancel" hint that tracks the drag, and a lock
-/// icon that fills in as the user drags toward it. Once [locked] is true,
-/// switches to explicit Cancel/Send buttons (hands-free -- the finger has
-/// already been lifted).
+/// icon that fills in as the user drags toward it. Once [locked] is true
+/// (either the user explicitly locked it, or just released without
+/// canceling -- see [VoiceRecordButton.onRecordPause]), switches to
+/// persistent Cancel / Pause-or-Resume / Send buttons, so there's always a
+/// visible way to finish this recording regardless of whether the finger
+/// is still down.
 class RecordingOverlay extends StatefulWidget {
   const RecordingOverlay({
     super.key,
-    required this.recordingStartedAt,
+    required this.recordedMsBeforePause,
+    required this.activeSegmentStartedAt,
     required this.drag,
     required this.locked,
+    required this.paused,
     required this.isSending,
     required this.onCancel,
     required this.onSend,
+    required this.onPauseResume,
   });
 
-  final DateTime recordingStartedAt;
+  /// Total duration actually captured across every prior recording segment
+  /// (i.e. not counting time spent paused). Frozen while [paused].
+  final int recordedMsBeforePause;
+
+  /// When the CURRENT segment started actively capturing -- null while
+  /// [paused] (there is no active segment to measure). Used together with
+  /// [recordedMsBeforePause] to show a live timer that correctly excludes
+  /// paused gaps, and that freezes the instant a pause happens.
+  final DateTime? activeSegmentStartedAt;
+
   final VoiceRecordDrag drag;
   final bool locked;
+
+  /// Only meaningful once [locked] -- whether audio capture is currently
+  /// paused (true) or actively recording hands-free (false).
+  final bool paused;
+
   final bool isSending;
   final VoidCallback onCancel;
   final VoidCallback onSend;
+
+  /// Toggles between pausing the active recording and resuming a paused
+  /// one. Only shown once [locked].
+  final VoidCallback onPauseResume;
 
   @override
   State<RecordingOverlay> createState() => _RecordingOverlayState();
@@ -235,13 +267,16 @@ class _RecordingOverlayState extends State<RecordingOverlay>
   void initState() {
     super.initState();
     _tick();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
   }
 
   void _tick() {
     if (!mounted) return;
+    final segmentStart = widget.activeSegmentStartedAt;
+    final activeMs =
+        segmentStart == null ? 0 : DateTime.now().difference(segmentStart).inMilliseconds;
     setState(() {
-      _elapsed = DateTime.now().difference(widget.recordingStartedAt);
+      _elapsed = Duration(milliseconds: widget.recordedMsBeforePause + activeMs);
     });
   }
 
@@ -270,19 +305,32 @@ class _RecordingOverlayState extends State<RecordingOverlay>
         child: widget.locked
             ? Row(
                 children: [
-                  Icon(Icons.lock_rounded, color: cs.primary, size: 18),
-                  const SizedBox(width: 10),
-                  FadeTransition(
-                    opacity: _pulse,
-                    child: Container(
-                      width: 10,
-                      height: 10,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.redAccent,
-                      ),
-                    ),
+                  Icon(
+                    widget.paused ? Icons.pause_circle_outline_rounded : Icons.lock_rounded,
+                    color: cs.primary,
+                    size: 18,
                   ),
+                  const SizedBox(width: 10),
+                  widget.paused
+                      ? Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppTheme.secondaryText(brightness),
+                          ),
+                        )
+                      : FadeTransition(
+                          opacity: _pulse,
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.redAccent,
+                            ),
+                          ),
+                        ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -291,6 +339,17 @@ class _RecordingOverlayState extends State<RecordingOverlay>
                         color: AppTheme.primaryText(brightness),
                         fontWeight: FontWeight.w800,
                       ),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: widget.paused
+                        ? context.l10n.tr('chat_input_resume_recording_tooltip')
+                        : context.l10n.tr('chat_input_pause_recording_tooltip'),
+                    onPressed: widget.isSending ? null : widget.onPauseResume,
+                    icon: Icon(
+                      widget.paused ? Icons.mic_rounded : Icons.pause_rounded,
+                      color: cs.primary,
                     ),
                   ),
                   TextButton(
