@@ -16,12 +16,13 @@ class ChatInputBar extends StatelessWidget {
     required this.enabled,
 
     // Voice (optional) — Telegram-style press-and-hold on the trailing
-    // button: press starts recording, release sends, slide left cancels,
-    // slide up locks into hands-free recording. All four are required
-    // together (a screen either offers voice or it doesn't).
+    // button: press starts recording, release PAUSES it (never
+    // auto-sends -- see VoiceRecordButton.onRecordPause), slide left
+    // cancels, slide up locks into hands-free active recording. All four
+    // are required together (a screen either offers voice or it doesn't).
     this.onRecordStart,
     this.onRecordCancel,
-    this.onRecordStop,
+    this.onRecordPause,
     this.onRecordLock,
     this.onRecordDragUpdate,
     this.onRecordQuickTap,
@@ -50,7 +51,7 @@ class ChatInputBar extends StatelessWidget {
   // Voice action (optional) -- see VoiceRecordButton for the gesture contract.
   final VoidCallback? onRecordStart;
   final VoidCallback? onRecordCancel;
-  final VoidCallback? onRecordStop;
+  final VoidCallback? onRecordPause;
   final VoidCallback? onRecordLock;
   final ValueChanged<VoiceRecordDrag>? onRecordDragUpdate;
 
@@ -83,7 +84,7 @@ class ChatInputBar extends StatelessWidget {
             !isSending &&
             onRecordStart != null &&
             onRecordCancel != null &&
-            onRecordStop != null &&
+            onRecordPause != null &&
             onRecordLock != null;
 
         final trailingIsSend = hasText;
@@ -261,7 +262,8 @@ class ChatInputBar extends StatelessWidget {
                         //
                         // Press and hold to record (Telegram-style) -- see
                         // VoiceRecordButton for the full gesture contract
-                        // (release to send, slide left to cancel, slide up
+                        // (release pauses -- never auto-sends, see
+                        // onRecordPause -- slide left to cancel, slide up
                         // to lock hands-free). A plain tap/quick-release
                         // never starts a recording by design, same as
                         // Telegram -- but it's not silent: see onQuickTap.
@@ -270,7 +272,7 @@ class ChatInputBar extends StatelessWidget {
                           enabled: trailingEnabled,
                           onRecordStart: onRecordStart ?? () {},
                           onRecordCancel: onRecordCancel ?? () {},
-                          onRecordStop: onRecordStop ?? () {},
+                          onRecordPause: onRecordPause ?? () {},
                           onRecordLock: onRecordLock ?? () {},
                           onDragUpdate: onRecordDragUpdate,
                           onQuickTap: onRecordQuickTap,
