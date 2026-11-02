@@ -3270,12 +3270,25 @@ service cloud.firestore {
                (request.resource.data.type == 'voice' && request.resource.data.voiceUrl.size() > 10)
              )
           && notBlockedEitherWay(otherParticipant(parentThread().participantIds))
-          // Free (no Pro/Elite plan) senders are capped at 2 chat messages
-          // per rolling 24h, combined across league/organizer/global/DM
-          // chat (shared 'chatMessages' rate-limit kind). See rateLimitOk().
           && (
-            isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite')
-            || rateLimitOk(request.auth.uid, 'chatMessages', 2)
+            request.resource.data.type == 'image'
+              // Sending a file attachment is a paid-only action -- no
+              // free-tier allowance at all (unlike text/voice below).
+              // Free users can still read and reply in an existing
+              // thread; they just can't attach images until they
+              // upgrade. The client (private_chat_screen.dart /
+              // web_client's messages page) pre-checks this and
+              // redirects to the upgrade flow instead of ever reaching
+              // this write for a free sender.
+              ? (isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite'))
+              // Free (no Pro/Elite plan) senders are capped at 2 chat
+              // messages per rolling 24h, combined across
+              // league/organizer/global/DM chat (shared 'chatMessages'
+              // rate-limit kind). See rateLimitOk().
+              : (
+                isSuperAdmin() || profileHasActivePlan('pro') || profileHasActivePlan('elite')
+                || rateLimitOk(request.auth.uid, 'chatMessages', 2)
+              )
           );
 
         allow update, delete: if false;

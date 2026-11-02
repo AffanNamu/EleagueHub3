@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
-import { PrivateThread, PrivateMessage, sendPrivateMessageWeb } from '@/lib/chat/privateChatRepository';
+import {
+  PrivateThread,
+  PrivateMessage,
+  sendPrivateMessageWeb,
+  PrivateChatFilesRequirePremiumError,
+} from '@/lib/chat/privateChatRepository';
 import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
+import { isPaidPlanActive } from '@/lib/plans/rateLimitService';
 
 export function usePrivateThreads() {
   const [threads, setThreads] = useState<PrivateThread[]>([]);
@@ -98,6 +104,13 @@ export function usePrivateMessages(threadId: string) {
 
   const sendImage = async (file: File) => {
     if (!authUid) throw new Error('Not authenticated');
+    // Backstop re-check -- the caller (messages page) already pre-checks
+    // before even reading the file, so this should rarely trigger, but
+    // it keeps this function safe to call from anywhere without relying
+    // on every caller remembering to check first.
+    if (!(await isPaidPlanActive(authUid))) {
+      throw new PrivateChatFilesRequirePremiumError();
+    }
     const { secureUrl } = await uploadImageFile({ file, folder: `eleaguehub/chatrooms/private/${threadId}` });
     await sendPrivateMessageWeb(threadId, authUid, 'image', '', secureUrl, '');
   };

@@ -29,6 +29,20 @@ export interface PrivateMessage {
   createdAtMs: number;
 }
 
+// Mirrors lib/features/chat/presentation/private_chat_screen.dart's
+// _handleImagePick() gate -- sending a file attachment in private chat is
+// a paid-only action, no free-tier allowance at all (unlike text/voice,
+// which get a small daily rate-limited allowance). firestore.rules'
+// private DM message create rule enforces this authoritatively for
+// type == 'image'; this error lets the UI show a friendly "upgrade to
+// send files" prompt instead of a raw permission-denied.
+export class PrivateChatFilesRequirePremiumError extends Error {
+  constructor() {
+    super('Sending files requires an active Pro or Elite plan. Upgrade your account to send images in private chat.');
+    this.name = 'PrivateChatFilesRequirePremiumError';
+  }
+}
+
 // Deterministic Thread ID (Mirrors Flutter)
 export function getThreadId(uidA: string, uidB: string): string {
   const sorted = [uidA, uidB].sort();
