@@ -12,6 +12,7 @@ import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/cloudinary_utils.dart';
+import '../../../core/utils/cloudinary_utils.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
 import '../../auth/data/user_profile_repository.dart';
@@ -642,7 +643,7 @@ class _UserAvatar extends StatelessWidget {
           height: 36,
           child: has
               ? Image.network(
-                  raw,
+                  CloudinaryUtils.thumb(raw, size: 96),
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
                   filterQuality: FilterQuality.low,

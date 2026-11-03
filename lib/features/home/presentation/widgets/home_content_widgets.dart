@@ -21,6 +21,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../social/data/home_content_repository.dart';
 
@@ -62,7 +63,7 @@ class HomeHeroBanner extends StatelessWidget {
               if (hero.imageUrl.isNotEmpty)
                 Positioned.fill(
                   child: Image.network(
-                    hero.imageUrl,
+                    CloudinaryUtils.fill(hero.imageUrl, width: 960, height: 540),
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                   ),
@@ -181,7 +182,7 @@ class HomePromoStrip extends StatelessWidget {
                     clipBehavior: Clip.antiAlias,
                     child: item.imageUrl.isNotEmpty
                         ? Image.network(
-                            item.imageUrl,
+                            CloudinaryUtils.thumb(item.imageUrl, size: 88),
                             fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => Icon(
                               Icons.campaign_outlined,

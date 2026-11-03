@@ -1950,7 +1950,7 @@ class _UserThumb extends StatelessWidget {
       child: ClipOval(
         child: has
             ? Image.network(
-                raw,
+                CloudinaryUtils.thumb(raw, size: px),
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
                 filterQuality: FilterQuality.low,

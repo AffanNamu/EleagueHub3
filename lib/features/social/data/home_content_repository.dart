@@ -88,12 +88,21 @@ class HomeContentRepository {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
 
+  // Defensive cap matching the sibling announcement repositories
+  // (platform_announcements_repository.dart/personal_notifications_repository.dart)
+  // -- this is the only query in this file without one. home_content is
+  // small and admin-curated today, but an unbounded listener on the
+  // Home tab (the highest-traffic screen in the app) shouldn't rely on
+  // that staying true forever.
+  static const int _activeLimit = 30;
+
   /// Streams all active home_content items within their schedule window, ordered by `order`.
   Stream<List<HomeContentItem>> watchActive() {
     return _firestore
         .collection('home_content')
         .where('active', isEqualTo: true)
         .orderBy('order')
+        .limit(_activeLimit)
         .snapshots()
         .map<List<HomeContentItem>>((snap) {
       final nowMs = DateTime.now().millisecondsSinceEpoch;
