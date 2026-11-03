@@ -6,6 +6,11 @@
 // - Nothing downloads automatically when a chat opens.
 // - Explicit Download action fetches once, persists locally, and is reused
 //   instantly (and offline) afterwards.
+// - Exception: media the CURRENT USER just sent (picked image, recorded
+//   voice note) is seeded into the cache from the local file at send time
+//   (see seedFromLocalFile()) -- the sender already has it, so their own
+//   bubble skips the Download button entirely instead of asking them to
+//   "download" what they just sent.
 // - Concurrent taps / multiple bubbles referencing the same URL never
 //   trigger duplicate downloads (in-flight de-dup keyed by URL).
 // - Downloads are cancellable and retryable, survive app restart (manifest
@@ -420,6 +425,71 @@ class ChatMediaCacheService {
       throw const ChatMediaException(message);
     } finally {
       _cancelTokens.remove(url);
+    }
+  }
+
+  /// Seeds the cache for [url] directly from a local file already on disk
+  /// -- used right after the SENDER uploads an image/voice note they just
+  /// picked or recorded, so their own chat bubble shows it as already
+  /// downloaded immediately instead of making them "download" the thing
+  /// they just sent. Copies the file into the same cache location
+  /// [_downloadInternal] would have used, so later reads via [cachedPath]
+  /// or [watch] can't tell the difference from an actual download.
+  /// Best-effort and silent on failure -- worst case, the sender's own
+  /// bubble just falls back to the normal Download button, same as
+  /// before this existed.
+  Future<void> seedFromLocalFile({
+    required String url,
+    required ChatMediaKind kind,
+    required String localFilePath,
+  }) async {
+    final trimmedUrl = url.trim();
+    if (trimmedUrl.isEmpty) return;
+
+    try {
+      final localFile = File(localFilePath);
+      if (!await localFile.exists()) return;
+
+      await _ensureLoaded();
+
+      final existing = _records[trimmedUrl];
+      if (existing != null && await File(existing.localPath).exists()) {
+        return;
+      }
+
+      final dir = await _mediaDirFor(kind);
+      final ext = CloudinaryMediaUtils.extensionFor(
+        trimmedUrl,
+        fallback: kind == ChatMediaKind.image ? 'jpg' : 'm4a',
+      );
+      final fileName = '${CloudinaryMediaUtils.cacheKeyFor(trimmedUrl)}.$ext';
+      final finalPath = '${dir.path}/$fileName';
+
+      await localFile.copy(finalPath);
+      final size = await File(finalPath).length();
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      int? durationMs;
+      if (kind == ChatMediaKind.voice) {
+        durationMs = await _probeVoiceDuration(finalPath);
+      }
+
+      _records[trimmedUrl] = _CacheRecord(
+        url: trimmedUrl,
+        kind: kind,
+        localPath: finalPath,
+        sizeBytes: size,
+        downloadedAtMs: now,
+        lastAccessMs: now,
+        durationMs: durationMs,
+      );
+      await _persist();
+
+      _notifierFor(trimmedUrl).value =
+          ChatMediaDownloadState.downloaded(finalPath);
+      unawaited(_enforceCacheBudget());
+    } catch (_) {
+      // Best-effort -- see doc comment above.
     }
   }
 

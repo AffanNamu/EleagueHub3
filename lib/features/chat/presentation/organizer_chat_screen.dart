@@ -14,6 +14,7 @@ import 'package:record/record.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
+import '../../../core/services/chat_media_cache_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
@@ -666,6 +667,14 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
         masterLeagueId: widget.masterLeagueId,
         file: file,
       );
+      final localPath = (file.path ?? '').trim();
+      if (localPath.isNotEmpty) {
+        unawaited(ChatMediaCacheService.instance.seedFromLocalFile(
+          url: url,
+          kind: ChatMediaKind.image,
+          localFilePath: localPath,
+        ));
+      }
 
       final caption = _textCtrl.text.trim();
 
@@ -887,6 +896,11 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
           size: await file.length(),
         ),
       );
+      unawaited(ChatMediaCacheService.instance.seedFromLocalFile(
+        url: voiceUrl,
+        kind: ChatMediaKind.voice,
+        localFilePath: finalPath,
+      ));
 
       final caption = _textCtrl.text.trim();
 
