@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/utils/cloudinary_utils.dart';
 import '../data/highlights_feed_repository_firebase.dart';
 import '../domain/match_highlight.dart';
 import 'highlight_player_screen.dart';
@@ -103,7 +104,7 @@ class _HighlightCard extends StatelessWidget {
                 children: [
                   if (thumb.isNotEmpty)
                     Image.network(
-                      thumb,
+                      CloudinaryUtils.fill(thumb, width: 360, height: 360),
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => Container(color: cs.onSurface.withOpacity(0.08)),
                     )

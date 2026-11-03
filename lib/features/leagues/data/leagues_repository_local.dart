@@ -777,12 +777,12 @@ class LocalLeaguesRepository {
   Future<League?> getLeagueById(String id) async {
     try {
       final authUid = _requireAuthUid();
-      await _requireOnline();
 
+      // See getTeams()'s doc comment -- same cache-fallback reasoning.
       final doc = await _firestore
           .collection('leagues')
           .doc(id)
-          .get(const GetOptions(source: Source.server))
+          .get()
           .timeout(const Duration(seconds: 20));
       if (!doc.exists) return null;
 
@@ -1722,13 +1722,22 @@ class LocalLeaguesRepository {
   Future<List<Team>> getTeams(String leagueId) async {
     try {
       _requireAuthUid();
-      await _requireOnline();
 
+      // No _requireOnline() pre-check and no forced Source.server -- same
+      // reasoning as watchAllLeagues()'s own doc comment: Source.server
+      // (the previous default here) throws outright on any network blip
+      // even when Firestore's own on-device cache already has a perfectly
+      // good last-seen copy of this league's teams. The default
+      // Source.serverAndCache tries the server first (so a normal, online
+      // read is unaffected) and only falls back to cache if the server is
+      // unreachable -- exactly the "low network" resilience this screen
+      // was missing. Genuinely offline with no cache at all still throws,
+      // same as before.
       final snap = await _firestore
           .collection('leagues')
           .doc(leagueId)
           .collection('teams')
-          .get(const GetOptions(source: Source.server))
+          .get()
           .timeout(const Duration(seconds: 20));
 
       final baseTeams = snap.docs.map((d) {
@@ -2084,13 +2093,13 @@ class LocalLeaguesRepository {
   Future<List<FixtureMatch>> getMatches(String leagueId) async {
     try {
       _requireAuthUid();
-      await _requireOnline();
 
+      // See getTeams()'s doc comment -- same cache-fallback reasoning.
       final snap = await _firestore
           .collection('leagues')
           .doc(leagueId)
           .collection('matches')
-          .get(const GetOptions(source: Source.server))
+          .get()
           .timeout(const Duration(seconds: 20));
 
       return snap.docs.map((d) {

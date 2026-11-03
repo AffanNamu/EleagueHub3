@@ -15,6 +15,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/locale/app_localizations.dart';
 import '../../../../core/persistence/prefs_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/cloudinary_utils.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../highlights/presentation/highlight_player_screen.dart';
 import '../../../leagues/data/leagues_repository_local.dart';
@@ -456,7 +457,7 @@ class _LeagueBadge extends StatelessWidget {
           ? Icon(Icons.emoji_events_outlined,
               size: 16, color: AppTheme.limeAccentDark)
           : Image.network(
-              url,
+              CloudinaryUtils.thumb(url, size: 68),
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => Icon(
                 Icons.emoji_events_outlined,
@@ -546,7 +547,7 @@ class _HighlightCard extends StatelessWidget {
                           child: thumb.isEmpty
                               ? null
                               : Image.network(
-                                  thumb,
+                                  CloudinaryUtils.fill(thumb, width: 720, height: 405),
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) =>
                                       const SizedBox.shrink(),
