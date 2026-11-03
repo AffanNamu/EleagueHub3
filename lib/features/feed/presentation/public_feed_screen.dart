@@ -483,305 +483,323 @@ class _PostCard extends StatelessWidget {
     final l10n = context.l10n;
     final brightness = Theme.of(context).brightness;
 
-    return Glass(
-      borderRadius: 20,
-      padding: const EdgeInsets.all(14),
-      fill: AppTheme.cardColor(brightness),
-      borderColor: AppTheme.cardBorder(brightness),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Glass(
+          borderRadius: 20,
+          // Extra top room vs. the default 14 -- the post-age label (the
+          // Positioned Text below) sits in the card's top-right corner,
+          // above the avatar/name/menu row, so the row needs a little
+          // more headroom to not sit flush under it.
+          padding: const EdgeInsets.fromLTRB(14, 26, 14, 14),
+          fill: AppTheme.cardColor(brightness),
+          borderColor: AppTheme.cardBorder(brightness),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(999),
-                onTap: () {
-                  try {
-                    GoRouter.of(context).push('/profile/${post.authorId}');
-                  } catch (_) {}
-                },
-                child: CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppTheme.iconCircleBackground(brightness),
-                  backgroundImage: post.authorPhotoUrl.isNotEmpty
-                      ? NetworkImage(CloudinaryUtils.thumb(post.authorPhotoUrl, size: 72))
-                      : null,
-                  child: post.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 18) : null,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: InkWell(
-                  onTap: () {
-                    try {
-                      GoRouter.of(context).push('/profile/${post.authorId}');
-                    } catch (_) {}
-                  },
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          post.authorDisplayName.isEmpty ? l10n.tr('public_feed_author_fallback') : post.authorDisplayName,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            color: AppTheme.primaryText(brightness),
+              Row(
+                children: [
+                  InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: () {
+                      try {
+                        GoRouter.of(context).push('/profile/${post.authorId}');
+                      } catch (_) {}
+                    },
+                    child: CircleAvatar(
+                      radius: 18,
+                      backgroundColor: AppTheme.iconCircleBackground(brightness),
+                      backgroundImage: post.authorPhotoUrl.isNotEmpty
+                          ? NetworkImage(CloudinaryUtils.thumb(post.authorPhotoUrl, size: 72))
+                          : null,
+                      child: post.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 18) : null,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () {
+                        try {
+                          GoRouter.of(context).push('/profile/${post.authorId}');
+                        } catch (_) {}
+                      },
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              post.authorDisplayName.isEmpty ? l10n.tr('public_feed_author_fallback') : post.authorDisplayName,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                color: AppTheme.primaryText(brightness),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                          // NEW: shows the author's verified badge (Green for
+                          // Pro, Green + Organizer/gold for Elite) right after
+                          // their name, Twitter/Facebook-style. Reuses the
+                          // existing VerificationBadgeWidget + badgeStreamProvider
+                          // -- badges are already granted on plan purchase by
+                          // MasterLeaguePaymentService/GooglePlayBillingService,
+                          // so this is live, not computed from the post itself.
+                          VerificationBadgeWidget(userId: post.authorId, size: 15),
+                        ],
                       ),
-                      // NEW: shows the author's verified badge (Green for
-                      // Pro, Green + Organizer/gold for Elite) right after
-                      // their name, Twitter/Facebook-style. Reuses the
-                      // existing VerificationBadgeWidget + badgeStreamProvider
-                      // -- badges are already granted on plan purchase by
-                      // MasterLeaguePaymentService/GooglePlayBillingService,
-                      // so this is live, not computed from the post itself.
-                      VerificationBadgeWidget(userId: post.authorId, size: 15),
-                    ],
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(Icons.more_vert_rounded, color: AppTheme.secondaryText(brightness)),
+                    onPressed: () => _showPostActions(context),
+                  ),
+                ],
+              ),
+              if (post.text.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  post.text,
+                  style: TextStyle(
+                    color: AppTheme.primaryText(brightness),
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
                   ),
                 ),
-              ),
-              Flexible(
-                child: Text(
-                  _timeAgo(l10n, post.createdAtMs),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: AppTheme.secondaryText(brightness), fontSize: 12),
-                ),
-              ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                icon: Icon(Icons.more_vert_rounded, color: AppTheme.secondaryText(brightness)),
-                onPressed: () => _showPostActions(context),
-              ),
-            ],
-          ),
-          if (post.text.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              post.text,
-              style: TextStyle(
-                color: AppTheme.primaryText(brightness),
-                fontWeight: FontWeight.w600,
-                height: 1.35,
-              ),
-            ),
-          ],
+              ],
 
-          // NEW: Social Media Sizing & Audio Overlay
-          if (post.mediaUrl.trim().isNotEmpty && post.mediaType == 'video') ...[
-            const SizedBox(height: 10),
-            InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () => openHighlightPlayer(
-                context,
-                videoUrl: post.mediaUrl,
-                title: post.authorDisplayName,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 450, minHeight: 200),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Container(
-                          color: brightness == Brightness.dark
-                              ? AppTheme.darkCard
-                              : const Color(0xFFE5E7EB),
+              // NEW: Social Media Sizing & Audio Overlay
+              if (post.mediaUrl.trim().isNotEmpty && post.mediaType == 'video') ...[
+                const SizedBox(height: 10),
+                InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => openHighlightPlayer(
+                    context,
+                    videoUrl: post.mediaUrl,
+                    title: post.authorDisplayName,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 450, minHeight: 200),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Container(
+                              color: brightness == Brightness.dark
+                                  ? AppTheme.darkCard
+                                  : const Color(0xFFE5E7EB),
+                              child: Image.network(
+                                _cloudinaryVideoThumbnail(post.mediaUrl),
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                              ),
+                            ),
+                            Container(color: Colors.black.withOpacity(0.18)),
+                            const Center(
+                              child: Icon(
+                                Icons.play_circle_fill_rounded,
+                                color: Colors.white,
+                                size: 52,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ] else if (post.mediaUrl.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Stack(
+                    children: [
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxHeight: 450, // Social media max height
+                          minHeight: 200,
+                        ),
+                        child: SizedBox(
+                          width: double.infinity,
                           child: Image.network(
-                            _cloudinaryVideoThumbnail(post.mediaUrl),
-                            fit: BoxFit.cover,
+                            CloudinaryUtils.fit(post.mediaUrl, width: 1080),
+                            fit: BoxFit.cover, // Ensures normal social media crop
                             errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                           ),
                         ),
-                        Container(color: Colors.black.withOpacity(0.18)),
-                        const Center(
-                          child: Icon(
-                            Icons.play_circle_fill_rounded,
-                            color: Colors.white,
-                            size: 52,
+                      ),
+                      // If the image has an audio file attached, show the manual play button
+                      if (post.audioUrl.trim().isNotEmpty)
+                        Positioned(
+                          bottom: 12,
+                          right: 12,
+                          child: _AudioToggleButton(audioUrl: post.audioUrl),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+
+              if (post.leagueId.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                InkWell(
+                  onTap: onOpenLeague,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.searchBackground(brightness),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.searchOutline(brightness)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.emoji_events_rounded, color: AppTheme.limeAccentDark, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            post.leagueName.isEmpty ? l10n.tr('public_feed_view_competition') : post.leagueName,
+                            style: TextStyle(
+                              color: AppTheme.primaryText(brightness),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        Icon(Icons.chevron_right_rounded, color: AppTheme.secondaryText(brightness)),
                       ],
                     ),
                   ),
                 ),
-              ),
-            ),
-          ] else if (post.mediaUrl.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: Stack(
+              ],
+              const SizedBox(height: 10),
+              Row(
                 children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxHeight: 450, // Social media max height
-                      minHeight: 200,
-                    ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: Image.network(
-                        CloudinaryUtils.fit(post.mediaUrl, width: 1080),
-                        fit: BoxFit.cover, // Ensures normal social media crop
-                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  InkWell(
+                    onTap: onLike,
+                    borderRadius: BorderRadius.circular(999),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                      child: Row(
+                        children: [
+                          // FIXED (like UI bug #3): the heart previously always
+                          // rendered `favorite_border` regardless of like state,
+                          // because no per-post "did I like this" state existed
+                          // anywhere above it. It now reflects `isLiked`, which
+                          // is hydrated from PublicFeedRepository.hasLiked() and
+                          // flipped optimistically on tap.
+                          Icon(
+                            isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                            size: 18,
+                            color: isLiked ? const Color(0xFFE0245E) : AppTheme.secondaryText(brightness),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${post.likeCount}',
+                            style: TextStyle(
+                              color: isLiked ? const Color(0xFFE0245E) : AppTheme.secondaryText(brightness),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  // If the image has an audio file attached, show the manual play button
-                  if (post.audioUrl.trim().isNotEmpty)
-                    Positioned(
-                      bottom: 12,
-                      right: 12,
-                      child: _AudioToggleButton(audioUrl: post.audioUrl),
+                  const SizedBox(width: 18),
+                  // FIXED (comment bug #4): this row previously had no
+                  // InkWell/GestureDetector at all -- tapping it did nothing
+                  // because nothing was listening for the tap. Now opens the
+                  // comments sheet, using the same lime-accent color used
+                  // elsewhere in the feed for interactive/active states.
+                  InkWell(
+                    onTap: onComment,
+                    borderRadius: BorderRadius.circular(999),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 18,
+                            color: AppTheme.limeAccentDark,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${post.commentCount}',
+                            style: TextStyle(
+                              color: AppTheme.secondaryText(brightness),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  ),
+                  const SizedBox(width: 18),
+                  // Emoji reactions -- additive to the heart-like above, not a
+                  // replacement. Self-contained: builds its own doc ref/repo
+                  // rather than threading one down through every caller.
+                  InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: () async {
+                      final repo = ReactionsRepository(_postRef);
+                      final current = await repo.watch().first;
+                      if (!context.mounted) return;
+                      final picked = await showReactionPicker(
+                        context,
+                        currentEmoji: current.myEmoji,
+                      );
+                      if (picked == null) return;
+                      await repo.toggle(picked);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                      child: Icon(
+                        Icons.add_reaction_outlined,
+                        size: 18,
+                        color: AppTheme.secondaryText(brightness),
+                      ),
+                    ),
+                  ),
                 ],
               ),
-            ),
-          ],
-
-          if (post.leagueId.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            InkWell(
-              onTap: onOpenLeague,
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: AppTheme.searchBackground(brightness),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.searchOutline(brightness)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.emoji_events_rounded, color: AppTheme.limeAccentDark, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        post.leagueName.isEmpty ? l10n.tr('public_feed_view_competition') : post.leagueName,
-                        style: TextStyle(
-                          color: AppTheme.primaryText(brightness),
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Icon(Icons.chevron_right_rounded, color: AppTheme.secondaryText(brightness)),
-                  ],
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              InkWell(
-                onTap: onLike,
-                borderRadius: BorderRadius.circular(999),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-                  child: Row(
-                    children: [
-                      // FIXED (like UI bug #3): the heart previously always
-                      // rendered `favorite_border` regardless of like state,
-                      // because no per-post "did I like this" state existed
-                      // anywhere above it. It now reflects `isLiked`, which
-                      // is hydrated from PublicFeedRepository.hasLiked() and
-                      // flipped optimistically on tap.
-                      Icon(
-                        isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                        size: 18,
-                        color: isLiked ? const Color(0xFFE0245E) : AppTheme.secondaryText(brightness),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${post.likeCount}',
-                        style: TextStyle(
-                          color: isLiked ? const Color(0xFFE0245E) : AppTheme.secondaryText(brightness),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 18),
-              // FIXED (comment bug #4): this row previously had no
-              // InkWell/GestureDetector at all -- tapping it did nothing
-              // because nothing was listening for the tap. Now opens the
-              // comments sheet, using the same lime-accent color used
-              // elsewhere in the feed for interactive/active states.
-              InkWell(
-                onTap: onComment,
-                borderRadius: BorderRadius.circular(999),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        size: 18,
-                        color: AppTheme.limeAccentDark,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${post.commentCount}',
-                        style: TextStyle(
-                          color: AppTheme.secondaryText(brightness),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 18),
-              // Emoji reactions -- additive to the heart-like above, not a
-              // replacement. Self-contained: builds its own doc ref/repo
-              // rather than threading one down through every caller.
-              InkWell(
-                borderRadius: BorderRadius.circular(999),
-                onTap: () async {
-                  final repo = ReactionsRepository(_postRef);
-                  final current = await repo.watch().first;
-                  if (!context.mounted) return;
-                  final picked = await showReactionPicker(
-                    context,
-                    currentEmoji: current.myEmoji,
+              StreamBuilder<ReactionSummary>(
+                stream: ReactionsRepository(_postRef).watch(),
+                builder: (context, snap) {
+                  final summary = snap.data ?? ReactionSummary.empty;
+                  if (summary.isEmpty) return const SizedBox.shrink();
+                  return ReactionPillBar(
+                    summary: summary,
+                    onTapEmoji: (emoji) => ReactionsRepository(_postRef).toggle(emoji),
                   );
-                  if (picked == null) return;
-                  await repo.toggle(picked);
                 },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-                  child: Icon(
-                    Icons.add_reaction_outlined,
-                    size: 18,
-                    color: AppTheme.secondaryText(brightness),
-                  ),
-                ),
               ),
             ],
           ),
-          StreamBuilder<ReactionSummary>(
-            stream: ReactionsRepository(_postRef).watch(),
-            builder: (context, snap) {
-              final summary = snap.data ?? ReactionSummary.empty;
-              if (summary.isEmpty) return const SizedBox.shrink();
-              return ReactionPillBar(
-                summary: summary,
-                onTapEmoji: (emoji) => ReactionsRepository(_postRef).toggle(emoji),
-              );
-            },
+        ),
+        // Post age (e.g. "65d") -- how long ago this was posted, NOT a
+        // countdown of time remaining on anything (the 2h edit window is
+        // unrelated and shown nowhere on the card itself). Deliberately
+        // pulled out of the header row and pinned to the card's top-right
+        // corner instead, above the avatar/name/menu row.
+        Positioned(
+          top: 8,
+          right: 16,
+          child: Text(
+            _timeAgo(l10n, post.createdAtMs),
+            style: TextStyle(
+              color: AppTheme.secondaryText(brightness),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
