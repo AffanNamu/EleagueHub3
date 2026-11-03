@@ -16,6 +16,7 @@ import '../../../core/reactions/presentation/reaction_picker.dart';
 import '../../../core/reactions/presentation/reaction_pill_bar.dart';
 import '../../../core/reactions/reactions_repository.dart';
 import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/chat_media_cache_service.dart';
 import '../../../core/services/plan_status_service.dart';
 import '../../../core/services/push_messaging_service.dart';
 import '../../../core/services/safe_image_picker.dart';
@@ -287,6 +288,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       final file = pick.file!;
       final url = await _repo.uploadImage(threadId: widget.threadId, file: file);
+      final localPath = (file.path ?? '').trim();
+      if (localPath.isNotEmpty) {
+        unawaited(ChatMediaCacheService.instance.seedFromLocalFile(
+          url: url,
+          kind: ChatMediaKind.image,
+          localFilePath: localPath,
+        ));
+      }
       final messageId =
           await _repo.sendImageMessage(threadId: widget.threadId, imageUrl: url);
       unawaited(_notifyPush(
@@ -495,6 +504,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           size: await file.length(),
         ),
       );
+      unawaited(ChatMediaCacheService.instance.seedFromLocalFile(
+        url: voiceUrl,
+        kind: ChatMediaKind.voice,
+        localFilePath: finalPath,
+      ));
 
       final messageId = await _repo.sendVoiceMessage(
         threadId: widget.threadId,
