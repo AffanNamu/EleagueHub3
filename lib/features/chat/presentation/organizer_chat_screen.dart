@@ -896,11 +896,15 @@ class _OrganizerChatScreenState extends State<OrganizerChatScreen> {
           size: await file.length(),
         ),
       );
-      unawaited(ChatMediaCacheService.instance.seedFromLocalFile(
+      // Awaited (not fire-and-forget like the image seed above) -- this
+      // file is explicitly deleted further down once the message is sent,
+      // so the copy inside seedFromLocalFile() must finish first or it
+      // loses the race against that delete and silently fails.
+      await ChatMediaCacheService.instance.seedFromLocalFile(
         url: voiceUrl,
         kind: ChatMediaKind.voice,
         localFilePath: finalPath,
-      ));
+      );
 
       final caption = _textCtrl.text.trim();
 

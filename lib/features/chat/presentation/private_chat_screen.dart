@@ -504,11 +504,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           size: await file.length(),
         ),
       );
-      unawaited(ChatMediaCacheService.instance.seedFromLocalFile(
+      // Awaited (not fire-and-forget like the image seed above) -- this
+      // file is explicitly deleted a few lines down once the message is
+      // sent, so the copy inside seedFromLocalFile() must finish first or
+      // it loses the race against that delete and silently fails.
+      await ChatMediaCacheService.instance.seedFromLocalFile(
         url: voiceUrl,
         kind: ChatMediaKind.voice,
         localFilePath: finalPath,
-      ));
+      );
 
       final messageId = await _repo.sendVoiceMessage(
         threadId: widget.threadId,
