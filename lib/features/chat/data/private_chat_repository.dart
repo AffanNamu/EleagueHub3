@@ -316,6 +316,53 @@ class PrivateChatRepository {
     }
   }
 
+  /// Marks [messageIds] as delivered to the CURRENT user's device (they
+  /// must be the recipient, never the sender -- firestore.rules enforces
+  /// this authoritatively). Best-effort: a failure here never surfaces to
+  /// the UI or interrupts anything else, since this is a side-effect of
+  /// viewing a thread, not an action the user took.
+  Future<void> markDelivered({
+    required String threadId,
+    required List<String> messageIds,
+  }) =>
+      _markReceipt(threadId: threadId, messageIds: messageIds, field: 'deliveredAtMs');
+
+  /// Marks [messageIds] as seen by the CURRENT user. Same contract as
+  /// [markDelivered].
+  Future<void> markSeen({
+    required String threadId,
+    required List<String> messageIds,
+  }) =>
+      _markReceipt(threadId: threadId, messageIds: messageIds, field: 'seenAtMs');
+
+  Future<void> _markReceipt({
+    required String threadId,
+    required List<String> messageIds,
+    required String field,
+  }) async {
+    if (messageIds.isEmpty) return;
+    try {
+      final authUid = _auth.currentUser?.uid.trim() ?? '';
+      if (authUid.isEmpty) return;
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final threadRef = _threads.doc(threadId);
+      // Firestore batches cap at 500 writes -- a single thread's unread
+      // backlog will never realistically approach that, but chunk
+      // defensively rather than assume.
+      for (var i = 0; i < messageIds.length; i += 450) {
+        final chunk = messageIds.skip(i).take(450);
+        final batch = _firestore.batch();
+        for (final id in chunk) {
+          batch.update(threadRef.collection('messages').doc(id), <String, dynamic>{field: now});
+        }
+        await batch.commit().timeout(const Duration(seconds: 10));
+      }
+    } catch (_) {
+      // Best-effort -- see doc comment above.
+    }
+  }
+
   /// Uploads an image for a private-chat message. Reuses the same
   /// CloudinaryUploadService as league/organizer/global chat — no new
   /// upload path is introduced. Scoped by threadId so images from

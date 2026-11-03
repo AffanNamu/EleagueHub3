@@ -32,6 +32,8 @@ class PrivateMessage {
     this.voiceDurationMs = 0,
     required this.createdAtMs,
     this.deliveryStatus = ChatDeliveryStatus.sent,
+    this.deliveredAtMs = 0,
+    this.seenAtMs = 0,
   });
 
   final String id;
@@ -53,6 +55,19 @@ class PrivateMessage {
   /// sending/failed instance.
   final ChatDeliveryStatus deliveryStatus;
 
+  /// Set once by the RECIPIENT (never the sender -- enforced by
+  /// firestore.rules) the moment their device syncs this message via its
+  /// own live listener -- see PrivateChatRepository.markDelivered(). 0
+  /// means not yet delivered. Write-once: never cleared or rewritten
+  /// once set.
+  final int deliveredAtMs;
+
+  /// Set once by the RECIPIENT when they've actually had this thread open
+  /// for a moment with the message loaded -- see
+  /// PrivateChatRepository.markSeen(). 0 means not yet seen. Write-once,
+  /// same as [deliveredAtMs].
+  final int seenAtMs;
+
   PrivateMessage copyWith({ChatDeliveryStatus? deliveryStatus}) => PrivateMessage(
         id: id,
         senderId: senderId,
@@ -63,6 +78,8 @@ class PrivateMessage {
         voiceDurationMs: voiceDurationMs,
         createdAtMs: createdAtMs,
         deliveryStatus: deliveryStatus ?? this.deliveryStatus,
+        deliveredAtMs: deliveredAtMs,
+        seenAtMs: seenAtMs,
       );
 
   factory PrivateMessage.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -76,6 +93,8 @@ class PrivateMessage {
       voiceUrl: (map['voiceUrl'] as String? ?? '').trim(),
       voiceDurationMs: _asInt(map['voiceDurationMs']),
       createdAtMs: _asInt(map['createdAtMs']),
+      deliveredAtMs: _asInt(map['deliveredAtMs']),
+      seenAtMs: _asInt(map['seenAtMs']),
     );
   }
 

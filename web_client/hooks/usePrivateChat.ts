@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import {
@@ -6,6 +6,8 @@ import {
   PrivateMessage,
   sendPrivateMessageWeb,
   PrivateChatFilesRequirePremiumError,
+  markPrivateMessagesDeliveredWeb,
+  markPrivateMessagesSeenWeb,
 } from '@/lib/chat/privateChatRepository';
 import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { isPaidPlanActive } from '@/lib/plans/rateLimitService';
@@ -80,6 +82,18 @@ export function usePrivateMessages(threadId: string) {
   const [loading, setLoading] = useState(true);
   const authUid = auth.currentUser?.uid;
 
+  // Delivery/read receipts -- mirrors
+  // private_chat_screen.dart's _handleIncomingMessagesForReceipts():
+  // "delivered" fires the instant this device's listener syncs a message
+  // from the other participant; "seen" fires after a short dwell (this
+  // hook/page having stayed mounted with the message loaded), so a
+  // message that arrives mid-dwell gets its own fair window. Refs (not
+  // state) since these are just in-session dedup guards, not render
+  // inputs -- a ref write should never itself trigger a re-render.
+  const deliveredHandledRef = useRef<Set<string>>(new Set());
+  const seenHandledRef = useRef<Set<string>>(new Set());
+  const seenDwellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (!threadId) return;
 
@@ -90,11 +104,45 @@ export function usePrivateMessages(threadId: string) {
     );
 
     const unsub = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() } as PrivateMessage)));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as PrivateMessage));
+      setMessages(list);
       setLoading(false);
+
+      const myUid = auth.currentUser?.uid;
+      if (!myUid) return;
+
+      const toDeliver: string[] = [];
+      for (const m of list) {
+        if (!m.senderId || m.senderId === myUid) continue;
+        if ((m.deliveredAtMs ?? 0) > 0) continue;
+        if (deliveredHandledRef.current.has(m.id)) continue;
+        deliveredHandledRef.current.add(m.id);
+        toDeliver.push(m.id);
+      }
+      if (toDeliver.length > 0) {
+        void markPrivateMessagesDeliveredWeb(threadId, toDeliver);
+      }
+
+      if (seenDwellTimerRef.current) clearTimeout(seenDwellTimerRef.current);
+      seenDwellTimerRef.current = setTimeout(() => {
+        const toMarkSeen: string[] = [];
+        for (const m of list) {
+          if (!m.senderId || m.senderId === myUid) continue;
+          if ((m.seenAtMs ?? 0) > 0) continue;
+          if (seenHandledRef.current.has(m.id)) continue;
+          seenHandledRef.current.add(m.id);
+          toMarkSeen.push(m.id);
+        }
+        if (toMarkSeen.length > 0) {
+          void markPrivateMessagesSeenWeb(threadId, toMarkSeen);
+        }
+      }, 1200);
     });
 
-    return () => unsub();
+    return () => {
+      unsub();
+      if (seenDwellTimerRef.current) clearTimeout(seenDwellTimerRef.current);
+    };
   }, [threadId]);
 
   const sendText = async (text: string) => {

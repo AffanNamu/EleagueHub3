@@ -106,6 +106,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   bool _busyWithAttachment = false;
 
+  // ── Delivery/read receipts ───────────────────────────────────────────
+  // Local in-session guards so the same message id is never re-sent to
+  // markDelivered()/markSeen() on every one of the many re-emissions a
+  // live Firestore listener produces for an otherwise-unchanged list
+  // (each already-handled id is a no-op write anyway per firestore.rules'
+  // write-once check, but there's no reason to make the round trip).
+  StreamSubscription<List<PrivateMessage>>? _receiptSub;
+  final Set<String> _deliveredHandled = <String>{};
+  final Set<String> _seenHandled = <String>{};
+  Timer? _seenDwellTimer;
+
   @override
   void initState() {
     super.initState();
@@ -118,6 +129,49 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _resolvedOtherUserName.trim() == 'User') {
       unawaited(_resolveOtherUserName());
     }
+
+    _receiptSub = _messagesStream.listen(_handleIncomingMessagesForReceipts);
+  }
+
+  /// "Delivered" = this device has synced the message via its own live
+  /// listener -- fires immediately, since reaching this callback at all
+  /// means exactly that. "Seen" = the thread has stayed open with the
+  /// message loaded for a brief moment (a short dwell timer, restarted on
+  /// every new message, so a message that arrives mid-dwell gets its own
+  /// fair window rather than inheriting an already-elapsed one) --
+  /// distinguishes a genuine look from a blink-and-leave open/close.
+  /// Either way, only ever marks messages from the OTHER participant;
+  /// firestore.rules independently rejects a sender marking their own
+  /// message regardless.
+  void _handleIncomingMessagesForReceipts(List<PrivateMessage> messages) {
+    final myUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (myUid.isEmpty) return;
+
+    final toDeliver = <String>[];
+    for (final m in messages) {
+      if (m.senderId.isEmpty || m.senderId == myUid) continue;
+      if (m.deliveredAtMs > 0) continue;
+      if (!_deliveredHandled.add(m.id)) continue;
+      toDeliver.add(m.id);
+    }
+    if (toDeliver.isNotEmpty) {
+      unawaited(_repo.markDelivered(threadId: widget.threadId, messageIds: toDeliver));
+    }
+
+    _seenDwellTimer?.cancel();
+    _seenDwellTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      final toMarkSeen = <String>[];
+      for (final m in messages) {
+        if (m.senderId.isEmpty || m.senderId == myUid) continue;
+        if (m.seenAtMs > 0) continue;
+        if (!_seenHandled.add(m.id)) continue;
+        toMarkSeen.add(m.id);
+      }
+      if (toMarkSeen.isNotEmpty) {
+        unawaited(_repo.markSeen(threadId: widget.threadId, messageIds: toMarkSeen));
+      }
+    });
   }
 
   Future<void> _resolveOtherUserName() async {
@@ -137,6 +191,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   @override
   void dispose() {
     PushMessagingService.instance.setActiveThread(null);
+    _receiptSub?.cancel();
+    _seenDwellTimer?.cancel();
     _recordingTicker?.cancel();
     _recorder.dispose();
     _input.dispose();
@@ -757,8 +813,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                                 child: content,
                               ),
                             ),
-                            if (isMe &&
-                                m.deliveryStatus != ChatDeliveryStatus.sent)
+                            if (isMe)
                               Padding(
                                 padding: const EdgeInsets.only(top: 2, bottom: 2),
                                 child: m.deliveryStatus == ChatDeliveryStatus.sending
@@ -770,29 +825,31 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                                           color: AppTheme.secondaryText(brightness),
                                         ),
                                       )
-                                    : InkWell(
-                                        onTap: () => _retryFailedMessage(m),
-                                        borderRadius: BorderRadius.circular(999),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(
-                                              Icons.error_outline,
-                                              size: 14,
-                                              color: Colors.redAccent,
+                                    : m.deliveryStatus == ChatDeliveryStatus.failed
+                                        ? InkWell(
+                                            onTap: () => _retryFailedMessage(m),
+                                            borderRadius: BorderRadius.circular(999),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(
+                                                  Icons.error_outline,
+                                                  size: 14,
+                                                  color: Colors.redAccent,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  context.l10n.tr('chat_bubble_retry'),
+                                                  style: const TextStyle(
+                                                    color: Colors.redAccent,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              context.l10n.tr('chat_bubble_retry'),
-                                              style: const TextStyle(
-                                                color: Colors.redAccent,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
+                                          )
+                                        : _DeliveryTicks(message: m, brightness: brightness),
                               ),
                             StreamBuilder<ReactionSummary>(
                               stream: reactionsRepo.watch(),
@@ -840,6 +897,44 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Sent/delivered/seen tick for the CURRENT user's own message bubbles --
+/// single check = sent (reached Firestore, not yet synced by the other
+/// device); double gray check = delivered (the other device has it);
+/// double BLUE check = seen (the other side actually had the thread open
+/// with it loaded). See PrivateMessage.deliveredAtMs/seenAtMs and
+/// _PrivateChatScreenState._handleIncomingMessagesForReceipts for how
+/// these get set.
+class _DeliveryTicks extends StatelessWidget {
+  const _DeliveryTicks({required this.message, required this.brightness});
+
+  final PrivateMessage message;
+  final Brightness brightness;
+
+  // WhatsApp's own blue, kept the same in both themes -- it needs to read
+  // as "an accent color meaning seen", not blend with either theme's
+  // palette.
+  static const Color _seenBlue = Color(0xFF34B7F1);
+
+  @override
+  Widget build(BuildContext context) {
+    final seen = message.seenAtMs > 0;
+    final delivered = seen || message.deliveredAtMs > 0;
+
+    return Tooltip(
+      message: seen
+          ? context.l10n.tr('private_chat_tick_seen')
+          : delivered
+              ? context.l10n.tr('private_chat_tick_delivered')
+              : context.l10n.tr('private_chat_tick_sent'),
+      child: Icon(
+        delivered ? Icons.done_all_rounded : Icons.done_rounded,
+        size: 14,
+        color: seen ? _seenBlue : AppTheme.secondaryText(brightness),
       ),
     );
   }
