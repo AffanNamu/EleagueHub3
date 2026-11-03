@@ -2,12 +2,32 @@
 
 import { useEffect, useState } from 'react';
 import { doc } from 'firebase/firestore';
+import { Check, CheckCheck } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { PrivateMessage } from '@/lib/chat/privateChatRepository';
 import { ReactionPicker } from '@/components/reactions/ReactionPicker';
 import { ReactionPillBar } from '@/components/reactions/ReactionPillBar';
 import { watchReactions, toggleReaction } from '@/lib/reactions/reactionsRepository';
 import { ReactionSummary, EMPTY_REACTION_SUMMARY } from '@/types/reactions';
+
+// Sent/delivered/seen tick, mirrored from private_chat_screen.dart's
+// _DeliveryTicks: single check = sent only; double gray check =
+// delivered; double BLUE check = seen. WhatsApp's own blue, kept
+// identical regardless of theme -- it needs to read as "an accent color
+// meaning seen", not blend into the page.
+const SEEN_BLUE = '#34B7F1';
+
+function DeliveryTick({ message }: { message: PrivateMessage }) {
+  const seen = (message.seenAtMs ?? 0) > 0;
+  const delivered = seen || (message.deliveredAtMs ?? 0) > 0;
+  const title = seen ? 'Seen' : delivered ? 'Delivered' : 'Sent';
+  const Icon = delivered ? CheckCheck : Check;
+  return (
+    <span title={title}>
+      <Icon size={14} color={seen ? SEEN_BLUE : '#94A3B8'} aria-label={title} />
+    </span>
+  );
+}
 
 interface PrivateChatBubbleProps {
   message: PrivateMessage;
@@ -62,6 +82,7 @@ export function PrivateChatBubble({ message, isMe, threadId }: PrivateChatBubble
         <div className={`flex items-center gap-1.5 mt-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
           <ReactionPicker currentEmoji={reactions.myEmoji} onPick={(emoji) => toggleReaction(messageRef, emoji)} />
           <ReactionPillBar summary={reactions} onTapEmoji={(emoji) => toggleReaction(messageRef, emoji)} />
+          {isMe && <DeliveryTick message={message} />}
         </div>
       </div>
     </div>

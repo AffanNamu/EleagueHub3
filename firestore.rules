@@ -3329,7 +3329,31 @@ service cloud.firestore {
               : true
           );
 
-        allow update, delete: if false;
+        // Delivery/read receipts: the RECIPIENT (never the sender) marks
+        // a message delivered the moment their device syncs it, and seen
+        // once they've actually had the thread open with it loaded --
+        // see PrivateChatRepository.markDelivered()/markSeen(). Every
+        // other field (identity, content, timestamps) stays immutable --
+        // this is the one narrowly-scoped exception to the message doc's
+        // otherwise-complete immutability.
+        function validReceiptUpdate() {
+          let before = resource.data;
+          let after = request.resource.data;
+          return after.diff(before).changedKeys().hasOnly(['deliveredAtMs', 'seenAtMs'])
+            && (!('deliveredAtMs' in after) || ((after.deliveredAtMs is int) && (after.deliveredAtMs > 0)))
+            && (!('seenAtMs' in after) || ((after.seenAtMs is int) && (after.seenAtMs > 0)))
+            // Write-once -- a field already set can never change again
+            // (no un-marking, no rewriting to a different timestamp).
+            && (before.get('deliveredAtMs', 0) == 0 || after.get('deliveredAtMs', 0) == before.get('deliveredAtMs', 0))
+            && (before.get('seenAtMs', 0) == 0 || after.get('seenAtMs', 0) == before.get('seenAtMs', 0));
+        }
+
+        allow update: if signedIn()
+          && (request.auth.uid in parentThread().participantIds)
+          && (request.auth.uid != resource.data.senderId)
+          && validReceiptUpdate();
+
+        allow delete: if false;
 
         // Reactions live in their own subcollection rather than as an
         // update to the message doc, so they're unaffected by the

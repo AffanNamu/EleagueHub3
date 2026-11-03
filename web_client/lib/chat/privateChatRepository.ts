@@ -20,6 +20,14 @@ export interface PrivateMessage {
   imageUrl: string;
   voiceUrl: string;
   createdAtMs: number;
+  /// Set once by the RECIPIENT (never the sender -- firestore.rules
+  /// enforces this) the moment their client syncs this message. 0/absent
+  /// means not yet delivered. Mirrors
+  /// lib/features/chat/models/private_message.dart's same field.
+  deliveredAtMs?: number;
+  /// Set once by the RECIPIENT once they've had the thread open with this
+  /// message loaded for a moment. 0/absent means not yet seen.
+  seenAtMs?: number;
 }
 
 // Mirrors lib/features/chat/presentation/private_chat_screen.dart's
@@ -167,4 +175,36 @@ export async function sendPrivateMessageWeb(
   batch.set(msgRef, messageData);
   batch.set(threadRef, threadUpdate, { merge: true });
   await batch.commit();
+}
+
+// ── DELIVERY / READ RECEIPTS ──
+// Mirrors private_chat_repository.dart's markDelivered()/markSeen() --
+// best-effort, silent on failure (a side-effect of viewing a thread, not
+// a user action), write-once per message id, chunked defensively under
+// Firestore's 500-writes-per-batch cap even though a thread's unread
+// backlog will never realistically approach that.
+async function markReceipt(threadId: string, messageIds: string[], field: 'deliveredAtMs' | 'seenAtMs') {
+  if (messageIds.length === 0) return;
+  try {
+    const now = Date.now();
+    const threadRef = doc(db, 'private_threads', threadId);
+    for (let i = 0; i < messageIds.length; i += 450) {
+      const chunk = messageIds.slice(i, i + 450);
+      const batch = writeBatch(db);
+      for (const id of chunk) {
+        batch.update(doc(collection(threadRef, 'messages'), id), { [field]: now });
+      }
+      await batch.commit();
+    }
+  } catch {
+    // Best-effort -- see doc comment above.
+  }
+}
+
+export function markPrivateMessagesDeliveredWeb(threadId: string, messageIds: string[]) {
+  return markReceipt(threadId, messageIds, 'deliveredAtMs');
+}
+
+export function markPrivateMessagesSeenWeb(threadId: string, messageIds: string[]) {
+  return markReceipt(threadId, messageIds, 'seenAtMs');
 }
