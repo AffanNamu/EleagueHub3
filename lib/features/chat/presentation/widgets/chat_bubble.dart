@@ -106,12 +106,23 @@ class ChatBubble extends StatelessWidget {
           content = _CodeBubble(code: message.text, maxWidth: maxWidth);
           break;
         case ChatMessageType.voice:
-          content = VoiceMessagePlayer(
-            voiceUrl: message.voiceUrl,
-            durationMsHint: message.voiceDurationMs,
-            width: maxWidth < 260 ? maxWidth : 260.0,
-            caption: _hasText ? message.text : null,
-          );
+          // Optimistic voice message still uploading in the background
+          // (see each screen's _sendRecordingInBackground()) -- no
+          // voiceUrl to play yet. Static duration preview instead of the
+          // real player; swapped the instant the live listener delivers
+          // the confirmed doc under the same id.
+          content = message.voiceUrl.trim().isEmpty &&
+                  message.deliveryStatus == ChatDeliveryStatus.sending
+              ? _VoiceSendingPlaceholder(
+                  durationMs: message.voiceDurationMs,
+                  color: AppTheme.primaryText(brightness),
+                )
+              : VoiceMessagePlayer(
+                  voiceUrl: message.voiceUrl,
+                  durationMsHint: message.voiceDurationMs,
+                  width: maxWidth < 260 ? maxWidth : 260.0,
+                  caption: _hasText ? message.text : null,
+                );
           break;
         case ChatMessageType.text:
         default:
@@ -219,16 +230,15 @@ class ChatBubble extends StatelessWidget {
                     ),
                     if (isMe) ...[
                       const SizedBox(width: 6),
-                      if (message.deliveryStatus == ChatDeliveryStatus.sending)
-                        SizedBox(
-                          width: 11,
-                          height: 11,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.6,
-                            color: AppTheme.secondaryText(brightness),
-                          ),
-                        )
-                      else if (message.deliveryStatus ==
+                      // No loading/spinner state for "sending", by design
+                      // -- the optimistic bubble already "pasted" the
+                      // instant Send was tapped (see each screen's
+                      // _sendTextLike()/_sendRecording()), so there is
+                      // nothing left for the user to watch while the
+                      // background write is in flight: it just shows the
+                      // same done_all tick it'll show once actually
+                      // confirmed. Only a genuine failure interrupts that.
+                      if (message.deliveryStatus ==
                           ChatDeliveryStatus.failed)
                         InkWell(
                           onTap: onRetryFailed,
@@ -405,6 +415,48 @@ class _TextBubble extends StatelessWidget {
         fontWeight: FontWeight.w700,
         height: 1.35,
         fontSize: 13,
+      ),
+    );
+  }
+}
+
+/// Static stand-in for [VoiceMessagePlayer] while an optimistic voice
+/// message's upload is still running in the background -- mirrors
+/// VoiceMessagePlayer's own pre-download row (mic icon + duration) so the
+/// swap to the real, playable player once confirmed isn't jarring. No
+/// spinner, no progress -- there's nothing for the user to watch here by
+/// design.
+class _VoiceSendingPlaceholder extends StatelessWidget {
+  const _VoiceSendingPlaceholder({required this.durationMs, required this.color});
+
+  final int durationMs;
+  final Color color;
+
+  String _fmt(int ms) {
+    final d = Duration(milliseconds: ms < 0 ? 0 : ms);
+    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$mm:$ss';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 220,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.mic_rounded, color: color, size: 26),
+          const SizedBox(width: 10),
+          Text(
+            _fmt(durationMs),
+            style: TextStyle(
+              color: color.withOpacity(0.75),
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }

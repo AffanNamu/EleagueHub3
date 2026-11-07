@@ -492,6 +492,7 @@ class PrivateChatRepository {
     required String threadId,
     required String voiceUrl,
     int voiceDurationMs = 0,
+    String messageIdOverride = '',
   }) async {
     final url = voiceUrl.trim();
     if (url.isEmpty) return '';
@@ -501,7 +502,10 @@ class PrivateChatRepository {
       final now = DateTime.now().millisecondsSinceEpoch;
 
       final threadRef = _threads.doc(threadId);
-      final msgRef = threadRef.collection('messages').doc();
+      final overrideId = messageIdOverride.trim();
+      final msgRef = overrideId.isNotEmpty
+          ? threadRef.collection('messages').doc(overrideId)
+          : threadRef.collection('messages').doc();
 
       final batch = _firestore.batch();
       batch.set(msgRef, <String, dynamic>{

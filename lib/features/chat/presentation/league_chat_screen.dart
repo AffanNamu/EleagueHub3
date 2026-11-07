@@ -72,6 +72,13 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
   /// below) or replaced with a [ChatDeliveryStatus.failed] copy on error.
   final Map<String, ChatMessage> _pendingMessages = <String, ChatMessage>{};
 
+  /// Local recording file path for each pending/failed optimistic VOICE
+  /// message, keyed by the same message id as [_pendingMessages] --
+  /// needed so a failed voice send can be retried (re-upload the same
+  /// file) without the generic text-only _retryFailedMessage() path.
+  /// Cleared alongside [_pendingMessages] once the real doc arrives.
+  final Map<String, String> _pendingVoiceLocalPaths = <String, String>{};
+
   final ValueNotifier<String?> _selectedMessageId = ValueNotifier<String?>(null);
   final ValueNotifier<ChatMessage?> _replyTo = ValueNotifier<ChatMessage?>(null);
 
@@ -94,7 +101,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
 
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
-  bool _isVoiceSending = false;
   bool _recordingPermissionDenied = false;
   String? _recordingPath;
 
@@ -981,7 +987,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       _toast(context.l10n.tr('league_chat_muted_message'), error: true);
       return;
     }
-    if (_sending || _isVoiceSending || _isRecording || _isSelecting) return;
+    if (_sending || _isRecording || _isSelecting) return;
 
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
@@ -1102,6 +1108,13 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     }
   }
 
+  /// Tapping Send hands off to the background the instant it's tapped --
+  /// no spinner, no blocking overlay, nothing to wait on. The recording UI
+  /// disappears right away and an optimistic voice bubble (just the
+  /// duration, not yet playable -- see ChatBubble's voice case) takes its
+  /// place in the message list, same "paste it now, sync later" pattern
+  /// text messages already use. The actual upload + Firestore write run
+  /// in _sendRecordingInBackground(), fully decoupled from this method.
   Future<void> _sendRecording() async {
     if (_chatBlocked) {
       _toast(context.l10n.tr('league_chat_banned_message'), error: true);
@@ -1111,7 +1124,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
       _toast(context.l10n.tr('league_chat_muted_message'), error: true);
       return;
     }
-    if (_isVoiceSending || !_isRecording || _isSelecting) return;
+    if (!_isRecording || _isSelecting) return;
 
     final path = (_recordingPath ?? '').trim();
     if (path.isEmpty) return;
@@ -1119,28 +1132,107 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
     final reply = _replyTo.value;
     final messageId = _newMessageId();
 
-    setState(() => _isVoiceSending = true);
+    final stoppedPath = (await _recorder.stop())?.trim();
+    final finalPath = (stoppedPath?.isNotEmpty == true ? stoppedPath! : path);
+
+    _recordingTicker?.cancel();
+    _recordingTicker = null;
+
+    // Total captured duration = every completed segment (already
+    // accumulated across any pause/resume cycles) plus whatever's been
+    // captured in the currently-active segment, if any (not paused).
+    final recordedMs = _recordedMsBeforePause +
+        (_recordingPaused || _recordingSegmentStartedAt == null
+            ? 0
+            : DateTime.now().difference(_recordingSegmentStartedAt!).inMilliseconds);
+
+    final caption = _textCtrl.text.trim();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    final optimistic = ChatMessage(
+      messageId: messageId,
+      senderId: _user.uid.trim(),
+      senderName: _senderName(),
+      senderPhoto: _senderPhoto(),
+      text: caption,
+      imageUrl: '',
+      voiceUrl: '',
+      type: ChatMessageType.voice,
+      voiceDurationMs: recordedMs,
+      createdAt: null,
+      createdAtMs: nowMs,
+      leagueId: widget.leagueId,
+      timestamp: nowMs,
+      pinned: false,
+      pinnedAt: null,
+      pinnedBy: '',
+      deleted: false,
+      deletedAt: null,
+      deletedBy: '',
+      replyToMessageId: reply?.messageId ?? '',
+      replyToSenderName: reply?.displaySenderName ?? '',
+      replyToText: reply?.replyPreview() ?? '',
+      replyToType: reply?.type ?? '',
+      deliveryStatus: ChatDeliveryStatus.sending,
+    );
+
+    if (!mounted) return;
+
+    // Computed now, right after the mounted check, and carried through as
+    // a plain String, never read from context again -- unlike before,
+    // sending no longer blocks the user from navigating away mid-upload,
+    // so the background method below cannot safely assume its
+    // BuildContext is still attached to anything by the time it runs.
+    final preview = _previewForOutgoing(
+      type: ChatMessageType.voice,
+      text: caption,
+      imageUrl: '',
+      voiceUrl: '',
+    );
+
+    setState(() {
+      _pendingMessages[messageId] = optimistic;
+      _pendingVoiceLocalPaths[messageId] = finalPath;
+      _isRecording = false;
+      _recordingPath = null;
+      _recordingSegmentStartedAt = null;
+      _recordedMsBeforePause = 0;
+      _recordingPaused = false;
+    });
+    _textCtrl.clear();
+    _replyTo.value = null;
+
+    unawaited(_sendRecordingInBackground(
+      messageId: messageId,
+      finalPath: finalPath,
+      recordedMs: recordedMs,
+      caption: caption,
+      replyToMessageId: reply?.messageId ?? '',
+      replyToSenderName: reply?.displaySenderName ?? '',
+      replyToText: reply?.replyPreview() ?? '',
+      replyToType: reply?.type ?? '',
+      preview: preview,
+    ));
+  }
+
+  Future<void> _sendRecordingInBackground({
+    required String messageId,
+    required String finalPath,
+    required int recordedMs,
+    required String caption,
+    required String replyToMessageId,
+    required String replyToSenderName,
+    required String replyToText,
+    required String replyToType,
+    required String preview,
+  }) async {
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-      final stoppedPath = (await _recorder.stop())?.trim();
-      final finalPath = (stoppedPath?.isNotEmpty == true ? stoppedPath! : path);
-
-      _recordingTicker?.cancel();
-      _recordingTicker = null;
-
       final file = File(finalPath);
       if (!await file.exists()) {
-        throw StateError(context.l10n.tr('league_chat_recording_not_found'));
+        throw StateError('Recording file not found.');
       }
-
-      // Total captured duration = every completed segment (already
-      // accumulated across any pause/resume cycles) plus whatever's been
-      // captured in the currently-active segment, if any (not paused).
-      final recordedMs = _recordedMsBeforePause +
-          (_recordingPaused || _recordingSegmentStartedAt == null
-              ? 0
-              : DateTime.now().difference(_recordingSegmentStartedAt!).inMilliseconds);
 
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
@@ -1152,17 +1244,15 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
           size: await file.length(),
         ),
       );
-      // Awaited (not fire-and-forget like the image seed above) -- this
-      // file is explicitly deleted further down once the message is sent,
-      // so the copy inside seedFromLocalFile() must finish first or it
-      // loses the race against that delete and silently fails.
+      // Awaited (not fire-and-forget like the image seed) -- this file is
+      // deleted a few lines down once the message is sent, so the copy
+      // inside seedFromLocalFile() must finish first or it loses the race
+      // against that delete and silently fails.
       await ChatMediaCacheService.instance.seedFromLocalFile(
         url: voiceUrl,
         kind: ChatMediaKind.voice,
         localFilePath: finalPath,
       );
-
-      final caption = _textCtrl.text.trim();
 
       await _repo.sendLeagueMessage(
         leagueId: widget.leagueId,
@@ -1174,41 +1264,67 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
         text: caption,
         voiceUrl: voiceUrl,
         voiceDurationMs: recordedMs,
-        replyToMessageId: reply?.messageId ?? '',
-        replyToSenderName: reply?.displaySenderName ?? '',
-        replyToText: reply?.replyPreview() ?? '',
-        replyToType: reply?.type ?? '',
+        replyToMessageId: replyToMessageId,
+        replyToSenderName: replyToSenderName,
+        replyToText: replyToText,
+        replyToType: replyToType,
       );
 
-      final preview = _previewForOutgoing(
-        type: ChatMessageType.voice,
-        text: caption,
-        imageUrl: '',
-        voiceUrl: voiceUrl,
-      );
       _notifyPush(messageId: messageId, preview: preview);
-
-      _textCtrl.clear();
-      _replyTo.value = null;
 
       try {
         if (await file.exists()) await file.delete();
       } catch (_) {}
-
-      if (!mounted) return;
-      setState(() {
-        _isRecording = false;
-        _recordingPath = null;
-        _recordingSegmentStartedAt = null;
-        _recordedMsBeforePause = 0;
-        _isVoiceSending = false;
-        _recordingPaused = false;
-      });
+      // _pendingMessages[messageId]/_pendingVoiceLocalPaths[messageId] are
+      // left as-is here on purpose -- the realtime listener will deliver
+      // the confirmed doc under the same id within moments, which
+      // supersedes and clears both (see the StreamBuilder below).
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isVoiceSending = false);
+      setState(() {
+        final pending = _pendingMessages[messageId];
+        if (pending != null) {
+          _pendingMessages[messageId] =
+              pending.copyWith(deliveryStatus: ChatDeliveryStatus.failed);
+        }
+      });
       _toastErr(e);
     }
+  }
+
+  /// Retries a failed optimistic VOICE message -- re-attempts the upload
+  /// from the same local recording file (never deleted on failure, only
+  /// on success -- see _sendRecordingInBackground()). If the file is
+  /// somehow gone (e.g. OS cleanup), there's nothing to retry with.
+  void _retryFailedVoiceMessage(ChatMessage failed) {
+    final localPath = _pendingVoiceLocalPaths[failed.messageId];
+    if (localPath == null || localPath.trim().isEmpty) {
+      _pendingMessages.remove(failed.messageId);
+      setState(() {});
+      _toast(context.l10n.tr('league_chat_recording_not_found'), error: true);
+      return;
+    }
+    final preview = _previewForOutgoing(
+      type: ChatMessageType.voice,
+      text: failed.text,
+      imageUrl: '',
+      voiceUrl: '',
+    );
+    setState(() {
+      _pendingMessages[failed.messageId] =
+          failed.copyWith(deliveryStatus: ChatDeliveryStatus.sending);
+    });
+    unawaited(_sendRecordingInBackground(
+      messageId: failed.messageId,
+      finalPath: localPath,
+      recordedMs: failed.voiceDurationMs,
+      caption: failed.text,
+      replyToMessageId: failed.replyToMessageId,
+      replyToSenderName: failed.replyToSenderName,
+      replyToText: failed.replyToText,
+      replyToType: failed.replyToType,
+      preview: preview,
+    ));
   }
 
   Future<void> _softDeleteSelected(ChatMessage msg) async {
@@ -1529,6 +1645,7 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                         // the same id.
                         final confirmedIds = msgs.map((e) => e.messageId).toSet();
                         _pendingMessages.removeWhere((id, _) => confirmedIds.contains(id));
+                        _pendingVoiceLocalPaths.removeWhere((id, _) => confirmedIds.contains(id));
 
                         final pending = _pendingMessages.values.toList()
                           ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -1574,7 +1691,9 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                                     selected: selectedId == m.messageId,
                                     messageRef: _repo.leagueMessageRef(widget.leagueId, m.messageId),
                                     onRetryFailed: m.deliveryStatus == ChatDeliveryStatus.failed
-                                        ? () => _retryFailedMessage(m)
+                                        ? () => m.type == ChatMessageType.voice
+                                            ? _retryFailedVoiceMessage(m)
+                                            : _retryFailedMessage(m)
                                         : null,
                                     onLongPress: () {
                                       HapticFeedback.mediumImpact();
@@ -1600,7 +1719,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                       recordedMsBeforePause: _recordedMsBeforePause,
                       activeSegmentStartedAt: _recordingSegmentStartedAt,
                       paused: _recordingPaused,
-                      isSending: _isVoiceSending,
                       onCancel: _cancelRecording,
                       onSend: _sendRecording,
                       onPauseResume: _togglePauseRecording,
@@ -1613,7 +1731,6 @@ class _LeagueChatScreenState extends State<LeagueChatScreen> {
                         final reply = _replyTo.value;
 
                         final canStartRecording = !_sending &&
-                            !_isVoiceSending &&
                             !_isRecording &&
                             !selecting &&
                             !_chatReadOnly &&
