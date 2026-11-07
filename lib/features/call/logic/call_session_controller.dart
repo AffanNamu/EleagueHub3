@@ -281,6 +281,13 @@ class CallSessionController extends StateNotifier<CallSessionState> {
           reconnecting: false,
           errorKey: CallSessionErrorKey.none,
         );
+        // A reconnect brings the room back without the UI layer's
+        // create/join flow running again, so nothing else would restart
+        // the floating overlay bubble after it got torn down on the
+        // disconnect below. Only restarts it if the permission is
+        // already granted -- never prompts from here, since this logic
+        // layer has no BuildContext to show a dialog with.
+        unawaited(_maybeRestartGlobalOverlay());
       });
 
       _listener!.on<RoomDisconnectedEvent>((_) {
@@ -290,6 +297,7 @@ class CallSessionController extends StateNotifier<CallSessionState> {
         );
         unawaited(OverlayPlatform.setOverlayMicMutedState(muted: true));
         unawaited(OverlayPlatform.stopOverlayVoiceForegroundService());
+        unawaited(OverlayPlatform.stopGlobalOverlay());
         _scheduleReconnect();
       });
 
@@ -497,9 +505,18 @@ class CallSessionController extends StateNotifier<CallSessionState> {
     };
   }
 
+  Future<void> _maybeRestartGlobalOverlay() async {
+    try {
+      if (await OverlayPlatform.isOverlayPermissionGranted()) {
+        await OverlayPlatform.startGlobalOverlay();
+      }
+    } catch (_) {}
+  }
+
   Future<void> _disconnectInternal({required bool clearCode}) async {
     OverlayBridge.clearHandlers();
     unawaited(OverlayPlatform.stopOverlayVoiceForegroundService());
+    unawaited(OverlayPlatform.stopGlobalOverlay());
 
     try {
       _listener?.dispose();
@@ -536,6 +553,7 @@ class CallSessionController extends StateNotifier<CallSessionState> {
     // and the mic publishing with nothing left able to call leave() on
     // it.
     unawaited(OverlayPlatform.stopOverlayVoiceForegroundService());
+    unawaited(OverlayPlatform.stopGlobalOverlay());
     try {
       _listener?.dispose();
     } catch (_) {}
