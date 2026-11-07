@@ -82,10 +82,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   /// below) or replaced with a [ChatDeliveryStatus.failed] copy on error.
   final Map<String, PrivateMessage> _pendingMessages = <String, PrivateMessage>{};
 
+  /// Local recording file path for each pending/failed optimistic VOICE
+  /// message, keyed by the same message id as [_pendingMessages] --
+  /// needed so a failed voice send can be retried (re-upload the same
+  /// file) without the generic text-only _retryFailedMessage() path.
+  /// Cleared alongside [_pendingMessages] once the real doc arrives.
+  final Map<String, String> _pendingVoiceLocalPaths = <String, String>{};
+
   // ── Voice recording state (mirrors LeagueChatScreen's pattern) ──────────
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
-  bool _isVoiceSending = false;
   bool _recordingPermissionDenied = false;
   String? _recordingPath;
 
@@ -400,7 +406,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   Future<void> _startRecording() async {
-    if (_busyWithAttachment || _isVoiceSending || _isRecording) return;
+    if (_busyWithAttachment || _isRecording) return;
 
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
@@ -521,34 +527,89 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     }
   }
 
+  /// Tapping Send hands off to the background the instant it's tapped --
+  /// no spinner, no blocking overlay, nothing to wait on. The recording UI
+  /// disappears right away and an optimistic voice bubble (just the
+  /// duration, not yet playable -- see _buildVoiceBubble()) takes its
+  /// place in the message list, same "paste it now, sync later" pattern
+  /// text messages already use. The actual upload + Firestore write run
+  /// in _sendRecordingInBackground(), fully decoupled from this method.
   Future<void> _sendRecording() async {
-    if (_isVoiceSending || !_isRecording) return;
+    if (!_isRecording) return;
 
     final path = (_recordingPath ?? '').trim();
     if (path.isEmpty) return;
 
-    setState(() => _isVoiceSending = true);
+    final stoppedPath = (await _recorder.stop())?.trim();
+    final finalPath = (stoppedPath?.isNotEmpty == true ? stoppedPath! : path);
+
+    _recordingTicker?.cancel();
+    _recordingTicker = null;
+
+    // Total captured duration = every completed segment (already
+    // accumulated across any pause/resume cycles) plus whatever's been
+    // captured in the currently-active segment, if any (not paused).
+    final recordedMs = _recordedMsBeforePause +
+        (_recordingPaused || _recordingSegmentStartedAt == null
+            ? 0
+            : DateTime.now().difference(_recordingSegmentStartedAt!).inMilliseconds);
+
+    final selfUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final messageId = _repo.newMessageId(widget.threadId);
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    final optimistic = PrivateMessage(
+      id: messageId,
+      senderId: selfUid,
+      type: PrivateMessageType.voice,
+      text: '',
+      imageUrl: '',
+      voiceUrl: '',
+      voiceDurationMs: recordedMs,
+      createdAtMs: nowMs,
+      deliveryStatus: ChatDeliveryStatus.sending,
+    );
+
+    if (!mounted) return;
+
+    // Computed now, right after the mounted check, and carried through as
+    // a plain String, never read from context again -- unlike before,
+    // sending no longer blocks the user from navigating away mid-upload,
+    // so the background method below cannot safely assume its
+    // BuildContext is still attached to anything by the time it runs.
+    final preview = context.l10n.tr('private_chat_preview_voice_message');
+
+    setState(() {
+      _pendingMessages[messageId] = optimistic;
+      _pendingVoiceLocalPaths[messageId] = finalPath;
+      _isRecording = false;
+      _recordingPath = null;
+      _recordingSegmentStartedAt = null;
+      _recordedMsBeforePause = 0;
+      _recordingPaused = false;
+    });
+
+    unawaited(_sendRecordingInBackground(
+      messageId: messageId,
+      finalPath: finalPath,
+      recordedMs: recordedMs,
+      preview: preview,
+    ));
+  }
+
+  Future<void> _sendRecordingInBackground({
+    required String messageId,
+    required String finalPath,
+    required int recordedMs,
+    required String preview,
+  }) async {
     try {
       await ConnectivityService.instance.requireOnline(timeout: const Duration(seconds: 4));
 
-      final stoppedPath = (await _recorder.stop())?.trim();
-      final finalPath = (stoppedPath?.isNotEmpty == true ? stoppedPath! : path);
-
-      _recordingTicker?.cancel();
-      _recordingTicker = null;
-
       final file = File(finalPath);
       if (!await file.exists()) {
-        throw StateError(context.l10n.tr('private_chat_recording_not_found'));
+        throw StateError('Recording file not found.');
       }
-
-      // Total captured duration = every completed segment (already
-      // accumulated across any pause/resume cycles) plus whatever's been
-      // captured in the currently-active segment, if any (not paused).
-      final recordedMs = _recordedMsBeforePause +
-          (_recordingPaused || _recordingSegmentStartedAt == null
-              ? 0
-              : DateTime.now().difference(_recordingSegmentStartedAt!).inMilliseconds);
 
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
@@ -560,43 +621,67 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           size: await file.length(),
         ),
       );
-      // Awaited (not fire-and-forget like the image seed above) -- this
-      // file is explicitly deleted a few lines down once the message is
-      // sent, so the copy inside seedFromLocalFile() must finish first or
-      // it loses the race against that delete and silently fails.
+      // Awaited (not fire-and-forget like the image seed) -- this file is
+      // deleted a few lines down once the message is sent, so the copy
+      // inside seedFromLocalFile() must finish first or it loses the race
+      // against that delete and silently fails.
       await ChatMediaCacheService.instance.seedFromLocalFile(
         url: voiceUrl,
         kind: ChatMediaKind.voice,
         localFilePath: finalPath,
       );
 
-      final messageId = await _repo.sendVoiceMessage(
+      await _repo.sendVoiceMessage(
         threadId: widget.threadId,
         voiceUrl: voiceUrl,
         voiceDurationMs: recordedMs,
+        messageIdOverride: messageId,
       );
-      unawaited(_notifyPush(
-          messageId: messageId,
-          preview: context.l10n.tr('private_chat_preview_voice_message')));
+      unawaited(_notifyPush(messageId: messageId, preview: preview));
 
       try {
         if (await file.exists()) await file.delete();
       } catch (_) {}
-
-      if (!mounted) return;
-      setState(() {
-        _isRecording = false;
-        _recordingPath = null;
-        _recordingSegmentStartedAt = null;
-        _recordedMsBeforePause = 0;
-        _isVoiceSending = false;
-        _recordingPaused = false;
-      });
+      // _pendingMessages[messageId]/_pendingVoiceLocalPaths[messageId] are
+      // left as-is here on purpose -- the realtime listener will deliver
+      // the confirmed doc under the same id within moments, which
+      // supersedes and clears both (see the StreamBuilder below).
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isVoiceSending = false);
+      setState(() {
+        final pending = _pendingMessages[messageId];
+        if (pending != null) {
+          _pendingMessages[messageId] =
+              pending.copyWith(deliveryStatus: ChatDeliveryStatus.failed);
+        }
+      });
       _toastErr(e);
     }
+  }
+
+  /// Retries a failed optimistic VOICE message -- re-attempts the upload
+  /// from the same local recording file (never deleted on failure, only
+  /// on success -- see _sendRecordingInBackground()). If the file is
+  /// somehow gone (e.g. OS cleanup), there's nothing to retry with.
+  void _retryFailedVoiceMessage(PrivateMessage failed) {
+    final localPath = _pendingVoiceLocalPaths[failed.id];
+    if (localPath == null || localPath.trim().isEmpty) {
+      _pendingMessages.remove(failed.id);
+      setState(() {});
+      _toast(context.l10n.tr('private_chat_recording_not_found'), error: true);
+      return;
+    }
+    final preview = context.l10n.tr('private_chat_preview_voice_message');
+    setState(() {
+      _pendingMessages[failed.id] =
+          failed.copyWith(deliveryStatus: ChatDeliveryStatus.sending);
+    });
+    unawaited(_sendRecordingInBackground(
+      messageId: failed.id,
+      finalPath: localPath,
+      recordedMs: failed.voiceDurationMs,
+      preview: preview,
+    ));
   }
 
   Future<void> _handleMessageLongPress(
@@ -666,6 +751,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   Widget _buildVoiceBubble(BuildContext context, PrivateMessage m, bool isMe, Brightness brightness) {
     final fg = isMe ? AppTheme.darkText : AppTheme.primaryText(brightness);
 
+    // Optimistic voice message still uploading in the background (see
+    // _sendRecordingInBackground()) -- no voiceUrl to play yet. Shows a
+    // static duration preview instead of the real player; swapped the
+    // instant the live listener delivers the confirmed doc (same id),
+    // same as text messages.
+    if (m.voiceUrl.trim().isEmpty && m.deliveryStatus == ChatDeliveryStatus.sending) {
+      return _VoiceSendingPlaceholder(durationMs: m.voiceDurationMs, color: fg);
+    }
+
     return VoiceMessagePlayer(
       voiceUrl: m.voiceUrl,
       durationMsHint: m.voiceDurationMs,
@@ -728,6 +822,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   // has delivered the confirmed doc under the same id.
                   final confirmedIds = confirmed.map((e) => e.id).toSet();
                   _pendingMessages.removeWhere((id, _) => confirmedIds.contains(id));
+                  _pendingVoiceLocalPaths.removeWhere((id, _) => confirmedIds.contains(id));
 
                   final pending = _pendingMessages.values.toList()
                     ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -816,40 +911,43 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                             if (isMe)
                               Padding(
                                 padding: const EdgeInsets.only(top: 2, bottom: 2),
-                                child: m.deliveryStatus == ChatDeliveryStatus.sending
-                                    ? SizedBox(
-                                        width: 11,
-                                        height: 11,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 1.6,
-                                          color: AppTheme.secondaryText(brightness),
+                                // No loading/spinner state here, by design --
+                                // the optimistic bubble above already
+                                // "pasted" the instant Send was tapped, so
+                                // while the background write is still in
+                                // flight (deliveryStatus == sending) this
+                                // just shows the same single-check tick it
+                                // will show once actually confirmed; there
+                                // is nothing visible for the user to wait
+                                // on. Only a genuine failure interrupts that
+                                // with the retry affordance below.
+                                child: m.deliveryStatus == ChatDeliveryStatus.failed
+                                    ? InkWell(
+                                        onTap: () => m.type == PrivateMessageType.voice
+                                            ? _retryFailedVoiceMessage(m)
+                                            : _retryFailedMessage(m),
+                                        borderRadius: BorderRadius.circular(999),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.error_outline,
+                                              size: 14,
+                                              color: Colors.redAccent,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              context.l10n.tr('chat_bubble_retry'),
+                                              style: const TextStyle(
+                                                color: Colors.redAccent,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       )
-                                    : m.deliveryStatus == ChatDeliveryStatus.failed
-                                        ? InkWell(
-                                            onTap: () => _retryFailedMessage(m),
-                                            borderRadius: BorderRadius.circular(999),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                const Icon(
-                                                  Icons.error_outline,
-                                                  size: 14,
-                                                  color: Colors.redAccent,
-                                                ),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  context.l10n.tr('chat_bubble_retry'),
-                                                  style: const TextStyle(
-                                                    color: Colors.redAccent,
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          )
-                                        : _DeliveryTicks(message: m, brightness: brightness),
+                                    : _DeliveryTicks(message: m, brightness: brightness),
                               ),
                             StreamBuilder<ReactionSummary>(
                               stream: reactionsRepo.watch(),
@@ -875,7 +973,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                 recordedMsBeforePause: _recordedMsBeforePause,
                 activeSegmentStartedAt: _recordingSegmentStartedAt,
                 paused: _recordingPaused,
-                isSending: _isVoiceSending,
                 onCancel: _cancelRecording,
                 onSend: _sendRecording,
                 onPauseResume: _togglePauseRecording,
@@ -888,7 +985,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               enabled: !_isRecording,
               onPickImage: _handleImagePick,
               onSend: _send,
-              onRecordStart: (!_busyWithAttachment && !_isVoiceSending && !_isRecording)
+              onRecordStart: (!_busyWithAttachment && !_isRecording)
                   ? _startRecording
                   : () {},
               voiceTooltip: _recordingPermissionDenied
@@ -935,6 +1032,49 @@ class _DeliveryTicks extends StatelessWidget {
         delivered ? Icons.done_all_rounded : Icons.done_rounded,
         size: 14,
         color: seen ? _seenBlue : AppTheme.secondaryText(brightness),
+      ),
+    );
+  }
+}
+
+/// Static stand-in for [VoiceMessagePlayer] while an optimistic voice
+/// message's upload is still running in the background -- mirrors
+/// VoiceMessagePlayer's own pre-download row (mic icon + duration) so the
+/// swap to the real, playable player once confirmed isn't jarring. No
+/// spinner, no progress -- there's nothing for the user to watch here by
+/// design.
+class _VoiceSendingPlaceholder extends StatelessWidget {
+  const _VoiceSendingPlaceholder({required this.durationMs, required this.color});
+
+  final int durationMs;
+  final Color color;
+
+  String _fmt(int ms) {
+    final d = Duration(milliseconds: ms < 0 ? 0 : ms);
+    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$mm:$ss';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 220,
+      child: Row(
+        children: [
+          Icon(Icons.mic_rounded, color: color, size: 26),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _fmt(durationMs),
+              style: TextStyle(
+                color: color.withOpacity(0.75),
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

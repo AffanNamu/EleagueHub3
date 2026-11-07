@@ -89,7 +89,6 @@ class RecordingOverlay extends StatefulWidget {
     required this.recordedMsBeforePause,
     required this.activeSegmentStartedAt,
     required this.paused,
-    required this.isSending,
     required this.onCancel,
     required this.onSend,
     required this.onPauseResume,
@@ -109,7 +108,11 @@ class RecordingOverlay extends StatefulWidget {
   /// recording (false).
   final bool paused;
 
-  final bool isSending;
+  /// Tapping Send dismisses this overlay immediately -- the upload and
+  /// Firestore write happen in the background from there (see each
+  /// screen's _sendRecording()/_sendRecordingInBackground()), so there is
+  /// no "sending" state for this overlay to ever show; no spinner, no
+  /// disabled buttons while it runs.
   final VoidCallback onCancel;
   final VoidCallback onSend;
 
@@ -213,14 +216,14 @@ class _RecordingOverlayState extends State<RecordingOverlay>
               tooltip: widget.paused
                   ? context.l10n.tr('chat_input_resume_recording_tooltip')
                   : context.l10n.tr('chat_input_pause_recording_tooltip'),
-              onPressed: widget.isSending ? null : widget.onPauseResume,
+              onPressed: widget.onPauseResume,
               icon: Icon(
                 widget.paused ? Icons.mic_rounded : Icons.pause_rounded,
                 color: cs.primary,
               ),
             ),
             TextButton(
-              onPressed: widget.isSending ? null : widget.onCancel,
+              onPressed: widget.onCancel,
               child: Text(context.l10n.tr('common_cancel')),
             ),
             const SizedBox(width: 6),
@@ -229,14 +232,8 @@ class _RecordingOverlayState extends State<RecordingOverlay>
                 backgroundColor: AppTheme.limeAccent,
                 foregroundColor: AppTheme.darkText,
               ),
-              onPressed: widget.isSending ? null : widget.onSend,
-              child: widget.isSending
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(Icons.send_rounded, size: 18),
+              onPressed: widget.onSend,
+              child: Icon(Icons.send_rounded, size: 18),
             ),
           ],
         ),
