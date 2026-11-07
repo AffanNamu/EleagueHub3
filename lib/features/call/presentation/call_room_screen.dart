@@ -104,24 +104,55 @@ class CallRoomScreen extends ConsumerStatefulWidget {
   ConsumerState<CallRoomScreen> createState() => _CallRoomScreenState();
 }
 
-class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
+class _CallRoomScreenState extends ConsumerState<CallRoomScreen>
+    with WidgetsBindingObserver {
   final TextEditingController _codeCtrl = TextEditingController();
   Timer? _incomingHideTimer;
 
-  bool _overlayEnabled = false;
-  bool _overlayGranted = false;
+  // Whether the floating overlay is actually running for the call this
+  // screen is currently managing. Set the moment startGlobalOverlay()
+  // succeeds (either right after create/join, or after the user returns
+  // from granting the permission in Settings); cleared once the call is
+  // no longer connected/reconnecting. This -- not any persisted
+  // preference -- is what dispose() consults to decide whether the
+  // overlay bubble is actually there to keep the call alive.
+  bool _overlayActive = false;
+  // True while we've sent the user to Android Settings to grant the
+  // overlay permission and are waiting for them to come back, so
+  // didChangeAppLifecycleState knows to check and auto-start on resume.
+  bool _overlayPendingPermission = false;
   bool _requestingPermissions = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_loadOverlayState());
-    });
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState appState) {
+    if (appState != AppLifecycleState.resumed) return;
+    if (!_overlayPendingPermission) return;
+    unawaited(_maybeStartOverlayAfterPermissionReturn());
+  }
+
+  Future<void> _maybeStartOverlayAfterPermissionReturn() async {
+    _overlayPendingPermission = false;
+    if (!Platform.isAndroid) return;
+
+    final granted = await OverlayPlatform.isOverlayPermissionGranted();
+    if (!granted || !mounted) return;
+
+    final st = ref.read(callSessionControllerProvider);
+    if (!st.connected) return;
+
+    await OverlayPlatform.startGlobalOverlay();
+    _overlayActive = true;
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _incomingHideTimer?.cancel();
     _codeCtrl.dispose();
 
@@ -142,8 +173,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     // overlay), so a call left running after this screen closes on iOS
     // is pure leaked state -- the mic stays live with no way for the
     // user to see or stop it short of force-quitting the app.
-    final overlayActivelyTakingOver =
-        Platform.isAndroid && _overlayEnabled && _overlayGranted;
+    final overlayActivelyTakingOver = Platform.isAndroid && _overlayActive;
     if (!overlayActivelyTakingOver) {
       unawaited(ref.read(callSessionControllerProvider.notifier).leave());
     }
@@ -151,68 +181,33 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     super.dispose();
   }
 
-  Future<void> _loadOverlayState() async {
-    try {
-      final prefs = ref.read(prefsServiceProvider);
-      final enabled = prefs.liveOverlayEnabled();
-      final granted = await OverlayPlatform.isOverlayPermissionGranted();
-      if (!mounted) return;
-      setState(() {
-        _overlayEnabled = enabled;
-        _overlayGranted = granted;
-      });
-    } catch (_) {}
-  }
+  // ── AUTOMATIC OVERLAY ACTIVATION ──────────────────────────────────────
+  // Called right after a call successfully connects (see
+  // _handleCreateRoom()/_handleJoinRoom()) so the floating overlay comes
+  // up on its own -- no separate manual toggle, no extra tap. If the
+  // permission is already granted (e.g. from an earlier call), this is
+  // completely silent. Otherwise it asks once, sends the user to
+  // Settings, and _maybeStartOverlayAfterPermissionReturn() finishes the
+  // job automatically when they come back.
+  Future<void> _ensureOverlayActivation() async {
+    if (!Platform.isAndroid) return;
+    if (!mounted) return;
 
-  Future<void> _toggleOverlay() async {
     final prefs = ref.read(prefsServiceProvider);
-    final l10n = context.l10n;
-    final brightness = Theme.of(context).brightness;
+    final granted = await OverlayPlatform.isOverlayPermissionGranted();
 
-    if (_overlayEnabled) {
-      final sure = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: AppTheme.cardColor(brightness),
-          surfaceTintColor: Colors.transparent,
-          title: Text(
-            _trOr(l10n, 'live_overlay_turn_off_title', 'Turn off overlay?'),
-          ),
-          content: Text(
-            _trOr(
-              l10n,
-              'live_overlay_turn_off_body',
-              'This will hide the floating voice/message controls.',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(_trOr(l10n, 'common_cancel', 'Cancel')),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.limeAccent,
-                foregroundColor: AppTheme.darkText,
-              ),
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(_trOr(l10n, 'common_turn_off', 'Turn off')),
-            ),
-          ],
-        ),
-      );
-
-      if (sure != true) return;
-
-      await prefs.setLiveOverlayEnabled(false);
-      await OverlayPlatform.stopGlobalOverlay();
-
-      if (!mounted) return;
-      setState(() {
-        _overlayEnabled = false;
-      });
+    if (granted) {
+      if (!prefs.liveOverlayEnabled()) {
+        await prefs.setLiveOverlayEnabled(true);
+      }
+      await OverlayPlatform.startGlobalOverlay();
+      _overlayActive = true;
       return;
     }
+
+    if (!mounted) return;
+    final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
 
     final proceed = await showDialog<bool>(
       context: context,
@@ -249,20 +244,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     if (proceed != true) return;
 
     await prefs.setLiveOverlayEnabled(true);
-
-    final granted = await OverlayPlatform.isOverlayPermissionGranted();
-    if (!mounted) return;
-
-    setState(() {
-      _overlayEnabled = true;
-      _overlayGranted = granted;
-    });
-
-    if (granted) {
-      await OverlayPlatform.startGlobalOverlay();
-      return;
-    }
-
+    _overlayPendingPermission = true;
     await OverlayPlatform.requestOverlayPermission();
 
     if (!mounted) return;
@@ -278,8 +260,6 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
         ),
       ),
     );
-
-    await _loadOverlayState();
   }
 
   // ── REQUEST MIC & CAMERA PERMISSIONS BEFORE CALL ─────────────────────────
@@ -427,6 +407,11 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
       notificationTextPrefix:
           _trOr(l10n, 'call_room_notification_text_prefix', 'Room '),
     );
+
+    if (!mounted) return;
+    if (ref.read(callSessionControllerProvider).connected) {
+      unawaited(_ensureOverlayActivation());
+    }
   }
 
   Future<void> _handleJoinRoom() async {
@@ -459,6 +444,11 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
       notificationTextPrefix:
           _trOr(l10n, 'call_room_notification_text_prefix', 'Room '),
     );
+
+    if (!mounted) return;
+    if (ref.read(callSessionControllerProvider).connected) {
+      unawaited(_ensureOverlayActivation());
+    }
   }
 
   @override
@@ -479,6 +469,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
           TextSelection.collapsed(offset: _codeCtrl.text.length);
     }
 
+    if (!st.connected && !st.reconnecting && _overlayActive) {
+      _overlayActive = false;
+    }
+
     if (st.incomingQuickText != null) {
       _incomingHideTimer?.cancel();
       _incomingHideTimer = Timer(const Duration(seconds: 3), () {
@@ -497,53 +491,9 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
     final showIncoming = st.incomingQuickText != null &&
         (DateTime.now().millisecondsSinceEpoch - st.incomingQuickAtMs) < 3200;
 
-    final overlayIcon = !_overlayEnabled
-        ? Icons.picture_in_picture_alt_outlined
-        : (_overlayGranted
-            ? Icons.picture_in_picture_alt
-            : Icons.warning_amber_rounded);
-
-    final overlayIconColor = !_overlayEnabled
-        ? AppTheme.limeAccentDark
-        : (_overlayGranted ? AppTheme.limeAccentDark : warning);
-
     return GlassScaffold(
       appBar: AppBar(
         title: Text(_trOr(l10n, 'call_room_title', 'Voice Room')),
-        actions: [
-          // ── Overlay Toggle Button (Top-Right) ───────────────────────────
-          // Android-only OS concept (floating "appear on top" overlay) --
-          // no iOS equivalent exists and OverlayPlatform's methods are
-          // all no-ops on iOS, so this button is only shown on Android.
-          // Without this gate, tapping it on iOS would set
-          // _overlayEnabled=true, never actually grant anything, and
-          // leave the icon permanently stuck on its "needs permission"
-          // warning state with no way to resolve it.
-          if (Platform.isAndroid) ...[
-            IconButton(
-              tooltip: _overlayEnabled
-                  ? (_overlayGranted
-                      ? _trOr(
-                          l10n,
-                          'live_overlay_on_tooltip',
-                          'Overlay is ON',
-                        )
-                      : _trOr(
-                          l10n,
-                          'live_overlay_permission_needed_tooltip',
-                          'Overlay needs permission',
-                        ))
-                  : _trOr(
-                      l10n,
-                      'live_overlay_off_tooltip',
-                      'Overlay is OFF',
-                    ),
-              onPressed: _toggleOverlay,
-              icon: Icon(overlayIcon, color: overlayIconColor),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ],
       ),
       body: SafeArea(
         child: Stack(
@@ -630,7 +580,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _overlayEnabled
+                        Platform.isAndroid
                             ? _trOr(
                                 l10n,
                                 'call_room_create_join_body_overlay_on',
