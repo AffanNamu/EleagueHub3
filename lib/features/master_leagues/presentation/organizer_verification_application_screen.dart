@@ -703,7 +703,17 @@ class _OrganizerVerificationApplicationScreenState
             child: _uploadingLogo
                 ? const Center(child: CircularProgressIndicator())
                 : (_logoUrl.isNotEmpty
-                    ? ClipOval(child: Image.network(_logoUrl, fit: BoxFit.cover))
+                    ? ClipOval(
+                        child: Image.network(
+                          _logoUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Icon(
+                            Icons.add_a_photo_outlined,
+                            color: AppTheme.limeAccentDark,
+                            size: 32,
+                          ),
+                        ),
+                      )
                     : Icon(Icons.add_a_photo_outlined,
                         color: AppTheme.limeAccentDark, size: 32)),
           ),

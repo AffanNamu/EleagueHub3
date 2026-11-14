@@ -63,6 +63,7 @@ class TopBarProfileAvatarButton extends ConsumerWidget {
                     ? DecorationImage(
                         image: NetworkImage(thumbUrl),
                         fit: BoxFit.cover,
+                        onError: (_, __) {},
                       )
                     : null,
               ),

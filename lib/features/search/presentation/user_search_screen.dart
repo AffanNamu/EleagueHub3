@@ -336,6 +336,7 @@ class _TeamTileState extends State<_TeamTile> {
           backgroundImage: entry.avatarUrl.isNotEmpty
               ? NetworkImage(CloudinaryUtils.thumb(entry.avatarUrl, size: 96))
               : null,
+          onBackgroundImageError: entry.avatarUrl.isNotEmpty ? (_, __) {} : null,
           child: entry.avatarUrl.isEmpty ? const Icon(Icons.person_rounded) : null,
         ),
         title: Row(

@@ -285,6 +285,8 @@ class _PlayerEditSheetState extends State<_PlayerEditSheet> {
                             backgroundImage: c.previewPhotoUrl.isNotEmpty
                                 ? NetworkImage(CloudinaryUtils.thumb(c.previewPhotoUrl, size: 96))
                                 : null,
+                            onBackgroundImageError:
+                                c.previewPhotoUrl.isNotEmpty ? (_, __) {} : null,
                             child: c.previewPhotoUrl.isEmpty
                                 ? Icon(Icons.person, color: AppTheme.primaryText(brightness))
                                 : null,
@@ -366,6 +368,7 @@ class _PhotoPreview extends StatelessWidget {
           radius: 40,
           backgroundColor: AppTheme.iconCircleBackground(brightness),
           backgroundImage: url.isNotEmpty ? NetworkImage(CloudinaryUtils.thumb(url, size: 160)) : null,
+          onBackgroundImageError: url.isNotEmpty ? (_, __) {} : null,
           child: url.isEmpty
               ? Icon(Icons.person, size: 36, color: AppTheme.primaryText(brightness))
               : null,

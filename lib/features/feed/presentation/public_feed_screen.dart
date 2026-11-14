@@ -513,6 +513,8 @@ class _PostCard extends StatelessWidget {
                       backgroundImage: post.authorPhotoUrl.isNotEmpty
                           ? NetworkImage(CloudinaryUtils.thumb(post.authorPhotoUrl, size: 72))
                           : null,
+                      onBackgroundImageError:
+                          post.authorPhotoUrl.isNotEmpty ? (_, __) {} : null,
                       child: post.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 18) : null,
                     ),
                   ),

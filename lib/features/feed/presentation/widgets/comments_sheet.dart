@@ -414,6 +414,8 @@ class _CommentTile extends StatelessWidget {
             backgroundImage: comment.authorPhotoUrl.isNotEmpty
                 ? NetworkImage(CloudinaryUtils.thumb(comment.authorPhotoUrl, size: 64))
                 : null,
+            onBackgroundImageError:
+                comment.authorPhotoUrl.isNotEmpty ? (_, __) {} : null,
             child: comment.authorPhotoUrl.isEmpty
                 ? Icon(Icons.person_rounded, size: avatarRadius)
                 : null,

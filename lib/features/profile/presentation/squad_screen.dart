@@ -483,7 +483,11 @@ class _SquadPhotoCard extends StatelessWidget {
           color: AppTheme.cardColor(brightness),
           border: Border.all(color: AppTheme.cardBorder(brightness)),
           image: hasPhoto
-              ? DecorationImage(image: NetworkImage(CloudinaryUtils.fill(photoUrl, width: 700, height: 360)), fit: BoxFit.cover)
+              ? DecorationImage(
+                  image: NetworkImage(CloudinaryUtils.fill(photoUrl, width: 700, height: 360)),
+                  fit: BoxFit.cover,
+                  onError: (_, __) {},
+                )
               : null,
         ),
         child: Stack(

@@ -298,6 +298,8 @@ class _FootballTeamScreenState extends State<FootballTeamScreen> {
                                     radius: 16,
                                     backgroundColor: AppTheme.iconCircleBackground(brightness),
                                     backgroundImage: p.photoUrl.isNotEmpty ? NetworkImage(p.photoUrl) : null,
+                                    onBackgroundImageError:
+                                        p.photoUrl.isNotEmpty ? (_, __) {} : null,
                                     child: p.photoUrl.isEmpty ? const Icon(Icons.person, size: 16) : null,
                                   ),
                                   const SizedBox(width: 12),
