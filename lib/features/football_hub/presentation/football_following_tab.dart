@@ -190,6 +190,8 @@ class _FollowedList extends StatelessWidget {
                         radius: 16,
                         backgroundColor: AppTheme.iconCircleBackground(brightness),
                         backgroundImage: (e.imageUrl ?? '').isNotEmpty ? NetworkImage(e.imageUrl!) : null,
+                        onBackgroundImageError:
+                            (e.imageUrl ?? '').isNotEmpty ? (_, __) {} : null,
                         child: (e.imageUrl ?? '').isEmpty ? const Icon(Icons.shield_outlined, size: 16) : null,
                       ),
                       const SizedBox(width: 12),

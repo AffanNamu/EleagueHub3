@@ -122,6 +122,8 @@ class _DiscussionsListScreenState extends State<DiscussionsListScreen> {
                               backgroundImage: thread.authorPhotoUrl.isNotEmpty
                                   ? NetworkImage(CloudinaryUtils.thumb(thread.authorPhotoUrl, size: 64))
                                   : null,
+                              onBackgroundImageError:
+                                  thread.authorPhotoUrl.isNotEmpty ? (_, __) {} : null,
                               child: thread.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 14) : null,
                             ),
                             const SizedBox(width: 8),

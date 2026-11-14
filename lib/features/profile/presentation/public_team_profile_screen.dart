@@ -725,7 +725,11 @@ class _CoverAndHeader extends StatelessWidget {
                     ),
                     color: AppTheme.iconCircleBackground(brightness),
                     image: avatarUrl.isNotEmpty
-                        ? DecorationImage(image: NetworkImage(CloudinaryUtils.thumb(avatarUrl, size: 168)), fit: BoxFit.cover)
+                        ? DecorationImage(
+                            image: NetworkImage(CloudinaryUtils.thumb(avatarUrl, size: 168)),
+                            fit: BoxFit.cover,
+                            onError: (_, __) {},
+                          )
                         : null,
                   ),
                   child: Stack(

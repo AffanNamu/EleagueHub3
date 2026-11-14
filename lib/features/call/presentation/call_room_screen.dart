@@ -123,9 +123,20 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen>
   bool _overlayPendingPermission = false;
   bool _requestingPermissions = false;
 
+  // Captured once, up front -- never via ref.read() inside dispose()
+  // itself. flutter_riverpod's ConsumerStatefulElement can already be
+  // in a state where ref.read() throws "Cannot use ref after the widget
+  // was disposed" by the time dispose() runs (seen in production:
+  // Crashlytics issue _CallRoomScreenState.dispose, Bad state on
+  // ConsumerStatefulElement.read). ref.read() is documented-safe inside
+  // initState(), so grab the controller there and call plain Dart
+  // methods on it later -- that sidesteps ref entirely during teardown.
+  late final CallSessionController _callCtrl;
+
   @override
   void initState() {
     super.initState();
+    _callCtrl = ref.read(callSessionControllerProvider.notifier);
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -175,7 +186,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen>
     // user to see or stop it short of force-quitting the app.
     final overlayActivelyTakingOver = Platform.isAndroid && _overlayActive;
     if (!overlayActivelyTakingOver) {
-      unawaited(ref.read(callSessionControllerProvider.notifier).leave());
+      unawaited(_callCtrl.leave());
     }
 
     super.dispose();

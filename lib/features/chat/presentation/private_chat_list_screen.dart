@@ -535,6 +535,7 @@ class _PrivateRowState extends State<_PrivateRow> {
               backgroundImage: avatarUrl.isNotEmpty
                   ? NetworkImage(CloudinaryUtils.thumb(avatarUrl, size: 96))
                   : null,
+              onBackgroundImageError: avatarUrl.isNotEmpty ? (_, __) {} : null,
               child: avatarUrl.isEmpty
                   ? const Icon(Icons.person_rounded)
                   : null,

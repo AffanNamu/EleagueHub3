@@ -162,7 +162,11 @@ class _CompetitionTile extends StatelessWidget {
                 shape: BoxShape.circle,
                 color: AppTheme.iconCircleBackground(brightness),
                 image: league.leagueImageUrl.trim().isNotEmpty
-                    ? DecorationImage(image: NetworkImage(CloudinaryUtils.thumb(league.leagueImageUrl.trim(), size: 104)), fit: BoxFit.cover)
+                    ? DecorationImage(
+                        image: NetworkImage(CloudinaryUtils.thumb(league.leagueImageUrl.trim(), size: 104)),
+                        fit: BoxFit.cover,
+                        onError: (_, __) {},
+                      )
                     : null,
               ),
               child: league.leagueImageUrl.trim().isEmpty

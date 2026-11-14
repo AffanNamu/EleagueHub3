@@ -125,9 +125,9 @@ class FootballApiService {
     Map<String, String> queryParams,
     String cacheKey,
   ) async {
-    final idToken = await _requireFirebaseIdToken();
-
     try {
+      final idToken = await _requireFirebaseIdToken();
+
       final res = await _dio
           .get<dynamic>(
             endpoint.toString(),
@@ -146,6 +146,8 @@ class FootballApiService {
       final body = data.cast<String, dynamic>();
       unawaited(FootballCacheService.instance.put(cacheKey, body));
       return body;
+    } on FootballApiException {
+      rethrow;
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       final data = e.response?.data;
@@ -169,6 +171,17 @@ class FootballApiService {
       throw const FootballApiException(
         'Football Hub request timed out. Please try again.',
       );
+    } catch (e) {
+      // Catches anything unforeseen (e.g. a plugin-level StateError from
+      // the Firebase Auth token fetch, or Dio/connectivity internals) so
+      // it surfaces as the same user-friendly FootballApiException every
+      // other failure path here already produces, instead of escaping
+      // uncaught and getting recorded as a fatal crash for what is
+      // really just a failed network request.
+      if (kDebugMode) {
+        debugPrint('[FootballApiService] unexpected failure: $e');
+      }
+      throw const FootballApiException();
     }
   }
 

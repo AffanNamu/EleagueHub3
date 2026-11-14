@@ -242,6 +242,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             backgroundImage: authorPhoto.isNotEmpty
                                 ? NetworkImage(CloudinaryUtils.thumb(authorPhoto, size: 96))
                                 : null,
+                            onBackgroundImageError:
+                                authorPhoto.isNotEmpty ? (_, __) {} : null,
                             child: authorPhoto.isEmpty
                                 ? const Icon(Icons.person_rounded)
                                 : null,

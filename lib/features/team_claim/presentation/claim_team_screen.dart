@@ -206,7 +206,11 @@ class _PreviewCard extends StatelessWidget {
               color: AppTheme.searchBackground(brightness),
               border: Border.all(color: AppTheme.cardBorder(brightness)),
               image: preview.teamLogoUrl.isNotEmpty
-                  ? DecorationImage(image: NetworkImage(CloudinaryUtils.thumb(preview.teamLogoUrl, size: 168)), fit: BoxFit.cover)
+                  ? DecorationImage(
+                      image: NetworkImage(CloudinaryUtils.thumb(preview.teamLogoUrl, size: 168)),
+                      fit: BoxFit.cover,
+                      onError: (_, __) {},
+                    )
                   : null,
             ),
             child: preview.teamLogoUrl.isEmpty

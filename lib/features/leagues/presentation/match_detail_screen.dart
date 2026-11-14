@@ -406,6 +406,8 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                     backgroundImage: imageUrl.trim().isNotEmpty
                         ? NetworkImage(CloudinaryUtils.thumb(imageUrl.trim(), size: 72))
                         : null,
+                    onBackgroundImageError:
+                        imageUrl.trim().isNotEmpty ? (_, __) {} : null,
                     child: imageUrl.trim().isEmpty
                         ? const Icon(Icons.shield_outlined, size: 18)
                         : null,

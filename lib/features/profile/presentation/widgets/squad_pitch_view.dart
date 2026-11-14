@@ -520,6 +520,8 @@ class _InfoPanel extends StatelessWidget {
                     backgroundImage: p.photoUrl.trim().isNotEmpty
                         ? NetworkImage(CloudinaryUtils.thumb(p.photoUrl, size: 64))
                         : null,
+                    onBackgroundImageError:
+                        p.photoUrl.trim().isNotEmpty ? (_, __) {} : null,
                     child: p.photoUrl.trim().isEmpty
                         ? Text(
                             p.shirtNumber > 0 ? '${p.shirtNumber}' : '-',

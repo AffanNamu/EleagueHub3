@@ -152,6 +152,9 @@ class _DiscussionDetailScreenState extends State<DiscussionDetailScreen> {
                                   backgroundImage: thread.authorPhotoUrl.isNotEmpty
                                       ? NetworkImage(CloudinaryUtils.thumb(thread.authorPhotoUrl, size: 72))
                                       : null,
+                                  onBackgroundImageError: thread.authorPhotoUrl.isNotEmpty
+                                      ? (_, __) {}
+                                      : null,
                                   child: thread.authorPhotoUrl.isEmpty
                                       ? const Icon(Icons.person_rounded, size: 16)
                                       : null,
@@ -307,6 +310,8 @@ class _ReplyTileState extends State<_ReplyTile> {
             backgroundImage: widget.reply.authorPhotoUrl.isNotEmpty
                 ? NetworkImage(CloudinaryUtils.thumb(widget.reply.authorPhotoUrl, size: 64))
                 : null,
+            onBackgroundImageError:
+                widget.reply.authorPhotoUrl.isNotEmpty ? (_, __) {} : null,
             child: widget.reply.authorPhotoUrl.isEmpty ? const Icon(Icons.person_rounded, size: 14) : null,
           ),
           const SizedBox(width: 10),
