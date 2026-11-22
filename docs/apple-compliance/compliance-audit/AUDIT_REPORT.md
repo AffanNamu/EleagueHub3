@@ -121,8 +121,8 @@ All iOS purchases go through `in_app_purchase` 3.3.1 / `in_app_purchase_storekit
 |---|---|---|---|---|---|
 | `pro_1mo`, `pro_3mo`, `pro_6mo`, `pro_yearly` | Auto-renewable subscription (1/3/6/12 months), one group with Elite | Upgrade plan screen | Pro: 5 master leagues, 9 competitions each | Worker `/activate` verifies the App Store transaction (now JWS), sets custom claims + `users/{uid}` + `entitlements/master_league`; App Store Server Notifications V2 handle renewal, grace, expiry, refund, revoke | Fixed (activation); restore OK |
 | `elite_1mo`, `elite_3mo`, `elite_6mo`, `elite_yearly` | Same group | Upgrade plan screen | Elite: unlimited | Same | Same |
-| `organizer_verification` | Consumable (see note) | Settings / organizer profile → verification | Submits application for manual review; badge if approved | Purchase recorded in `payments/` as unverified; entitlement = admin approval | OK; price display fixed |
-| `organizer_verification_renewal` | Consumable | Organizer profile → renew | Renewal review | Same | OK |
+| `organizer_verification_fee` (iOS) / `organizer_verification` (Play) | **Consumable**, $149.99 | Settings / organizer profile → verification | Submits application for manual review; badge if approved | Purchase recorded in `payments/` (product type `organizer_verification`); entitlement = admin approval | **New iOS product — create in ASC.** `organizer_verification` exists in ASC as a yearly subscription (owner decision 2026-11-22: one-time fee) — do not attach it |
+| `organizer_verification_renewal_fee` (iOS) / `organizer_verification_renewal` (Play) | Consumable | Organizer profile → renew | Renewal review | Same | **New iOS product — create in ASC** |
 | `league_creation_unlock` | — | **Not reachable on iOS.** Android only: one-time unlock when a Basic user reaches 3 leagues (iOS shows "Upgrade plan" → subscriptions instead) | — | — | Do not submit for iOS |
 | `league_access_unlock` | — | **Not offered in the store apps** (owner decision 2026-11-22) | — | — | Do not create / do not submit |
 | `league_addons_pack` | — | Was bought by the coupon checkout; coupons are now hidden in the store apps | — | — | Do not submit |
@@ -265,11 +265,15 @@ web UI flows. These are in `PRE_SUBMISSION_CHECKLIST.md` §C–§D.
 
 **Before the next submission (blocking):**
 
-1. **Send the full App Review messages** (Nov 20 3.0.0 and the 1.9.20 2.1.0)
-   so the root causes can be confirmed against the fixes.
-2. **App Store Connect → In-App Purchases:** attach the plan subscriptions,
-   `organizer_verification` and `organizer_verification_renewal` to the
-   version, each with a review screenshot and description. **Do not create or
+1. **Reply to App Review** (done when sent): confirm Organizer Verification
+   is $149.99 USD and explain it is now a one-time purchase
+   (`organizer_verification_fee`), not a yearly subscription. Messages are
+   transcribed in `REJECTION_HISTORY.md`.
+2. **App Store Connect → In-App Purchases:** create the consumables
+   `organizer_verification_fee` ($149.99) and `organizer_verification_renewal_fee`
+   (renewal price); attach them and the plan subscriptions to the version,
+   each with a review screenshot and description. **Do not attach** the
+   yearly subscription `organizer_verification`. **Do not create or
    attach** `league_access_unlock` (paid league access is not sold in the
    app), `premium_subscription` or `league_addons_pack`.
    Also **do not attach** `league_creation_unlock` (not reachable on iOS).

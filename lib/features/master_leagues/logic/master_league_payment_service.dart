@@ -490,7 +490,7 @@ class FlutterwaveMasterLeaguePaymentService
         () => GooglePlayBillingService.instance.createAttempt(
           userId: uid,
           productId:
-              GooglePlayBillingCatalog.organizerVerificationId,
+              GooglePlayBillingCatalog.organizerVerificationProductId,
           productType: 'organizer_verification',
           productSubType: 'master_league_organizer_verification',
           leagueName: masterLeagueName,
@@ -580,7 +580,7 @@ class FlutterwaveMasterLeaguePaymentService
         () => GooglePlayBillingService.instance.createAttempt(
           userId: uid,
           productId: GooglePlayBillingCatalog
-              .organizerVerificationRenewalId,
+              .organizerVerificationRenewalProductId,
           productType: 'organizer_verification_renewal',
           productSubType:
               'master_league_organizer_verification_renewal',

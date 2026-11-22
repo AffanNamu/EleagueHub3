@@ -246,8 +246,8 @@ class GooglePlayBillingService {
     bool isRenewal = false,
   }) async {
     final productId = isRenewal
-        ? GooglePlayBillingCatalog.organizerVerificationRenewalId
-        : GooglePlayBillingCatalog.organizerVerificationId;
+        ? GooglePlayBillingCatalog.organizerVerificationRenewalProductId
+        : GooglePlayBillingCatalog.organizerVerificationProductId;
 
     final product = await _fetchProduct(productId, isSubscription: false);
     if (product == null) return null;
@@ -340,7 +340,7 @@ class GooglePlayBillingService {
 
       // ── Organizer verification (initial) ─────────────────────────────
       if (productId ==
-          GooglePlayBillingCatalog.organizerVerificationId) {
+          GooglePlayBillingCatalog.organizerVerificationProductId) {
         await BadgeService.instance
             .onOrganizerVerificationPurchased(userId: uid);
         if (kDebugMode) {
@@ -354,7 +354,7 @@ class GooglePlayBillingService {
       // ── Organizer verification renewal ───────────────────────────────
       if (productId ==
           GooglePlayBillingCatalog
-              .organizerVerificationRenewalId) {
+              .organizerVerificationRenewalProductId) {
         await BadgeService.instance
             .onOrganizerVerificationRenewalPurchased(
           userId: uid,
@@ -949,7 +949,7 @@ class GooglePlayBillingService {
   }) =>
           _purchase(
             productId:
-                GooglePlayBillingCatalog.organizerVerificationId,
+                GooglePlayBillingCatalog.organizerVerificationProductId,
             attemptId: attemptId,
             flowLabel: 'organizer_verification',
             leagueName: masterLeagueName,
@@ -968,7 +968,7 @@ class GooglePlayBillingService {
   }) =>
           _purchase(
             productId: GooglePlayBillingCatalog
-                .organizerVerificationRenewalId,
+                .organizerVerificationRenewalProductId,
             attemptId: attemptId,
             flowLabel: 'organizer_verification_renewal',
             leagueName: masterLeagueName,
