@@ -70,7 +70,7 @@ flow could be executed on iOS (see §9).
 | Onboarding / profile | No compliance issue found. | — |
 | Leagues, fixtures, results, standings | No compliance issue found; 100 existing logic tests pass. | — |
 | League creation (free plan) | Rewarded ad shown before creating; **fails open** if no ad (no fill/failed show). Allowed by 3.2.2(x). | OK |
-| Paid league access | "Pay to unlock" for UCL Group/Swiss leagues and full classic leagues could **never succeed on iOS** and its error mentioned paying on the web via Flutterwave. | Fixed: StoreKit consumable `league_access_unlock`; neutral wording. Needs ASC product. |
+| Paid league access | "Pay to unlock" for UCL Group/Swiss leagues and full classic leagues could **never succeed on iOS** and its error mentioned paying on the web via Flutterwave. | Fixed: by owner decision, paid league access is not sold in the store apps — no pay sheet on iOS/Android, those leagues open free; web unchanged. |
 | Coupons | Organizers buy participant coupons; partial-discount coupons require a variable payment. | iOS declines partial-balance coupons neutrally. Coupon-pack pricing (one fixed price for any quantity) is a business decision — §10. |
 | Organizer Verification | Fee shown on iOS came from the web price list (e.g. NGN), not the App Store. | Fixed: App Store price or "Price shown by the App Store at checkout". |
 | League creation / coupon checkout | Totals shown in web currency, computed from coupon count; StoreKit charges a fixed product price. | Fixed for iOS display. |
@@ -124,7 +124,7 @@ All iOS purchases go through `in_app_purchase` 3.3.1 / `in_app_purchase_storekit
 | `organizer_verification` | Consumable (see note) | Settings / organizer profile → verification | Submits application for manual review; badge if approved | Purchase recorded in `payments/` as unverified; entitlement = admin approval | OK; price display fixed |
 | `organizer_verification_renewal` | Consumable | Organizer profile → renew | Renewal review | Same | OK |
 | `league_creation_unlock` | Consumable | Coupon/creation checkout (`/leagues/:id/upgrade/payment`) | Participant coupons for a league | Recorded in `payments/` | OK; display fixed; quantity/pricing is a business decision |
-| `league_access_unlock` | Consumable | Leagues → paid league → Unlock access | Viewing that league | Recorded in `payments/` + `users/{uid}/leagueCharges/{leagueId}` | **New iOS path — product must exist in ASC** |
+| `league_access_unlock` | — | **Not offered in the store apps** (owner decision 2026-11-22) | — | — | Do not create / do not submit |
 | `league_addons_pack` | — | **No purchase path** | — | — | Do not submit |
 | `premium_subscription` | — | **No purchase path** | — | — | Do not submit |
 
@@ -218,8 +218,8 @@ One pre-existing weakness was found and not changed:
 | `.github/workflows/ios.yml` | Removed `audio` background mode; new "Validate generated Info.plist against App Store requirements" step; Flutterwave keys removed from the iOS build | 2.5.4 root cause; prevent recurrence; 3.1.1 defence in depth |
 | `ios/Runner/Info.plist` | Header comment: not the shipped file | Prevents repeating the October mistake |
 | `worker/src/index.js`, `worker/src/apple_jws_transaction.js` (+ test) | Verify StoreKit 2 JWS transactions with the existing pinned-root verifier; StoreKit 1 receipts unchanged | Subscriptions bought on iOS could not activate |
-| `lib/core/services/payments/google_play_billing_service.dart` | `fetchProductPrice()`, `purchaseLeagueAccess()` | Show real App Store prices; sell league access via IAP |
-| `lib/features/leagues/logic/league_charges_payment_service.dart` | iOS StoreKit path for league access; neutral "not available" wording | 2.1 dead end; 3.1.1 steering text |
+| `lib/core/services/payments/google_play_billing_service.dart` | `fetchProductPrice()` | Show real App Store prices |
+| `lib/features/leagues/logic/league_charges_payment_service.dart` | Neutral "not available" wording; `PaymentPlatformConfig.offerPaidLeagueAccess` (false in store apps) used by the QR-join flow, leagues list, live leagues and access guard so no paid-access sheet is shown on iOS/Android | 2.1 dead end; 3.1.1 steering text; owner decision |
 | `lib/core/config/payment_platform_config.dart` | Removed messages saying "Web continues to use Flutterwave" | Steering |
 | `lib/features/master_leagues/presentation/organizer_verification_application_screen.dart` | App Store price on iOS; never the web price | Price shown ≠ price charged |
 | `lib/features/leagues/presentation/league_creation_payment_screen.dart`, `league_access_guard.dart` | App Store price on iOS | Same |
@@ -268,13 +268,15 @@ web UI flows. These are in `PRE_SUBMISSION_CHECKLIST.md` §C–§D.
 
 1. **Send the full App Review messages** (Nov 20 3.0.0 and the 1.9.20 2.1.0)
    so the root causes can be confirmed against the fixes.
-2. **App Store Connect → In-App Purchases:** create the consumable
-   `league_access_unlock` (price = your viewer fee tier), add review screenshot
-   and description; attach to the version together with the plan subscriptions,
-   `organizer_verification`, `organizer_verification_renewal` and
-   `league_creation_unlock`. **Do not attach** `premium_subscription` or
-   `league_addons_pack`. *(If you would rather not sell league access on iOS,
-   tell me and I will make those leagues free to view on iOS instead.)*
+2. **App Store Connect → In-App Purchases:** attach the plan subscriptions,
+   `organizer_verification` and `organizer_verification_renewal` to the
+   version, each with a review screenshot and description. **Do not create or
+   attach** `league_access_unlock` (paid league access is not sold in the
+   app), `premium_subscription` or `league_addons_pack`.
+   **Decision needed:** participant coupons (`league_creation_unlock`, League
+   admin → coupons) only matter for paid league access, which the app no
+   longer offers, so coupons bought on iOS cannot be redeemed in the app.
+   Either stop selling coupons in the store apps, or confirm they are wanted.
 3. **Demo account** that signs in, is on the free plan, and has sample leagues.
 4. **Review notes:** fill in `APP_REVIEW_NOTES_TEMPLATE.md` and paste it.
 5. **Age rating questionnaire** (also answer the new Shared Location and Dating questions now, even though App Store Connect says they can wait until 2027-01-15): social media capabilities Yes; messaging/UGC
@@ -319,8 +321,7 @@ account deletion, UGC moderation and permission wording now meet the
 downloaded guideline text; all automated checks pass.
 
 Evidence against submitting today: none of the changes has run on an iOS
-device or in the sandbox; the new `league_access_unlock` product does not
-exist in App Store Connect yet; the 3.0.0 reviewer text has not been compared;
+device or in the sandbox; the coupon decision in §10 is open; the 3.0.0 reviewer text has not been compared;
 App Store Connect metadata, questionnaires, demo account and privacy answers are
 unverified; the account-deletion server function is unverified.
 

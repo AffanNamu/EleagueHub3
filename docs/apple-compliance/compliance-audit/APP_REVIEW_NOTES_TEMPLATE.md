@@ -35,15 +35,15 @@ HOW PEOPLE PAY (all digital purchases on iOS use Apple In-App Purchase)
    approved, the organizer receives a verified badge.
    Where: Settings → Organizer verification (also from an organizer
    profile) → complete the form → review step → Submit and pay.
-3. Paid league access — one-time purchase (consumable "league_access_unlock")
-   that unlocks viewing a paid league (Champions-League-style group/Swiss
-   formats, or a full classic league you are not part of).
-   Where: Leagues tab → open such a league → "Unlock access" → "Pay to unlock".
-4. League creation / participant coupons — one-time purchase
-   ("league_creation_unlock") an organizer can make to issue coupons that let
-   their participants join for free. Participants redeem the code in the same
-   "Unlock access" sheet.
+3. League participant coupons — one-time purchase ("league_creation_unlock")
+   an organizer can make from League admin to issue coupon codes.
+   [DECISION PENDING — leagues are free to view and join in the iOS app, so
+   coupons cannot be redeemed in the app. Keep this line only if you decide
+   to keep selling coupons on iOS; see AUDIT_REPORT §10.]
 [Remove any line above for a product you have NOT submitted with this build.]
+
+All leagues are free to view and join in the iOS app; there is no paid
+league access in the app.
 
 Purchases made on our website are honoured in the app (multiplatform), and
 every such item is also available in the app through In-App Purchase.
