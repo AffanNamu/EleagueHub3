@@ -2701,12 +2701,19 @@ service cloud.firestore {
     
     match /payment_attempts/{attemptId} {
       function validCurrency(c) { return (c is string) && (c in ['NGN', 'USD', 'PLAY']); }
+      // 'app_store': iOS purchases (GooglePlayBillingService._providerName
+      // is 'app_store' on iOS since 2026-10-09). Without it every iOS
+      // payment attempt was refused, and the app stops before showing the
+      // App Store sheet when the attempt can't be recorded -- so no plan or
+      // verification purchase could start on iPhone. The worker already
+      // accepts 'app_store' when fulfilling.
       function validProvider(p) {
         return (p is string) && (p in [
           'flutterwave',
           'free',
           'google_play_billing',
-          'google_play'
+          'google_play',
+          'app_store'
         ]);
       }
       function validStatusForClient(s) { return (s is string) && (s in ['initiated', 'client_success', 'cancelled', 'client_failed', 'verified', 'fulfilled']); }
