@@ -290,15 +290,15 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen>
         title: Text(
           _trOr(
             l10n,
-            'call_permission_title',
-            'Microphone & Camera Access',
+            'call_permission_mic_title',
+            'Microphone Access',
           ),
         ),
         content: Text(
           _trOr(
             l10n,
-            'call_permission_body',
-            'To create or join a voice room, the app needs access to your microphone. Camera access is optional for video features.\n\nYou can change this anytime in Android Settings.',
+            'call_permission_mic_body',
+            'Voice rooms use your microphone so the people in the room can hear you. Next, your device will ask whether to allow microphone access. You can change this anytime in your device settings.',
           ),
           style: TextStyle(
             height: 1.5,
@@ -316,7 +316,9 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen>
               foregroundColor: AppTheme.darkText,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(_trOr(l10n, 'common_allow', 'Allow')),
+            // Neutral wording: a pre-permission screen must not imitate
+            // the system prompt's "Allow" (App Review 5.1.1(iv)).
+            child: Text(_trOr(l10n, 'common_continue', 'Continue')),
           ),
         ],
       ),
@@ -327,13 +329,10 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen>
     setState(() => _requestingPermissions = true);
 
     try {
-      // Request microphone permission
+      // Voice rooms are audio-only, so only the microphone is requested
+      // (App Review 5.1.1(iii) data minimization).
       final micStatus = await Permission.microphone.request();
       final micGranted = micStatus.isGranted;
-
-      // Request camera permission (optional for voice, but good to have)
-      final cameraStatus = await Permission.camera.request();
-      final cameraGranted = cameraStatus.isGranted;
 
       if (!mounted) return false;
 
@@ -356,7 +355,7 @@ class _CallRoomScreenState extends ConsumerState<CallRoomScreen>
               _trOr(
                 l10n,
                 'call_permission_denied_body',
-                'Microphone access is required to create or join voice rooms. You can enable it in Android Settings.',
+                'Microphone access is required to create or join voice rooms. You can enable it in your device settings.',
               ),
             ),
             actions: [

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../../core/moderation/objectionable_content_filter.dart';
 import '../models/discussion_reply.dart';
 import '../models/discussion_thread.dart';
 
@@ -82,6 +83,7 @@ class DiscussionsRepository {
     required String title,
     required String body,
   }) async {
+    ObjectionableContentFilter.ensureAllowed('$title\n$body');
     try {
       final authUid = _requireAuthUid();
       final trimmedTitle = title.trim();
@@ -145,6 +147,7 @@ class DiscussionsRepository {
     required String authorPhotoUrl,
     required String text,
   }) async {
+    ObjectionableContentFilter.ensureAllowed(text);
     try {
       final authUid = _requireAuthUid();
       final trimmedText = text.trim();

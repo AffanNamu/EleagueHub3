@@ -242,7 +242,7 @@ Future<RewardedAd?> _getOrLoadRewardedAd({
 
   RewardedAd.load(
     adUnitId: _adUnitId,
-    request:  const AdRequest(),
+    request:  AdConfig.request,
     rewardedAdLoadCallback: RewardedAdLoadCallback(
       // ── onAdLoaded ───────────────────────────────────────────────────────
       onAdLoaded: (RewardedAd ad) {

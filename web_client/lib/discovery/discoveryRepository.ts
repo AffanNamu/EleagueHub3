@@ -1,5 +1,6 @@
 import { collection, doc, setDoc, updateDoc, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { ensureContentAllowed } from '@/lib/moderation/objectionableContentFilter';
 
 export interface DiscussionThread {
   threadId: string;
@@ -30,6 +31,7 @@ export async function createDiscussionThreadWeb({
 }: {
   authorId: string; authorDisplayName: string; authorPhotoUrl: string; title: string; body: string;
 }) {
+  ensureContentAllowed(`${title}\n${body}`);
   const ref = doc(collection(db, 'discussion_threads'));
   const now = Date.now();
 
@@ -52,6 +54,7 @@ export async function createDiscussionReplyWeb({
 }: {
   threadId: string; authorId: string; authorDisplayName: string; authorPhotoUrl: string; text: string;
 }) {
+  ensureContentAllowed(text);
   const threadRef = doc(db, 'discussion_threads', threadId);
   const replyRef = doc(collection(threadRef, 'replies'));
   const now = Date.now();

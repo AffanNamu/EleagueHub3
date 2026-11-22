@@ -6,6 +6,7 @@ import {
   RATE_LIMIT_KIND_FEED_POSTS,
   FREE_FEED_POSTS_PER_DAY,
 } from '@/lib/plans/rateLimitService';
+import { ensureContentAllowed } from '@/lib/moderation/objectionableContentFilter';
 
 export interface PublicPost {
   postId: string;
@@ -50,6 +51,7 @@ export async function createPostWeb({
 }: {
   authorId: string; authorDisplayName: string; authorPhotoUrl: string; text: string; mediaUrl?: string; audioUrl?: string; postType?: string; leagueId?: string; leagueName?: string;
 }) {
+  ensureContentAllowed(text);
   const postsRef = collection(db, 'public_posts');
   const newPostDoc = doc(postsRef);
   const now = Date.now();
@@ -138,6 +140,7 @@ export const PUBLIC_POST_EDIT_WINDOW_MS = 2 * 60 * 60 * 1000;
 // fixing what was written. Mirrors PublicFeedRepository.editPost();
 // firestore.rules enforces the same boundary for real.
 export async function editPostWeb(postId: string, userId: string, text: string) {
+  ensureContentAllowed(text);
   const ref = doc(db, 'public_posts', postId);
   const snap = await getDoc(ref);
   if (!snap.exists()) throw new Error('This post no longer exists.');
@@ -202,6 +205,7 @@ export async function addCommentWeb({
 }) {
   const trimmed = text.trim();
   if (!trimmed) throw new Error('Please write a comment first.');
+  ensureContentAllowed(trimmed);
 
   const postRef = doc(db, 'public_posts', postId);
   const commentRef = doc(collection(postRef, 'comments'));

@@ -408,6 +408,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           style: TextStyle(color: AppTheme.limeAccentDark),
                         ),
                       ),
+                      const SizedBox(height: 6),
+                      // Every sign-in path above (email, Google, Apple)
+                      // creates the account on first use, so the terms
+                      // that govern user-generated content (App Review
+                      // 1.2) are presented to everyone here.
+                      _TermsAgreement(enabled: !_submitting),
                     ],
                   ),
                 ),
@@ -416,6 +422,62 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _TermsAgreement extends StatelessWidget {
+  const _TermsAgreement({required this.enabled});
+
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final brightness = Theme.of(context).brightness;
+    final textStyle = TextStyle(
+      color: AppTheme.secondaryText(brightness),
+      fontSize: 12,
+      height: 1.4,
+    );
+    final linkStyle = TextButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      minimumSize: Size.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      foregroundColor: AppTheme.limeAccentDark,
+      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+    );
+
+    return Column(
+      children: [
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(l10n.tr('auth_terms_agreement_prefix'), style: textStyle),
+            TextButton(
+              style: linkStyle,
+              onPressed: enabled
+                  ? () => context.push('/terms_of_service_screen')
+                  : null,
+              child: Text(l10n.tr('auth_terms_agreement_terms_link')),
+            ),
+            Text(l10n.tr('auth_terms_agreement_and'), style: textStyle),
+            TextButton(
+              style: linkStyle,
+              onPressed: enabled
+                  ? () => context.push('/privacy_policy_screen')
+                  : null,
+              child: Text(l10n.tr('auth_terms_agreement_privacy_link')),
+            ),
+          ],
+        ),
+        Text(
+          l10n.tr('auth_terms_agreement_zero_tolerance'),
+          textAlign: TextAlign.center,
+          style: textStyle,
+        ),
+      ],
     );
   }
 }

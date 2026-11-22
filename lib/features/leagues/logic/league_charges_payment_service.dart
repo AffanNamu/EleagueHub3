@@ -8,6 +8,8 @@ import 'package:uuid/uuid.dart';
 import '../../../core/config/flutterwave_config.dart';
 import '../../../core/config/payment_platform_config.dart';
 import '../../../core/services/app_analytics_service.dart';
+import '../../../core/services/payments/google_play_billing_catalog.dart';
+import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/payments/payment_models.dart';
 import '../../../core/services/payments/payments_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
@@ -119,12 +121,69 @@ class FlutterwaveLeagueChargesPaymentService
     return 'flutterwave';
   }
 
+  // Deliberately says nothing about other platforms or payment providers:
+  // in an app-store build, pointing users at a different way to pay is
+  // itself a payments-guideline problem (App Store 3.1.1 / Play payments).
   LeagueChargesPaymentResult _playBillingNotReady(String flowLabel) {
     return LeagueChargesPaymentResult.failed(
       provider: providerName,
-      errorMessage: PaymentPlatformConfig.routeIOSPaymentsToStoreKit
-          ? PaymentPlatformConfig.pendingStoreKitMessage(flowLabel)
-          : PaymentPlatformConfig.pendingGooglePlayBillingMessage(flowLabel),
+      errorMessage: '$flowLabel is not available in this version of the app.',
+    );
+  }
+
+  // iOS: viewer access is sold as the fixed-price `league_access_unlock`
+  // consumable. A coupon that leaves a partial balance has a variable price
+  // that no App Store product can represent, so it is not offered here;
+  // a coupon that fully covers access never reaches payment at all.
+  Future<LeagueChargesPaymentResult> _payViaAppStore({
+    required String userId,
+    required String leagueId,
+    required String leagueName,
+    required String? amountOverride,
+  }) async {
+    if ((amountOverride ?? '').trim().isNotEmpty) {
+      return LeagueChargesPaymentResult.failed(
+        provider: providerName,
+        errorMessage: 'This coupon can only be used when it covers the full '
+            'access price. Use "Pay to unlock" instead.',
+      );
+    }
+
+    final uid = _resolveEffectiveUserId(userId);
+    final billing = GooglePlayBillingService.instance;
+    final attemptId = await billing.createAttempt(
+      userId: uid,
+      productId: GooglePlayBillingCatalog.leagueAccessUnlockId,
+      productType: 'league_access',
+      productSubType: 'league_viewer_charges',
+      leagueName: leagueName,
+      metadata: <String, dynamic>{'leagueId': leagueId},
+    );
+
+    final result = await billing.purchaseLeagueAccess(
+      leagueName: leagueName,
+      attemptId: attemptId,
+    );
+
+    if (!result.success) {
+      return LeagueChargesPaymentResult.failed(
+        provider: providerName,
+        errorMessage: result.errorMessage ?? 'Purchase was not completed.',
+        attemptId: attemptId,
+        paymentId: result.paymentId,
+      );
+    }
+
+    final receiptId =
+        result.orderId.isNotEmpty ? result.orderId : result.paymentId;
+    return LeagueChargesPaymentResult.paid(
+      receiptId: receiptId,
+      paidAtMs: DateTime.now().millisecondsSinceEpoch,
+      provider: providerName,
+      totalAmount: '',
+      attemptId: attemptId,
+      paymentId: result.paymentId,
+      transactionId: result.orderId,
     );
   }
 
@@ -205,8 +264,16 @@ class FlutterwaveLeagueChargesPaymentService
     // falling through to Flutterwave — Guideline 3.1.1 requires StoreKit
     // for any digital purchase on iOS, so this must never silently leak
     // to a third-party processor there.
+    if (PaymentPlatformConfig.routeIOSPaymentsToStoreKit) {
+      return _payViaAppStore(
+        userId: userId,
+        leagueId: leagueId,
+        leagueName: leagueName,
+        amountOverride: amountOverride,
+      );
+    }
     if (PaymentPlatformConfig.useNativeInAppPurchase) {
-      return _playBillingNotReady('League access charge payment');
+      return _playBillingNotReady('Paid league access');
     }
 
     String currencyUsed = '';

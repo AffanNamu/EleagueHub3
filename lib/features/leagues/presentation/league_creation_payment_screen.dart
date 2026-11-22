@@ -4,7 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/services/payments/google_play_billing_catalog.dart';
+import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass.dart';
@@ -43,6 +46,31 @@ class _LeagueCreationPaymentScreenState
 
   MasterLeaguePlan _selectedUpgradePlan = MasterLeaguePlan.pro;
   PlanDuration _selectedUpgradeDuration = PlanDuration.threeMonths;
+
+  // iOS only: the App Store price of the product the native purchase path
+  // actually buys (see LeagueCreationPaymentService._collectViaGooglePlay).
+  // The web pricing computed below is a different amount and currency, so
+  // it must not be presented as what an iOS user will be charged.
+  String? _appStorePrice;
+  bool _appStorePriceRequested = false;
+
+  void _loadAppStorePriceOnce({required bool premiumUpgrade}) {
+    if (_appStorePriceRequested ||
+        !PaymentPlatformConfig.routeIOSPaymentsToStoreKit) {
+      return;
+    }
+    _appStorePriceRequested = true;
+    final productId = premiumUpgrade
+        ? GooglePlayBillingCatalog.subscriptionIdForPlan(
+            plan: _selectedUpgradePlan,
+            duration: PlanDuration.threeMonths,
+          )
+        : GooglePlayBillingCatalog.leagueCreationUnlockId;
+    GooglePlayBillingService.instance.fetchProductPrice(productId).then((info) {
+      if (!mounted || info == null) return;
+      setState(() => _appStorePrice = info.formattedPrice);
+    });
+  }
 
   @override
   void dispose() {
@@ -393,6 +421,11 @@ class _LeagueCreationPaymentScreenState
 
     final addonsOnly = _addonsOnlyFromRouteExtra();
     final premiumUpgrade = _premiumUpgradeModeFromRouteExtra();
+    _loadAppStorePriceOnce(premiumUpgrade: premiumUpgrade);
+    final bool appStorePricing =
+        PaymentPlatformConfig.routeIOSPaymentsToStoreKit;
+    final String appStoreTotal =
+        _appStorePrice ?? l10n.tr('app_store_price_shown_at_checkout');
 
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (authUid.trim().isEmpty) {
@@ -598,7 +631,7 @@ class _LeagueCreationPaymentScreenState
                         "${l10n.tr('league_creation_payment_duration_prefix')} ${_selectedUpgradeDuration.displayName}\n"
                         "${l10n.tr('league_creation_payment_plan_fee_prefix')} ${_money(baseFee)} $premiumCurrency\n"
                         "${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}"
-                    : "${l10n.tr('league_creation_payment_total_prefix')} ${_money(total)} $currency\n\n"
+                    : "${l10n.tr('league_creation_payment_total_prefix')} ${appStorePricing ? appStoreTotal : '${_money(total)} $currency'}\n\n"
                         '${addonsOnly ? l10n.tr('league_creation_payment_upgrade_word') : l10n.tr('league_creation_payment_explanation_prefix')} ${widget.leagueName}\n'
                         "${l10n.tr('league_creation_payment_provider_prefix')} ${provider.providerName}";
 
@@ -1139,6 +1172,20 @@ class _LeagueCreationPaymentScreenState
                                     ),
                                   ),
                                   const SizedBox(height: 6),
+                                  if (appStorePricing) ...[
+                                    _kvStrong(
+                                      context,
+                                      l10n.tr('league_creation_payment_total_payable_label'),
+                                      appStoreTotal,
+                                    ),
+                                    Text(
+                                      l10n.tr('app_store_charged_by_apple_caption'),
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: AppTheme.secondaryText(brightness),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ] else ...[
                                   _kv(
                                     context,
                                     premiumUpgrade
@@ -1174,6 +1221,7 @@ class _LeagueCreationPaymentScreenState
                                     l10n.tr('league_creation_payment_total_payable_label'),
                                     '${_money(total)} ${premiumUpgrade ? premiumCurrency : currency}',
                                   ),
+                                  ],
                                 ],
                               ),
                             ),

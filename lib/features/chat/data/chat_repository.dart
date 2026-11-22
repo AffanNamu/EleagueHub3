@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../../core/services/plan_status_service.dart';
 import '../../../core/services/rate_limit_service.dart';
+import '../../../core/moderation/objectionable_content_filter.dart';
 import '../../auth/data/user_profile_repository.dart';
 import '../../marketplace/data/cloudinary_upload_service.dart';
 import '../models/chat_message.dart';
@@ -239,6 +240,7 @@ class ChatRepository {
     String replyToText = '',
     String replyToType = '',
   }) async {
+    ObjectionableContentFilter.ensureAllowed(text);
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     final col = _leagueChatCol(leagueId);
@@ -296,6 +298,7 @@ class ChatRepository {
     String replyToText = '',
     String replyToType = '',
   }) async {
+    ObjectionableContentFilter.ensureAllowed(text);
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     final col = _organizerChatCol(masterLeagueId);
@@ -351,6 +354,7 @@ class ChatRepository {
     String replyToText = '',
     String replyToType = '',
   }) async {
+    ObjectionableContentFilter.ensureAllowed(text);
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final doc = messageIdOverride.trim().isNotEmpty
         ? _globalChatCol.doc(messageIdOverride.trim())

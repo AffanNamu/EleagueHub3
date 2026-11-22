@@ -21,9 +21,19 @@
 // to follow for Android, and not currently reachable in production.
 
 import 'package:flutter/foundation.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class AdConfig {
   const AdConfig._();
+
+  // ── Ad request ─────────────────────────────────────────────────────────
+  /// iOS never shows the App Tracking Transparency prompt, and both the
+  /// privacy manifest (NSPrivacyTracking = false) and the App Store privacy
+  /// answers rely on ads being non-personalized there -- so iOS requests
+  /// must say so explicitly rather than relying on SDK defaults.
+  static AdRequest get request => defaultTargetPlatform == TargetPlatform.iOS
+      ? const AdRequest(nonPersonalizedAds: true)
+      : const AdRequest();
 
   // ── Banner ─────────────────────────────────────────────────────────────
 

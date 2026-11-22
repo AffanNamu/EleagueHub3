@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/locale/app_localizations.dart';
+import '../../../core/services/payments/google_play_billing_catalog.dart';
+import '../../../core/services/payments/google_play_billing_service.dart';
 import '../../../core/services/remote_pricing_service.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -224,6 +227,31 @@ class _LeagueAccessGuardState extends ConsumerState<LeagueAccessGuard> {
                         ),
                         const SizedBox(height: 8),
 
+                        // iOS charges the App Store price of the
+                        // league_access_unlock product, never the web price.
+                        if (PaymentPlatformConfig.routeIOSPaymentsToStoreKit)
+                          FutureBuilder<PlayPlanPriceInfo?>(
+                            future: GooglePlayBillingService.instance.fetchProductPrice(
+                                GooglePlayBillingCatalog.leagueAccessUnlockId),
+                            builder: (context, snap) {
+                              final String feeLine;
+                              if (snap.connectionState != ConnectionState.done) {
+                                feeLine = l10n.tr('league_access_entry_fee_loading');
+                              } else if (snap.data == null) {
+                                feeLine = l10n.tr('app_store_price_shown_at_checkout');
+                              } else {
+                                feeLine = '${l10n.tr('league_access_entry_fee_prefix')}${snap.data!.formattedPrice}';
+                              }
+                              return Text(
+                                feeLine,
+                                style: TextStyle(
+                                  color: cs.onSurface.withOpacity(0.70),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              );
+                            },
+                          )
+                        else
                         FutureBuilder<RemotePricingPlan>(
                           future: RemotePricingService.instance.getPlanForLocale(Localizations.maybeLocaleOf(context)),
                           builder: (context, snap) {

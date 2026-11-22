@@ -3,8 +3,46 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+// ---------------------------------------------------------------------------
+// AccountDeletionReauth
+//
+// Outcome of re-verifying the user's identity BEFORE anything is deleted.
+// Firebase rejects user.delete() with requires-recent-login once a session
+// is more than a few minutes old; previously that surfaced only after the
+// server cleanup, Storage deletion and local reset had already run, leaving
+// a half-deleted account and a "sign in again" message with no way to do
+// so. Re-authenticating first means a failure or cancellation here leaves
+// every piece of the account untouched.
+// ---------------------------------------------------------------------------
+
+class AccountDeletionReauth {
+  const AccountDeletionReauth._({
+    required this.ok,
+    this.cancelled = false,
+    this.errorMessage,
+    this.appleAuthorizationCode,
+  });
+
+  const AccountDeletionReauth.verified({String? appleAuthorizationCode})
+      : this._(ok: true, appleAuthorizationCode: appleAuthorizationCode);
+
+  const AccountDeletionReauth.cancelled() : this._(ok: false, cancelled: true);
+
+  const AccountDeletionReauth.failed(String message)
+      : this._(ok: false, errorMessage: message);
+
+  final bool ok;
+  final bool cancelled;
+  final String? errorMessage;
+
+  /// Present only after re-authenticating with Sign in with Apple; used to
+  /// revoke the user's Apple tokens (App Review 5.1.1(v)).
+  final String? appleAuthorizationCode;
+}
 
 // ---------------------------------------------------------------------------
 // AccountDeletionResult
@@ -69,9 +107,100 @@ class AccountDeletionService {
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
+  /// Re-verifies the signed-in user with the provider they signed up with.
+  /// Must be called (and succeed) before [deleteAccount]; it never deletes
+  /// or changes anything itself. [requestPassword] is shown only for
+  /// email/password accounts and should return null if the user cancels.
+  Future<AccountDeletionReauth> reauthenticateForDeletion({
+    Future<String?> Function()? requestPassword,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      return const AccountDeletionReauth.failed('No signed-in user found.');
+    }
+    if (user.isAnonymous) return const AccountDeletionReauth.verified();
+
+    final providers = user.providerData.map((p) => p.providerId).toSet();
+
+    try {
+      if (providers.contains('apple.com')) {
+        final provider = firebase_auth.AppleAuthProvider()..addScope('email');
+        final cred = await user.reauthenticateWithProvider(provider);
+        return AccountDeletionReauth.verified(
+          appleAuthorizationCode: cred.additionalUserInfo?.authorizationCode,
+        );
+      }
+
+      if (providers.contains('google.com')) {
+        final googleSignIn = GoogleSignIn(scopes: ['email']);
+        final account = await googleSignIn.signIn();
+        if (account == null) return const AccountDeletionReauth.cancelled();
+        final auth = await account.authentication;
+        await user.reauthenticateWithCredential(
+          firebase_auth.GoogleAuthProvider.credential(
+            accessToken: auth.accessToken,
+            idToken: auth.idToken,
+          ),
+        );
+        return const AccountDeletionReauth.verified();
+      }
+
+      if (providers.contains('password')) {
+        final email = (user.email ?? '').trim();
+        if (email.isEmpty || requestPassword == null) {
+          return const AccountDeletionReauth.failed(
+            'Please sign in again before deleting your account.',
+          );
+        }
+        final password = await requestPassword();
+        if (password == null || password.isEmpty) {
+          return const AccountDeletionReauth.cancelled();
+        }
+        await user.reauthenticateWithCredential(
+          firebase_auth.EmailAuthProvider.credential(
+            email: email,
+            password: password,
+          ),
+        );
+        return const AccountDeletionReauth.verified();
+      }
+
+      // Any other provider: fall through to deleteAccount(), which still
+      // reports requires-recent-login if Firebase demands it.
+      return const AccountDeletionReauth.verified();
+    } on firebase_auth.FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'canceled':
+        case 'web-context-cancelled':
+        case 'popup-closed-by-user':
+          return const AccountDeletionReauth.cancelled();
+        case 'wrong-password':
+        case 'invalid-credential':
+        case 'invalid-login-credentials':
+          return const AccountDeletionReauth.failed(
+            'That password is incorrect. Your account was not deleted.',
+          );
+        case 'user-mismatch':
+          return const AccountDeletionReauth.failed(
+            'Please choose the same account you signed in with.',
+          );
+        default:
+          return AccountDeletionReauth.failed(
+            'We could not verify your identity (${e.code}). '
+            'Your account was not deleted.',
+          );
+      }
+    } catch (_) {
+      return const AccountDeletionReauth.failed(
+        'We could not verify your identity. Your account was not deleted.',
+      );
+    }
+  }
+
   Future<AccountDeletionResult> deleteAccount({
     String? feedbackReason,
     String? feedbackText,
+    String? appleAuthorizationCode,
   }) async {
     final firebase_auth.User? user = _auth.currentUser;
 
@@ -112,6 +241,22 @@ class AccountDeletionService {
 
     // ── Step 4: Clear local SharedPreferences ─────────────────────────────
     await _clearLocalPreferences();
+
+    // ── Step 4b: Revoke Sign in with Apple tokens ─────────────────────────
+    // App Review 5.1.1(v) / TN3194. Best-effort: a revocation failure must
+    // not leave the user unable to delete their account.
+    final appleCode = (appleAuthorizationCode ?? '').trim();
+    if (appleCode.isNotEmpty) {
+      try {
+        await _auth
+            .revokeTokenWithAuthorizationCode(appleCode)
+            .timeout(const Duration(seconds: 20));
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[AccountDeletionService] Apple token revoke failed: $e');
+        }
+      }
+    }
 
     // ── Step 5: Hard-delete Firebase Auth account (critical) ──────────────
     // After this call the token is permanently invalid.

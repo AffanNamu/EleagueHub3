@@ -259,6 +259,20 @@ class GooglePlayBillingService {
     );
   }
 
+  /// Store price of any catalog product, for screens that must show exactly
+  /// what the App Store / Play Store will charge. Null when the store or
+  /// product is unavailable.
+  Future<PlayPlanPriceInfo?> fetchProductPrice(String productId) async {
+    if (productId.trim().isEmpty) return null;
+    final product = await _fetchProduct(productId);
+    if (product == null) return null;
+    return PlayPlanPriceInfo(
+      formattedPrice: product.price,
+      currencyCode: product.currencyCode,
+      rawPrice: product.rawPrice,
+    );
+  }
+
   // ── Badge grant on purchase success ──────────────────────────────────────
 
   /// Grants the appropriate badges immediately after a confirmed
@@ -854,6 +868,21 @@ class GooglePlayBillingService {
         leagueName: leagueName,
         productType: 'league_creation',
         productSubType: 'league_creation_checkout',
+        isSubscription: false,
+      );
+
+  /// Paid viewer access to a single league — one-time consumable.
+  Future<GooglePlayPurchaseResult> purchaseLeagueAccess({
+    required String leagueName,
+    required String attemptId,
+  }) =>
+      _purchase(
+        productId: GooglePlayBillingCatalog.leagueAccessUnlockId,
+        attemptId: attemptId,
+        flowLabel: 'league_access',
+        leagueName: leagueName,
+        productType: 'league_access',
+        productSubType: 'league_viewer_charges',
         isSubscription: false,
       );
 

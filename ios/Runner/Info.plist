@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+<!--
+NOT THE SHIPPED FILE. .github/workflows/ios.yml ("Write iOS Info.plist,
+Podfile, entitlements, AppDelegate") overwrites this file on every App Store
+build, so edits made only here never reach Apple. The October 2026 Guideline
+2.5.4 fix was applied only here, which is why 1.9.20 and 1.9.21 were rejected
+again. Change ios.yml (and keep this copy in sync for local builds); the CI
+step "Validate generated Info.plist against App Store requirements" enforces
+the background-mode allowlist. See docs/apple-compliance/.
+-->
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
