@@ -122,15 +122,19 @@ export async function softDeleteGlobalMessageWeb(messageId: string, deletedBy: s
   });
 }
 
-export async function requestGlobalChatAccessWeb(userId: string, userName: string, userPhoto: string) {
+// Owner decision (2026-11-22): Global Chat has no admin-approval step.
+// Joining sets the caller's own globalChatRequests doc to 'approved';
+// firestore.rules allows exactly that and still blocks a user whose doc an
+// admin set to 'rejected'. Mirrors GlobalChatScreen._joinGlobalChat (Dart).
+export async function joinGlobalChatWeb(userId: string, userName: string, userPhoto: string) {
   const ref = doc(db, 'globalChatRequests', userId);
   const now = Date.now();
   const snap = await getDoc(ref);
 
   if (snap.exists()) {
-    await updateDoc(ref, { status: 'pending', updatedAtMs: now });
+    await updateDoc(ref, { status: 'approved', joinedAtMs: now, updatedAtMs: now });
   } else {
-    await setDoc(ref, { userId, userName, userPhoto, status: 'pending', createdAtMs: now, updatedAtMs: now });
+    await setDoc(ref, { userId, userName, userPhoto, status: 'approved', joinedAtMs: now, createdAtMs: now, updatedAtMs: now });
   }
 }
 
