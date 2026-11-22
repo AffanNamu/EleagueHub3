@@ -71,7 +71,7 @@ flow could be executed on iOS (see §9).
 | Leagues, fixtures, results, standings | No compliance issue found; 100 existing logic tests pass. | — |
 | League creation (free plan) | Rewarded ad shown before creating; **fails open** if no ad (no fill/failed show). Allowed by 3.2.2(x). | OK |
 | Paid league access | "Pay to unlock" for UCL Group/Swiss leagues and full classic leagues could **never succeed on iOS** and its error mentioned paying on the web via Flutterwave. | Fixed: by owner decision, paid league access is not sold in the store apps — no pay sheet on iOS/Android, those leagues open free; web unchanged. |
-| Coupons | Organizers buy participant coupons; partial-discount coupons require a variable payment. | iOS declines partial-balance coupons neutrally. Coupon-pack pricing (one fixed price for any quantity) is a business decision — §10. |
+| Coupons | Organizers bought participant coupons; coupons only discount paid league access. | Owner decision: not used. Hidden on iOS/Android (League admin tiles, Profile → Coupons); web unchanged. |
 | Organizer Verification | Fee shown on iOS came from the web price list (e.g. NGN), not the App Store. | Fixed: App Store price or "Price shown by the App Store at checkout". |
 | League creation / coupon checkout | Totals shown in web currency, computed from coupon count; StoreKit charges a fixed product price. | Fixed for iOS display. |
 | Subscriptions (Pro/Elite) | Purchase succeeded but **activation failed** for StoreKit 2 transactions (worker accepted only StoreKit 1 receipts). | Fixed in worker. |
@@ -123,9 +123,9 @@ All iOS purchases go through `in_app_purchase` 3.3.1 / `in_app_purchase_storekit
 | `elite_1mo`, `elite_3mo`, `elite_6mo`, `elite_yearly` | Same group | Upgrade plan screen | Elite: unlimited | Same | Same |
 | `organizer_verification` | Consumable (see note) | Settings / organizer profile → verification | Submits application for manual review; badge if approved | Purchase recorded in `payments/` as unverified; entitlement = admin approval | OK; price display fixed |
 | `organizer_verification_renewal` | Consumable | Organizer profile → renew | Renewal review | Same | OK |
-| `league_creation_unlock` | Consumable | Coupon/creation checkout (`/leagues/:id/upgrade/payment`) | Participant coupons for a league | Recorded in `payments/` | OK; display fixed; quantity/pricing is a business decision |
+| `league_creation_unlock` | — | **Not reachable on iOS.** Android only: one-time unlock when a Basic user reaches 3 leagues (iOS shows "Upgrade plan" → subscriptions instead) | — | — | Do not submit for iOS |
 | `league_access_unlock` | — | **Not offered in the store apps** (owner decision 2026-11-22) | — | — | Do not create / do not submit |
-| `league_addons_pack` | — | **No purchase path** | — | — | Do not submit |
+| `league_addons_pack` | — | Was bought by the coupon checkout; coupons are now hidden in the store apps | — | — | Do not submit |
 | `premium_subscription` | — | **No purchase path** | — | — | Do not submit |
 
 Other checks:
@@ -149,8 +149,7 @@ Other checks:
   Purchase — it does. No exemption in 3.1.3 applies to it.
 * **Issues not changed (need decisions, §10):** transaction is finished before
   the receipt is written (rare lost-record risk); verification sold as
-  consumable rather than non-renewing subscription; coupon quantity sold for a
-  fixed price; paid-league receipts are client-writable (revenue integrity);
+  consumable rather than non-renewing subscription; paid-league receipts are client-writable (revenue integrity);
   web-bought subscriptions can be used on iOS (allowed by 3.1.3(b)).
 
 ## 6. Privacy and security audit
@@ -273,10 +272,10 @@ web UI flows. These are in `PRE_SUBMISSION_CHECKLIST.md` §C–§D.
    version, each with a review screenshot and description. **Do not create or
    attach** `league_access_unlock` (paid league access is not sold in the
    app), `premium_subscription` or `league_addons_pack`.
-   **Decision needed:** participant coupons (`league_creation_unlock`, League
-   admin → coupons) only matter for paid league access, which the app no
-   longer offers, so coupons bought on iOS cannot be redeemed in the app.
-   Either stop selling coupons in the store apps, or confirm they are wanted.
+   Also **do not attach** `league_creation_unlock` (not reachable on iOS).
+   Coupons are not used and are hidden in the store apps (owner decision
+   2026-11-22). The iOS app sells only Pro/Elite plans and Organizer
+   Verification.
 3. **Demo account** that signs in, is on the free plan, and has sample leagues.
 4. **Review notes:** fill in `APP_REVIEW_NOTES_TEMPLATE.md` and paste it.
 5. **Age rating questionnaire** (also answer the new Shared Location and Dating questions now, even though App Store Connect says they can wait until 2027-01-15): social media capabilities Yes; messaging/UGC
@@ -298,7 +297,6 @@ web UI flows. These are in `PRE_SUBMISSION_CHECKLIST.md` §C–§D.
 
 **Recommended (not blocking, decisions needed):**
 
-* Coupon economics on native stores (fixed-price packs vs. per-coupon quantity).
 * Organizer Verification as a Non-Renewing Subscription.
 * Localized `InfoPlist.strings` for purpose strings.
 * Translations for the new English strings.
@@ -321,7 +319,7 @@ account deletion, UGC moderation and permission wording now meet the
 downloaded guideline text; all automated checks pass.
 
 Evidence against submitting today: none of the changes has run on an iOS
-device or in the sandbox; the coupon decision in §10 is open; the 3.0.0 reviewer text has not been compared;
+device or in the sandbox; the 3.0.0 reviewer text has not been compared;
 App Store Connect metadata, questionnaires, demo account and privacy answers are
 unverified; the account-deletion server function is unverified.
 

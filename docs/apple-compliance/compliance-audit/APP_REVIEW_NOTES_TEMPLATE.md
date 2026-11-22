@@ -35,15 +35,8 @@ HOW PEOPLE PAY (all digital purchases on iOS use Apple In-App Purchase)
    approved, the organizer receives a verified badge.
    Where: Settings → Organizer verification (also from an organizer
    profile) → complete the form → review step → Submit and pay.
-3. League participant coupons — one-time purchase ("league_creation_unlock")
-   an organizer can make from League admin to issue coupon codes.
-   [DECISION PENDING — leagues are free to view and join in the iOS app, so
-   coupons cannot be redeemed in the app. Keep this line only if you decide
-   to keep selling coupons on iOS; see AUDIT_REPORT §10.]
-[Remove any line above for a product you have NOT submitted with this build.]
-
-All leagues are free to view and join in the iOS app; there is no paid
-league access in the app.
+These are the only purchases in the iOS app. All leagues are free to view
+and join; there is no paid league access and there are no coupons.
 
 Purchases made on our website are honoured in the app (multiplatform), and
 every such item is also available in the app through In-App Purchase.
@@ -89,6 +82,6 @@ third-party stores (physical goods, Guideline 3.1.3(e)).
 
 - [ ] The demo account signs in on a clean device and is **not** already subscribed.
 - [ ] Every product named above exists in App Store Connect, is "Ready to Submit", has a review screenshot and is attached to this version.
-- [ ] `premium_subscription` and `league_addons_pack` are **not** attached (no purchase path exists in the app).
+- [ ] Only the Pro/Elite subscriptions, `organizer_verification` and `organizer_verification_renewal` are attached. `league_access_unlock`, `league_creation_unlock`, `league_addons_pack`, `premium_subscription` are **not** attached (no purchase path on iOS).
 - [ ] The report-response time you state is one you can meet.
 - [ ] Remove any product line you are not selling on iOS.

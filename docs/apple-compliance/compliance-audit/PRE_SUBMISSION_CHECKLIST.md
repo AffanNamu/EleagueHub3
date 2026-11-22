@@ -80,8 +80,9 @@ Use a fresh install. Tick each on iPhone; repeat starred items on iPad.
 - [ ] App Review Information: demo account signs in on a clean device; it is on the
       free plan; notes updated from `APP_REVIEW_NOTES_TEMPLATE.md`; contact details current.
 - [ ] Only products that can be bought in this build are attached to the version;
-      each has a review screenshot and description. Currently **not** purchasable:
-      `premium_subscription`, `league_addons_pack`.
+      each has a review screenshot and description. Currently **not** purchasable on iOS:
+      `league_access_unlock`, `league_creation_unlock`, `league_addons_pack`, `premium_subscription`.
+- [ ] League admin and Profile show no coupon items on iOS.
 - [ ] Product names, durations and prices in ASC match what the app displays.
 - [ ] Subscription group, localizations, and (if used) introductory offers match the app's wording.
 - [ ] Multiseat (group/volume) purchasing for subscriptions: disabled unless deliberately supported.

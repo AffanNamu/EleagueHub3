@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/cloudinary_upload_service.dart';
 import '../../../core/services/connectivity_service.dart';
@@ -1592,6 +1593,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     onTap: () => _openDesktopScanner(context),
                   ),
                 ),
+                // Participant coupons are not offered in the store apps
+                // (PaymentPlatformConfig.offerParticipantCoupons).
+                if (PaymentPlatformConfig.offerParticipantCoupons) ...[
                 const SizedBox(height: 18),
                 SectionHeader(l10n.tr('profile_coupons_title')),
                 const SizedBox(height: 12),
@@ -1739,6 +1743,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       },
                     ),
                   ),
+                ],
                 const SizedBox(height: 18),
                 SectionHeader(l10n.tr('profile_section_legal_title')),
                 const SizedBox(height: 12),

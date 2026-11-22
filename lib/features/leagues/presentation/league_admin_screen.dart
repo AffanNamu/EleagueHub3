@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/connectivity_service.dart'
@@ -392,6 +393,7 @@ class _LeagueAdminScreenState
   //  4. Only write to Firestore when the values are meaningful.
 
   Future<void> _purchaseCouponsOrAdjustSubsidy() async {
+    if (!PaymentPlatformConfig.offerParticipantCoupons) return;
     final league = _league;
     if (league == null) return;
     if (_processingUpgradePayment) return;
@@ -1488,6 +1490,7 @@ class _LeagueAdminScreenState
   // ── Coupon Config sheet ───────────────────────────────────────────────────
 
   void _showCouponsConfigSheet() {
+    if (!PaymentPlatformConfig.offerParticipantCoupons) return;
     final league = _league;
     if (league == null) return;
 
@@ -1770,6 +1773,7 @@ class _LeagueAdminScreenState
   // ── Coupon Codes sheet ────────────────────────────────────────────────────
 
   void _showCouponCodesSheet() {
+    if (!PaymentPlatformConfig.offerParticipantCoupons) return;
     final league = _league;
     if (league == null) return;
 
@@ -3141,7 +3145,9 @@ class _LeagueAdminScreenState
             'Currently: ${league.footballCategory.badgeLabel} • Tap to change',
             onTap: () => _showChangeFootballCategorySheet(league),
           ),
-        if (league != null && _canManageCoupons(league))
+        if (league != null &&
+            PaymentPlatformConfig.offerParticipantCoupons &&
+            _canManageCoupons(league))
           _buildSettingsTile(
             context,
             Icons.payments_outlined,
@@ -3153,7 +3159,7 @@ class _LeagueAdminScreenState
                 ? null
                 : _purchaseCouponsOrAdjustSubsidy,
           ),
-        if (league != null)
+        if (league != null && PaymentPlatformConfig.offerParticipantCoupons)
           _buildSettingsTile(
             context,
             Icons.confirmation_number_outlined,
@@ -3163,7 +3169,9 @@ class _LeagueAdminScreenState
                 : l10n.tr('league_admin_coupons_not_enabled'),
             onTap: _showCouponsConfigSheet,
           ),
-        if (league != null && _canManageCoupons(league))
+        if (league != null &&
+            PaymentPlatformConfig.offerParticipantCoupons &&
+            _canManageCoupons(league))
           _buildSettingsTile(
             context,
             Icons.qr_code,
