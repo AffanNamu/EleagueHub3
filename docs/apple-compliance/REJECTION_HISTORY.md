@@ -6,24 +6,95 @@ Connect build numbers do not match the `+NN` in `pubspec.yaml`).
 
 ## What this file is based on
 
-* **The exact reviewer messages are not stored anywhere in this repository**
-  and were not available to the audit (2026-11-22). Rows below are
-  reconstructed from (a) the rejection summary provided by the product owner
-  and (b) commit messages written while each rejection was being fixed. Where
-  the reviewer's wording is unknown it says so — nothing here is invented.
-* **Action for the product owner:** paste the full text of every App Review
-  message (Resolution Center), especially the **November 20, 2026** 3.0.0
-  message and the 2.1.0 message from the 1.9.20 review, into the
-  "Exact reviewer explanation" rows below. The 3.0.0 root cause in particular
-  cannot be confirmed without it.
+* **Exact App Review messages** — supplied by the product owner on
+  2026-11-22 as screenshots of App Store Connect → the version → Messages (3).
+  They are transcribed in the next section. All three messages belong to the
+  same submission (`26cb5729-0fe5-4f7f-9fb4-e8b9d86dc80f`); the version record
+  was renamed 1.9.19 → 1.9.20 → 1.9.21 between rounds.
+* Root-cause analysis below was written before the messages were available
+  (from the owner's rejection summary and commit history); where the messages
+  differ from that analysis, the messages win and the difference is stated.
 
 ## Summary
 
 | Version | Build | Guideline(s) cited | Status after this audit |
 |---|---|---|---|
-| 1.9.19 | (CI run #, unknown) | 2.5.4, 5.1.1(iv), 2.1(a) | 5.1.1(iv) fixed Oct 21. 2.1(a) needs App Store Connect action. **2.5.4 fix never shipped** (see below) — now fixed |
-| 1.9.20 | (CI run #, unknown) | 2.1.0, 2.5.4 | 2.5.4 root cause found and fixed. 2.1.0: several candidate causes fixed; reviewer text needed to confirm |
-| 1.9.21 | 222 | 2.5.4, 3.0.0 | 2.5.4 fixed. 3.0.0: likely causes fixed; reviewer text needed to confirm |
+| 1.9.19 | 186 | 5.1.1(iv), 2.1(a), 2.5.4 | 5.1.1(iv) fixed (camera pre-prompt button now "Continue"). 2.1(a): demo account. 2.5.4 fix never shipped — now fixed |
+| 1.9.20 | 207 | 2.5.4, 2.1(a) | 2.5.4 fixed in build 237+. 2.1(a): demo account with pre-populated content "such as chats" (reviewer's screenshot: Messages "Couldn't load your chats" — Firestore index, created by owner 2026-11-22) |
+| 1.9.21 | 222 | Guideline 3 automated price check (shown as 3.0.0), 2.5.4 | 2.5.4 fixed in build 237+. **3.0.0 = Apple asks the developer to confirm the Organizer Verification price ($149.99 USD per year) — reply required.** Not the price-display issues assumed earlier |
+
+## Exact App Review messages
+
+### 2026-10-21 — version 1.9.19 (186), reviewed on iPad Air 11-inch (M3)
+
+**Guideline 5.1.1(iv) — Legal — Privacy — Data Collection and Storage**
+> The app encourages or directs users to allow the app to access the camera.
+> Specifically, the app directs the user to grant permission in the following
+> way(s): A custom message appears before the permission request, and to
+> proceed users press a "Grant permission" button. Use words like "Continue"
+> or "Next" on the button instead.
+
+Attachment `Screenshot-1021-33529p.m..png`: QR scanner pre-prompt
+("Allow Camera Access … Open settings / **Grant permission** / ENTER CODE
+INSTEAD"). **Status:** fixed — the button key `qr_scanner_grant_permission`
+now reads "Continue" (checked 2026-11-22; no "Grant permission" text left in `lib/`).
+
+**Guideline 2.1(a) — Information Needed**
+> We are unable to successfully access all or part of the app. In order to
+> continue the review, we need to have a way to verify all app features and
+> functionality for all account types. Typically this is done by providing a
+> demo account that has access to all features and functionality in the app.
+
+Attachment `Screenshot-1021-33818p.m..png`: **Global Chat — "Access
+required. Request access to join the global chat. Only approved members can
+send messages."** The reviewer could not get into Global Chat with the demo
+account. **Action:** approve the demo account for Global Chat before
+submitting, and say so in the review notes.
+
+**Guideline 2.5.4 — Performance — Software Requirements**
+> The app declares support for audio in the UIBackgroundModes key in the
+> Info.plist but we are unable to locate any features that require persistent
+> audio. … If the app does not have a feature that requires persistent audio,
+> it would be appropriate to remove the "audio" setting from the
+> UIBackgroundModes key.
+
+### 2026-11-01 — version 1.9.20 (207), reviewed on iPhone 17 Pro Max
+
+**Guideline 2.5.4** — same text as above.
+
+**Guideline 2.1(a) — Information Needed** — same text as above, plus:
+> Additionally, make sure the demo accounts you provide include pre-populated
+> content so that we can verify all the features in the app, such as chats.
+
+Attachment `Screenshot-1101-104711.png` (the owner's screenshot from 02:47
+local time matches 10:47 UTC): **Messages — "Couldn't load your chats. Try
+Again."** This is the missing `private_threads` Firestore index; the owner
+created it on 2026-11-22. **Action:** the demo account must already have
+private messages and league/organizer chat messages.
+
+### 2026-11-20 — version 1.9.21 (222), reviewed 2026-11-19 on iPhone 17 Pro Max and iPad Air 11-inch (M3)
+
+**App Review Guideline Issue (Guideline 3; App Store Connect lists it as "3.0.0 Business: Preamble")**
+> This is an automated message. The review of this submission cannot proceed.
+> Additional verification is needed before the review continues.
+> Specifically, can you confirm the following In-App Purchase product(s) have
+> the correct intended price(s): Organizer Verification ($149.99 USD per
+> year)? Once we receive your confirmation, we will continue our review.
+
+**What this means:** it is a price-confirmation hold, not a finding about
+the app's behaviour. It is answered with **Reply to App Review** in App Store
+Connect. Because the review "cannot proceed" until then, Apple did not test
+the rest of the app in this round.
+
+**Also found from the same screenshots:** App Store Connect lists
+"Organizer Verification" in a **Subscription Group** at **$149.99 per year**
+(an auto-renewable subscription), while the app code buys
+`organizer_verification` as a one-time product and the iOS screen says
+*"requires a one-time … verification fee"*. Apple's payment sheet would show
+a yearly auto-renewing subscription. That mismatch must be resolved before
+resubmitting (see AUDIT_REPORT §10).
+
+**Guideline 2.5.4** — same text as above.
 
 ---
 
