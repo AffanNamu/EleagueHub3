@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/user_friendly_error.dart';
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/widgets/glass.dart';
 import '../../../core/widgets/glass_scaffold.dart';
@@ -123,6 +124,7 @@ class _GlobalLiveLeaguesScreenState extends ConsumerState<GlobalLiveLeaguesScree
   }
 
   bool _requiresUnlock(GlobalPublicLeague item, LeagueJoinMode mode) {
+    if (!PaymentPlatformConfig.offerPaidLeagueAccess) return false;
     final fmt = item.league.format;
 
     // Paid formats require unlock (viewer/participant).

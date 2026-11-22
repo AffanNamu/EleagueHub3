@@ -871,21 +871,6 @@ class GooglePlayBillingService {
         isSubscription: false,
       );
 
-  /// Paid viewer access to a single league — one-time consumable.
-  Future<GooglePlayPurchaseResult> purchaseLeagueAccess({
-    required String leagueName,
-    required String attemptId,
-  }) =>
-      _purchase(
-        productId: GooglePlayBillingCatalog.leagueAccessUnlockId,
-        attemptId: attemptId,
-        flowLabel: 'league_access',
-        leagueName: leagueName,
-        productType: 'league_access',
-        productSubType: 'league_viewer_charges',
-        isSubscription: false,
-      );
-
   /// League addons pack — one-time consumable.
   Future<GooglePlayPurchaseResult> purchaseLeagueAddons({
     required String userId,

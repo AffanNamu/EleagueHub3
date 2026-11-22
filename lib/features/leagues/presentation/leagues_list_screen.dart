@@ -1176,6 +1176,7 @@ class _LeaguesListScreenState
     BuildContext context,
     League league,
   ) async {
+    if (!PaymentPlatformConfig.offerPaidLeagueAccess) return;
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final brightness = theme.brightness;

@@ -18,6 +18,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../../core/config/payment_platform_config.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/persistence/prefs_service.dart';
 import '../../../core/services/rewarded_ad_manager.dart';
@@ -378,6 +379,7 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
   }
 
   bool _requiresUnlockForThisJoin(League league) {
+    if (!PaymentPlatformConfig.offerPaidLeagueAccess) return false;
     return _requiresPaidLeagueCharges(league) ||
         _isClassicFullViewerUnlockScenario(league);
   }

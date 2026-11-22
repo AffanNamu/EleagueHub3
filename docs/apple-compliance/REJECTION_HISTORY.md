@@ -72,8 +72,8 @@ Connect build numbers do not match the `+NN` in `pubspec.yaml`).
 | StoreKit 2 purchases rejected by the server (subscriptions never activated) | 2.1 / 3.1.1 | `worker/src/index.js` now verifies StoreKit 2 JWS transactions with the existing pinned-Apple-root verifier; new `worker/src/apple_jws_transaction.js` (+ tests). StoreKit 1 receipts still work for older installs. |
 | Organizer Verification showed the web fee on iOS | 3.0 / 3.1.1 | Shows the App Store price; never falls back to the web price on iOS. |
 | League creation / coupon checkout showed a web total on iOS | 3.0 / 3.1.1 | iOS shows the App Store price of the product actually charged. |
-| League access guard showed a web "Entry fee" on iOS | 3.0 / 3.1.1 | iOS shows the App Store price of `league_access_unlock`. |
-| "Pay to unlock" could never succeed on iOS; error mentioned web/Flutterwave | 2.1 / 3.1.1 / 3.1.3 | iOS now sells access through StoreKit (`league_access_unlock` consumable). Partial-balance coupons (variable price) are declined with neutral wording. No message mentions other ways to pay. |
+| League access guard showed a web "Entry fee" on iOS | 3.0 / 3.1.1 | Paid league access is not offered in the store apps (owner decision 2026-11-22); the guard passes straight through there. |
+| "Pay to unlock" could never succeed on iOS; error mentioned web/Flutterwave | 2.1 / 3.1.1 / 3.1.3 | First fixed with a StoreKit consumable, then replaced the same day by the owner's decision not to sell league access in the store apps: on iOS/Android no unlock/pay sheet is shown and those leagues open free (`PaymentPlatformConfig.offerPaidLeagueAccess`). No message mentions other ways to pay. |
 | Flutterwave keys compiled into the iOS binary | 3.1.1 (defence in depth) | Removed from the iOS build; any stray Flutterwave call on iOS fails closed. |
 
 ## Related risks that may remain
@@ -82,7 +82,7 @@ See `COMPLIANCE_MATRIX.md` for the full list. The ones most likely to cause
 the next rejection if not handled:
 
 1. **App Store Connect items** (cannot be done from the code): submit only
-   purchasable IAPs with the build, create `league_access_unlock`, fix the
+   purchasable IAPs with the build, fix the
    demo account, update review notes, answer the Digital Goods questionnaire
    and the new age-rating questions, check App Privacy answers include AdMob.
 2. **Account deletion server function** (`delete-user-data`) is not in this

@@ -47,6 +47,14 @@ class PaymentPlatformConfig {
   static bool get useNativeInAppPurchase =>
       routeAndroidPaymentsToGooglePlayBilling || routeIOSPaymentsToStoreKit;
 
+  /// Paid league access (the viewer/participant charge on Champions-League
+  /// format leagues and on full classic leagues) is not sold in the
+  /// store-distributed apps: there is no App Store or Google Play product
+  /// for it, and organizers are covered by the Pro/Elite plans. On those
+  /// builds such leagues open without a charge and no unlock/pay sheet is
+  /// shown. Web (Flutterwave) keeps its existing behaviour.
+  static bool get offerPaidLeagueAccess => !useNativeInAppPurchase;
+
   /// Web always uses Flutterwave. Android/iOS use Flutterwave only when
   /// their respective native-IAP gate above is off.
   static bool get useFlutterwave => kIsWeb || !useNativeInAppPurchase;

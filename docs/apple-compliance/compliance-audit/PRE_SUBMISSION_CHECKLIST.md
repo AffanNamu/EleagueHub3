@@ -69,7 +69,7 @@ Use a fresh install. Tick each on iPhone; repeat starred items on iPad.
   - [ ] purchase succeeds and the feature unlocks (plans: Active plan shows Pro/Elite within seconds — this exercises the worker's StoreKit 2 verification);
   - [ ] "Restore Purchases" on a second device / after reinstall restores the subscription;
   - [ ] cancelling the payment sheet leaves the app usable with a clear message.
-- [ ] Paid league: "Unlock access" → "Pay to unlock" completes via the App Store.
+- [ ] Join a Champions-League-format league (and a full classic league) by code: no unlock or payment sheet appears and the league opens.
 - [ ] No screen shows a price in a currency/amount different from the App Store sheet.
 - [ ] Account deletion with an account signed in **more than 10 minutes ago**, for each of: email/password, Apple, Google — identity prompt appears first, deletion completes, app returns to sign-in. Subscribed account shows the billing notice and "Manage subscriptions" link.
 - [ ] Turn on Airplane Mode: screens show offline/error states, nothing crashes, recovery works when back online.
