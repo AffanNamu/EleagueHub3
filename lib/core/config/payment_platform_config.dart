@@ -50,14 +50,4 @@ class PaymentPlatformConfig {
   /// Web always uses Flutterwave. Android/iOS use Flutterwave only when
   /// their respective native-IAP gate above is off.
   static bool get useFlutterwave => kIsWeb || !useNativeInAppPurchase;
-
-  static String pendingGooglePlayBillingMessage(String flowLabel) {
-    return '$flowLabel is configured to use Google Play Billing on Android. '
-        'Web continues to use Flutterwave.';
-  }
-
-  static String pendingStoreKitMessage(String flowLabel) {
-    return '$flowLabel is configured to use the App Store on iOS. '
-        'Web continues to use Flutterwave.';
-  }
 }

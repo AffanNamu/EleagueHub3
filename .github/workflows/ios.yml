@@ -250,7 +250,6 @@ jobs:
           	</array>
           	<key>UIBackgroundModes</key>
           	<array>
-          		<string>audio</string>
           		<string>remote-notification</string>
           	</array>
           	<key>ITSAppUsesNonExemptEncryption</key>
@@ -978,6 +977,55 @@ jobs:
           echo "✅ GoogleService-Info.plist installed, Info.plist placeholders resolved"
 
       # ─────────────────────────────────────────
+      # 4d-ii. APP STORE COMPLIANCE GUARD FOR THE GENERATED Info.plist
+      # This heredoc (not ios/Runner/Info.plist in the repo) is what ships:
+      # the step above overwrites the committed file. The October 2026
+      # Guideline 2.5.4 fix removed "audio" from the committed plist only,
+      # so 1.9.20 and 1.9.21 still shipped it and were rejected again.
+      # Fail the build if the plist that will actually be archived declares
+      # a capability with no iOS feature behind it. Update the allowlist
+      # (and docs/apple-compliance/COMPLIANCE_MATRIX.md) only together with
+      # a real, reviewer-testable feature that needs the new mode.
+      # ─────────────────────────────────────────
+      - name: Validate generated Info.plist against App Store requirements
+        run: |
+          set -euo pipefail
+          PLIST=ios/Runner/Info.plist
+          fail=0
+
+          ALLOWED_BACKGROUND_MODES="remote-notification"
+          modes=$(/usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" 2>/dev/null | sed -e '1d' -e '$d' | tr -d ' ' || true)
+          for m in $modes; do
+            if ! echo " $ALLOWED_BACKGROUND_MODES " | grep -q " $m "; then
+              echo "::error::UIBackgroundModes contains '$m', which is not backed by an iOS feature (App Review Guideline 2.5.4)."
+              fail=1
+            fi
+          done
+
+          for key in NSCameraUsageDescription NSMicrophoneUsageDescription NSPhotoLibraryUsageDescription NSPhotoLibraryAddUsageDescription; do
+            val=$(/usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true)
+            if [ -z "$val" ]; then
+              echo "::error::$key is missing or empty (App Review Guideline 5.1.1(ii))."
+              fail=1
+            fi
+          done
+
+          if /usr/libexec/PlistBuddy -c "Print :NSUserTrackingUsageDescription" "$PLIST" >/dev/null 2>&1; then
+            echo "::error::NSUserTrackingUsageDescription is declared but the app never shows the App Tracking Transparency prompt (Guideline 5.1.2)."
+            fail=1
+          fi
+
+          if [ "$(/usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$PLIST" 2>/dev/null || true)" != "false" ]; then
+            echo "::error::ITSAppUsesNonExemptEncryption must be explicitly false (export compliance answer)."
+            fail=1
+          fi
+
+          [ -s ios/Runner/PrivacyInfo.xcprivacy ] || { echo "::error::ios/Runner/PrivacyInfo.xcprivacy was not written."; fail=1; }
+
+          [ "$fail" -eq 0 ] || exit 1
+          echo "✅ Generated Info.plist passes the App Store compliance guard (background modes: ${modes:-none})"
+
+      # ─────────────────────────────────────────
       # 4e. REGISTER GoogleService-Info.plist AS A RUNNER BUNDLE RESOURCE,
       #     REGISTER HighlightCompressionEngine.swift AS A RUNNER COMPILE
       #     SOURCE, AND WIRE Runner.entitlements INTO CODE_SIGN_ENTITLEMENTS
@@ -1164,14 +1212,15 @@ jobs:
 
       # ─────────────────────────────────────────
       # 8. BUILD IPA
-      # Same dart-define set as android.yml (Cloudinary, EH worker, Flutterwave,
-      # Supabase) so Dart-side config parity holds across platforms.
+      # Same dart-defines as android.yml (Cloudinary, EH worker, Supabase)
+      # EXCEPT Flutterwave: every paid digital feature on iOS must go
+      # through StoreKit (App Review 3.1.1), so the iOS binary is built
+      # without Flutterwave keys. Any code path that reached Flutterwave on
+      # iOS by mistake therefore fails closed instead of charging.
       # ─────────────────────────────────────────
       - name: Build Release IPA
         env:
           EH_WORKER_BASE_URL: ${{ secrets.EH_WORKER_BASE_URL }}
-          FLW_PUBLIC_KEY_TEST: ${{ secrets.FLW_PUBLIC_KEY_TEST }}
-          FLW_PUBLIC_KEY_LIVE: ${{ secrets.FLW_PUBLIC_KEY_LIVE }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           IOS_EXPORT_TEAM_ID: ${{ secrets.IOS_EXPORT_TEAM_ID }}
@@ -1196,14 +1245,6 @@ jobs:
           fi
           if [ -n "${SUPABASE_ANON_KEY:-}" ]; then
             DART_DEFINES+=" --dart-define=SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}"
-          fi
-
-          if [ -n "${FLW_PUBLIC_KEY_LIVE:-}" ]; then
-            DART_DEFINES+=" --dart-define=FLW_PUBLIC_KEY_LIVE=${FLW_PUBLIC_KEY_LIVE}"
-            DART_DEFINES+=" --dart-define=FLW_TEST_MODE=false"
-          elif [ -n "${FLW_PUBLIC_KEY_TEST:-}" ]; then
-            DART_DEFINES+=" --dart-define=FLW_PUBLIC_KEY_TEST=${FLW_PUBLIC_KEY_TEST}"
-            DART_DEFINES+=" --dart-define=FLW_TEST_MODE=true"
           fi
 
           cat > ios/ExportOptions.plist <<PLIST

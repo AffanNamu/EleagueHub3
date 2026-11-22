@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../auth/data/user_profile_repository.dart';
 import '../../marketplace/data/cloudinary_upload_service.dart';
+import '../../../core/moderation/objectionable_content_filter.dart';
 import '../../profile/data/team_profile_repository.dart';
 import '../models/private_message.dart';
 import '../models/private_thread.dart';
@@ -403,6 +404,7 @@ class PrivateChatRepository {
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return '';
+    ObjectionableContentFilter.ensureAllowed(trimmed);
     if (trimmed.length > 4000) {
       throw const PrivateChatException('Message is too long.');
     }

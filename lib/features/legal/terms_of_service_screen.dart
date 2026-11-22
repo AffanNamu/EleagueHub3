@@ -66,6 +66,7 @@ class TermsOfServiceScreen extends StatelessWidget {
                       _B(l10n.tr('terms_s4_b4')),
                       _B(l10n.tr('terms_s4_b5')),
                       _B(l10n.tr('terms_s4_b6')),
+                      _B(l10n.tr('terms_s4_b7')),
 
                       // ── 5. Camera / Microphone / Screen Recording ──────
                       _H(l10n.tr('terms_h5')),

@@ -7,6 +7,7 @@ import {
   RATE_LIMIT_KIND_CHAT_MESSAGES,
   FREE_CHAT_MESSAGES_PER_DAY,
 } from '@/lib/plans/rateLimitService';
+import { ensureContentAllowed } from '@/lib/moderation/objectionableContentFilter';
 
 export interface ChatMessage {
   messageId: string;
@@ -35,6 +36,7 @@ export interface ChatMessage {
 }
 
 export async function sendGlobalMessageWeb(payload: Partial<ChatMessage>) {
+  ensureContentAllowed(payload.text || '');
   const ref = doc(collection(db, 'globalChatroom'));
   const now = Date.now();
 

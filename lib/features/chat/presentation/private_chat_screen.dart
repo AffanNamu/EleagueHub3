@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 
+import '../../../core/moderation/objectionable_content_filter.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/reactions/message_reaction.dart';
@@ -271,6 +272,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty) return;
+    if (!ObjectionableContentFilter.isAllowed(text)) {
+      _toast(context.l10n.tr('content_filter_blocked_message'), error: true);
+      return;
+    }
     await _sendTextLike(raw: text);
   }
 

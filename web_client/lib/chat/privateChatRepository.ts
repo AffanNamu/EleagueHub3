@@ -1,6 +1,7 @@
 import { collection, doc, getDoc, setDoc, query, where, orderBy, limit, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { isPaidPlanActive } from '@/lib/plans/rateLimitService';
+import { ensureContentAllowed } from '@/lib/moderation/objectionableContentFilter';
 
 export interface PrivateThread {
   id: string;
@@ -138,6 +139,7 @@ export async function sendPrivateMessageWeb(
   imageUrl: string = '', 
   voiceUrl: string = ''
 ) {
+  ensureContentAllowed(text);
   const threadRef = doc(db, 'private_threads', threadId);
   const msgRef = doc(collection(threadRef, 'messages'));
   const now = Date.now();

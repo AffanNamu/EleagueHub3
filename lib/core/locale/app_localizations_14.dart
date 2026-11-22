@@ -1,5 +1,23 @@
 const Map<String, Map<String, String>> appLocalizationsPart14 = {
   'en': {
+    // ── App Store compliance (2026-11) — other locales fall back to English
+    'app_store_charged_by_apple_caption': 'Charged by the App Store to your Apple Account at confirmation.',
+    'app_store_price_shown_at_checkout': 'Price shown by the App Store at checkout',
+    'auth_terms_agreement_and': 'and',
+    'auth_terms_agreement_prefix': 'By continuing, you agree to our',
+    'auth_terms_agreement_privacy_link': 'Privacy Policy',
+    'auth_terms_agreement_terms_link': 'Terms of Service',
+    'auth_terms_agreement_zero_tolerance': 'There is no tolerance for objectionable content or abusive users.',
+    'call_permission_mic_body': 'Voice rooms use your microphone so the people in the room can hear you. Next, your device will ask whether to allow microphone access. You can change this anytime in your device settings.',
+    'call_permission_mic_title': 'Microphone Access',
+    'content_filter_blocked_message': "This contains language that isn't allowed on eSportlyic. Please edit it and try again.",
+    'delete_account_password_label': 'Password',
+    'delete_account_password_prompt_body': 'For your security, enter your password to confirm it is you. Nothing is deleted until you confirm.',
+    'delete_account_password_prompt_title': 'Confirm your password',
+    'delete_account_warning_subscription_billing': 'Deleting your account does not cancel an App Store subscription. Billing continues through Apple until you cancel it in your Apple Account subscriptions.',
+    'manage_app_store_subscriptions_button': 'Manage subscriptions',
+    'organizer_verification_fee_app_store_checkout': 'Price shown by the App Store at checkout',
+    'terms_s4_b7': 'Post objectionable content, including hate speech, sexual content, threats or bullying. There is zero tolerance for objectionable content and abusive users: such content is removed and offending accounts are suspended.',
     'account_suspended_app_bar_title': 'Account Suspended',
     'account_suspended_contact_support': 'Contact support if you believe this is a mistake.',
     'account_suspended_sign_out': 'Sign out',

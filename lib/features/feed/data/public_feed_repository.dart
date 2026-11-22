@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../core/services/plan_status_service.dart';
+import '../../../core/moderation/objectionable_content_filter.dart';
 import '../../../core/services/rate_limit_service.dart';
 import '../models/public_post.dart';
 import '../models/public_post_comment.dart';
@@ -99,6 +100,7 @@ class PublicFeedRepository {
     String leagueId = '',
     String leagueName = '',
   }) async {
+    ObjectionableContentFilter.ensureAllowed(text);
     try {
       final authUid = _requireAuthUid();
       final trimmedText = text.trim();
@@ -262,6 +264,7 @@ class PublicFeedRepository {
     required String text,
     String parentCommentId = '',
   }) async {
+    ObjectionableContentFilter.ensureAllowed(text);
     try {
       final authUid = _requireAuthUid();
       final trimmed = text.trim();
@@ -365,6 +368,7 @@ class PublicFeedRepository {
     required String postId,
     required String text,
   }) async {
+    ObjectionableContentFilter.ensureAllowed(text);
     try {
       final authUid = _requireAuthUid();
       final trimmedText = text.trim();

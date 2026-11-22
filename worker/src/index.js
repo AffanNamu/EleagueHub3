@@ -1,5 +1,6 @@
 //worker/src/index.js
 import { AccessToken } from "livekit-server-sdk";
+import { looksLikeJws, purchaseFromAppleTransactionPayload } from "./apple_jws_transaction.js";
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
@@ -1545,19 +1546,21 @@ async function _activateOrganizerProGooglePlay(env, uid, requestedPlan, requeste
 
 // ── App Store (iOS) subscription verification ──────────────────────────────
 //
-// The Flutter client's in_app_purchase_storekit plugin sends the base64
-// App Store receipt as `purchaseToken` (PurchaseDetails.verificationData
-// .serverVerificationData — this plugin still uses the classic StoreKit1
-// Payment Queue transaction model, not StoreKit2, so this is the whole
-// receipt blob, not a signed JWS transaction). That's why this uses
-// Apple's verifyReceipt endpoint (App-Specific Shared Secret) rather than
-// the newer App Store Server API (which takes a transaction ID + ES256 JWT
-// signed with an In-App Purchase API key) — matches what's actually being
-// sent. If a future plugin upgrade switches to StoreKit2/JWS transactions,
-// this needs to change to the transaction-ID + JWT approach instead.
+// The Flutter client sends PurchaseDetails.verificationData
+// .serverVerificationData as `purchaseToken`. Its shape depends on the
+// in_app_purchase_storekit version:
+//   - >= 0.4.0 (StoreKit 2, the default on iOS 15+ -- this app's minimum):
+//     the transaction's JWS representation, signed by Apple. Verified with
+//     the same pinned-root chain check used for App Store Server
+//     Notifications V2 below (_appleVerifyAndDecodeSignedPayload), then
+//     mapped by apple_jws_transaction.js. pubspec.lock is not committed,
+//     so every CI build resolves a StoreKit 2 plugin version.
+//   - older builds (StoreKit 1): the base64 app receipt, verified with the
+//     legacy verifyReceipt endpoint. Kept so purchases from older installed
+//     app versions still activate.
 //
-// Requires env.APPLE_SHARED_SECRET — App Store Connect → your app →
-// Subscriptions → "App-Specific Shared Secret".
+// The receipt path requires env.APPLE_SHARED_SECRET — App Store Connect →
+// your app → Subscriptions → "App-Specific Shared Secret".
 
 const APPLE_PRODUCT_TO_PLAN = {
   pro_1mo: { plan: "pro", duration: "1mo" },
@@ -1593,9 +1596,15 @@ async function _callAppleVerifyReceipt(url, receiptBase64, sharedSecret) {
 // Returns the single most recent purchase entry across the receipt's
 // subscription renewal history (or in-app purchase list as a fallback).
 async function _verifyAppStoreReceipt(env, receiptBase64) {
-  const sharedSecret = _requireEnvString(env, "APPLE_SHARED_SECRET");
   const receipt = String(receiptBase64 || "").trim();
   if (!receipt) throw new Error("Missing App Store receipt data");
+
+  if (looksLikeJws(receipt)) {
+    const payload = await _appleVerifyAndDecodeSignedPayload(receipt);
+    return purchaseFromAppleTransactionPayload(payload, APPLE_BUNDLE_ID);
+  }
+
+  const sharedSecret = _requireEnvString(env, "APPLE_SHARED_SECRET");
 
   let json = await _callAppleVerifyReceipt(
     "https://buy.itunes.apple.com/verifyReceipt",

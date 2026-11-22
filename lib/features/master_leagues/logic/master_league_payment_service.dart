@@ -369,7 +369,7 @@ class FlutterwaveMasterLeaguePaymentService
       return MasterLeaguePaymentResult.failed(
         provider: providerName,
         errorMessage:
-            'No Play Store product is configured for '
+            'No store product is configured for '
             '${plan.displayName} ${duration.displayName}.',
       );
     }

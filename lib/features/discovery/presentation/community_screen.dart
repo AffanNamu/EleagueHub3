@@ -18,9 +18,8 @@ import '../../../core/widgets/glass_scaffold.dart';
 /// Discussions is genuinely new (see discussions/ subfolder).
 ///
 /// Highlights now pushes to CommunityHighlightsScreen, a community-wide
-/// HighlightsFeedRepositoryFirebase.watchAllHighlights() feed. Guides
-/// remains "coming soon" -- it's the least-defined of the four pillars
-/// and is deferred by design until its content model is decided.
+/// HighlightsFeedRepositoryFirebase.watchAllHighlights() feed. Guides is
+/// not listed until it exists (no "coming soon" placeholder rows).
 class CommunityScreen extends StatelessWidget {
   const CommunityScreen({super.key});
 
@@ -92,27 +91,10 @@ class CommunityScreen extends StatelessWidget {
               subtitle: l10n.tr('community_highlights_subtitle'),
               onTap: () => context.push('/discovery/community/highlights'),
             ),
-            const SizedBox(height: 10),
-            _CommunityRow(
-              icon: Icons.menu_book_outlined,
-              iconColor: const Color(0xFFF59E0B),
-              title: l10n.tr('community_guides_title'),
-              subtitle: l10n.tr('community_guides_subtitle'),
-              badge: l10n.tr('community_badge_soon'),
-              onTap: () => _showComingSoon(context, l10n.tr('community_guides_title')),
-            ),
+            // No "Guides" row until Guides exists: a "Soon" entry that only
+            // shows "coming soon" is placeholder content (App Review 2.1).
           ],
         ),
-      ),
-    );
-  }
-
-  void _showComingSoon(BuildContext context, String feature) {
-    final l10n = context.l10n;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        content: Text('$feature${l10n.tr('community_coming_soon_suffix')}'),
       ),
     );
   }
@@ -125,7 +107,6 @@ class _CommunityRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
-    this.badge,
   });
 
   final IconData icon;
@@ -133,7 +114,6 @@ class _CommunityRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-  final String? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -160,40 +140,15 @@ class _CommunityRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 15,
-                            color: AppTheme.primaryText(brightness),
-                          ),
-                        ),
-                      ),
-                      if (badge != null) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppTheme.secondaryText(brightness).withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: AppTheme.cardBorder(brightness)),
-                          ),
-                          child: Text(
-                            badge!,
-                            style: TextStyle(
-                              color: AppTheme.secondaryText(brightness),
-                              fontWeight: FontWeight.w900,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                      color: AppTheme.primaryText(brightness),
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(

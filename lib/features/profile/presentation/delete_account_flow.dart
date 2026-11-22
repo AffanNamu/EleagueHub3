@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/account_deletion_service.dart';
@@ -129,6 +131,29 @@ Future<bool?> _showWarningDialog(BuildContext context) {
                         theme,
                         brightness,
                       ),
+                      // App Review 5.1.1(v): deleting the account does not
+                      // cancel an App Store subscription, so subscribers
+                      // must be told billing continues and where to cancel.
+                      if (_isIOS) ...[
+                        const SizedBox(height: 10),
+                        _warningRow(
+                          Icons.autorenew_rounded,
+                          l10n.tr('delete_account_warning_subscription_billing'),
+                          theme,
+                          brightness,
+                        ),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: TextButton.icon(
+                            onPressed: _openAppStoreSubscriptions,
+                            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                            label: Text(
+                              l10n.tr('manage_app_store_subscriptions_button'),
+                              style: const TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -186,6 +211,56 @@ Future<bool?> _showWarningDialog(BuildContext context) {
         ),
       );
     },
+  );
+}
+
+bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+Future<String?> _promptForPassword(BuildContext context) async {
+  final l10n = context.l10n;
+  // Not disposed right after the dialog returns: the TextField is still
+  // rendered during the dialog's exit animation.
+  final controller = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(l10n.tr('delete_account_password_prompt_title')),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.tr('delete_account_password_prompt_body')),
+          const SizedBox(height: 12),
+          TextField(
+            controller: controller,
+            obscureText: true,
+            autofocus: true,
+            autofillHints: const [AutofillHints.password],
+            decoration: InputDecoration(
+              labelText: l10n.tr('delete_account_password_label'),
+            ),
+            onSubmitted: (v) => Navigator.of(ctx).pop(v),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text(l10n.tr('common_cancel')),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(controller.text),
+          child: Text(l10n.tr('common_continue')),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _openAppStoreSubscriptions() async {
+  await launchUrl(
+    Uri.parse('https://apps.apple.com/account/subscriptions'),
+    mode: LaunchMode.externalApplication,
   );
 }
 
@@ -548,6 +623,29 @@ Future<bool> _performDeletion(
   String? feedbackText,
 }) async {
   final l10n = context.l10n;
+
+  // Verify identity first, before anything is deleted (see
+  // AccountDeletionReauth). Cancelling here leaves the account intact.
+  final reauth = await AccountDeletionService.instance.reauthenticateForDeletion(
+    requestPassword: () => _promptForPassword(context),
+  );
+  if (!context.mounted) return false;
+  if (!reauth.ok) {
+    if (!reauth.cancelled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            reauth.errorMessage ?? l10n.tr('delete_account_generic_error_message'),
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Theme.of(context).colorScheme.error,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+    return false;
+  }
+
   // Show a non-dismissible loading dialog
   showDialog(
     context: context,
@@ -560,6 +658,7 @@ Future<bool> _performDeletion(
     result = await AccountDeletionService.instance.deleteAccount(
       feedbackReason: feedbackReason,
       feedbackText: feedbackText,
+      appleAuthorizationCode: reauth.appleAuthorizationCode,
     );
   } catch (e) {
     result = AccountDeletionResult.failure(e.toString());

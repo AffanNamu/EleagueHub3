@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/moderation/objectionable_content_filter.dart';
 import '../../../core/errors/user_friendly_error.dart';
 import '../../../core/locale/app_localizations.dart';
 import '../../../core/services/chat_media_cache_service.dart';
@@ -279,6 +280,10 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
     final raw = _textCtrl.text.trim();
     if (raw.isEmpty) return;
+    if (!ObjectionableContentFilter.isAllowed(raw)) {
+      _toast(context.l10n.tr('content_filter_blocked_message'), error: true);
+      return;
+    }
 
     final reply = _replyTo.value;
     final type = _codeMode ? ChatMessageType.code : ChatMessageType.text;

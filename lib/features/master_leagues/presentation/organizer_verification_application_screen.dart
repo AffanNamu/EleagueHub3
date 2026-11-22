@@ -137,7 +137,7 @@ class _OrganizerVerificationApplicationScreenState
   // active route (e.g. web) or the Play Store query itself fails.
   Future<void> _loadPricing() async {
     try {
-      if (PaymentPlatformConfig.routeAndroidPaymentsToGooglePlayBilling) {
+      if (PaymentPlatformConfig.useNativeInAppPurchase) {
         final info = await GooglePlayBillingService.instance
             .fetchOrganizerVerificationPrice();
         if (info != null) {
@@ -146,6 +146,17 @@ class _OrganizerVerificationApplicationScreenState
             _feeAmount = info.rawPrice;
             _feeCurrency = info.currencyCode;
             _feeFormatted = info.formattedPrice;
+          });
+          return;
+        }
+        // On iOS the charge is always the App Store price; the Firestore
+        // (web/Flutterwave) price below is a different amount and currency,
+        // so showing it would advertise a price the user will not pay.
+        if (PaymentPlatformConfig.routeIOSPaymentsToStoreKit) {
+          if (!mounted) return;
+          setState(() {
+            _feeFormatted = context.l10n
+                .tr('organizer_verification_fee_app_store_checkout');
           });
           return;
         }

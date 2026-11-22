@@ -11,12 +11,14 @@ import {
   RATE_LIMIT_KIND_CHAT_MESSAGES,
   FREE_CHAT_MESSAGES_PER_DAY,
 } from '@/lib/plans/rateLimitService';
+import { ensureContentAllowed } from '@/lib/moderation/objectionableContentFilter';
 
 // Shared by every chat-message send site in this file: paid users write
 // directly (unlimited, as before); free users go through the same
 // transactional daily counter the mobile app uses, so both platforms are
 // gated by the exact same users/{uid}/rateLimits/chatMessages document.
 async function sendChatMessage(senderId: string, ref: DocumentReference, data: Record<string, unknown>) {
+  ensureContentAllowed(typeof data.text === 'string' ? data.text : '');
   const isPaid = await isPaidPlanActive(senderId);
   if (isPaid) {
     await setDoc(ref, data);
