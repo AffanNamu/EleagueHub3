@@ -48,8 +48,10 @@ now reads "Continue" (checked 2026-11-22; no "Grant permission" text left in `li
 Attachment `Screenshot-1021-33818p.m..png`: **Global Chat — "Access
 required. Request access to join the global chat. Only approved members can
 send messages."** The reviewer could not get into Global Chat with the demo
-account. **Action:** approve the demo account for Global Chat before
-submitting, and say so in the review notes.
+account. **Fixed 2026-11-22 (owner decision):** the approval step was
+removed. Users tap **Join** and are in immediately (app, web and
+`firestore.rules`); admins can still remove a user by setting `rejected`,
+which the user cannot undo. Rules verified on the Firestore emulator (16 cases).
 
 **Guideline 2.5.4 — Performance — Software Requirements**
 > The app declares support for audio in the UIBackgroundModes key in the

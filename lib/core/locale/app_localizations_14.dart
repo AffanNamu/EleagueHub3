@@ -1,6 +1,12 @@
 const Map<String, Map<String, String>> appLocalizationsPart14 = {
   'en': {
     // ── App Store compliance (2026-11) — other locales fall back to English
+    'global_chat_join_button': 'Join',
+    'global_chat_join_prompt': 'Chat with the whole eSportlyic community. Tap Join to start.',
+    'global_chat_join_rules_note': 'Be respectful. Offensive messages are blocked, and you can report or block anyone.',
+    'global_chat_join_title': 'Join the Global Chat',
+    'global_chat_joined_toast': "You're now in the Global Chat.",
+    'global_chat_removed_message': "You can't join the Global Chat on this account. Contact support if you think this is a mistake.",
     'app_store_charged_by_apple_caption': 'Charged by the App Store to your Apple Account at confirmation.',
     'app_store_price_shown_at_checkout': 'Price shown by the App Store at checkout',
     'auth_terms_agreement_and': 'and',

@@ -20,9 +20,9 @@ DEMO ACCOUNT
 Email: [demo email]      Password: [demo password]
 This account is a regular organizer on the free Basic plan with sample
 leagues so every purchase below can be tested. It has no active subscription.
-It is already approved for Global Chat (which otherwise requires approval)
-and has existing private messages, league chat and Global Chat messages, so
-every chat screen shows content.
+It already has private messages, league chat and Global Chat messages, so
+every chat screen shows content. Global Chat no longer needs approval:
+Discover → Community → Global Chat → "Join" opens it immediately.
 
 HOW PEOPLE PAY (all digital purchases on iOS use Apple In-App Purchase)
 1. Organizer plans — auto-renewable subscriptions (one subscription group):
@@ -87,7 +87,7 @@ third-party stores (physical goods, Guideline 3.1.3(e)).
 ### Before pasting, confirm
 
 - [ ] The demo account signs in on a clean device and is **not** already subscribed.
-- [ ] The demo account is approved for Global Chat and has existing private, league and Global Chat messages (Apple asked for "pre-populated content … such as chats").
+- [ ] The demo account has existing private, league and Global Chat messages (Apple asked for "pre-populated content … such as chats"), and its Global Chat status is not "rejected".
 - [ ] Every product named above exists in App Store Connect, is "Ready to Submit", has a review screenshot and is attached to this version.
 - [ ] Only the Pro/Elite subscriptions and the consumables `organizer_verification_fee` and `organizer_verification_renewal_fee` are attached. The yearly subscription `organizer_verification` (Organizer Verification subscription group) is **not** attached. `league_access_unlock`, `league_creation_unlock`, `league_addons_pack`, `premium_subscription` are **not** attached (no purchase path on iOS).
 - [ ] The report-response time you state is one you can meet.

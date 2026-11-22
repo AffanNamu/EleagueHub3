@@ -204,7 +204,12 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
         error: true,
       );
 
-  Future<void> _requestAccess() async {
+  // Owner decision (2026-11-22): Global Chat no longer waits for admin
+  // approval. Joining sets the user's own globalChatRequests doc to
+  // 'approved' (firestore.rules allows exactly that, and still blocks a user
+  // whose doc an admin set to 'rejected'). The snapshot stream below then
+  // switches this screen to the chat on its own.
+  Future<void> _joinGlobalChat() async {
     setState(() => _sending = true);
     try {
       await ConnectivityService.instance
@@ -216,7 +221,8 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
 
       if (existing.exists) {
         await docRef.update(<String, dynamic>{
-          'status': 'pending',
+          'status': 'approved',
+          'joinedAtMs': now,
           'updatedAtMs': now,
         });
       } else {
@@ -224,14 +230,16 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
           'userId': _user.uid,
           'userName': _senderName(),
           'userPhoto': _senderPhoto(),
-          'status': 'pending',
+          'status': 'approved',
+          'joinedAtMs': now,
           'createdAtMs': now,
           'updatedAtMs': now,
         });
       }
 
-      _toast(context.l10n.tr('global_chat_request_submitted'));
-      if (mounted) setState(() => _sending = false);
+      if (!mounted) return;
+      _toast(context.l10n.tr('global_chat_joined_toast'));
+      setState(() => _sending = false);
     } catch (e) {
       if (mounted) setState(() => _sending = false);
       _toastErr(e);
@@ -958,7 +966,6 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                   final status = statusRaw.toLowerCase();
 
                   final approved = status == 'approved';
-                  final pending = status == 'pending';
                   final rejected = status == 'rejected';
 
                   if (!approved) {
@@ -976,7 +983,9 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  context.l10n.tr('global_chat_access_required_title'),
+                                  rejected
+                                      ? context.l10n.tr('global_chat_access_required_title')
+                                      : context.l10n.tr('global_chat_join_title'),
                                   style: Theme.of(context)
                                       .textTheme
                                       .titleMedium
@@ -988,17 +997,16 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  pending
-                                      ? context.l10n.tr('global_chat_pending_message')
-                                      : rejected
-                                          ? context.l10n.tr('global_chat_rejected_message')
-                                          : context.l10n.tr('global_chat_request_prompt'),
+                                  rejected
+                                      ? context.l10n.tr('global_chat_removed_message')
+                                      : context.l10n.tr('global_chat_join_prompt'),
                                   style: TextStyle(
                                     color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w700,
                                     height: 1.35,
                                   ),
                                 ),
+                                if (!rejected) ...[
                                 const SizedBox(height: 14),
                                 Row(
                                   children: [
@@ -1009,13 +1017,17 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                                           foregroundColor: AppTheme.darkText,
                                         ),
                                         onPressed:
-                                            _sending ? null : _requestAccess,
-                                        icon:
-                                            const Icon(Icons.lock_open_rounded),
+                                            _sending ? null : _joinGlobalChat,
+                                        icon: _sending
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(
+                                                    strokeWidth: 2.2),
+                                              )
+                                            : const Icon(Icons.forum_rounded),
                                         label: Text(
-                                          pending
-                                              ? context.l10n.tr('global_chat_pending_button')
-                                              : context.l10n.tr('global_chat_request_access_button'),
+                                          context.l10n.tr('global_chat_join_button'),
                                           style: const TextStyle(
                                             fontWeight: FontWeight.w900,
                                           ),
@@ -1024,9 +1036,10 @@ class _GlobalChatScreenState extends State<GlobalChatScreen> {
                                     ),
                                   ],
                                 ),
+                                ],
                                 const SizedBox(height: 10),
                                 Text(
-                                  context.l10n.tr('global_chat_approved_only_note'),
+                                  context.l10n.tr('global_chat_join_rules_note'),
                                   style: TextStyle(
                                     color: AppTheme.secondaryText(brightness),
                                     fontWeight: FontWeight.w700,

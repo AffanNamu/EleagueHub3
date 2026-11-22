@@ -78,8 +78,8 @@ Use a fresh install. Tick each on iPhone; repeat starred items on iPad.
 ## E. App Store Connect
 
 - [ ] App Review Information: demo account signs in on a clean device; it is on the
-      free plan; it is approved for Global Chat and already has private, league and
-      Global Chat messages; notes updated from `APP_REVIEW_NOTES_TEMPLATE.md`; contact details current.
+      free plan; it already has private, league and Global Chat messages (Global
+      Chat: tap "Join", no approval needed); notes updated from `APP_REVIEW_NOTES_TEMPLATE.md`; contact details current.
 - [ ] Any open App Review question (e.g. a price confirmation) has been answered with "Reply to App Review".
 - [ ] Only products that can be bought in this build are attached to the version;
       each has a review screenshot and description. Currently **not** purchasable on iOS:

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { useGlobalChat, useGlobalChatAccess } from '@/hooks/useGlobalChat';
-import { requestGlobalChatAccessWeb, sendGlobalMessageWeb, pinGlobalMessageWeb, softDeleteGlobalMessageWeb, ChatMessage } from '@/lib/chat/chatRepository';
+import { joinGlobalChatWeb, sendGlobalMessageWeb, pinGlobalMessageWeb, softDeleteGlobalMessageWeb, ChatMessage } from '@/lib/chat/chatRepository';
 import { uploadImageFile, uploadAudioFile } from '@/lib/cloudinary/cloudinaryUpload';
 import { GlobalChatBubble, PinnedMessageBar } from '@/components/chat/GlobalChatComponents';
 import { Glass } from '@/components/ui/Glass';
@@ -32,11 +32,14 @@ export default function GlobalChatScreen() {
   const fileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLInputElement>(null);
 
-  const handleRequestAccess = async () => {
+  const handleJoin = async () => {
     if (!auth.currentUser) return router.push('/login');
     setSending(true);
-    await requestGlobalChatAccessWeb(authUid, auth.currentUser.displayName || 'User', auth.currentUser.photoURL || '');
-    setSending(false);
+    try {
+      await joinGlobalChatWeb(authUid, auth.currentUser.displayName || 'User', auth.currentUser.photoURL || '');
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleSendText = async () => {
@@ -106,13 +109,18 @@ export default function GlobalChatScreen() {
       <div className="max-w-xl mx-auto pt-20 px-4">
         <Glass className="p-8 bg-[#0B1221] border-[#1E293B] rounded-3xl text-center shadow-2xl">
           <ShieldAlert className="w-12 h-12 text-[#BEF264] mx-auto mb-4" />
-          <h2 className="text-xl font-black text-white mb-2">Access Required</h2>
+          <h2 className="text-xl font-black text-white mb-2">{status === 'rejected' ? 'Access Required' : 'Join the Global Chat'}</h2>
           <p className="text-sm font-medium text-gray-400 mb-6">
-            {status === 'pending' ? 'Your request is pending admin approval.' : status === 'rejected' ? 'Your request was rejected. You can request again.' : 'Request access to join the global public chatroom.'}
+            {status === 'rejected'
+              ? "You can't join the Global Chat on this account. Contact support if you think this is a mistake."
+              : 'Chat with the whole eSportlyic community. Click Join to start.'}
           </p>
-          <button onClick={handleRequestAccess} disabled={sending} className="px-6 py-3 w-full bg-[#BEF264] text-[#0F172A] font-black rounded-xl hover:brightness-110 disabled:opacity-50">
-            {sending ? <Loader2 className="w-5 h-5 animate-spin mx-auto"/> : (status === 'pending' ? 'Pending...' : 'Request Access')}
-          </button>
+          {status !== 'rejected' && (
+            <button onClick={handleJoin} disabled={sending} className="px-6 py-3 w-full bg-[#BEF264] text-[#0F172A] font-black rounded-xl hover:brightness-110 disabled:opacity-50">
+              {sending ? <Loader2 className="w-5 h-5 animate-spin mx-auto"/> : 'Join'}
+            </button>
+          )}
+          <p className="text-xs font-medium text-gray-500 mt-4">Be respectful. Offensive messages are blocked, and you can report or block anyone.</p>
         </Glass>
       </div>
     );

@@ -1112,6 +1112,11 @@ service cloud.firestore {
         && validVerificationMap(request.resource.data.verification);
     }
 
+    // Global Chat membership. Owner decision (2026-11-22): no admin approval
+    // step -- a signed-in user joins by setting THEIR OWN doc to 'approved'.
+    // Moderation is kept: a super admin can still set 'rejected', and a user
+    // can never change their own doc once it is 'rejected' (otherwise a
+    // removed user could simply re-join). Nobody can write another user's doc.
     match /globalChatRequests/{requestId} {
       allow get: if signedIn() && (request.auth.uid == requestId || isSuperAdmin());
       allow list: if isSuperAdmin();
@@ -1120,15 +1125,16 @@ service cloud.firestore {
         && (request.resource.data.userId is string)
         && (request.resource.data.userId == request.auth.uid)
         && (request.resource.data.status is string)
-        && (request.resource.data.status == 'pending');
+        && (request.resource.data.status in ['pending', 'approved']);
       allow update: if signedIn()
         && (
           (isSuperAdmin()
             && (request.resource.data.status is string)
             && (request.resource.data.status in ['pending','approved','rejected']))
           || (request.auth.uid == requestId
+            && resource.data.get('status', '') != 'rejected'
             && (request.resource.data.status is string)
-            && (request.resource.data.status == 'pending'))
+            && (request.resource.data.status in ['pending', 'approved']))
         );
       allow delete: if false;
     }
