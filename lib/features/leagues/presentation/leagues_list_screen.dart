@@ -1822,8 +1822,17 @@ class _LeaguesListScreenState
       ),
       floatingActionButtonLocation:
           FloatingActionButtonLocation.endFloat,
+      // bottom: false -- inside HomeShell the tab area already ends at the
+      // top of the floating nav bar (the shell pads its body Column), but
+      // the shell's Scaffold(extendBody: true) still reports the nav bar's
+      // height as MediaQuery.padding.bottom. A bottom SafeArea here turned
+      // that into a second, non-scrolling strip of empty background that
+      // cut the cards off above the nav bar. The grid's own trailing
+      // SliverPadding (16 + padding.bottom + 78 + 8) already keeps the last
+      // card clear of the nav bar and the FAB, and it scrolls with the list.
       body: SafeArea(
         top: false,
+        bottom: false,
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(
