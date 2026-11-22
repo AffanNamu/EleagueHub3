@@ -9,7 +9,8 @@
 // row in this collection is a successful, immutable-status payment.
 // Revenue math never needs to filter by status.
 
-export type PaymentProvider = 'flutterwave' | 'free' | 'google_play_billing' | 'google_play';
+// 'app_store': iOS In-App Purchases (GooglePlayBillingService._providerName on iOS).
+export type PaymentProvider = 'flutterwave' | 'free' | 'google_play_billing' | 'google_play' | 'app_store';
 export type PaymentCurrency = 'NGN' | 'USD' | 'PLAY';
 export type PaymentAttemptStatus = 'initiated' | 'client_success' | 'cancelled' | 'client_failed' | 'verified' | 'fulfilled';
 

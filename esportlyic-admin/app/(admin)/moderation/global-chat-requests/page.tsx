@@ -4,7 +4,7 @@ import { GlobalChatRequestsTable } from '@/components/moderation/GlobalChatReque
 import { listGlobalChatRequests } from '@/lib/repositories/globalChatRequestsAdminRepository';
 import { getCurrentAdminIdentity } from '@/lib/auth/adminAuthService';
 import { hasPermission } from '@/lib/auth/requirePermission';
-import type { GlobalChatRequestStatus } from '@/types/globalChatRequest';
+import { DEFAULT_GLOBAL_CHAT_TAB, type GlobalChatRequestStatus } from '@/types/globalChatRequest';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +19,7 @@ export default async function GlobalChatRequestsPage({
   if (!hasPermission(identity, 'global_chat_requests.view')) {
     return (
       <div className="panel p-8 text-center">
-        <p className="text-sm text-ink-secondary">You don't have permission to view Global Chat requests.</p>
+        <p className="text-sm text-ink-secondary">You don't have permission to view Global Chat members.</p>
       </div>
     );
   }
@@ -27,19 +27,20 @@ export default async function GlobalChatRequestsPage({
   const statusParam = searchParams.status;
   const statusFilter = VALID_STATUSES.includes(statusParam as GlobalChatRequestStatus)
     ? (statusParam as GlobalChatRequestStatus)
-    : 'pending';
+    : DEFAULT_GLOBAL_CHAT_TAB;
 
   const requests = await listGlobalChatRequests(searchParams.status === 'all' ? undefined : statusFilter);
   const canReview = hasPermission(identity, 'global_chat_requests.review');
 
   return (
     <div className="space-y-4">
-      <Breadcrumbs items={[{ label: 'Moderation' }, { label: 'Global Chat Requests' }]} />
+      <Breadcrumbs items={[{ label: 'Moderation' }, { label: 'Global Chat Members' }]} />
       <div>
-        <h1 className="font-display text-xl font-semibold text-ink-primary">Global Chat Requests</h1>
+        <h1 className="font-display text-xl font-semibold text-ink-primary">Global Chat Members</h1>
         <p className="mt-1 text-sm text-ink-secondary">
-          On mobile, only the Super Admin can approve these. Granting this permission to a role
-          here extends that ability to whoever holds it.
+          Users join Global Chat themselves by tapping Join (no approval since 22 Nov 2026).
+          Remove someone to stop them reading and sending in Global Chat; they can&apos;t re-join
+          until an admin restores them. &quot;Pending&quot; only lists requests made before the change.
         </p>
       </div>
       <GlobalChatRequestsFilterTabs />

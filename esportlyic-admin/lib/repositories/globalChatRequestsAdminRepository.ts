@@ -4,7 +4,12 @@ import 'server-only';
 
 import { adminDb } from '@/lib/firebase-admin';
 import { recordAuditLog } from '@/lib/audit/auditLog';
-import type { GlobalChatRequest, GlobalChatRequestStatus } from '@/types/globalChatRequest';
+import {
+  GLOBAL_CHAT_ADMIN_TRANSITIONS,
+  globalChatAdminActionVerb,
+  type GlobalChatRequest,
+  type GlobalChatRequestStatus,
+} from '@/types/globalChatRequest';
 
 const COLLECTION = 'globalChatRequests';
 
@@ -17,8 +22,20 @@ function toRequest(uid: string, data: FirebaseFirestore.DocumentData): GlobalCha
     status: (data.status as GlobalChatRequestStatus) ?? 'pending',
     createdAtMs: typeof data.createdAtMs === 'number' ? data.createdAtMs : 0,
     updatedAtMs: typeof data.updatedAtMs === 'number' ? data.updatedAtMs : 0,
+    joinedAtMs: typeof data.joinedAtMs === 'number' ? data.joinedAtMs : 0,
   };
 }
+
+function normalizeStatus(raw: unknown): GlobalChatRequestStatus {
+  return raw === 'approved' || raw === 'rejected' ? raw : 'pending';
+}
+
+const VERB_PAST: Record<ReturnType<typeof globalChatAdminActionVerb>, string> = {
+  approve: 'Approved',
+  reject: 'Rejected',
+  remove: 'Removed',
+  restore: 'Restored',
+};
 
 export async function listGlobalChatRequests(
   statusFilter?: GlobalChatRequestStatus,
@@ -45,10 +62,13 @@ export async function reviewGlobalChatRequest(params: {
   }
 
   const data = snap.data() ?? {};
-  const currentStatus = (data.status as string) ?? 'pending';
-  if (currentStatus !== 'pending') {
-    throw new GlobalChatRequestReviewError('This request has already been decided.');
+  // Joined members ('approved') can be removed and removed users restored --
+  // not only pending requests, since users now join without approval.
+  const currentStatus = normalizeStatus(data.status);
+  if (!GLOBAL_CHAT_ADMIN_TRANSITIONS[currentStatus].includes(params.decision)) {
+    throw new GlobalChatRequestReviewError(`This user is already ${currentStatus}.`);
   }
+  const verb = globalChatAdminActionVerb(currentStatus, params.decision);
 
   await ref.update({
     status: params.decision,
@@ -58,17 +78,17 @@ export async function reviewGlobalChatRequest(params: {
   await recordAuditLog({
     actorUid: params.reviewerUid,
     actorEmail: params.reviewerEmail,
-    action: `global_chat_request.${params.decision === 'approved' ? 'approve' : 'reject'}`,
+    action: `global_chat_request.${verb}`,
     targetType: 'global_chat_request',
     targetId: params.uid,
-    summary: `${params.decision === 'approved' ? 'Approved' : 'Rejected'} Global Chat access for ${data.userName || params.uid}`,
+    summary: `${VERB_PAST[verb]} Global Chat access for ${data.userName || params.uid}`,
   });
 }
 
 /**
- * Bulk version of reviewGlobalChatRequest for clearing a backlog of
- * pending access requests at once. Skips any uid that's missing or
- * already decided rather than failing the whole batch.
+ * Bulk version of reviewGlobalChatRequest (approve/restore or
+ * reject/remove several users at once). Skips any uid that's missing or
+ * already in the target status rather than failing the whole batch.
  */
 export async function bulkReviewGlobalChatRequests(params: {
   uids: string[];
@@ -94,8 +114,12 @@ export async function bulkReviewGlobalChatRequests(params: {
   let skipped = 0;
 
   for (const snap of snaps) {
-    const status = snap.exists ? ((snap.data()?.status as string) ?? 'pending') : null;
-    if (!snap.exists || status !== 'pending') {
+    if (!snap.exists) {
+      skipped += 1;
+      continue;
+    }
+    const status = normalizeStatus(snap.data()?.status);
+    if (!GLOBAL_CHAT_ADMIN_TRANSITIONS[status].includes(decision)) {
       skipped += 1;
       continue;
     }
@@ -113,8 +137,8 @@ export async function bulkReviewGlobalChatRequests(params: {
     action: `global_chat_request.bulk_${decision === 'approved' ? 'approve' : 'reject'}`,
     targetType: 'global_chat_request',
     targetId: uids.join(','),
-    summary: `Bulk ${decision === 'approved' ? 'approved' : 'rejected'} Global Chat access for ${updated} user(s)${
-      skipped > 0 ? ` (${skipped} skipped — already decided or not found)` : ''
+    summary: `Bulk ${decision === 'approved' ? 'approved/restored' : 'rejected/removed'} Global Chat access for ${updated} user(s)${
+      skipped > 0 ? ` (${skipped} skipped — already in that status or not found)` : ''
     }`,
   });
 
