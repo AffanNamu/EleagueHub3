@@ -90,6 +90,10 @@ Use a fresh install. Tick each on iPhone; repeat starred items on iPad.
 - [ ] Age rating questionnaire fully answered, including social media capabilities (Yes),
       messaging/UGC (Yes), Shared Location (No), Dating (No), in-app controls.
 - [ ] Digital Goods and Services questionnaire (App Information), if shown: Apple In-App Purchase only.
+- [ ] Age rating: Shared Location and Dating answered (No / No) even if the banner says they can wait.
+- [ ] The version number in App Store Connect equals the build's `CFBundleShortVersionString` (the version can be edited while it is Rejected). Never press "Update Review" / resubmit with an old build — attach the new one first.
+- [ ] If China mainland is selected in Pricing and Availability: App Compliance declarations (AI-Generated or Synthetic Content; Security Assessment) completed — due for existing apps by 2027-01-31.
+- [ ] From April 2027: iPhone Duo screenshots uploaded.
 - [ ] Export compliance answered consistently with `ITSAppUsesNonExemptEncryption = false`.
 - [ ] Screenshots and previews show the current iOS UI only (no Android UI, no removed features).
 - [ ] Description, subtitle, keywords describe only shipped features; Terms of Use (EULA) link included for subscriptions.

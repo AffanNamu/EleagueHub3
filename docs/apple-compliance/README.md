@@ -68,8 +68,10 @@ apply to this app.
 
 | Date | Requirement | Source |
 |---|---|---|
-| 2027-01-12 | Every app must have Shared Location / Dating declarations completed | `metadata-and-product-pages/news-2026-11-02-new-age-rating-content-descriptors.md` |
+| 2027-01-12 | Every app must have Shared Location / Dating declarations completed. **Note:** the App Store Connect banner on this app (seen 2026-11-22) says *"Answers aren't required until Jan 15, 2027, unless you are submitting a new app or updating other answers in that section"*, while the news post says they are required "when submitting an app update". Answer them before the next submission to avoid the ambiguity (Shared Location: No, Dating: No). | `metadata-and-product-pages/news-2026-11-02-new-age-rating-content-descriptors.md`; ASC banner |
+| 2027-01-31 | China mainland: every existing app must have verified **AI-Generated or Synthetic Content** and **Security Assessment** declarations (App Information → App Compliance) to stay available there | `regional-and-territory-requirements/china-mainland-compliance-information.md`; ASC banners (seen 2026-11-22) |
 | 2027-04 | iOS apps must be built with the iOS 27 SDK or later | `ios-sdk-and-build-requirements/news-2026-09-09-submissions-open-latest-os.md` |
+| 2027-04 | Every submission must include **iPhone Duo** screenshots (optional now; adds an "optimized for iPhone Duo" badge) | `ios-sdk-and-build-requirements/developer-news-index.md` |
 | iOS 27.2 | Alternative ATT prompt available in the EU (mandatory in DE, FR, IT, PL, RO) — only relevant if the app ever adopts ATT | `privacy-and-security/news-2026-09-16-att-updates-eu.md` |
 | winter 2026 | Group (multiseat) subscription purchases launch; multiseat is **enabled by default** for subscriptions | `subscriptions/news-2026-09-16-subscriptions-ready-for-ios-27.md` |
 
@@ -82,7 +84,7 @@ apply to this app.
 | Brazil | Shared Location ⇒ A16, Dating ⇒ A18 rating; age-category sharing via Declared Age Range API | Shared Location/Dating: No (no such features). Age API: legal determination | `metadata-and-product-pages/news-2026-11-02-*.md`, `regional-and-territory-requirements/news-2026-02-24-*.md` |
 | Texas, Utah, Louisiana | Age assurance and parental consent for minors' downloads and In-App Purchases; Declared Age Range and Significant Change APIs | Apple enforces at the store level; developer obligations need a legal review | `regional-and-territory-requirements/news-2026-06-03-texas-update.md` and related |
 | Republic of Korea | Korea-based developers using Sign in with Apple must register a server-to-server notification endpoint | Only if the developer account is Korea-based | `privacy-and-security/news-2025-10-09-siwa-account-creation-requirement.md` |
-| China mainland | ICP filing / compliance information required to distribute there | Only if distributed in China mainland | `regional-and-territory-requirements/china-mainland-compliance-information.md` |
+| China mainland | Compliance declarations: AI-Generated or Synthetic Content services (with LLM/algorithm filing if Yes) and features requiring a Security Assessment (e.g. distributing AI-generated content, end-to-end encrypted instant messaging; proof + report if Yes). Existing apps by 2027-01-31; until verified the app is not available in China mainland | Only if China mainland is selected in Pricing and Availability. The code has no AI-generation features and no end-to-end encrypted messaging (checked 2026-11-22), so both answers would be **No**. Note that the app depends on Firebase, Google Sign-In and AdMob, which are generally not reachable from China mainland — decide whether to distribute there at all | `regional-and-territory-requirements/china-mainland-compliance-information.md` |
 | United States | StoreKit External Purchase Link entitlement rules | Not applicable — no external purchase links | `app-review-guidelines/app-review-guidelines.md` §3.1.1(a) |
 
 ## Library contents

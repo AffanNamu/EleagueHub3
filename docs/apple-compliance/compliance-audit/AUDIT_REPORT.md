@@ -277,7 +277,7 @@ web UI flows. These are in `PRE_SUBMISSION_CHECKLIST.md` §C–§D.
    tell me and I will make those leagues free to view on iOS instead.)*
 3. **Demo account** that signs in, is on the free plan, and has sample leagues.
 4. **Review notes:** fill in `APP_REVIEW_NOTES_TEMPLATE.md` and paste it.
-5. **Age rating questionnaire:** social media capabilities Yes; messaging/UGC
+5. **Age rating questionnaire** (also answer the new Shared Location and Dating questions now, even though App Store Connect says they can wait until 2027-01-15): social media capabilities Yes; messaging/UGC
    Yes; Shared Location No; Dating No; in-app controls (blocking, reporting, filtering) Yes.
 6. **Digital Goods and Services questionnaire** (if shown): Apple In-App Purchase only.
 7. **App Privacy:** confirm AdMob's data types are listed for third-party
@@ -289,7 +289,9 @@ web UI flows. These are in `PRE_SUBMISSION_CHECKLIST.md` §C–§D.
 9. **Supabase:** confirm `delete-user-data` is deployed; send me its source (or
    commit it) so it can be checked/extended to delete posts, comments, messages
    and media.
-10. After the merge to `main`, confirm the **Deploy Worker** and **iOS CI**
+10. **Version number:** App Store Connect shows version 1.9.21; the new build is **1.9.22** (`pubspec.yaml`). Change the version number on the rejected version to 1.9.22 (or create a 1.9.22 version), attach the new build, and do not resubmit build 222 — it still declares background audio.
+11. **China mainland** (only if selected in Pricing and Availability): either complete App Information → App Compliance (AI-Generated or Synthetic Content: No; Security Assessment: No — the app has neither feature) by 2027-01-31, or remove China mainland from availability. The app relies on Firebase, Google Sign-In and AdMob, which are generally not reachable there.
+12. After the merge to `main`, confirm the **Deploy Worker** and **iOS CI**
     workflows succeed, then run `PRE_SUBMISSION_CHECKLIST.md` §C–§E on the TestFlight build.
 
 **Recommended (not blocking, decisions needed):**
@@ -308,7 +310,7 @@ web UI flows. These are in `PRE_SUBMISSION_CHECKLIST.md` §C–§D.
 
 ## 11. Release-readiness decision
 
-**Not ready to submit yet — ready after items 1–10 in §10 are done and the
+**Not ready to submit yet — ready after items 1–12 in §10 are done and the
 checklist passes on a TestFlight build.**
 
 Evidence for: the confirmed 2.5.4 root cause is fixed in the file that ships
