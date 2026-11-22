@@ -110,9 +110,12 @@ risk · NA = not applicable · CBV = cannot be verified here.
 |---|---|---|---|---|
 | Social media capabilities | Required since Sept 2026 | news-2026-07-09-age-rating-social-media-questions.md | **Yes** — public feed, follows, comments, discovery | Unknown (ASC) |
 | Messaging / user-generated content | Age-rating capabilities questions | age-ratings-values-and-definitions.md | **Yes** — private, league, organizer and global chat; voice rooms; UGC | Unknown (ASC) |
-| Shared Location | Required on updates since 2026-11-16 | news-2026-11-02-new-age-rating-content-descriptors.md | **No** — no location features or location plugins | Unknown (ASC) |
+| Shared Location | Required on updates since 2026-11-16 (ASC banner on this app, 2026-11-22: not required until 2027-01-15 unless other answers in the section change) | news-2026-11-02-new-age-rating-content-descriptors.md; ASC banner | **No** — no location features or location plugins. Answer now. | Unknown (ASC) |
 | Dating and Relationships | Required on updates since 2026-11-16 | same | **No** | Unknown (ASC) |
 | In-app controls (blocking, reporting, filtering) | Questionnaire | news-2025-07-24-updated-age-ratings.md | Blocking/reporting: Yes; content filtering: Yes (from this release) | Unknown (ASC) |
 | Digital Goods and Services questionnaire | Indicate payment methods per region | digital-goods-and-services-questionnaire.md | iOS uses **Apple In-App Purchase exclusively** for digital goods | Unknown (ASC) |
 | Australia under-16 social media law | Law, not a guideline | news-2025-12-08-australia-social-media-apps.md | Legal determination required | Unknown |
 | EU trader status | Required for EU distribution | eu-dsa-trader-requirements.md | — | Unknown (ASC) |
+| China mainland: AI-Generated or Synthetic Content declaration | Existing apps by 2027-01-31 (ASC banner seen 2026-11-22) | china-mainland-compliance-information.md | **No** — no AI chat, image/video generation or voice/face alteration in the code | Unknown (ASC; only if distributed in China mainland) |
+| China mainland: Security Assessment declaration | Existing apps by 2027-01-31 (ASC banner seen 2026-11-22) | china-mainland-compliance-information.md | **No** — no AI-generated content distribution and no end-to-end encrypted instant messaging (chats are stored in Firestore). Consider whether to distribute in China mainland at all: Firebase, Google Sign-In and AdMob are generally not reachable there | Unknown (ASC; only if distributed in China mainland) |
+| iPhone Duo screenshots | Required for all submissions from April 2027 | developer-news-index.md | Not yet required | Future |
