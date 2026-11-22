@@ -54,7 +54,10 @@ class _LeagueCreationPaymentScreenState
   String? _appStorePrice;
   bool _appStorePriceRequested = false;
 
-  void _loadAppStorePriceOnce({required bool premiumUpgrade}) {
+  void _loadAppStorePriceOnce({
+    required bool premiumUpgrade,
+    required bool addonsOnly,
+  }) {
     if (_appStorePriceRequested ||
         !PaymentPlatformConfig.routeIOSPaymentsToStoreKit) {
       return;
@@ -65,7 +68,9 @@ class _LeagueCreationPaymentScreenState
             plan: _selectedUpgradePlan,
             duration: PlanDuration.threeMonths,
           )
-        : GooglePlayBillingCatalog.leagueCreationUnlockId;
+        : (addonsOnly
+            ? GooglePlayBillingCatalog.leagueAddonsPackId
+            : GooglePlayBillingCatalog.leagueCreationUnlockId);
     GooglePlayBillingService.instance.fetchProductPrice(productId).then((info) {
       if (!mounted || info == null) return;
       setState(() => _appStorePrice = info.formattedPrice);
@@ -421,7 +426,8 @@ class _LeagueCreationPaymentScreenState
 
     final addonsOnly = _addonsOnlyFromRouteExtra();
     final premiumUpgrade = _premiumUpgradeModeFromRouteExtra();
-    _loadAppStorePriceOnce(premiumUpgrade: premiumUpgrade);
+    _loadAppStorePriceOnce(
+        premiumUpgrade: premiumUpgrade, addonsOnly: addonsOnly);
     final bool appStorePricing =
         PaymentPlatformConfig.routeIOSPaymentsToStoreKit;
     final String appStoreTotal =

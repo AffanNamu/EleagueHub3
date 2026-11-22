@@ -55,6 +55,10 @@ class PaymentPlatformConfig {
   /// shown. Web (Flutterwave) keeps its existing behaviour.
   static bool get offerPaidLeagueAccess => !useNativeInAppPurchase;
 
+  /// Participant coupons only discount paid league access, so they follow
+  /// the same rule: not sold, configured or listed in the store apps.
+  static bool get offerParticipantCoupons => offerPaidLeagueAccess;
+
   /// Web always uses Flutterwave. Android/iOS use Flutterwave only when
   /// their respective native-IAP gate above is off.
   static bool get useFlutterwave => kIsWeb || !useNativeInAppPurchase;
