@@ -779,7 +779,7 @@ jobs:
           	<!--
           	App-level Privacy Manifest, required by Apple since Spring 2024 for any
           	app submission. This declares the Runner target's own data collection
-          	and "Required Reason API" usage -- it does NOT need to (and should not)
+          	and "Required Reason API" usage; it does NOT need to (and should not)
           	duplicate what bundled third-party SDKs (Firebase, Google Mobile Ads,
           	LiveKit, etc.) already declare in their own PrivacyInfo.xcprivacy
           	files inside their pods; those ship separately and are merged by Xcode
@@ -788,12 +788,12 @@ jobs:
           	NSPrivacyTracking is false because this app never requests the IDFA
           	and never links data across apps/websites for advertising/tracking
           	purposes (see lib/core/config/ad_config.dart and the App Tracking
-          	Transparency decision documented there -- AdMob is used in
+          	Transparency decision documented there; AdMob is used in
           	non-personalized/contextual mode on iOS without ATT).
 
           	NSPrivacyCollectedDataTypes below reflects what this app's own
           	features actually collect (auth, chat/feed content, crash reports,
-          	subscription entitlements) -- not a guess, grounded in the real
+          	subscription entitlements); not a guess, grounded in the real
           	features: Firebase Auth (email/name/user ID), Firestore chat/feed
           	(user-authored text/photos/video/audio), Firebase Crashlytics (crash
           	data), and Apple IAP/StoreKit entitlement tracking (purchase history).
@@ -914,7 +914,7 @@ jobs:
           	If Xcode's own Privacy Report (Product > Archive > Generate Privacy
           	Report) flags additional required-reason API usage once this project
           	is actually archived on a Mac, add the corresponding category/reason
-          	here -- this list is grounded in pubspec.yaml's actual dependencies,
+          	here; this list is grounded in pubspec.yaml's actual dependencies,
           	not exhaustive static analysis of every linked library.
           	-->
           	<key>NSPrivacyAccessedAPITypes</key>
@@ -1021,6 +1021,9 @@ jobs:
           fi
 
           [ -s ios/Runner/PrivacyInfo.xcprivacy ] || { echo "::error::ios/Runner/PrivacyInfo.xcprivacy was not written."; fail=1; }
+          # Must be well-formed: an XML comment may not contain "--", which
+          # silently broke this manifest before 2026-11-22.
+          plutil -lint ios/Runner/PrivacyInfo.xcprivacy || { echo "::error::ios/Runner/PrivacyInfo.xcprivacy is not a valid property list."; fail=1; }
 
           [ "$fail" -eq 0 ] || exit 1
           echo "✅ Generated Info.plist passes the App Store compliance guard (background modes: ${modes:-none})"
@@ -1104,10 +1107,22 @@ jobs:
           # above -- Apple's privacy manifest is only honored by App Store
           # Connect if it is actually copied into the shipped .app bundle, so
           # it needs the same Copy Bundle Resources registration.
+          #
+          # add_file_references() puts every non-header file into Compile
+          # Sources. Xcode still copies a .plist from there (built-in "Copy
+          # Plist File" rule), which is why GoogleService-Info.plist works,
+          # but it has no rule for .xcprivacy -- so the manifest never reached
+          # Runner.app (confirmed missing from build 239's IPA). add_resources()
+          # puts it in Copy Bundle Resources, where it is copied as-is.
           privacy_file_ref = runner_group.children.find { |c| c.respond_to?(:path) && c.path == 'PrivacyInfo.xcprivacy' } ||
                               runner_group.new_reference('PrivacyInfo.xcprivacy')
+          target.source_build_phase.files
+                .select { |bf| bf.file_ref == privacy_file_ref }
+                .each { |bf| target.source_build_phase.remove_build_file(bf) }
           privacy_already_included = target.resources_build_phase.files.any? { |bf| bf.file_ref == privacy_file_ref }
-          target.add_file_references([privacy_file_ref]) unless privacy_already_included
+          target.add_resources([privacy_file_ref]) unless privacy_already_included
+          raise 'PrivacyInfo.xcprivacy is not in Copy Bundle Resources' unless
+            target.resources_build_phase.files.any? { |bf| bf.file_ref == privacy_file_ref }
 
           target.build_configurations.each do |config|
             config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'Runner/Runner.entitlements'
@@ -1337,6 +1352,24 @@ jobs:
           IPA_FILE=$(find "$IPA_DIR" -name "*.ipa" | head -n 1)
           [ -n "$IPA_FILE" ] || { echo "::error::No IPA produced"; exit 1; }
           echo "✅ IPA: $IPA_FILE ($(du -h "$IPA_FILE" | cut -f1))"
+
+          # Check what actually ships, not just the generated sources: a file
+          # can be written correctly and still never reach Runner.app.
+          CHECK_DIR=$(mktemp -d)
+          unzip -q -o "$IPA_FILE" 'Payload/Runner.app/Info.plist' 'Payload/Runner.app/PrivacyInfo.xcprivacy' -d "$CHECK_DIR" || true
+          APP="$CHECK_DIR/Payload/Runner.app"
+          fail=0
+          if [ -f "$APP/PrivacyInfo.xcprivacy" ]; then
+            plutil -lint "$APP/PrivacyInfo.xcprivacy" || { echo "::error::Shipped PrivacyInfo.xcprivacy is not a valid property list."; fail=1; }
+          else
+            echo "::error::Runner.app/PrivacyInfo.xcprivacy is missing from the IPA."; fail=1
+          fi
+          shipped_modes=$(/usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" 2>/dev/null | sed -e '1d' -e '$d' | tr -d ' ' || true)
+          for m in $shipped_modes; do
+            [ "$m" = "remote-notification" ] || { echo "::error::Shipped Info.plist declares background mode '$m' (Guideline 2.5.4)."; fail=1; }
+          done
+          [ "$fail" -eq 0 ] || exit 1
+          echo "✅ Shipped app: PrivacyInfo.xcprivacy present and valid; background modes: ${shipped_modes:-none}"
 
       # ─────────────────────────────────────────
       # 9. UPLOAD ARTIFACT
