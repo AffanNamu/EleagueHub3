@@ -29,6 +29,12 @@ export default async function PricingSettingsPage() {
           worker all read prices from. Changes take effect immediately (a 10-minute client-side cache
           on web means already-loaded pages may take up to that long to reflect a change).
         </p>
+        <p className="mt-1 text-sm text-ink-secondary">
+          Amounts here are the website (Flutterwave) prices. The iPhone and Android apps charge the
+          price of the store product, which is set in App Store Connect and Google Play Console
+          (e.g. Organizer Verification is $149.99 on the App Store) — changing an amount here does
+          not change those.
+        </p>
       </div>
       <PricingEditor config={config} canEdit={canEdit} />
     </div>

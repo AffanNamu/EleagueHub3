@@ -81,7 +81,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Reports', href: '/moderation/reports', icon: FileWarning, permission: 'reports.view' },
       { label: 'Cases', href: '/moderation/cases', icon: FolderSearch, permission: 'moderation_cases.view' },
-      { label: 'Global Chat Requests', href: '/moderation/global-chat-requests', icon: MessageCircle, permission: 'global_chat_requests.view' },
+      { label: 'Global Chat Members', href: '/moderation/global-chat-requests', icon: MessageCircle, permission: 'global_chat_requests.view' },
     ],
   },
   {

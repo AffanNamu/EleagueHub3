@@ -103,6 +103,7 @@ export async function getRevenueSummary(): Promise<RevenueByCurrency[]> {
 export interface ProviderUserCounts {
   flutterwave: number;
   googlePlay: number;
+  appStore: number;
   manual: number;
   noProvider: number;
 }
@@ -118,22 +119,30 @@ export interface ProviderUserCounts {
 export async function getUserCountsByProvider(): Promise<ProviderUserCounts> {
   const usersRef = adminDb.collection('users');
 
-  const [flutterwave, googlePlayBilling, googlePlayLegacy, manual, totalWithPlan] = await Promise.all([
+  // 'app_store' is what the worker writes for Apple subscriptions
+  // (worker/src/index.js planProvider: "app_store").
+  const [flutterwave, googlePlayBilling, googlePlayLegacy, appStore, manual, totalWithPlan] = await Promise.all([
     usersRef.where('planProvider', '==', 'flutterwave').count().get(),
     usersRef.where('planProvider', '==', 'google_play_billing').count().get(),
     usersRef.where('planProvider', '==', 'google_play').count().get(),
+    usersRef.where('planProvider', '==', 'app_store').count().get(),
     usersRef.where('planProvider', '==', 'manual').count().get(),
     usersRef.where('activePlanId', 'in', ['pro', 'elite']).count().get(),
   ]);
 
   const flutterwaveCount = flutterwave.data().count;
   const googlePlayCount = googlePlayBilling.data().count + googlePlayLegacy.data().count;
+  const appStoreCount = appStore.data().count;
   const manualCount = manual.data().count;
-  const noProvider = Math.max(0, totalWithPlan.data().count - flutterwaveCount - googlePlayCount - manualCount);
+  const noProvider = Math.max(
+    0,
+    totalWithPlan.data().count - flutterwaveCount - googlePlayCount - appStoreCount - manualCount,
+  );
 
   return {
     flutterwave: flutterwaveCount,
     googlePlay: googlePlayCount,
+    appStore: appStoreCount,
     manual: manualCount,
     noProvider,
   };

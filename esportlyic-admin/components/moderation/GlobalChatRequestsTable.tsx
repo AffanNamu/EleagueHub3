@@ -2,18 +2,26 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { MessageCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { MessageCircle, CheckCircle2, XCircle, UserMinus, RotateCcw } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useGlobalChatRequestAction } from '@/hooks/useGlobalChatRequestAction';
 import { useBulkGlobalChatRequestReview } from '@/hooks/useBulkGlobalChatRequestReview';
 import { formatRelativeTime } from '@/lib/utils';
-import type { GlobalChatRequest, GlobalChatRequestStatus } from '@/types/globalChatRequest';
+import { GLOBAL_CHAT_ADMIN_TRANSITIONS, type GlobalChatRequest, type GlobalChatRequestStatus } from '@/types/globalChatRequest';
 
 const STATUS_TONE: Record<GlobalChatRequestStatus, 'warning' | 'success' | 'danger'> = {
   pending: 'warning',
   approved: 'success',
   rejected: 'danger',
+};
+
+// Users join Global Chat themselves now, so 'approved' reads as a member and
+// 'rejected' as removed by an admin.
+const STATUS_LABEL: Record<GlobalChatRequestStatus, string> = {
+  pending: 'Pending (old request)',
+  approved: 'Member',
+  rejected: 'Removed',
 };
 
 export function GlobalChatRequestsTable({
@@ -31,11 +39,11 @@ export function GlobalChatRequestsTable({
     return <EmptyState icon={MessageCircle} title="No requests in this view" />;
   }
 
-  const pendingUids = requests.filter((r) => r.status === 'pending').map((r) => r.uid);
-  const allPendingSelected = pendingUids.length > 0 && pendingUids.every((uid) => selected.has(uid));
+  const selectableUids = requests.map((r) => r.uid);
+  const allSelected = selectableUids.length > 0 && selectableUids.every((uid) => selected.has(uid));
 
   function toggleAll() {
-    setSelected(allPendingSelected ? new Set() : new Set(pendingUids));
+    setSelected(allSelected ? new Set() : new Set(selectableUids));
   }
 
   function toggleOne(uid: string) {
@@ -50,7 +58,11 @@ export function GlobalChatRequestsTable({
   async function handleBulk(decision: 'approved' | 'rejected') {
     const uids = Array.from(selected);
     if (uids.length === 0) return;
-    if (!confirm(`${decision === 'approved' ? 'Approve' : 'Reject'} ${uids.length} selected request(s)?`)) return;
+    const message =
+      decision === 'approved'
+        ? `Let ${uids.length} selected user(s) into Global Chat (approve pending / restore removed)?`
+        : `Remove ${uids.length} selected user(s) from Global Chat? They won't be able to read or send messages there, or re-join, until restored.`;
+    if (!confirm(message)) return;
     const ok = await submitBulk(uids, decision);
     if (ok) setSelected(new Set());
   }
@@ -72,14 +84,14 @@ export function GlobalChatRequestsTable({
               disabled={bulkSubmitting}
               className="flex items-center gap-1.5 rounded-sm bg-signal-success px-3 py-1.5 text-xs font-medium text-base disabled:opacity-60"
             >
-              <CheckCircle2 size={13} /> Approve
+              <CheckCircle2 size={13} /> Approve / Restore
             </button>
             <button
               onClick={() => handleBulk('rejected')}
               disabled={bulkSubmitting}
               className="flex items-center gap-1.5 rounded-sm border border-base-border bg-base-raised px-3 py-1.5 text-xs font-medium text-ink-primary hover:border-signal-danger hover:text-signal-danger disabled:opacity-60"
             >
-              <XCircle size={13} /> Reject
+              <UserMinus size={13} /> Remove / Reject
             </button>
           </div>
         </div>
@@ -91,20 +103,18 @@ export function GlobalChatRequestsTable({
             <tr className="border-b border-base-border text-left text-xs text-ink-muted">
               {canReview && (
                 <th className="w-10 px-4 py-3">
-                  {pendingUids.length > 0 && (
-                    <input
-                      type="checkbox"
-                      checked={allPendingSelected}
-                      onChange={toggleAll}
-                      className="h-4 w-4 rounded-sm border-base-border accent-brand"
-                      aria-label="Select all pending requests"
-                    />
-                  )}
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    className="h-4 w-4 rounded-sm border-base-border accent-brand"
+                    aria-label="Select all users in this view"
+                  />
                 </th>
               )}
               <th className="px-4 py-3 font-medium">User</th>
               <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Requested</th>
+              <th className="px-4 py-3 font-medium">Joined / requested</th>
               {canReview && <th className="px-4 py-3 font-medium" />}
             </tr>
           </thead>
@@ -113,15 +123,13 @@ export function GlobalChatRequestsTable({
               <tr key={request.uid} className="border-b border-base-border last:border-0 hover:bg-base-raised">
                 {canReview && (
                   <td className="px-4 py-3">
-                    {request.status === 'pending' && (
-                      <input
-                        type="checkbox"
-                        checked={selected.has(request.uid)}
-                        onChange={() => toggleOne(request.uid)}
-                        className="h-4 w-4 rounded-sm border-base-border accent-brand"
-                        aria-label={`Select request from ${request.userName || request.uid}`}
-                      />
-                    )}
+                    <input
+                      type="checkbox"
+                      checked={selected.has(request.uid)}
+                      onChange={() => toggleOne(request.uid)}
+                      className="h-4 w-4 rounded-sm border-base-border accent-brand"
+                      aria-label={`Select ${request.userName || request.uid}`}
+                    />
                   </td>
                 )}
                 <td className="px-4 py-3">
@@ -146,33 +154,61 @@ export function GlobalChatRequestsTable({
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <Badge tone={STATUS_TONE[request.status]} className="capitalize">
-                    {request.status}
-                  </Badge>
+                  <Badge tone={STATUS_TONE[request.status]}>{STATUS_LABEL[request.status]}</Badge>
                 </td>
                 <td className="px-4 py-3 text-ink-secondary">
-                  {request.createdAtMs ? formatRelativeTime(request.createdAtMs) : '—'}
+                  {request.joinedAtMs || request.createdAtMs
+                    ? formatRelativeTime(request.joinedAtMs || request.createdAtMs)
+                    : '—'}
                 </td>
                 {canReview && (
                   <td className="px-4 py-3">
-                    {request.status === 'pending' && (
-                      <div className="flex justify-end gap-1.5">
+                    <div className="flex justify-end gap-1.5">
+                      {GLOBAL_CHAT_ADMIN_TRANSITIONS[request.status].includes('approved') && (
                         <button
                           onClick={() => submit(request.uid, 'approved')}
                           disabled={pendingUid === request.uid}
                           className="flex items-center gap-1 rounded-sm bg-signal-success px-2.5 py-1 text-xs font-medium text-base disabled:opacity-60"
                         >
-                          <CheckCircle2 size={13} /> Approve
+                          {request.status === 'rejected' ? (
+                            <>
+                              <RotateCcw size={13} /> Restore
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 size={13} /> Approve
+                            </>
+                          )}
                         </button>
+                      )}
+                      {GLOBAL_CHAT_ADMIN_TRANSITIONS[request.status].includes('rejected') && (
                         <button
-                          onClick={() => submit(request.uid, 'rejected')}
+                          onClick={() => {
+                            if (
+                              request.status === 'approved' &&
+                              !confirm(
+                                `Remove ${request.userName || request.uid} from Global Chat? They won't be able to read or send messages there, or re-join, until restored.`,
+                              )
+                            ) {
+                              return;
+                            }
+                            submit(request.uid, 'rejected');
+                          }}
                           disabled={pendingUid === request.uid}
                           className="flex items-center gap-1 rounded-sm border border-base-border bg-base-raised px-2.5 py-1 text-xs font-medium text-ink-primary hover:border-signal-danger hover:text-signal-danger disabled:opacity-60"
                         >
-                          <XCircle size={13} /> Reject
+                          {request.status === 'approved' ? (
+                            <>
+                              <UserMinus size={13} /> Remove
+                            </>
+                          ) : (
+                            <>
+                              <XCircle size={13} /> Reject
+                            </>
+                          )}
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </td>
                 )}
               </tr>

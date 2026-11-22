@@ -109,8 +109,12 @@ export async function getRecentEvents(limit = 8): Promise<RecentEvent[]> {
     return {
       id: doc.id,
       kind: 'global_chat_request',
-      title: `Global Chat request — ${String(data.userName ?? 'Unknown user')}`,
-      detail: `Status: ${String(data.status ?? 'unknown')}`,
+      // Users join without approval since 2026-11-22 ('approved' = joined).
+      title:
+        data.status === 'approved'
+          ? `Joined Global Chat — ${String(data.userName ?? 'Unknown user')}`
+          : `Global Chat request — ${String(data.userName ?? 'Unknown user')}`,
+      detail: `Status: ${data.status === 'approved' ? 'member' : data.status === 'rejected' ? 'removed' : String(data.status ?? 'unknown')}`,
       timestampMs: typeof data.createdAtMs === 'number' ? data.createdAtMs : 0,
     };
   });
