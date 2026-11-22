@@ -1,6 +1,7 @@
 // lib/core/services/payments/google_play_billing_catalog.dart
 
 import '../../../features/master_leagues/domain/master_league_plan.dart';
+import '../../config/payment_platform_config.dart';
 
 class GooglePlayBillingCatalog {
   const GooglePlayBillingCatalog._();
@@ -90,6 +91,38 @@ class GooglePlayBillingCatalog {
     defaultValue: 'organizer_verification_renewal',
   );
 
+  // App Store: `organizer_verification` was set up in App Store Connect as a
+  // yearly auto-renewable subscription, and App Store Connect cannot turn a
+  // subscription into a one-time product. Verification is a one-time fee in
+  // this app (as on Google Play, and as the verification screen states), so
+  // iOS buys these separate consumable products instead. Product type
+  // recorded with the purchase is unchanged ('organizer_verification[_renewal]'),
+  // which is what the worker and admin dashboard key on.
+  static const String appleOrganizerVerificationId =
+      String.fromEnvironment(
+    'APPLE_ORGANIZER_VERIFICATION_ID',
+    defaultValue: 'organizer_verification_fee',
+  );
+
+  static const String appleOrganizerVerificationRenewalId =
+      String.fromEnvironment(
+    'APPLE_ORGANIZER_VERIFICATION_RENEWAL_ID',
+    defaultValue: 'organizer_verification_renewal_fee',
+  );
+
+  /// Store product to buy for organizer verification on this platform.
+  static String get organizerVerificationProductId =>
+      PaymentPlatformConfig.isIOSRuntime
+          ? appleOrganizerVerificationId
+          : organizerVerificationId;
+
+  /// Store product to buy for an organizer verification renewal on this
+  /// platform.
+  static String get organizerVerificationRenewalProductId =>
+      PaymentPlatformConfig.isIOSRuntime
+          ? appleOrganizerVerificationRenewalId
+          : organizerVerificationRenewalId;
+
   // ── Premium app subscription ──────────────────────────────────────────────
 
   static const String premiumSubscriptionId =
@@ -148,6 +181,9 @@ class GooglePlayBillingCatalog {
       'organizer_verification': organizerVerificationId,
       'organizer_verification_renewal':
           organizerVerificationRenewalId,
+      'apple_organizer_verification': appleOrganizerVerificationId,
+      'apple_organizer_verification_renewal':
+          appleOrganizerVerificationRenewalId,
       'premium_subscription': premiumSubscriptionId,
     };
   }
@@ -240,11 +276,13 @@ class GooglePlayBillingCatalog {
         productId == eliteYearlySubscriptionId;
   }
 
-  /// Returns true if [productId] is the organizer_verification or
-  /// organizer_verification_renewal one-time product.
+  /// Returns true if [productId] is an organizer verification or
+  /// verification renewal one-time product (Google Play or App Store ID).
   static bool isOrganizerVerificationProduct(String productId) {
     return productId == organizerVerificationId ||
-        productId == organizerVerificationRenewalId;
+        productId == organizerVerificationRenewalId ||
+        productId == appleOrganizerVerificationId ||
+        productId == appleOrganizerVerificationRenewalId;
   }
 }
 
